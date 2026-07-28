@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Generated media and per-project working dirs
+.inkcast/
+projects/
+renders/
+*.mp4
+*.wav
+*.webm
+!assets/**/*.wav
+
+# Model weights fetched at runtime (Kokoro ONNX, etc.)
+.models/
+
+# Env
+.env
+.env.local
+.env*.local
+!.env.example
+
+.DS_Store
+*.log
+.pnpm-store/
+playwright-report/
+test-results/

@@ -1,0 +1,19 @@
+{
+  "name": "@inkcast/render",
+  "version": "0.1.0",
+  "description": "Deterministic whiteboard animation engine + video encoder (Playwright + ffmpeg).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-page.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test src/compile.test.ts src/page.test.ts src/render.test.ts"
+  },
+  "dependencies": {
+    "@inkcast/core": "workspace:*",
+    "playwright": "^1.62.0"
+  }
+}

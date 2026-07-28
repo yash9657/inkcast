@@ -1,0 +1,630 @@
+/* ==========================================================================
+   Inkcast — the design system.
+
+   This file is the ONLY place a colour, type step, radius, shadow or motion
+   curve is defined. Tailwind v4 is configured CSS-first: there is no
+   `tailwind.config.js` and there must never be one.
+
+   Read docs/DESIGN.md before adding anything here. Two rules matter most:
+
+   1. Tailwind's stock colour palette is deliberately DELETED below
+      (`--color-*: initial`). `bg-zinc-800`, `text-red-500`, `border-slate-200`
+      and friends do not exist in this app. Use the semantic tokens. If a class
+      silently does nothing, that is why — and the fix is a token, not a hex.
+   2. Components never contain a `dark:` variant of their own. Both themes are
+      defined once, here, at the token layer.
+   ========================================================================== */
+
+@import 'tailwindcss' source(none);
+@import 'tw-animate-css';
+
+/* Explicit scan roots: everything under apps/web, minus what .gitignore
+   already excludes (node_modules, .next). Deterministic and fast. */
+@source '../';
+
+/* next-themes is configured with attribute={['class', 'data-theme']}, so both
+   selectors are honoured. `data-theme` also lets CSS-only surfaces (the render
+   preview page) force a theme without React. */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme='dark'], [data-theme='dark'] *));
+
+/* ==========================================================================
+   1. RAW TOKEN VALUES
+   Every value is OKLCH. Every value below was contrast-checked in both themes:
+   body text >= 4.5:1, large text and UI chrome >= 3:1, and each *-foreground
+   pair >= 4.5:1 against its own surface.
+
+   Hue anchors:
+     primary   275-277  a considered indigo-violet. Deliberately adjacent to
+                        the indigo the category has trained users on, but lower
+                        chroma and a touch bluer, so it reads composed instead
+                        of loud.
+     neutral    75      light theme: a warm, paper-like grey. The product draws
+                        on a whiteboard; the chrome should feel like paper, not
+                        like a spreadsheet.
+     neutral   285      dark theme: the same ramp pulled toward the accent, so
+                        dark surfaces read as ink rather than as dead black.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* -- surfaces --------------------------------------------------------- */
+  --background: oklch(0.9925 0.0025 75);
+  --foreground: oklch(0.205 0.014 285);
+
+  /* Cards sit ABOVE the background: pure white against warm off-white. That
+     1.4% lightness step plus a hairline border is the whole elevation story in
+     light mode — no shadow needed for a resting card. */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.205 0.014 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.205 0.014 285);
+
+  /* -- text and quiet surfaces ------------------------------------------ */
+  --muted: oklch(0.97 0.0045 75);
+  --muted-foreground: oklch(0.51 0.015 282); /* 5.64:1 on background */
+
+  /* -- lines ------------------------------------------------------------ */
+  --border: oklch(0.916 0.0055 75);
+  --input: oklch(0.885 0.0065 75); /* stronger than --border: a control edge
+                                      must read as interactive */
+
+  /* -- accent (the one saturated hue) ----------------------------------- */
+  --primary: oklch(0.545 0.205 275);
+  --primary-foreground: oklch(0.988 0.006 275);
+  --ring: oklch(0.545 0.205 275); /* 5.18:1 on background */
+
+  /* `accent` is a tinted *interaction* surface (hover, highlighted menu item,
+     selected row) — never a page background. */
+  --accent: oklch(0.952 0.018 285);
+  --accent-foreground: oklch(0.33 0.12 278);
+
+  /* -- status ----------------------------------------------------------- */
+  --destructive: oklch(0.575 0.21 25);
+  --destructive-foreground: oklch(0.982 0.006 25);
+  --success: oklch(0.535 0.13 152);
+  --success-foreground: oklch(0.985 0.008 152);
+  --warning: oklch(0.63 0.145 72);
+  --warning-foreground: oklch(0.985 0.008 72);
+
+  /* -- secondary (a neutral button surface, not a second accent) -------- */
+  --secondary: oklch(0.962 0.005 75);
+  --secondary-foreground: oklch(0.27 0.014 285);
+
+  /* -- ink: the whiteboard's own palette, for UI that quotes the canvas --
+     These mirror the marker colours the renderer draws with, so a legend chip
+     in the studio matches the stroke it describes. */
+  --paper: oklch(0.995 0.004 90);
+  --ink: oklch(0.32 0.03 275);
+  --ink-blue: oklch(0.55 0.16 250);
+  --ink-red: oklch(0.575 0.19 22);
+  --ink-green: oklch(0.545 0.13 152);
+  --ink-amber: oklch(0.665 0.14 72);
+  --ink-violet: oklch(0.55 0.19 292);
+
+  /* -- categorical chart ramp (perceptually even, hue-spaced) ----------- */
+  --chart-1: oklch(0.545 0.205 275);
+  --chart-2: oklch(0.6 0.13 200);
+  --chart-3: oklch(0.62 0.14 152);
+  --chart-4: oklch(0.68 0.145 72);
+  --chart-5: oklch(0.58 0.19 22);
+
+  /* -- elevation -------------------------------------------------------- *
+   * Layered, never a single blur, and tinted toward the neutral hue rather
+   * than pure black — that is what separates ambient depth from a sticker.
+   * Each level adds one wider, softer layer instead of scaling the last one. */
+  --elevation-1:
+    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.07), 0 1px 2px -1px oklch(0.24 0.03 285 / 0.08);
+  --elevation-2:
+    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.05), 0 2px 4px -2px oklch(0.24 0.03 285 / 0.07),
+    0 4px 8px -4px oklch(0.24 0.03 285 / 0.06);
+  --elevation-3:
+    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.04), 0 3px 6px -3px oklch(0.24 0.03 285 / 0.06),
+    0 8px 16px -8px oklch(0.24 0.03 285 / 0.07), 0 16px 32px -16px oklch(0.24 0.03 285 / 0.05);
+  --elevation-4:
+    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.04), 0 4px 8px -4px oklch(0.24 0.03 285 / 0.05),
+    0 12px 24px -8px oklch(0.24 0.03 285 / 0.07), 0 24px 48px -16px oklch(0.24 0.03 285 / 0.07),
+    0 40px 72px -32px oklch(0.24 0.03 285 / 0.05);
+  --elevation-5:
+    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.05), 0 6px 12px -4px oklch(0.24 0.03 285 / 0.06),
+    0 16px 32px -8px oklch(0.24 0.03 285 / 0.08), 0 32px 64px -16px oklch(0.24 0.03 285 / 0.09),
+    0 64px 112px -48px oklch(0.24 0.03 285 / 0.07);
+
+  /* A pressed/inset well, for toggled segments and code blocks. */
+  --elevation-inset: inset 0 1px 2px 0 oklch(0.24 0.03 285 / 0.07);
+
+  /* Coloured elevation for the primary action only. */
+  --elevation-primary:
+    0 1px 2px -1px oklch(0.42 0.2 275 / 0.28), 0 4px 12px -4px oklch(0.42 0.2 275 / 0.24);
+}
+
+.dark,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --background: oklch(0.165 0.01 285);
+  --foreground: oklch(0.95 0.008 285);
+
+  /* In dark mode elevation is LIGHTNESS, not shadow: each layer above the
+     background is lighter, because a shadow on a dark surface is invisible. */
+  --card: oklch(0.202 0.011 285);
+  --card-foreground: oklch(0.95 0.008 285);
+  --popover: oklch(0.222 0.012 285);
+  --popover-foreground: oklch(0.95 0.008 285);
+
+  --muted: oklch(0.245 0.0125 285);
+  --muted-foreground: oklch(0.72 0.016 285); /* 7.75:1 on background */
+
+  --border: oklch(0.29 0.014 285);
+  --input: oklch(0.335 0.015 285);
+
+  /* Lifted and slightly desaturated: the same hue at light-mode chroma would
+     glare against a dark field. */
+  --primary: oklch(0.685 0.165 277);
+  --primary-foreground: oklch(0.175 0.045 277);
+  --ring: oklch(0.685 0.165 277); /* 6.57:1 on background */
+
+  --accent: oklch(0.275 0.033 285);
+  --accent-foreground: oklch(0.93 0.025 285);
+
+  --destructive: oklch(0.67 0.19 25);
+  --destructive-foreground: oklch(0.17 0.045 25);
+  --success: oklch(0.69 0.145 152);
+  --success-foreground: oklch(0.17 0.04 152);
+  --warning: oklch(0.77 0.14 75);
+  --warning-foreground: oklch(0.19 0.04 75);
+
+  --secondary: oklch(0.255 0.013 285);
+  --secondary-foreground: oklch(0.93 0.008 285);
+
+  /* The whiteboard stays a whiteboard in dark mode — the canvas is content,
+     not chrome. Only the ink brightens so chips stay legible on dark cards. */
+  --paper: oklch(0.995 0.004 90);
+  --ink: oklch(0.32 0.03 275);
+  --ink-blue: oklch(0.7 0.145 250);
+  --ink-red: oklch(0.71 0.17 22);
+  --ink-green: oklch(0.72 0.135 152);
+  --ink-amber: oklch(0.8 0.135 72);
+  --ink-violet: oklch(0.7 0.17 292);
+
+  --chart-1: oklch(0.685 0.165 277);
+  --chart-2: oklch(0.72 0.115 200);
+  --chart-3: oklch(0.74 0.13 152);
+  --chart-4: oklch(0.8 0.135 72);
+  --chart-5: oklch(0.7 0.17 22);
+
+  /* Deeper and more opaque, plus a 1px inner top highlight so raised
+     surfaces still have an edge where the shadow can't be seen. */
+  --elevation-1:
+    0 1px 2px -1px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.035);
+  --elevation-2:
+    0 1px 2px -1px oklch(0 0 0 / 0.45), 0 2px 6px -2px oklch(0 0 0 / 0.45),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.04);
+  --elevation-3:
+    0 2px 4px -2px oklch(0 0 0 / 0.4), 0 8px 16px -6px oklch(0 0 0 / 0.45),
+    0 16px 32px -16px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.045);
+  --elevation-4:
+    0 2px 4px -2px oklch(0 0 0 / 0.4), 0 12px 24px -8px oklch(0 0 0 / 0.45),
+    0 24px 48px -16px oklch(0 0 0 / 0.5), 0 40px 72px -32px oklch(0 0 0 / 0.45),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.05);
+  --elevation-5:
+    0 6px 12px -4px oklch(0 0 0 / 0.45), 0 16px 32px -8px oklch(0 0 0 / 0.5),
+    0 32px 64px -16px oklch(0 0 0 / 0.55), 0 64px 112px -48px oklch(0 0 0 / 0.5),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.055);
+
+  --elevation-inset: inset 0 1px 2px 0 oklch(0 0 0 / 0.35);
+  --elevation-primary:
+    0 1px 2px -1px oklch(0 0 0 / 0.5), 0 4px 16px -4px oklch(0.55 0.19 277 / 0.35);
+}
+
+/* ==========================================================================
+   2. THE THEME — type, space, radius, motion, fonts
+   Everything in `@theme` becomes both a CSS custom property and a Tailwind
+   utility.
+   ========================================================================== */
+
+@theme {
+  /* -- typefaces -------------------------------------------------------- *
+   * The `--font-*` var each name points at is injected by next/font/local in
+   * lib/fonts.ts. `serif` is intentionally absent: display type is
+   * `font-display`, and there is no third option. */
+  --font-*: initial;
+  --font-sans:
+    var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-display: var(--font-instrument-serif), ui-serif, Georgia, 'Times New Roman', serif;
+  --font-hand: var(--font-shantell-sans), 'Segoe Print', 'Bradley Hand', cursive;
+
+  /* -- optical weights -------------------------------------------------- *
+   * `--font-*: initial` above also clears the `--font-weight-*` namespace, so
+   * these four are the ONLY weights that exist. `font-light`, `font-extrabold`
+   * and `font-black` are gone on purpose: four weights is enough to build any
+   * hierarchy, and a fifth is how a type system starts to look accidental.
+   *
+   * Geist is variable, so we are not stuck with 100-step values. 560 and 650
+   * are noticeably more composed than 600/700 at UI sizes: heavy enough to
+   * carry hierarchy, light enough not to shout. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 560;
+  --font-weight-bold: 650;
+
+  /* -- type scale ------------------------------------------------------- *
+   * Optical, not geometric. Two things move with size:
+   *   - tracking tightens as size grows (+0.04em at 11px -> -0.034em at 76px),
+   *     because letterfit that reads correctly at caption size looks loose at
+   *     display size;
+   *   - line-height loosens as size shrinks.
+   * Small type gets its hierarchy from weight and tracking, not from size.
+   *
+   * Note `--text-base` is 14px, not 16px. This is a dense product UI in the
+   * Linear/Raycast register; 14px body is deliberate. Marketing prose steps up
+   * to `text-lg`/`text-xl`. */
+  --text-*: initial;
+
+  --text-2xs: 0.6875rem; /* 11px — uppercase eyebrows, table meta, kbd */
+  --text-2xs--line-height: 1rem;
+  --text-2xs--letter-spacing: 0.04em;
+  --text-2xs--font-weight: 500;
+
+  --text-xs: 0.75rem; /* 12px — captions, helper text, badges */
+  --text-xs--line-height: 1.125rem;
+  --text-xs--letter-spacing: 0.02em;
+  --text-xs--font-weight: 500;
+
+  --text-sm: 0.8125rem; /* 13px — secondary UI text, menu items */
+  --text-sm--line-height: 1.25rem;
+  --text-sm--letter-spacing: 0.008em;
+
+  --text-base: 0.875rem; /* 14px — DEFAULT UI body */
+  --text-base--line-height: 1.375rem;
+  --text-base--letter-spacing: 0em;
+
+  --text-md: 0.9375rem; /* 15px — long-form body, editor prose */
+  --text-md--line-height: 1.5rem;
+  --text-md--letter-spacing: -0.003em;
+
+  --text-lg: 1.0625rem; /* 17px — lead paragraph, marketing body */
+  --text-lg--line-height: 1.625rem;
+  --text-lg--letter-spacing: -0.006em;
+
+  --text-xl: 1.25rem; /* 20px — card titles, section subheads */
+  --text-xl--line-height: 1.75rem;
+  --text-xl--letter-spacing: -0.011em;
+  --text-xl--font-weight: 560;
+
+  --text-2xl: 1.5rem; /* 24px — page titles */
+  --text-2xl--line-height: 2rem;
+  --text-2xl--letter-spacing: -0.014em;
+  --text-2xl--font-weight: 560;
+
+  --text-3xl: 1.875rem; /* 30px — section headings */
+  --text-3xl--line-height: 2.25rem;
+  --text-3xl--letter-spacing: -0.018em;
+  --text-3xl--font-weight: 560;
+
+  --text-4xl: 2.375rem; /* 38px */
+  --text-4xl--line-height: 2.625rem;
+  --text-4xl--letter-spacing: -0.022em;
+  --text-4xl--font-weight: 560;
+
+  --text-5xl: 3rem; /* 48px — display floor; use font-display from here up */
+  --text-5xl--line-height: 1.08;
+  --text-5xl--letter-spacing: -0.026em;
+
+  --text-6xl: 3.75rem; /* 60px */
+  --text-6xl--line-height: 1.04;
+  --text-6xl--letter-spacing: -0.03em;
+
+  --text-7xl: 4.75rem; /* 76px — hero claim, one per page */
+  --text-7xl--line-height: 1;
+  --text-7xl--letter-spacing: -0.034em;
+
+  /* -- tracking --------------------------------------------------------- */
+  --tracking-*: initial;
+  --tracking-tighter: -0.03em;
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.015em;
+  --tracking-wider: 0.03em;
+  --tracking-widest: 0.08em;
+
+  /* -- spacing ---------------------------------------------------------- *
+   * 4px base. Tailwind generates every multiple from this, so `p-3` is 12px,
+   * `gap-6` is 24px. Never write an arbitrary `[13px]`. */
+  --spacing: 0.25rem;
+
+  /* -- radius ----------------------------------------------------------- *
+   * Nested corners must be concentric: an 8px-radius child inside a 12px
+   * parent with 4px padding. `--radius-lg` (10px) is the default for cards
+   * and inputs; `--radius-md` (8px) for buttons and menu items. */
+  --radius-*: initial;
+  --radius-none: 0px;
+  --radius-xs: 0.25rem; /* 4px */
+  --radius-sm: 0.375rem; /* 6px */
+  --radius-md: 0.5rem; /* 8px */
+  --radius-lg: 0.625rem; /* 10px */
+  --radius-xl: 0.875rem; /* 14px */
+  --radius-2xl: 1.125rem; /* 18px */
+  --radius-3xl: 1.5rem; /* 24px */
+  --radius-4xl: 2rem; /* 32px */
+  --radius-full: 9999px;
+
+  /* -- easing ----------------------------------------------------------- *
+   * `ease-out` is overridden with an expo curve: things that enter should
+   * decelerate hard, so they feel placed rather than floated. Springs (in
+   * motion/react) are preferred for anything responding to a pointer; these
+   * curves are for CSS transitions and enter/exit animations. */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* -- duration --------------------------------------------------------- *
+   * Named on the `--transition-duration-*` namespace, which is what Tailwind
+   * resolves `duration-*` from. So these are both utilities (`duration-fast`)
+   * and custom properties (`var(--transition-duration-fast)`). There are five;
+   * do not introduce a sixth or reach for `duration-[250ms]`. */
+  --transition-duration-instant: 80ms; /* colour/opacity only */
+  --transition-duration-fast: 140ms; /* hover, focus, press */
+  --transition-duration-brisk: 200ms; /* popovers, tooltips, menus */
+  --transition-duration-slow: 320ms; /* dialogs, drawers, layout shifts */
+  --transition-duration-slower: 480ms; /* page-level, ink drawing */
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* -- shadows ---------------------------------------------------------- */
+  --shadow-*: initial;
+  --shadow-none: none;
+  --shadow-xs: var(--elevation-1);
+  --shadow-sm: var(--elevation-2);
+  --shadow-md: var(--elevation-3);
+  --shadow-lg: var(--elevation-4);
+  --shadow-xl: var(--elevation-5);
+  --shadow-primary: var(--elevation-primary);
+  --inset-shadow-*: initial;
+  --inset-shadow-well: var(--elevation-inset);
+
+  /* -- animations ------------------------------------------------------- *
+   * tw-animate-css supplies the enter/exit set (fade-in, zoom-in, slide-in-*,
+   * accordion, caret-blink). These are the two it does not have. */
+  --animate-shimmer: shimmer 1.6s var(--ease-in-out) infinite;
+  --animate-ink-draw: ink-draw var(--transition-duration-slower) var(--ease-out-quart) forwards;
+}
+
+/* Tailwind's stock palette is removed here. Everything after the wipe is
+   either a semantic token or one of the five CSS keywords utilities genuinely
+   need. `inline` means the generated utilities reference the var directly, so
+   flipping .dark reflows colours without recompiling anything. */
+@theme inline {
+  --color-*: initial;
+  --color-inherit: inherit;
+  --color-current: currentColor;
+  --color-transparent: transparent;
+  --color-black: #000;
+  --color-white: #fff;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-blue: var(--ink-blue);
+  --color-ink-red: var(--ink-red);
+  --color-ink-green: var(--ink-green);
+  --color-ink-amber: var(--ink-amber);
+  --color-ink-violet: var(--ink-violet);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+/* ==========================================================================
+   3. KEYFRAMES
+   ========================================================================== */
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Draws an SVG path on. Requires `pathLength="1"` on the path so the dash
+   maths is resolution-independent. */
+@keyframes ink-draw {
+  from {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ==========================================================================
+   4. BASE LAYER
+   ========================================================================== */
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+
+  * {
+    /* Never suppress a focus ring without replacing it. The replacement is
+       `outline` on `:focus-visible`, set per component; this only removes the
+       browser default for pointer focus. */
+    outline-color: var(--color-ring);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-color: var(--color-border) transparent;
+    scrollbar-width: thin;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Contextual alternates and proportional lining figures; `tnum` is opted
+       into locally on timestamps and durations via `.tabular`. */
+    font-feature-settings:
+      'calt' 1,
+      'liga' 1;
+    font-variant-numeric: proportional-nums;
+  }
+
+  /* Headings inherit weight from the type scale rather than the UA's bold. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: var(--font-weight-semibold);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-primary) 22%, transparent);
+    color: var(--color-foreground);
+  }
+
+  /* Native controls (date pickers, file inputs) follow the theme. */
+  ::placeholder {
+    color: var(--color-muted-foreground);
+    opacity: 1;
+  }
+
+  /* Chromium autofill would otherwise paint its own yellow. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--color-card) inset;
+    caret-color: var(--color-foreground);
+  }
+
+  /* One global honour of the OS setting, wired once. Motion's
+     `<MotionConfig reducedMotion="user">` in components/ui/providers.tsx does
+     the same for JS-driven animation. Neither is re-implemented per component. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+}
+
+/* ==========================================================================
+   5. UTILITIES
+   Composable, token-only. Reach for these instead of re-deriving the pattern.
+   ========================================================================== */
+
+/* The house focus ring. Two rings: the accent ring plus a background-coloured
+   offset ring, so it stays visible on any surface including a coloured button. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Tabular figures for anything that ticks: timecodes, durations, percentages,
+   costs. Stops numbers jittering as they update. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Marketing surfaces only. A sub-3% turbulence wash kills gradient banding and
+   reads as considered. NEVER use this in the studio: it competes with the
+   hand-drawn video content, which is the actual subject. */
+@utility surface-grain {
+  position: relative;
+  isolation: isolate;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* Hides the scrollbar without disabling scrolling. Only for short horizontal
+   rails (scene thumbnails); never for a vertical region a user must page. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Fades the trailing edge of a horizontal rail so it reads as continuing. */
+@utility mask-fade-r {
+  mask-image: linear-gradient(to right, black calc(100% - 3rem), transparent 100%);
+}
+
+@utility mask-fade-b {
+  mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent 100%);
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@inkcast/pipeline",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@inkcast/core": "workspace:*",
+    "@inkcast/planner": "workspace:*",
+    "@inkcast/render": "workspace:*",
+    "@inkcast/visuals": "workspace:*",
+    "@inkcast/voice": "workspace:*",
+    "@anthropic-ai/sdk": "^0.115.0"
+  }
+}

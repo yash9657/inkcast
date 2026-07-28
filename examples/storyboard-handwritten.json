@@ -1,0 +1,189 @@
+{
+  "$comment": "Hand-authored storyboard. Parses against packages/core/src/storyboard.ts with no planner involved, so the renderer can be exercised on its own: `inkcast rerender` on a project whose storyboard.json is a copy of this file. Note the four cameras tour ONE canvas (2600x1400) and every element persists, so scene 4 can underline the title drawn in scene 1.",
+  "version": 1,
+  "title": "Why caches make code fast",
+  "meta": {
+    "language": "en",
+    "aspect": "16:9",
+    "palette": "color",
+    "fps": 30,
+    "style": "marker",
+    "voice": "af_heart",
+    "outroSec": 1.2
+  },
+  "canvas": { "x": 0, "y": 0, "w": 2600, "h": 1400 },
+  "assets": [
+    {
+      "id": "cpu",
+      "kind": "icon",
+      "prompt": "a CPU chip seen from above, square with pins, hand-drawn",
+      "seed": 1337
+    },
+    {
+      "id": "ram",
+      "kind": "icon",
+      "prompt": "a stick of RAM, a long board with chips on it, hand-drawn",
+      "seed": 4242
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-001",
+      "narration": "Your processor can do a few billion things a second. The trouble is that almost none of them involve waiting patiently.",
+      "camera": { "x": 640, "y": 420, "zoom": 1.8, "transition": 0 },
+      "elements": [
+        {
+          "id": "t-title",
+          "type": "text",
+          "text": "Why caches make code fast",
+          "role": "title",
+          "align": "left",
+          "at": { "x": 120, "y": 150, "w": 1040, "h": 120 },
+          "enter": { "at": 0, "duration": 1.1, "style": "write" }
+        },
+        {
+          "id": "a-cpu",
+          "type": "asset",
+          "assetId": "cpu",
+          "at": { "x": 220, "y": 360, "w": 220, "h": 220 },
+          "enter": { "at": 0.4, "duration": 0.9, "style": "draw" }
+        },
+        {
+          "id": "t-cpu",
+          "type": "text",
+          "text": "CPU",
+          "role": "label",
+          "align": "center",
+          "at": { "x": 220, "y": 600, "w": 220, "h": 60 },
+          "enter": { "at": 0.62, "duration": 0.5, "style": "write" }
+        }
+      ]
+    },
+    {
+      "id": "scene-002",
+      "narration": "Main memory lives centimetres away, which sounds close until you count in clock cycles. A trip out to RAM costs a couple of hundred of them, and the processor spends that whole time doing nothing at all.",
+      "camera": { "x": 1300, "y": 430, "zoom": 1.5, "transition": 1 },
+      "elements": [
+        {
+          "id": "a-ram",
+          "type": "asset",
+          "assetId": "ram",
+          "at": { "x": 1700, "y": 360, "w": 260, "h": 220 },
+          "enter": { "at": 0.15, "duration": 0.9, "style": "draw" }
+        },
+        {
+          "id": "t-ram",
+          "type": "text",
+          "text": "Main memory",
+          "role": "label",
+          "align": "center",
+          "at": { "x": 1650, "y": 620, "w": 360, "h": 60 },
+          "enter": { "at": 0.35, "duration": 0.5, "style": "write" }
+        },
+        {
+          "id": "ar-slow",
+          "type": "arrow",
+          "from": { "x": 470, "y": 470 },
+          "to": { "x": 1680, "y": 470 },
+          "curve": 0.18,
+          "label": "~200 cycles",
+          "at": { "x": 470, "y": 330, "w": 1210, "h": 220 },
+          "enter": { "at": 0.55, "duration": 1.4, "style": "draw" }
+        }
+      ]
+    },
+    {
+      "id": "scene-003",
+      "narration": "So the hardware keeps a small, fast copy of whatever you touched last, right next to the core. Ask for the same thing again and the answer arrives in about three cycles instead of two hundred.",
+      "camera": { "x": 1050, "y": 800, "zoom": 1.5, "transition": 1.1 },
+      "elements": [
+        {
+          "id": "s-cache",
+          "type": "shape",
+          "shape": "rect",
+          "fill": false,
+          "at": { "x": 820, "y": 800, "w": 480, "h": 280 },
+          "enter": { "at": 0.1, "duration": 0.9, "style": "draw" }
+        },
+        {
+          "id": "t-cache",
+          "type": "text",
+          "text": "Cache",
+          "role": "heading",
+          "align": "left",
+          "at": { "x": 860, "y": 830, "w": 400, "h": 70 },
+          "enter": { "at": 0.28, "duration": 0.6, "style": "write" }
+        },
+        {
+          "id": "t-cache-body",
+          "type": "text",
+          "text": "a small fast copy of what you just touched",
+          "role": "body",
+          "align": "left",
+          "at": { "x": 860, "y": 910, "w": 410, "h": 150 },
+          "enter": { "at": 0.42, "duration": 0.9, "style": "write" }
+        },
+        {
+          "id": "ar-fast",
+          "type": "arrow",
+          "from": { "x": 350, "y": 600 },
+          "to": { "x": 880, "y": 810 },
+          "curve": -0.28,
+          "label": "3 cycles",
+          "at": { "x": 350, "y": 560, "w": 540, "h": 260 },
+          "enter": { "at": 0.66, "duration": 1, "style": "draw" }
+        },
+        {
+          "id": "e-fast",
+          "type": "emphasis",
+          "targetId": "ar-fast",
+          "effect": "pulse",
+          "at": { "x": 350, "y": 560, "w": 540, "h": 260 },
+          "enter": { "at": 0.86, "duration": 0.6, "style": "pop" },
+          "persist": false
+        }
+      ]
+    },
+    {
+      "id": "scene-004",
+      "narration": "That is the whole trick: check the cheap copy first, and only pay the expensive price when you miss. Every fast system you have ever used is some version of this picture.",
+      "camera": { "x": 1300, "y": 700, "zoom": 1, "transition": 1.3 },
+      "elements": [
+        {
+          "id": "d-flow",
+          "type": "diagram",
+          "layout": "flow",
+          "nodes": [
+            { "id": "req", "label": "read x" },
+            { "id": "cache", "label": "cache" },
+            { "id": "mem", "label": "memory" }
+          ],
+          "edges": [
+            { "from": "req", "to": "cache", "label": "hit: 3 cycles" },
+            { "from": "cache", "to": "mem", "label": "miss: 200 cycles" },
+            { "from": "mem", "to": "cache", "label": "fill" }
+          ],
+          "at": { "x": 1480, "y": 860, "w": 960, "h": 380 },
+          "enter": { "at": 0.2, "duration": 1.6, "style": "draw" }
+        },
+        {
+          "id": "e-title",
+          "type": "emphasis",
+          "targetId": "t-title",
+          "effect": "underline",
+          "at": { "x": 120, "y": 250, "w": 1040, "h": 40 },
+          "enter": { "at": 0.75, "duration": 0.7, "style": "draw" }
+        },
+        {
+          "id": "t-close",
+          "type": "text",
+          "text": "Check the cheap copy first.",
+          "role": "caption",
+          "align": "center",
+          "at": { "x": 1480, "y": 1290, "w": 960, "h": 70 },
+          "enter": { "at": 0.88, "duration": 0.6, "style": "write" }
+        }
+      ]
+    }
+  ]
+}

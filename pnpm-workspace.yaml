@@ -1,0 +1,13 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - esbuild
+  - sharp
+  - playwright
+  - '@parcel/watcher'
+  - unrs-resolver
+  - sqlite3
+  - better-sqlite3

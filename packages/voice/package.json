@@ -1,0 +1,23 @@
+{
+  "name": "@inkcast/voice",
+  "version": "0.1.0",
+  "description": "Voice stage: per-scene TTS synthesis and measurement that time-aligns the whole video.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@inkcast/core": "workspace:*",
+    "kokoro-js": "^1.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@inkcast/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Inkcast command line: documents in, hand-drawn explainer video out.",
+  "license": "AGPL-3.0-only",
+  "main": "./src/index.ts",
+  "bin": {
+    "inkcast": "./bin/inkcast.mjs",
+    "cast": "./bin/inkcast.mjs"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@inkcast/core": "workspace:*",
+    "@inkcast/pipeline": "workspace:*",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  }
+}

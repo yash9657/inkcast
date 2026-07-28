@@ -1,0 +1,83 @@
+import * as React from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
+
+import { cn } from '@/lib/utils';
+
+/**
+ * A badge — a status, a count, a tag. Never interactive; if it can be clicked
+ * it is a `Button size="xs"`, not a badge.
+ *
+ * Hierarchy comes from tracking and weight rather than size: badges are all
+ * one size, and the tint carries the meaning.
+ */
+const badgeVariants = cva(
+  [
+    'inline-flex w-fit shrink-0 items-center justify-center gap-1 whitespace-nowrap',
+    'rounded-full border px-2 py-0.5 text-2xs font-medium',
+    "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3",
+  ],
+  {
+    variants: {
+      variant: {
+        default: 'border-transparent bg-primary/12 text-primary',
+        neutral: 'border-border bg-muted text-muted-foreground',
+        outline: 'border-input bg-transparent text-foreground',
+        success: 'border-transparent bg-success/12 text-success',
+        warning: 'border-transparent bg-warning/14 text-warning',
+        destructive: 'border-transparent bg-destructive/12 text-destructive',
+        /** For the whiteboard's own vocabulary: an ink-style legend chip. */
+        ink: 'border-transparent bg-ink-violet/12 font-hand text-sm text-ink-violet',
+      },
+    },
+    defaultVariants: { variant: 'neutral' },
+  },
+);
+
+export type BadgeProps = React.ComponentProps<'span'> & VariantProps<typeof badgeVariants>;
+
+export function Badge({ className, variant, ...props }: BadgeProps) {
+  return (
+    <span
+      data-slot="badge"
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
+  );
+}
+
+/**
+ * A live status dot, for pipeline stages. Pairs with `Badge` or stands alone.
+ * `pulse` is opt-in and only for genuinely in-flight work.
+ */
+export function StatusDot({
+  tone = 'neutral',
+  pulse = false,
+  className,
+  ...props
+}: React.ComponentProps<'span'> & {
+  tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'destructive';
+  pulse?: boolean;
+}) {
+  const toneClass = {
+    neutral: 'bg-muted-foreground',
+    primary: 'bg-primary',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    destructive: 'bg-destructive',
+  }[tone];
+
+  return (
+    <span
+      data-slot="status-dot"
+      className={cn('relative inline-flex size-2 shrink-0', className)}
+      {...props}
+    >
+      {pulse ? (
+        <span className={cn('absolute inset-0 animate-ping rounded-full opacity-60', toneClass)} />
+      ) : null}
+      <span className={cn('relative size-2 rounded-full', toneClass)} />
+    </span>
+  );
+}
+
+export { badgeVariants };
