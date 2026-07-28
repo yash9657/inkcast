@@ -57,7 +57,13 @@ export { editStoryboard, editStoryboardDetailed, splitInstructions } from './edi
 
 /* ---------------------------------------------------------------- adapters */
 export { heuristicPlan, pacing } from './heuristic.js';
-export { anthropicAvailable, anthropicPlan, anthropicEdit, plannerModel, DEFAULT_MODEL } from './anthropic.js';
+export {
+  anthropicAvailable,
+  anthropicPlan,
+  anthropicEdit,
+  plannerModel,
+  DEFAULT_MODEL,
+} from './anthropic.js';
 export { storyboardJsonSchema } from './schema.js';
 
 /* ------------------------------------------------------- layout + building */
@@ -66,6 +72,7 @@ export {
   scheduleEntrances,
   regionGrid,
   regionBox,
+  frameSpan,
   overlaps,
   sceneBoxes,
 } from './layout.js';
@@ -91,7 +98,13 @@ export type { Block } from './blocks.js';
 export { serializeBlock, serializeBlocks } from './serialize.js';
 export { buildBeats, extractFacts, subjectOf } from './beats.js';
 export type { Beat, BeatShape, BeatOptions, NumberFact } from './beats.js';
-export { writeNarration, speakify, splitLong, clampSentence, mentionFraction } from './narration.js';
+export {
+  writeNarration,
+  speakify,
+  splitLong,
+  clampSentence,
+  mentionFraction,
+} from './narration.js';
 export type { NarrationOptions } from './narration.js';
 export { ICONS, iconFor, matchIcons } from './icons.js';
 export type { IconEntry } from './icons.js';

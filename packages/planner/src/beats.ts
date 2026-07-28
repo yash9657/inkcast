@@ -81,7 +81,11 @@ export function extractFacts(text: string, limit = 3): NumberFact[] {
     const after = clean.slice((m.index ?? 0) + value.length);
     const before = clean.slice(0, m.index ?? 0);
     const tail = after.split(/[.,;:()]/)[0] ?? '';
-    const lead = before.trim().split(/[.,;:()]/).pop() ?? '';
+    const lead =
+      before
+        .trim()
+        .split(/[.,;:()]/)
+        .pop() ?? '';
     const label =
       shorten(tail, 5).replace(/^(?:of|in|for|to|and|the|a|an)\s+/i, '') || shorten(lead, 5);
     out.push({ value, label: label || 'measured' });
@@ -95,7 +99,10 @@ function splitContrast(text: string): Beat['panels'] | undefined {
   const m = clean.match(CONTRAST);
   if (!m || m.index === undefined) return undefined;
   const left = clean.slice(0, m.index).trim().replace(/[,;]$/, '');
-  const right = clean.slice(m.index + m[0].length).trim().replace(/^[,;]\s*/, '');
+  const right = clean
+    .slice(m.index + m[0].length)
+    .trim()
+    .replace(/^[,;]\s*/, '');
   if (wordCount(left) < 4 || wordCount(right) < 4) return undefined;
   return [panel(left), panel(right)];
 }
@@ -233,11 +240,12 @@ export function buildBeats(doc: SourceDoc, opts: BeatOptions = {}): Beat[] {
         case 'paragraph': {
           const isLead = block === leadBlock;
           const hookConsumed = block === hookBlock;
-          const text = isLead && openerUsed
-            ? dropFirst(block.text, maxWords)
-            : hookConsumed
-              ? dropFirst(block.text, 0, sentences(stripMarkdown(hook)).length)
-              : block.text;
+          const text =
+            isLead && openerUsed
+              ? dropFirst(block.text, maxWords)
+              : hookConsumed
+                ? dropFirst(block.text, 0, sentences(stripMarkdown(hook)).length)
+                : block.text;
           if (wordCount(text) < 4) break;
           beats.push(...paragraphBeats(text, section.heading, si, maxWords, minWords));
           break;
@@ -305,17 +313,24 @@ export function buildBeats(doc: SourceDoc, opts: BeatOptions = {}): Beat[] {
               sectionIndex: si,
               weight: 70,
               panels: [
-                { title: shorten(a, 4), point: shorten(block.rows.map((r) => r[0] ?? '').join(', '), 10) },
-                { title: shorten(b, 4), point: shorten(block.rows.map((r) => r[1] ?? '').join(', '), 10) },
+                {
+                  title: shorten(a, 4),
+                  point: shorten(block.rows.map((r) => r[0] ?? '').join(', '), 10),
+                },
+                {
+                  title: shorten(b, 4),
+                  point: shorten(block.rows.map((r) => r[1] ?? '').join(', '), 10),
+                },
               ],
             });
             break;
           }
           beats.push({
             shape: 'table',
-            source: [block.header.join(', '), ...block.rows.slice(0, 3).map((r) => r.join(', '))].join(
-              '. ',
-            ),
+            source: [
+              block.header.join(', '),
+              ...block.rows.slice(0, 3).map((r) => r.join(', ')),
+            ].join('. '),
             heading: section.heading,
             sectionIndex: si,
             weight: 60,
@@ -334,7 +349,9 @@ export function buildBeats(doc: SourceDoc, opts: BeatOptions = {}): Beat[] {
   const headings = sections.map((s) => s.heading).filter(Boolean);
   if (headings.length >= 3) {
     // Spoken mid-sentence, so a leading capital would read as a proper noun.
-    const spoken = headings.slice(0, 4).map((h) => h.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase()));
+    const spoken = headings
+      .slice(0, 4)
+      .map((h) => h.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase()));
     const listed =
       spoken.length > 1
         ? `${spoken.slice(0, -1).join(', ')} and ${spoken[spoken.length - 1]}`

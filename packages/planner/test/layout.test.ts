@@ -6,7 +6,7 @@ import { buildDoc } from '../src/ingest.js';
 import type { Box } from '../src/elements.js';
 import { makeDiagram, makeText } from '../src/elements.js';
 import { heuristicPlan } from '../src/heuristic.js';
-import { layoutStoryboard, overlaps, regionBox, regionGrid } from '../src/layout.js';
+import { frameSpan, layoutStoryboard, overlaps, regionBox, regionGrid } from '../src/layout.js';
 import { GRADIENT_DESCENT } from './fixture.js';
 
 const sb = heuristicPlan(buildDoc(GRADIENT_DESCENT, 'markdown'));
@@ -84,16 +84,93 @@ test('the canvas grows past one frame and the camera tours it', () => {
   assert.ok(sb.canvas.w > frame.w, 'the canvas should be wider than one frame');
   const seen = new Set(sb.scenes.map((s) => `${s.camera.x},${s.camera.y}`));
   assert.ok(seen.size >= 4, `camera only visited ${seen.size} places`);
+  // The viewport comes from `frameSpan`, not `canvas / zoom`: the renderer fits the
+  // canvas into the frame, so at zoom 1 only the binding axis matches the canvas.
+  const span = frameSpan(sb.canvas.w, sb.canvas.h, sb.meta.aspect);
   for (const s of sb.scenes) {
     assert.ok(s.camera.zoom > 1, `${s.id} never zooms in`);
-    const visW = sb.canvas.w / s.camera.zoom;
-    const visH = sb.canvas.h / s.camera.zoom;
+    const visW = span.w / s.camera.zoom;
+    const visH = span.h / s.camera.zoom;
     assert.ok(s.camera.x - visW / 2 >= -1, `${s.id} frames off-canvas on the left`);
     assert.ok(s.camera.x + visW / 2 <= sb.canvas.w + 1, `${s.id} frames off-canvas on the right`);
     assert.ok(s.camera.y - visH / 2 >= -1, `${s.id} frames off-canvas on the top`);
     assert.ok(s.camera.y + visH / 2 <= sb.canvas.h + 1, `${s.id} frames off-canvas at the bottom`);
   }
   assert.equal(sb.scenes[0]!.camera.transition, 0, 'the first scene should not pan in');
+});
+
+test('the camera frames one region, whatever the canvas aspect ratio', () => {
+  // Short films are where the canvas looks least like the frame: two 16:9 scenes
+  // make a 2x1 grid, so a 3920x1380 canvas against a 1.78 frame. The camera must
+  // still sit on its own region and show roughly one region's worth of board — it
+  // used to show the entire canvas width with the first scene half off-screen.
+  for (const scenes of [1, 2, 3, 4, 6, 9]) {
+    const board = layoutStoryboard(
+      parseStoryboard({
+        version: 1,
+        title: 'framing',
+        scenes: Array.from({ length: scenes }, (_, i) => ({
+          id: `s${i}`,
+          narration: `Beat number ${i}.`,
+          camera: { x: 0, y: 0 },
+          elements: [makeText(`t${i}`, `Heading number ${i}`, 'heading')],
+        })),
+      }),
+    );
+    const { grid, count } = regionsOf(board);
+    const span = frameSpan(board.canvas.w, board.canvas.h, board.meta.aspect);
+    board.scenes.forEach((s, i) => {
+      const visW = span.w / s.camera.zoom;
+      const visH = span.h / s.camera.zoom;
+      // No more than ~35% slack over the region it is framing, on either axis.
+      assert.ok(
+        visW <= grid.rw * 1.35 && visH <= grid.rh * 1.35,
+        `${scenes} scenes: viewport ${Math.round(visW)}x${Math.round(visH)} dwarfs the ${grid.rw}x${grid.rh} region`,
+      );
+      // And it is looking at the region this scene's own element was placed in.
+      const el = s.elements[0];
+      assert.ok(el);
+      const region = regionBox(Math.max(0, regionOf(el.at, grid, count)), grid);
+      assert.ok(
+        Math.abs(s.camera.x - (region.x + region.w / 2)) <= visW / 2 &&
+          Math.abs(s.camera.y - (region.y + region.h / 2)) <= visH / 2,
+        `${scenes} scenes: scene ${i} is not looking at its own region`,
+      );
+    });
+  }
+});
+
+test('prose attached under a short heading keeps its measure', () => {
+  // A body paragraph used to be capped at its heading's width, which turned a short
+  // title plus one sentence into a narrow column of one-word lines.
+  const board = layoutStoryboard(
+    parseStoryboard({
+      version: 1,
+      title: 'measure',
+      scenes: [
+        {
+          id: 's0',
+          narration: 'Water moves across a membrane.',
+          camera: { x: 0, y: 0 },
+          elements: [
+            makeText('head', 'Osmosis', 'title'),
+            makeText(
+              'body',
+              'Water moves across a membrane from low solute concentration to high solute concentration.',
+              'body',
+            ),
+          ],
+        },
+      ],
+    }),
+    { hints: { head: { span: 'full' }, body: { span: 'full', below: 'head' } } },
+  );
+  const els = new Map(board.scenes[0]!.elements.map((e) => [e.id, e.at]));
+  const head = els.get('head');
+  const body = els.get('body');
+  assert.ok(head && body);
+  assert.ok(body.w > head.w * 2, `body ${body.w} was squeezed towards the head's ${head.w}`);
+  assert.ok(body.h < 200, `body wrapped into a tall column (${body.h} units)`);
 });
 
 test('consecutive regions are adjacent, so the camera pans rather than jumps', () => {
@@ -153,7 +230,13 @@ test('layout repairs a storyboard whose elements all sit on top of each other', 
         narration: 'Now we circle the first claim to show it again.',
         camera: { x: 0, y: 0, zoom: 1, transition: 0.9 },
         elements: [
-          { id: 'e', type: 'emphasis', targetId: 'a', effect: 'circle', at: { x: 0, y: 0, w: 10, h: 10 } },
+          {
+            id: 'e',
+            type: 'emphasis',
+            targetId: 'a',
+            effect: 'circle',
+            at: { x: 0, y: 0, w: 10, h: 10 },
+          },
         ],
       },
     ],
@@ -165,10 +248,7 @@ test('layout repairs a storyboard whose elements all sit on top of each other', 
   const els = laid.scenes[0]!.elements;
   for (let i = 0; i < els.length; i++) {
     for (let j = i + 1; j < els.length; j++) {
-      assert.ok(
-        !overlaps(els[i]!.at, els[j]!.at, 1),
-        `${els[i]!.id} still overlaps ${els[j]!.id}`,
-      );
+      assert.ok(!overlaps(els[i]!.at, els[j]!.at, 1), `${els[i]!.id} still overlaps ${els[j]!.id}`);
     }
   }
 

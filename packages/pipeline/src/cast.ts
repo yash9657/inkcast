@@ -137,8 +137,19 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   const metaOverrides = resolveMetaOverrides(input.meta);
   const provs = detectProviders(metaOverrides.voice);
+  /**
+   * `plan@N` is the planner's *code* version, and it is part of the cache key for
+   * the same reason `RENDER_VERSION` is part of the renderer's: the planner is an
+   * input to its own artefact. Bump it whenever the planner changes the storyboard
+   * it produces for an unchanged document — otherwise every existing project keeps
+   * serving the storyboard the old code wrote, and the fix looks like it did not
+   * work.
+   *
+   * 2: camera framing derived from the renderer's `frameSpan` rather than
+   *    `canvas / zoom`, and prose attached under a heading keeps its own measure.
+   */
   const planHash = hash(
-    'plan@1',
+    'plan@2',
     sourceHash,
     input.title ?? '',
     metaOverrides,

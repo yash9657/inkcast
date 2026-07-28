@@ -164,9 +164,7 @@ type Ctx = {
  */
 function unitsPerPixel(canvas: Rect, frame: { w: number; h: number }, scenes: Scene[]): number {
   const base = Math.min(frame.w / canvas.w, frame.h / canvas.h);
-  const zooms = scenes
-    .map((s) => (s.camera.zoom > 0 ? s.camera.zoom : 1))
-    .sort((a, b) => a - b);
+  const zooms = scenes.map((s) => (s.camera.zoom > 0 ? s.camera.zoom : 1)).sort((a, b) => a - b);
   const n = zooms.length;
   const median =
     n === 0
@@ -546,6 +544,10 @@ function diagramPrims(
     14 * ctx.scale,
     Math.min(TYPE_SCALE.label * ctx.scale, (laid.nodes[0]?.box.h ?? 60) * 0.42),
   );
+  const nodeBoxes = new Map(laid.nodes.map((nd) => [nd.id, nd.box]));
+  const boxOf = (id: string): Rect | undefined => nodeBoxes.get(id);
+  /** Lifted labels already placed for a node pair, so a there-and-back pair stacks. */
+  const lifted = new Map<string, number>();
 
   const emitEdge = (e: (typeof laid.edges)[number]): void => {
     const pts = e.points;
@@ -566,10 +568,27 @@ function diagramPrims(
       // than up when the edge is steep. `mid` is the bow's waypoint, so it is
       // also the control point the drawn curve passes through.
       const [ox, oy] = labelOffset(a, b, mid, size + ctx.sw * 0.7);
+      let x = mid[0] + ox - w / 2;
+      let y = mid[1] + oy - size * 0.75;
+      // An edge between neighbouring nodes is only as long as the gap between
+      // them, which is never as wide as a caption. Nudging such a label "above
+      // the edge" leaves it level with the boxes, so it lands *inside* them —
+      // "hit: 3 cycles" was printed across two nodes and its own arrow. Lift it
+      // clear of the row instead, which is where a person would write it.
+      const from = boxOf(e.from);
+      const into = boxOf(e.to);
+      if (from && into && w > len * 0.85 && Math.abs(b[1] - a[1]) <= Math.abs(b[0] - a[0])) {
+        // Two nodes can be joined both ways ("miss" out, "fill" back); stack the
+        // second caption above the first rather than printing them on each other.
+        const pair = [e.from, e.to].sort().join(' ');
+        const rank = lifted.get(pair) ?? 0;
+        lifted.set(pair, rank + 1);
+        y = Math.min(from.y, into.y) - size * (1.7 + rank * 1.55);
+      }
       out.push(
         textPrim(
           e.label,
-          { x: mid[0] + ox - w / 2, y: mid[1] + oy - size * 0.75, w, h: size * 1.5 },
+          { x, y, w, h: size * 1.5 },
           size,
           ctx.pal.inkSoft,
           'center',

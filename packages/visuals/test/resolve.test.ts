@@ -186,9 +186,7 @@ test('an asset id that names an icon wins over its prose prompt', async () => {
   // the prompt: `ram` is not a lucide slug, but it is a keyword for memory-stick.
   // Read off the prompt instead it landed on `cpu`, because the prose says "chips".
   const other = await run({
-    assets: [
-      { id: 'ram', kind: 'icon', prompt: 'a stick of RAM, a long board with chips on it' },
-    ],
+    assets: [{ id: 'ram', kind: 'icon', prompt: 'a stick of RAM, a long board with chips on it' }],
   });
   assert.equal(other.manifest.assets.ram?.icon?.slug, 'memory-stick');
 });

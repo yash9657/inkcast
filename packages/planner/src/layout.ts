@@ -19,6 +19,7 @@
  *
  * Nothing here needs the voice stage to have run: timings are fractions.
  */
+import { frameSize } from '@inkcast/core';
 import type { Element, Scene, Storyboard, StoryboardMeta } from '@inkcast/core';
 import type { Box } from './elements.js';
 import { refit } from './elements.js';
@@ -113,6 +114,32 @@ export function regionBox(index: number, grid: Grid): Box {
   };
 }
 
+/**
+ * Canvas units the frame spans at `zoom: 1`, across and down.
+ *
+ * The renderer fits the canvas into the frame (`min` of the two ratios, like
+ * `preserveAspectRatio="meet"`), so at zoom 1 only the *binding* axis matches the
+ * canvas — the other one shows more canvas than exists. Deriving the camera from
+ * `canvas.w / zoom` and `canvas.h / zoom` instead assumes both axes fit exactly,
+ * which is only true when the canvas happens to share the output's aspect ratio.
+ *
+ * It usually does not. Two scenes in 16:9 produce a 2×1 grid of regions, so a
+ * 3920×1380 canvas against a 1.78 frame: the old maths chose zoom 1.33 where 2.12
+ * was correct, the viewport came out 2954×1662 for a 1600×900 region, the
+ * horizontal clamp pinned both cameras to the canvas centre, and both scenes were
+ * framed at once with one of them half off-screen. Sharing the renderer's own
+ * `frameSize` keeps the two models identical by construction.
+ */
+export function frameSpan(
+  canvasW: number,
+  canvasH: number,
+  aspect: StoryboardMeta['aspect'],
+): { w: number; h: number } {
+  const frame = frameSize(aspect);
+  const base = Math.min(frame.w / Math.max(1, canvasW), frame.h / Math.max(1, canvasH));
+  return base > 0 ? { w: frame.w / base, h: frame.h / base } : { w: canvasW, h: canvasH };
+}
+
 export function overlaps(a: Box, b: Box, tolerance = 0): boolean {
   return (
     a.x + a.w - tolerance > b.x &&
@@ -162,14 +189,15 @@ export function layoutStoryboard(input: Storyboard, opts: LayoutOptions = {}): S
   });
 
   /* --- 3. camera: frame each region, pan short distances --- */
+  const span = frameSpan(grid.canvasW, grid.canvasH, aspect);
   sb.scenes.forEach((scene, i) => {
     const region = regionBox(sceneRegion[i] ?? 0, grid);
     const zoom = Math.max(
       1,
-      Math.min(grid.canvasW / (region.w + margin * 2), grid.canvasH / (region.h + margin * 2)),
+      Math.min(span.w / (region.w + margin * 2), span.h / (region.h + margin * 2)),
     );
-    const visW = grid.canvasW / zoom;
-    const visH = grid.canvasH / zoom;
+    const visW = span.w / zoom;
+    const visH = span.h / zoom;
     const cx = region.x + region.w / 2;
     const cy = region.y + region.h / 2;
     const sameAsPrev = i > 0 && sceneRegion[i - 1] === sceneRegion[i];
@@ -226,7 +254,9 @@ function placeScene(scene: Scene, region: Box, hints: Hints, boxes: Map<string, 
   const ordered = orderFlow(flow, hints);
 
   const groups: Group[] = ordered.map((head) => {
-    const children = scene.elements.filter((c) => hints[c.id]?.below === head.id && attached.has(c.id));
+    const children = scene.elements.filter(
+      (c) => hints[c.id]?.below === head.id && attached.has(c.id),
+    );
     const hint = hints[head.id];
     return {
       head,
@@ -240,10 +270,18 @@ function placeScene(scene: Scene, region: Box, hints: Hints, boxes: Map<string, 
   const sized = groups.map((g) => {
     const w = spanWidth(g.span, content.w);
     refit(g.head, w);
-    for (const c of g.children) refit(c, Math.min(w, Math.max(g.head.at.w, 160)));
+    for (const c of g.children) {
+      // A decoration attached under a head — a rule, a bracket, an underline —
+      // should be as wide as the thing it decorates. Prose must not be: capping a
+      // paragraph at the head's width turned "Osmosis" plus its body into a
+      // 254-unit column of one-word lines on a 1420-unit shelf. Text and diagrams
+      // get the whole span and `refit` measures them back down to what they need.
+      const cap =
+        c.type === 'text' || c.type === 'diagram' ? w : Math.min(w, Math.max(g.head.at.w, 160));
+      refit(c, cap);
+    }
     const width = Math.max(g.head.at.w, ...g.children.map((c) => c.at.w), 60);
-    const height =
-      g.head.at.h + g.children.reduce((h, c) => h + c.at.h + STACK_GAP, 0);
+    const height = g.head.at.h + g.children.reduce((h, c) => h + c.at.h + STACK_GAP, 0);
     return { ...g, width, height };
   });
 
