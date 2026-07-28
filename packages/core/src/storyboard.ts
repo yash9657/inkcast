@@ -55,11 +55,41 @@ export const Enter = z.object({
    * duration. 0 = scene start, 1 = scene end. Fractions rather than seconds so
    * re-voicing (different language, different TTS, cloned voice) reflows the
    * animation automatically instead of desyncing.
+   *
+   * Prefer `cue` where possible — a fraction is a guess, a cue is an intent.
    */
   at: z.number().min(0).max(1).default(0),
+  /**
+   * A verbatim phrase from this scene's narration. The voice stage resolves it
+   * to a real timestamp and overwrites `at`, so the element lands exactly on the
+   * words that introduce it.
+   *
+   * This exists because beat-level sync is not enough for teaching: audio can be
+   * perfectly aligned while a diagram still arrives seconds before the sentence
+   * that names it, which a learner experiences as drift. If the phrase cannot be
+   * found, the voice stage warns and falls back to `at`.
+   */
+  cue: z.string().optional(),
   /** Seconds spent animating in. The renderer clamps this to fit the scene. */
   duration: z.number().positive().default(0.8),
   style: z.enum(['draw', 'write', 'fade', 'pop', 'grow']).default('draw'),
+});
+
+/**
+ * Movement of an already-drawn element along a path.
+ *
+ * Most of what makes an explanation legible is motion — a ball descending a loss
+ * curve teaches more than any caption about it. Timings are fractions of the
+ * owning scene, same convention as `Enter`.
+ */
+export const Motion = z.object({
+  /** Waypoints in canvas units. The element's centre follows them. */
+  path: z.array(Point).min(2),
+  from: z.number().min(0).max(1).default(0),
+  to: z.number().min(0).max(1).default(1),
+  easing: z.enum(['linear', 'ease', 'ease-in', 'ease-out', 'bounce']).default('ease'),
+  /** Leave a dotted trail behind, for showing the route taken. */
+  trail: z.boolean().default(false),
 });
 
 const ElementBase = {
@@ -76,6 +106,8 @@ const ElementBase = {
   persist: z.boolean().default(true),
   /** Optional explicit z-order; defaults to declaration order. */
   z: z.number().int().optional(),
+  /** Optional movement along a path, after the element has entered. */
+  motion: Motion.optional(),
 };
 
 export const TextElement = z.object({
@@ -133,6 +165,144 @@ export const EmphasisElement = z.object({
   effect: z.enum(['circle', 'underline', 'arrow-to', 'pulse', 'dim-others']).default('circle'),
 });
 
+/* ------------------------------------------------------------------- plots */
+
+/**
+ * A curve, defined either as explicit samples or as a named function.
+ *
+ * Named functions exist so the planner can ask for "a bowl" without emitting a
+ * hundred coordinates, and so we never need an expression evaluator (no eval,
+ * no injection surface, fully deterministic).
+ */
+export const Curve = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  /** Explicit samples in data space. Takes precedence over `fn`. */
+  points: z.array(Point).optional(),
+  fn: z
+    .object({
+      name: z.enum([
+        'parabola',
+        'line',
+        'sigmoid',
+        'gaussian',
+        'sine',
+        'exp',
+        'log',
+        'doubleWell',
+        'step',
+      ]),
+      /** a, b, c … meaning depends on the function; documented in visuals. */
+      params: z.array(z.number()).default([]),
+    })
+    .optional(),
+  /** Drawn dashed rather than solid — useful for "what it would have been". */
+  dashed: z.boolean().default(false),
+  /** Accent colour index; the renderer maps it to the ink palette. */
+  accent: z.number().int().min(0).max(5).default(0),
+});
+
+/** Things drawn on top of a plot to direct attention. */
+export const PlotOverlay = z.discriminatedUnion('kind', [
+  /** A marked point on a curve, optionally labelled. */
+  z.object({
+    kind: z.literal('point'),
+    curveId: z.string(),
+    x: z.number(),
+    label: z.string().optional(),
+    at: z.number().min(0).max(1).default(0),
+  }),
+  /**
+   * The tangent at a point — how you show slope, and therefore the entire
+   * intuition behind a gradient.
+   */
+  z.object({
+    kind: z.literal('tangent'),
+    curveId: z.string(),
+    x: z.number(),
+    /** Half-length of the drawn tangent, in data-space x units. */
+    span: z.number().positive().default(1),
+    label: z.string().optional(),
+    at: z.number().min(0).max(1).default(0),
+  }),
+  /** A dropline from a curve point to an axis, for reading off a value. */
+  z.object({
+    kind: z.literal('dropline'),
+    curveId: z.string(),
+    x: z.number(),
+    to: z.enum(['x', 'y', 'both']).default('x'),
+    at: z.number().min(0).max(1).default(0),
+  }),
+  /** Shade under or between curves. */
+  z.object({
+    kind: z.literal('shade'),
+    curveId: z.string(),
+    toCurveId: z.string().optional(),
+    fromX: z.number(),
+    toX: z.number(),
+    at: z.number().min(0).max(1).default(0),
+  }),
+  /** A free label placed in data space, optionally with a leader line. */
+  z.object({
+    kind: z.literal('annotate'),
+    x: z.number(),
+    y: z.number(),
+    text: z.string(),
+    leaderTo: Point.optional(),
+    at: z.number().min(0).max(1).default(0),
+  }),
+  /** A stepping sequence along a curve — the descent itself. */
+  z.object({
+    kind: z.literal('steps'),
+    curveId: z.string(),
+    xs: z.array(z.number()).min(2),
+    label: z.string().optional(),
+    at: z.number().min(0).max(1).default(0),
+  }),
+]);
+
+/**
+ * A cartesian plot with hand-drawn axes.
+ *
+ * This is the single most important element for teaching. A loss landscape, a
+ * learning-rate comparison, overfitting, compound interest and supply/demand are
+ * each one PlotElement. Without it the IR can only caption ideas, not show them.
+ */
+export const PlotElement = z.object({
+  ...ElementBase,
+  type: z.literal('plot'),
+  /** Data-space domain and range. The renderer maps these into `at`. */
+  xDomain: z.tuple([z.number(), z.number()]),
+  yDomain: z.tuple([z.number(), z.number()]),
+  xLabel: z.string().optional(),
+  yLabel: z.string().optional(),
+  axes: z.enum(['both', 'x', 'y', 'none']).default('both'),
+  grid: z.boolean().default(false),
+  /** Show numeric ticks. Off by default — usually noise in an explainer. */
+  ticks: z.boolean().default(false),
+  curves: z.array(Curve).default([]),
+  overlays: z.array(PlotOverlay).default([]),
+});
+
+/* -------------------------------------------------------------------- paths */
+
+/**
+ * A freeform hand-drawn stroke — the escape hatch for any shape the vocabulary
+ * lacks: a hillside, a bowl, a container, a squiggle, a gesture.
+ */
+export const PathElement = z.object({
+  ...ElementBase,
+  type: z.literal('path'),
+  /** Waypoints in canvas units, smoothed and roughened by the visuals stage. */
+  points: z.array(Point).min(2).optional(),
+  /** Raw SVG path data, as an alternative to `points`. */
+  d: z.string().optional(),
+  closed: z.boolean().default(false),
+  fill: z.boolean().default(false),
+  /** Stroke weight multiplier relative to the ink style's default. */
+  weight: z.number().positive().default(1),
+});
+
 export const Element = z.discriminatedUnion('type', [
   TextElement,
   AssetElement,
@@ -140,6 +310,8 @@ export const Element = z.discriminatedUnion('type', [
   ArrowElement,
   DiagramElement,
   EmphasisElement,
+  PlotElement,
+  PathElement,
 ]);
 
 /* ------------------------------------------------------------------ scenes */
@@ -160,6 +332,25 @@ export const Scene = z.object({
   narration: z.string(),
   camera: Camera,
   elements: z.array(Element).default([]),
+
+  /**
+   * Region this scene draws into. Consecutive scenes sharing a region build up
+   * one board that the camera frames as a growing union, instead of each scene
+   * getting its own patch of canvas — which is what made the MVP read as a
+   * slideshow.
+   */
+  region: z.string().optional(),
+  /** The pedagogical job this beat does. Set by the lesson stage. */
+  role: z
+    .enum(['hook', 'anchor', 'step', 'worked', 'misconception', 'recap'])
+    .optional(),
+  /**
+   * Seconds of deliberate silence after the narration, holding the visual on
+   * screen. A learner needs a breath before the next idea, and a longer pause
+   * after a question so they can attempt an answer. Without this every gap is
+   * unintended dead air.
+   */
+  hold: z.number().min(0).default(0),
 
   /* ---- filled in by the voice stage; do not author by hand ---- */
   /** Measured duration of this scene's synthesised narration, in seconds. */
@@ -211,12 +402,22 @@ export type ShapeElement = z.infer<typeof ShapeElement>;
 export type ArrowElement = z.infer<typeof ArrowElement>;
 export type DiagramElement = z.infer<typeof DiagramElement>;
 export type EmphasisElement = z.infer<typeof EmphasisElement>;
+export type PlotElement = z.infer<typeof PlotElement>;
+export type PathElement = z.infer<typeof PathElement>;
+export type Curve = z.infer<typeof Curve>;
+export type PlotOverlay = z.infer<typeof PlotOverlay>;
+export type Motion = z.infer<typeof Motion>;
 
 /* ------------------------------------------------------------- derivations */
 
+/** Wall-clock length of a scene: its narration plus its deliberate silence. */
+export function sceneLength(s: Scene): number {
+  return (s.durationSec ?? 0) + s.hold;
+}
+
 /** Total runtime, once the voice stage has measured every scene. */
 export function totalDuration(sb: Storyboard): number {
-  const scenes = sb.scenes.reduce((acc, s) => acc + (s.durationSec ?? 0), 0);
+  const scenes = sb.scenes.reduce((acc, s) => acc + sceneLength(s), 0);
   return scenes + sb.meta.outroSec;
 }
 
@@ -226,7 +427,7 @@ export function sceneOffsets(sb: Storyboard): number[] {
   let t = 0;
   for (const s of sb.scenes) {
     offsets.push(t);
-    t += s.durationSec ?? 0;
+    t += sceneLength(s);
   }
   return offsets;
 }
