@@ -137,6 +137,58 @@ payoff. The persistent-canvas model suits it well — a tall canvas the camera w
 down. Schools and commuters are the same product with different framing. This
 should be a first-class output mode with its own pacing rules, not a cropped 16:9.
 
+## Characters and composed scenes (the "can it sketch Odysseus?" gap)
+
+Status: the IR can REPRESENT a drawn character today — `Asset{kind:'illustration',
+prompt, seed}` referenced by an `AssetElement`, resolved through the
+text-to-image → vectorize → roughen lane, moved with `motion`. Because assets
+resolve once and cache by id, reusing one asset across scenes is pixel-identical,
+which already beats the competitor's best-known flaw (their objects mutate between
+scenes, and they sell "character consistency" only at the top tier).
+
+Three things are NOT solved, and they gate the entire humanities/history/biology
+category — the Odyssey, the French Revolution, a cell with recurring organelles.
+
+### 1. Identity across poses (the real gap)
+
+One cached drawing reused is consistent. Odysseus *standing*, then *on a ship*,
+then *stringing a bow* are three separate generations with three different faces.
+Fix with reference-image conditioning rather than prompt repetition, which does not
+work:
+
+- Extend `Asset` with `baseId` (the canonical character this is a variant of),
+  `pose` (a short description of the variation), and keep `seed` locked.
+- Resolve the base asset first and keep the raster before vectorising. Generate
+  variants conditioned on that image — IP-Adapter, Flux Redux, or an equivalent
+  image-to-image path on the chosen provider.
+- Cache variants under `<baseId>/<pose>` so a pose is generated once per lesson.
+- Validate cheaply: embed base and variant, reject and retry once if similarity is
+  below a threshold. Do not silently ship a different-looking character.
+
+### 2. Composed scenes, not generated scenes
+
+Never generate a whole tableau as one image: it vectorises into an unanimatable
+blob, cannot be revealed element-by-element, and cannot be annotated later. Compose
+instead — draw each entity as its own asset and position them on the canvas, so the
+camera can move between them, `emphasis` can circle one, and each enters on its own
+cue. This is a planner responsibility and is currently under-specified: the lesson
+compiler should turn a scene-level VisualIntent into several positioned assets plus
+their spatial relationships, not one prompt.
+
+### 3. No-key fallback is a dead end for characters
+
+Without a provider key the illustration lane falls back to lucide icons, and there
+is no icon for a Greek hero. Options, in order of preference: ship a small
+hand-authored SVG cast of archetypes (figure standing/walking/pointing/sitting,
+which covers most narrative needs) usable with zero keys; support a local diffusion
+model for offline generation; and always state plainly in the UI that illustrated
+characters need a key rather than silently substituting a generic glyph.
+
+Priority: this sits after the plot/path work and the lesson stage, because a maths
+or CS explainer needs curves far more than it needs characters — but it must come
+before claiming we can teach "literally any concept", since narrative subjects are
+a large share of what people want to learn.
+
 ## The benchmark: gradient descent
 
 Judge every change against a single question — after watching, can a learner who
