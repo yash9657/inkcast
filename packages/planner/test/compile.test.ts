@@ -284,9 +284,15 @@ test('the tangent beat draws a real tangent, and the arrow that derives the sign
 
 test('the worked beat draws the arithmetic and the descent it describes', () => {
   const scene = sceneFor(sb, 'worked');
-  const line = scene.elements.find((el) => el.type === 'text' && /←/.test(el.text));
-  assert.ok(line && line.type === 'text', 'no update line on the board');
-  assert.equal(line.text, 'w ← 3 − 0.1 × 4 = 2.6');
+  // An `equation`, not a `text`: the update line is real typeset mathematics now, so
+  // the minus is a minus rather than whatever the handwriting font has for a hyphen.
+  const line = scene.elements.find((el) => el.type === 'equation');
+  assert.ok(line && line.type === 'equation', 'no update line on the board');
+  assert.equal(line.tex, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'text' && /←|\\leftarrow/.test(el.text)),
+    'the arithmetic must not also be on the board as text',
+  );
 
   const plot = plots(scene)[0]!;
   const steps = plot.overlays.find((o) => o.kind === 'steps');
@@ -458,7 +464,9 @@ test('updateLine computes the arithmetic rather than copying it', () => {
     },
     'worked',
   );
-  assert.equal(line, 'w ← 5 + 0.5 × 2 = 6');
+  // TeX, because the board sets this as mathematics. `-` is the TeX minus (it becomes
+  // U+2212 when typeset); the sign flips to `+` because the slope is negative.
+  assert.equal(line, 'w \\leftarrow 5 + 0.5 \\times 2 = 6');
   assert.equal(
     updateLine(
       {

@@ -76,9 +76,11 @@ word "curve" — luck dressed as pedagogy.
 
 Assets resolve into `<project>/assets/<id>.svg`. There is no shared library, no
 versioning and no cross-video reuse, so the tenth video is drawn by the same machinery
-as the first with none of the benefit. There is also no equation typesetting anywhere
-in the repo — arithmetic on the board is plain text — and no character rig, so the cast
-of every narrative topic is stick figures.
+as the first with none of the benefit. There is also no character rig, so the cast of
+every narrative topic is stick figures.
+
+_Equation typesetting was the third item here and is now done — see step 3. The library
+and the rigs are steps 4 and 5._
 
 ## The stage contracts
 
@@ -280,9 +282,18 @@ symbol off is `crisp`; anything they read a feeling off is `sketch`.**
 **As built** (step 2): the mode is `DrawContext.ink` on the visuals geometry contract,
 defaulting to `sketch`, and it is applied in exactly one place — `baseOptions` in
 `geometry.ts`, which zeroes roughjs's perturbation and pins its seed. So every lane
-that draws through that contract is crisp-capable without knowing the mode exists, and
-`gen.path(d)` at zero roughness returns `d` verbatim, which is what makes "the path is
-used verbatim" literally true rather than approximately.
+that draws through that contract is crisp-capable without knowing the mode exists.
+
+**Corrected in step 3:** "used verbatim" was only nearly true. roughjs at zero roughness
+keeps every control point but re-emits the result one subpath _per segment_, inserting a
+`moveto` before each curve and dropping the `Z` that closed the contour. On a stroked
+line that is invisible — each `moveto` lands where the last segment ended. On a _filled_
+one it is fatal: a glyph outline becomes forty open curves with no contour left to fill,
+and the letter renders hollow, which is exactly how the equation lane first came out. So
+`roughenPathData` now bypasses roughjs entirely when the mode is crisp and takes our own
+precision round-trip instead, which preserves subpaths and closes. Crisp plot curves got
+shorter as a side effect — one subpath of 240 segments where there were 240 subpaths of
+one.
 
 Two things are deliberately still open. `resolvePlot` decides the mode for plots
 itself, because `AssetRef` is a stage-1 sketch and nothing constructs one yet — the
@@ -373,9 +384,26 @@ byte-identical. "No perturbation" is pinned in tests as _exactness_ (a crisp axi
 straight, a crisp path returns verbatim) plus _seed-independence_, which is the property
 a wobble cannot fake.
 
-**3. The equation lane.** New `equation` element; KaTeX -> SVG -> glyph path extraction
--> crisp stroke reveal. _Done when:_ `w \leftarrow 3 - 0.1 \times 4 = 2.6` renders as
-real glyphs and reveals left to right. _Replaces:_ arithmetic-as-text.
+**3. The equation lane.** ✅ **DONE.** New `equation` element; TeX -> SVG -> glyph path
+extraction -> crisp reveal. _Done when:_ `w \leftarrow 3 - 0.1 \times 4 = 2.6` renders as
+real glyphs and reveals left to right — verified in a frame grab of the benchmark's
+worked beat, where it is now the update line above the plot. _Replaces:_
+arithmetic-as-text: `updateLine` emits TeX and the compiler emits an `equation`, so the
+benchmark has **zero** remaining Unicode-arithmetic text elements.
+
+**The typesetter is MathJax, not KaTeX** — a deliberate departure. KaTeX has no SVG
+output: it emits `<span>`s positioned by CSS, so extracting geometry from it means
+running a CSS engine or reimplementing KaTeX's layout against its internal tree. MathJax
+emits glyph outlines already placed, in pure Node, with no browser and no font files. The
+goal here was real glyphs as exact vector; the engine was a means.
+
+Two things fell out of it. Glyphs are _filled_ outlines, so the reveal is one prim per
+glyph in left-to-right order rather than one per stroke — the page already gives each
+part of an item a slice of the timeline in order, so the ordering _is_ the animation and
+the renderer needed no new capability. And this is the **first geometry the renderer
+reads from `visuals.json`** rather than recomputing: an equation has no camera-dependent
+unit (unlike a plot, whose caption size is its unit of measurement), and typesetting is
+an async import that `compilePlan` could not perform anyway.
 
 **4. Library skeleton.** `library.json`, `AssetRef`, resolution order
 (library -> cache -> generate -> lucide), and the hand-authored `figures/` cast. Closes

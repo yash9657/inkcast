@@ -15,6 +15,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Asset, Element, TextElement } from '@inkcast/core';
 import type { DiagramLayout } from './diagram.js';
+import type { EquationLayout } from './equation.js';
 import type { MotionLayout } from './motion.js';
 import type { PlotLayout } from './plot.js';
 import type { InkStyleName, Palette } from './style.js';
@@ -77,6 +78,16 @@ export type ElementVisual = {
    * arc-length-even canvas traces of every curve so something can ride them.
    */
   plot?: PlotLayout;
+  /**
+   * Typeset mathematics: where it landed, at what em size, and how many marks it came
+   * to. The glyph geometry itself is in `strokes`, in reveal order.
+   *
+   * This is the one layout the renderer *must* read from the sidecar rather than
+   * recompute: typesetting is an async import of a large module, and `compilePlan` is
+   * synchronous. `tex` travels with it so a renderer that finds no geometry can still
+   * put the source on the board instead of nothing.
+   */
+  equation?: EquationLayout;
   /** The smooth un-roughened path a `path` element describes, for motion to follow. */
   path?: { d: string; length: number; closed: boolean; filled: boolean; from: 'points' | 'd' };
   /** Resolved movement: arc-length-even positions plus centre-relative offsets. */

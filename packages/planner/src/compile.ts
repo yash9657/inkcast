@@ -29,6 +29,7 @@ import type {
   Asset,
   DiagramElement,
   Element,
+  EquationElement,
   Lesson,
   LessonStep,
   Scene,
@@ -40,7 +41,7 @@ import { lessonBeats, logger, parseStoryboard, report } from '@inkcast/core';
 import { deriveCues, preferredCue } from './cues.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
-import { makeAsset, makeDiagram, makeText } from './elements.js';
+import { makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
 import {
   blobPath,
   bowlPath,
@@ -366,7 +367,7 @@ function buildBeat(ctx: BeatContext): Element[] {
 
   /* --- text notes: the model's own text intents, plus worked arithmetic --- */
   const { notes, figures } = partition(step);
-  const noteEls: TextElement[] = notes.map((intent, k) => {
+  const noteEls: Array<TextElement | EquationElement> = notes.map((intent, k) => {
     const el = makeText(
       eid(`note${k}`),
       noteText(intent.describe),
@@ -382,7 +383,7 @@ function buildBeat(ctx: BeatContext): Element[] {
   const sum = updateLine(step, role);
   if (sum) {
     noteEls.push(
-      makeText(eid('sum'), sum, preset.vertical ? 'heading' : 'heading', {
+      makeEquation(eid('sum'), sum, 'heading', {
         maxWidth: cell.w,
         align: 'center',
       }),
@@ -401,7 +402,7 @@ function buildBeat(ctx: BeatContext): Element[] {
   // talking about. Giving an annotating beat its own cell for a caption is what
   // dragged the camera wide over an almost-empty panel and put the frame fill at 16%.
   const bands = Math.max(1, ctx.cellBands);
-  const texts: TextElement[] = [caption, ...noteEls];
+  const texts: Array<TextElement | EquationElement> = [caption, ...noteEls];
   const wanted = texts.reduce((h, t) => h + t.at.h, 0) + texts.length * 16;
   const zone = cell.h * (ctx.preset.vertical ? 0.34 : 0.4);
   const budget = Math.min(wanted, zone / bands);
@@ -522,6 +523,13 @@ function noteText(describe: string): string {
  * w = 3, slope = +4, lr = 0.1, the line reads `w ← 3 − 0.1 × 4 = 2.6` because
  * 3 − 0.4 really is 2.6. A learner who checks the sum is rewarded, which is the
  * entire point of a worked example.
+ *
+ * **This returns TeX, and the compiler emits it as an `equation`.** It used to return a
+ * Unicode string for a `text` element, which is the "arithmetic as text" defect step 3
+ * of `PIPELINE.md` exists to remove: `←` and `−` were whatever the handwriting font had
+ * for them — often a hyphen standing in for a minus — and nothing here could ever have
+ * written a fraction. The numbers are the one thing on the board a learner is invited to
+ * check, so they are now set as real mathematics.
  */
 export function updateLine(step: LessonStep, role: BeatRole): string | undefined {
   if (role !== 'worked') return undefined;
@@ -537,8 +545,8 @@ export function updateLine(step: LessonStep, role: BeatRole): string | undefined
       'the drawn number is the computed one — fix the lesson, not the picture',
     );
   }
-  const sign = slope < 0 ? '+' : '−';
-  return `w ← ${trim(start)} ${sign} ${trim(lr)} × ${trim(Math.abs(slope))} = ${trim(next)}`;
+  const sign = slope < 0 ? '+' : '-';
+  return `w \\leftarrow ${trim(start)} ${sign} ${trim(lr)} \\times ${trim(Math.abs(slope))} = ${trim(next)}`;
 }
 
 /** Split a figure area between several figures. */

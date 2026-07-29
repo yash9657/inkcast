@@ -218,12 +218,34 @@ test('a crisp mark has no perturbation left in it', () => {
   assert.notEqual(sketch[0]?.d, crisp(1)[0]?.d, 'crisp and sketch must not be the same drawing');
 });
 
-test('crisp path data is used verbatim', () => {
+test('crisp path data is used verbatim, subpaths and closes included', () => {
   const style = inkStyleFor({ style: 'pencil', palette: 'color' });
-  const d = 'M10 10 C30 40 70 40 90 10';
+  // Multi-segment and closed, on purpose. A single-segment path cannot catch the bug
+  // this pins: roughjs at zero roughness keeps every control point but re-emits one
+  // subpath *per segment* and drops the `Z`, which is invisible on a stroked line and
+  // ruins a filled one — a glyph outline comes out hollow. The first version of this
+  // test used one cubic and passed while that was broken.
+  const d = 'M10 10 C30 40 70 40 90 10 C110 -20 150 -20 170 10 L170 60 Z';
   const out = roughenPathData({ ...ctxFor(style, 55), ink: 'crisp' }, d, 0);
   assert.equal(out.length, 1);
   assert.equal(out[0]?.d, d, 'a crisp path must come back out exactly as it went in');
+  assert.equal(out[0]?.d.match(/M/g)?.length, 1, 'crisp must not split the path into subpaths');
+  assert.match(out[0]?.d ?? '', /Z$/, 'crisp must keep the contour closed');
+});
+
+test('a crisp path can carry a fill, which is what a glyph outline is', () => {
+  const style = inkStyleFor({ style: 'marker', palette: 'color' });
+  const out = roughenPathData(
+    { ...ctxFor(style, 7), ink: 'crisp' },
+    'M0 0 L40 0 L40 40 L0 40 Z',
+    0,
+    { fill: '#123456', stroke: '#123456', strokeWidth: 1.5 },
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.fill, '#123456');
+  assert.equal(out[0]?.stroke, '#123456');
+  assert.equal(out[0]?.strokeWidth, 1.5);
+  assert.ok((out[0]?.length ?? 0) > 0, 'the reveal needs a measured length');
 });
 
 test('a crisp mark ignores a call site that asks for its own roughness', () => {

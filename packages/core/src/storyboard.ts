@@ -165,6 +165,40 @@ export const TextElement = z.object({
   align: z.enum(['left', 'center', 'right']).default('left'),
 });
 
+/**
+ * Real typeset mathematics, as glyph outlines rather than as a line of text.
+ *
+ * Arithmetic set as text is the defect this replaces. A `text` element carrying
+ * `w ← 3 − 0.1 × 4 = 2.6` is a string in a handwriting font: the minus sign is
+ * whatever the font's hyphen looks like, a fraction cannot be written at all, and
+ * a superscript is a smaller character sitting on the baseline. None of that is a
+ * typo the learner forgives — it is the notation being wrong.
+ *
+ * The `tex` is the source of truth and is typeset by the visuals stage, so the
+ * geometry is exact vector and the ink mode is `crisp` (see `PIPELINE.md` — a
+ * wobbled integral sign is a different integral sign).
+ */
+export const EquationElement = z.object({
+  ...ElementBase,
+  type: z.literal('equation'),
+  /**
+   * TeX source, without surrounding delimiters: `\frac{a}{b}`, not `$\frac{a}{b}$`.
+   *
+   * Not validated here. A TeX error is a typesetting outcome rather than a schema
+   * violation, and refusing to parse the storyboard over one would lose the whole
+   * video for a bad exponent — the visuals stage warns and falls back to drawing
+   * the source as text instead.
+   */
+  tex: z.string(),
+  /**
+   * `true` sets it as a display equation (centred, full-size operators, limits
+   * above and below a sum); `false` sets it inline, sized to sit in running text.
+   */
+  display: z.boolean().default(true),
+  /** Where the equation sits in `at` when it does not fill the box. */
+  align: z.enum(['left', 'center', 'right']).default('center'),
+});
+
 export const AssetElement = z.object({
   ...ElementBase,
   type: z.literal('asset'),
@@ -351,6 +385,7 @@ export const PathElement = z.object({
 
 export const Element = z.discriminatedUnion('type', [
   TextElement,
+  EquationElement,
   AssetElement,
   ShapeElement,
   ArrowElement,
@@ -439,6 +474,7 @@ export type Asset = z.infer<typeof Asset>;
 export type Camera = z.infer<typeof Camera>;
 export type StoryboardMeta = z.infer<typeof StoryboardMeta>;
 export type TextElement = z.infer<typeof TextElement>;
+export type EquationElement = z.infer<typeof EquationElement>;
 export type AssetElement = z.infer<typeof AssetElement>;
 export type ShapeElement = z.infer<typeof ShapeElement>;
 export type ArrowElement = z.infer<typeof ArrowElement>;

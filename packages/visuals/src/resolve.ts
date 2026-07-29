@@ -27,6 +27,7 @@ import {
   type Storyboard,
 } from '@inkcast/core';
 import { resolveDiagram } from './diagram.js';
+import { resolveEquation } from './equation.js';
 import type { FontMetrics } from './fontmetrics.js';
 import { loadFontMetrics } from './fontmetrics.js';
 import type { DrawContext, InkPath } from './geometry.js';
@@ -449,6 +450,7 @@ async function resolveElement(args: {
 
   let items: InkItem[] = [];
   let diagram: ElementVisual['diagram'];
+  let equation: ElementVisual['equation'];
   let plot: ElementVisual['plot'];
   let pathLayout: ElementVisual['path'];
   let assetRef: ElementVisual['asset'];
@@ -468,6 +470,38 @@ async function resolveElement(args: {
             canvasHeight,
             colour,
             valign: 'top',
+          }),
+        ),
+      ];
+      break;
+    }
+    case 'equation': {
+      const resolved = await resolveEquation(
+        { tex: el.tex, display: el.display, box: el.at, align: el.align },
+        base,
+        { style },
+      );
+      if (resolved) {
+        equation = resolved.layout;
+        items = resolved.items;
+        break;
+      }
+      // The typesetter is unavailable or the source would not set. Draw the TeX as
+      // handwriting rather than losing the beat: unset `\frac{a}{b}` on the board is
+      // poor, but a blank space where the worked example should be is worse, and the
+      // warning naming the cause has already been logged by the lane.
+      log.warn(`equation ${el.id} could not be typeset — drawing its source as text`);
+      items = [
+        textItem(
+          layoutText(el.tex, {
+            box: el.at,
+            style,
+            font,
+            role: 'body',
+            align: el.align,
+            canvasHeight,
+            colour: style.ink,
+            valign: 'middle',
           }),
         ),
       ];
@@ -652,6 +686,7 @@ async function resolveElement(args: {
     ...(written.texts.length > 0 ? { texts: written.texts } : {}),
     ...(diagram ? { diagram } : {}),
     ...(plot ? { plot } : {}),
+    ...(equation ? { equation } : {}),
     ...(pathLayout ? { path: pathLayout } : {}),
     ...(motion ? { motion } : {}),
     ...(assetRef ? { asset: assetRef } : {}),

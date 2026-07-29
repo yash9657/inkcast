@@ -32,11 +32,26 @@
  * The ink is numbered by `writeElementSvg`, because `PlotPartRecord.from`/`to` index
  * into *that* numbering. Reproducing the numbering by hand here would be a third copy
  * of an invariant that has already cost this codebase one dead subsystem.
+ *
+ * ## Equations *are* read from `visuals.json` — the first geometry that is
+ *
+ * The argument above is specific to plots, and equations escape it on both counts.
+ *
+ * They have no camera-dependent unit: an equation is typeset to fit its element's box
+ * in canvas units, so zooming the board simply makes the whole thing bigger, uniformly
+ * and correctly. Nothing in it is measured in multiples of a caption size. Even the
+ * glyph stroke weight is a fraction of the em it was set at, which is what it should be
+ * at any zoom — a letter's outline scales with the letter, not with the board's pen.
+ *
+ * And they *cannot* be recomputed here even if we wanted to: typesetting is an async
+ * import of a large module, and `compilePlan` is synchronous. So the sidecar is not a
+ * convenience for this lane, it is the mechanism — which makes `visuals.json` a file
+ * that is finally read as well as written.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { logger } from '@inkcast/core';
-import type { PlotElement, Storyboard, StoryboardMeta } from '@inkcast/core';
+import type { EquationElement, PlotElement, Storyboard, StoryboardMeta } from '@inkcast/core';
 import {
   MANIFEST_PATH,
   MANIFEST_VERSION,
@@ -48,6 +63,7 @@ import {
   writeElementSvg,
 } from '@inkcast/visuals';
 import type {
+  EquationLayout,
   FontMetrics,
   InkStroke,
   InkStyle,
@@ -73,9 +89,27 @@ export type PlotSource = {
   texts: TextLayout[];
 };
 
+/**
+ * One equation's typeset geometry, read straight from the sidecar.
+ *
+ * `strokes` are the glyph outlines in reveal order — see the note on reading the
+ * sidecar in the module header for why this lane, unlike plots, can consume the
+ * recorded geometry verbatim.
+ */
+export type EquationSource = {
+  layout: EquationLayout;
+  strokes: InkStroke[];
+};
+
 export type VisualsBridge = {
   /** Resolved geometry for one plot element. */
   plotFor(el: PlotElement, sceneId: string): PlotSource;
+  /**
+   * Typeset geometry for one equation element, or `undefined` when the sidecar has
+   * none — a project whose visuals stage has not run, or an equation that would not
+   * set. The caller is expected to fall back to drawing the TeX source as text.
+   */
+  equationFor(el: EquationElement): EquationSource | undefined;
   /** True when `assets/visuals.json` was read. */
   hasManifest: boolean;
 };
@@ -145,6 +179,12 @@ export function openVisuals(
 
     plotFor(el: PlotElement, sceneId: string): PlotSource {
       return computePlot(el, sceneId, canvasHeight, opts.typeSizes, ensure());
+    },
+
+    equationFor(el: EquationElement): EquationSource | undefined {
+      const visual = manifest?.elements[el.id];
+      if (!visual?.equation || visual.strokes.length === 0) return undefined;
+      return { layout: visual.equation, strokes: visual.strokes };
     },
   };
 }

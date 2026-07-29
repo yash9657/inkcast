@@ -28,6 +28,7 @@ import type {
   DiagramElement,
   Element,
   EmphasisElement,
+  EquationElement,
   PathElement,
   PlotElement,
   Scene,
@@ -37,6 +38,7 @@ import type {
   TextElement,
 } from '@inkcast/core';
 import { frameSize, sceneLength, sceneOffsets, totalDuration } from '@inkcast/core';
+import { MANIFEST_PATH } from '@inkcast/visuals';
 import { contentFill, reportFill, resolveFraming, safeInsets, unitsPerPixel } from './camera.js';
 import type { SceneFraming } from './camera.js';
 import { cumulativeLengths, easeFn, flattenPathData, pointAtLength, rectContains } from './geom.js';
@@ -883,6 +885,8 @@ function primsFor(el: Element, ctx: Ctx): PlanPrim[] {
   switch (el.type) {
     case 'text':
       return textPrims(el, ctx);
+    case 'equation':
+      return equationPrims(el, ctx);
     case 'shape':
       return shapePrims(el, ctx, rng, alpha);
     case 'arrow':
@@ -905,6 +909,38 @@ function textPrims(el: TextElement, ctx: Ctx): PlanPrim[] {
   const size = TYPE_SCALE[role] * ctx.type;
   const color = role === 'caption' ? ctx.pal.inkSoft : ctx.pal.ink;
   return [textPrim(el.text, el.at, size, color, el.align, 'middle')];
+}
+
+/**
+ * Typeset mathematics, straight from the sidecar.
+ *
+ * One prim per glyph, in the order the visuals stage recorded them, which is left to
+ * right. That ordering is the whole animation: the page gives every part of an item a
+ * slice of its timeline proportional to how much ink it is, in order, so the equation
+ * writes itself across the board without this lane scheduling anything.
+ *
+ * Each glyph keeps its fill *and* a thin stroke. The stroke is what the runtime
+ * dash-reveals, and it fades the fill in over the same window — so a symbol arrives as
+ * ink being laid down rather than as type being switched on.
+ */
+function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
+  const src = ctx.visuals.equationFor(el);
+  if (!src) {
+    // No recorded geometry: an un-run visuals stage, or TeX that would not set. Put
+    // the source on the board — poor, but a blank space where the worked example
+    // belongs is worse, and this is the case the whole fallback chain exists for.
+    log.warn(
+      `equation "${el.id}" has no typeset geometry in ${MANIFEST_PATH} — ` +
+        'drawing its TeX source as text. Re-run the visuals stage.',
+    );
+    return [textPrim(el.tex, el.at, TYPE_SCALE.body * ctx.type, ctx.pal.ink, el.align, 'middle')];
+  }
+  // No fill-rule is set because `nonzero` is already the SVG default, and nonzero is
+  // exactly what a glyph needs: TeX outlines wind a counter against the outer contour,
+  // so the hole in an "o" stays a hole.
+  return src.strokes
+    .filter((s) => s.d.length > 0)
+    .map((s) => geom(s.d, ctx.pal.ink, s.strokeWidth, { fill: ctx.pal.ink }));
 }
 
 /**

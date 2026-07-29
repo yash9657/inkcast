@@ -82,6 +82,16 @@ export {
   type ResolvePlotOptions,
 } from './plot.js';
 
+/* ---- equation lane ------------------------------------------------------ */
+export {
+  equationEngineReady,
+  resolveEquation,
+  type EquationLayout,
+  type EquationSpec,
+  type ResolveEquationOptions,
+  type ResolvedEquation,
+} from './equation.js';
+
 /* ---- path lane ---------------------------------------------------------- */
 export {
   CATMULL_ROM_ALPHA,

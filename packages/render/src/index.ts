@@ -56,7 +56,7 @@ export type { FrameSize, Insets, ResolvedCamera, SceneFraming } from './camera.j
 export { curveTrace, plotArea, plotPhases } from './plot.js';
 export type { PlotContext, PlotPhase } from './plot.js';
 export { openVisuals } from './visuals.js';
-export type { PlotSource, VisualsBridge } from './visuals.js';
+export type { EquationSource, PlotSource, VisualsBridge } from './visuals.js';
 export {
   CURVE_FUNCTIONS,
   curveEval,

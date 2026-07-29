@@ -16,6 +16,7 @@ import type {
   DiagramElement,
   Element,
   EmphasisElement,
+  EquationElement,
   ShapeElement,
   TextElement,
 } from '@inkcast/core';
@@ -116,6 +117,64 @@ export function makeText(
     enter: enter(o.enter, 'write'),
     persist: o.persist ?? true,
   };
+}
+
+/**
+ * A typeset equation, sized like a line of text at `role`.
+ *
+ * The box is *measured* like everything else here, but from the TeX source rather than
+ * from the rendered result, which the planner cannot see. Stripping the control
+ * sequences first is what makes that estimate honest: `\times` is one glyph, not six,
+ * and counting it as six reserves a box twice too wide and pushes the drawing below it
+ * off the cell. The visuals stage fits the real typeset geometry into whatever box this
+ * reserves, preserving aspect, so an over-generous estimate costs whitespace and an
+ * under-generous one costs size — never a collision.
+ */
+export function makeEquation(
+  id: string,
+  tex: string,
+  role: Role,
+  o: {
+    maxWidth?: number;
+    align?: EquationElement['align'];
+    display?: boolean;
+    persist?: boolean;
+    enter?: EnterInit;
+  } = {},
+): EquationElement {
+  const maxWidth = o.maxWidth ?? 900;
+  const m = measureText(texAsGlyphs(tex), role, maxWidth);
+  return {
+    id,
+    type: 'equation',
+    tex,
+    display: o.display ?? true,
+    align: o.align ?? 'center',
+    at: box(m.w, m.h),
+    // `draw` rather than `write`: the glyphs are revealed as ink along their own
+    // outlines, not through the handwriting lane's per-word masks.
+    enter: enter(o.enter, 'draw'),
+    persist: o.persist ?? true,
+  };
+}
+
+/**
+ * TeX source reduced to roughly the glyphs it will set, for measurement only.
+ *
+ * Every control sequence becomes one character, braces and alignment marks vanish, and
+ * `\frac` collapses to its longer side — a two-line fraction is about as wide as its
+ * widest part, not as wide as both concatenated.
+ */
+function texAsGlyphs(tex: string): string {
+  const frac = tex.replace(
+    /\\(?:frac|dfrac|tfrac)\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g,
+    (_all, a: string, b: string) => (a.length >= b.length ? a : b),
+  );
+  return frac
+    .replace(/\\[a-zA-Z]+/g, 'x')
+    .replace(/[{}&\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function makeShape(

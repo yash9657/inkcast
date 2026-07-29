@@ -214,7 +214,26 @@ export function inkPaths(
   return out;
 }
 
-/** Roughen existing path data (icons, vectorised rasters, glyph-free traces). */
+/**
+ * Ink existing path data (icons, vectorised rasters, glyph outlines, traces).
+ *
+ * ## Why crisp does not go through roughjs at all
+ *
+ * At `roughness: 0` roughjs reproduces every control point exactly — but it re-emits
+ * the result **one subpath per segment**, inserting a `moveto` before each curve and
+ * dropping the `Z` that closed the contour. For a stroked line that is invisible: each
+ * `moveto` lands on the previous segment's endpoint, so the same pixels are drawn.
+ *
+ * For a *filled* path it is fatal. A glyph outline arrives as forty independent open
+ * curves with no closed contour left to fill, and the letter renders as an outline with
+ * a hollow middle — which is exactly how the equation lane first came out. So crisp
+ * takes our own round-trip instead, which preserves subpaths and closes and only
+ * normalises precision.
+ *
+ * This is what makes "the path is used verbatim" (`PIPELINE.md`) true rather than
+ * nearly true, and it is the same funnel either way — one place still decides how ink
+ * is laid down.
+ */
 export function roughenPathData(
   ctx: DrawContext,
   d: string,
@@ -222,6 +241,22 @@ export function roughenPathData(
   over: RoughOptions = {},
 ): InkPath[] {
   if (!d.trim()) return [];
+  if (ctx.ink === 'crisp') {
+    const exact = pathToString(parsePath(d));
+    if (!exact) return [];
+    const fill = over.fill;
+    return [
+      {
+        d: exact,
+        stroke: over.stroke ?? ctx.colour ?? ctx.style.ink,
+        strokeWidth: over.strokeWidth ?? strokeWidthFor(ctx.style, ctx.weight ?? 'normal'),
+        fill: fill && fill !== 'none' ? fill : 'none',
+        opacity: ctx.opacity ?? ctx.style.strokeOpacity,
+        length: pathLength(exact),
+        ...(ctx.group ? { group: ctx.group } : {}),
+      },
+    ];
+  }
   return inkPaths(ctx, bump, (o) => ctx.gen.path(d, o), over);
 }
 

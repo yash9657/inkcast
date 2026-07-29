@@ -56,14 +56,22 @@ export const PIPELINE_VERSION = 2;
  *   stage writes and the geometry the renderer asks `resolvePlot` for are the same
  *   drawing, and a project holding one at v3 and the other at v4 would be
  *   inconsistent about which it believed.
+ * - storyboard 3: a worked example's update line is an `equation` element carrying TeX
+ *   instead of a `text` element carrying Unicode, so the same lesson compiles to a
+ *   different board.
+ * - visuals 5 / render 5: the equation lane typesets that TeX to glyph outlines, and
+ *   crisp path data is now genuinely verbatim rather than re-emitted one subpath per
+ *   segment — which changes every crisp plot's path data as well as adding equations.
+ *   Together they are the first geometry the renderer reads from the sidecar rather
+ *   than recomputing, so again the two stages have to move as one.
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
   lesson: 2,
-  storyboard: 2,
+  storyboard: 3,
   voice: 2,
-  visuals: 4,
-  render: 4,
+  visuals: 5,
+  render: 5,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */

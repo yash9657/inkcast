@@ -513,3 +513,38 @@ test('the plan records how much of the frame carries ink', () => {
   assert.equal(plan.typeScale, plan.scale, '16:9 needs no type gain');
   assert.ok(plan.safe.left > 0 && plan.safe.bottom > 0);
 });
+
+test('an equation with no typeset geometry falls back to its TeX as text', () => {
+  // `DIR` has no `visuals.json`, so this is the real degradation path: a project whose
+  // visuals stage has not run. Drawing nothing where the worked example belongs is the
+  // one outcome that is not allowed, so the source goes up as handwriting instead.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'eq fallback',
+    scenes: [
+      {
+        id: 's0',
+        narration: 'three minus a tenth of four is two point six',
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'sum',
+            type: 'equation',
+            tex: 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6',
+            at: { x: 460, y: 420, w: 1000, h: 200 },
+          },
+        ],
+      },
+    ],
+  });
+  let plan!: ReturnType<typeof compilePlan>;
+  const warned = capture(() => {
+    plan = compilePlan(sb, DIR);
+  });
+  const prims = plan.items.flatMap((i) => i.prims);
+  assert.equal(prims.length, 1, 'expected exactly one fallback prim');
+  const prim = prims[0] as TextPrim;
+  assert.equal(prim.kind, 'text');
+  assert.equal(prim.text, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
+  assert.match(warned, /no typeset geometry/, 'the fallback must say why it happened');
+});
