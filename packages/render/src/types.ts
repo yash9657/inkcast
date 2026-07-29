@@ -79,6 +79,34 @@ export type MotionTrack = {
   samples: [number, number, number][];
 };
 
+/**
+ * A baked `Morph`: the shape this item has, per output frame, while it is still
+ * becoming itself.
+ *
+ * The interpolated geometry is roughened **here in Node**, with one seed held for
+ * the whole morph, for the same reason every other stroke is: the wobble has to be
+ * stable frame to frame or the shape boils. Re-roughening per frame in the page
+ * would also mean a second implementation of `sketchAlong` to drift out of sync.
+ *
+ * Baking a `d` string per frame is a few tens of kilobytes for a one-second morph
+ * and keeps the page a lookup, which is the same trade `MotionTrack` makes.
+ */
+export type MorphTrack = {
+  /** Absolute seconds. */
+  start: number;
+  end: number;
+  /** One path `d` per frame, from the source's shape to this item's own. */
+  frames: string[];
+  /** Stroke colour and width for the in-flight shape. */
+  stroke: string;
+  strokeWidth: number;
+  /**
+   * Items whose ink this one replaces, faded out across the morph. Matched exactly
+   * or by the `id~phase` prefix a multi-phase element produces.
+   */
+  retire?: string[];
+};
+
 export type PlanItem = {
   id: string;
   /** Index of the owning scene. */
@@ -103,6 +131,12 @@ export type PlanItem = {
   dimOthers?: string;
   /** Movement along a path, baked to even speed. */
   motion?: MotionTrack;
+  /**
+   * Reshaped out of another element instead of drawn from nothing. While this is
+   * running the item shows the baked in-flight shape and its own prims are held
+   * back — the morph *is* the entry, so there is no dash-reveal on top of it.
+   */
+  morph?: MorphTrack;
   /**
    * Progress along `motion` at which each prim becomes visible — a dotted trail
    * appearing bead by bead as the element passes it. The item itself does not move.

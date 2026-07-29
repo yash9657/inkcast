@@ -44,7 +44,7 @@ import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
-import { plotMap, plotPhases } from './plot.js';
+import { curvePolylines, plotMap, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
 import { dotPrim, geom, geoms, textPrim } from './prims.js';
 import {
@@ -64,6 +64,7 @@ import {
 import type { Pt, SketchStyle } from './sketch.js';
 import type {
   GeomPrim,
+  MorphTrack,
   MotionTrack,
   PlanItem,
   PlanPrim,
@@ -255,6 +256,14 @@ type Ctx = {
   dir: string;
   assets: Map<string, string | undefined>;
   boxes: Map<string, Rect>;
+  /**
+   * Every element in the storyboard by id, across all scenes.
+   *
+   * A morph names the element it grows out of, which was usually drawn by an
+   * *earlier* scene and persisted, so resolving it needs the whole board rather
+   * than the scene being compiled.
+   */
+  elements: Map<string, Element>;
   alpha: number | undefined;
   /** Plot frames and curves already on the board, so they are not re-inked. */
   drawn: Set<string>;
@@ -337,10 +346,16 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     dir,
     assets: new Map(sb.assets.map((a) => [a.id, a.svg])),
     boxes: new Map(),
+    elements: new Map(),
     alpha: ink.opacity < 1 ? ink.opacity : undefined,
     drawn: new Set<string>(),
   };
-  for (const scene of timed.scenes) for (const el of scene.elements) ctx.boxes.set(el.id, el.at);
+  for (const scene of timed.scenes) {
+    for (const el of scene.elements) {
+      ctx.boxes.set(el.id, el.at);
+      ctx.elements.set(el.id, el);
+    }
+  }
 
   const items: PlanItem[] = [];
   const unresolvedCues: string[] = [];
@@ -462,7 +477,163 @@ function itemsFor(
     const trail = trailItem(el, motion, timing, ctx);
     if (trail) items.unshift(trail);
   }
+
+  const morph = bakeMorph(el, timing, ctx, fps);
+  if (morph) {
+    // The morph attaches to the ink whose *shape* it becomes, which for a plot is
+    // the curve and not the axes: the axes are drawn around the reshaping curve, so
+    // the two happen together rather than one replacing the other.
+    // The plot's curve phase is keyed by curve id, and it is the *first* curve the
+    // morph targets — later curves are comparisons drawn against it.
+    const wanted = el.type === 'plot' ? `${el.id}~curve-${el.curves[0]?.id ?? ''}` : null;
+    const target = wanted === null ? items[0] : items.find((it) => it.id === wanted);
+    if (target) {
+      target.morph = morph;
+      // The morph *is* this item's entry, so the item's own ink takes over where the
+      // morph ends — and takes over by fading, not by being drawn. A dash-reveal
+      // here would re-draw, stroke by stroke, the curve the viewer just watched bend
+      // into place. The two shapes are roughened from different seeds, so a short
+      // crossfade is what makes the handoff invisible.
+      target.start = morph.end;
+      target.style = 'fade';
+      target.dur = MORPH_HANDOFF;
+    } else {
+      log.warn(`element "${el.id}" wants to morph but produced no ink to morph into`);
+    }
+  }
   return items;
+}
+
+/* -------------------------------------------------------------------- morph */
+
+/** Points to interpolate for an element, in canvas space, or null when it has none. */
+function morphGeometry(el: Element, ctx: Ctx): GPt[] | null {
+  if (el.type === 'path') {
+    if (el.points && el.points.length >= 2) return el.points.map((p) => [p.x, p.y] as GPt);
+    if (el.d) {
+      const runs = flattenPathData(el.d);
+      const first = runs[0];
+      return first && first.length >= 2 ? first.map((p) => [p[0], p[1]] as GPt) : null;
+    }
+    return null;
+  }
+  if (el.type === 'plot') {
+    // The first curve is the shape the abstraction *is*; later curves are
+    // comparisons drawn against it and have nothing to morph out of.
+    const curve = el.curves[0];
+    if (!curve) return null;
+    const m = plotMap(el, {
+      pal: ctx.pal,
+      st: ctx.st,
+      sw: ctx.sw,
+      scale: ctx.scale,
+      type: ctx.type,
+      alpha: ctx.alpha,
+    });
+    const { runs } = curvePolylines(curve, el, m);
+    // Longest run: a curve clipped by the plot band can arrive in pieces, and the
+    // main body is the one the hillside should become.
+    let best: GPt[] | null = null;
+    for (const run of runs) {
+      if (run.length >= 2 && (best === null || run.length > best.length)) {
+        best = run.map((p) => [p[0], p[1]] as GPt);
+      }
+    }
+    return best;
+  }
+  return null;
+}
+
+/** Resample a polyline to exactly `n` points, evenly spaced by arc length. */
+function resampleTo(pts: readonly GPt[], n: number): GPt[] {
+  const cum = cumulativeLengths(pts);
+  const total = cum[cum.length - 1] ?? 0;
+  if (!(total > 0)) return Array.from({ length: n }, () => (pts[0] ?? [0, 0]) as GPt);
+  const out: GPt[] = [];
+  for (let i = 0; i < n; i++) out.push(pointAtLength(pts, cum, (i / (n - 1)) * total));
+  return out;
+}
+
+/** How many points the in-flight shape is drawn from. Enough for a smooth curve. */
+const MORPH_SAMPLES = 72;
+
+/**
+ * Seconds of crossfade from the morphed shape to the item's own ink.
+ *
+ * Short enough to read as a handoff rather than a dissolve, long enough to hide
+ * that the two are roughened from different seeds.
+ */
+const MORPH_HANDOFF = 0.18;
+
+/**
+ * Bake the frames of `el` being reshaped out of the element it names.
+ *
+ * Both shapes are resampled to the same number of points **by arc length** before
+ * they are interpolated, and that is the whole trick: matching by index instead
+ * would pair the dense end of one polyline with the sparse end of the other, and
+ * the hill would appear to slide sideways as it flattened rather than settle onto
+ * the curve. Even spacing means every point travels the short way to where it
+ * belongs.
+ *
+ * One `Rng` seed is held across every frame so the hand-drawn wobble stays put.
+ * Re-seeding per frame makes the stroke boil, which reads as noise rather than as
+ * one line being bent.
+ */
+function bakeMorph(el: Element, timing: SceneTiming, ctx: Ctx, fps: number): MorphTrack | null {
+  const spec = el.morph;
+  if (!spec) return null;
+
+  const source = ctx.elements.get(spec.fromId);
+  if (!source) {
+    log.warn(`element "${el.id}" morphs from "${spec.fromId}", which is not on the board`);
+    return null;
+  }
+  const from = morphGeometry(source, ctx);
+  const to = morphGeometry(el, ctx);
+  if (!from || !to) {
+    log.warn(
+      `cannot morph "${spec.fromId}" (${source.type}) into "${el.id}" (${el.type}) — ` +
+        `one of them has no interpolable geometry`,
+    );
+    return null;
+  }
+
+  const a = clamp(spec.from, 0, 1) * timing.speech;
+  const b = clamp(spec.to, 0, 1) * timing.speech;
+  const startLocal = Math.min(a, b);
+  let endLocal = Math.max(a, b);
+  // A morph shorter than this is a cut, not a transformation.
+  if (endLocal - startLocal < 0.35) endLocal = Math.min(timing.length, startLocal + 0.35);
+  const span = Math.max(0.2, endLocal - startLocal);
+
+  const src = resampleTo(from, MORPH_SAMPLES);
+  const dst = resampleTo(to, MORPH_SAMPLES);
+  const ease = easeFn(spec.easing);
+  const steps = Math.max(2, Math.min(240, Math.round(span * Math.max(1, fps))));
+  // One seed for the whole morph: the wobble must not change from frame to frame.
+  const seed = seedOf(el.id, 'morph');
+  const frames: string[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = clamp(ease(i / steps), 0, 1);
+    const blend: Pt[] = src.map((p, k) => {
+      const q = dst[k] as GPt;
+      return [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u] as Pt;
+    });
+    frames.push(sketchAlong(new Rng(seed), ctx.st, blend, { amp: 0.9 }));
+  }
+
+  const weight = el.type === 'path' ? el.weight : 1;
+  return {
+    start: round3(timing.start + startLocal),
+    end: round3(timing.start + startLocal + span),
+    frames,
+    stroke: ctx.pal.ink,
+    strokeWidth: round3(ctx.sw * weight),
+    ...(() => {
+      const gone = [...(spec.retire ? [spec.fromId] : []), ...spec.retires];
+      return gone.length > 0 ? { retire: gone } : {};
+    })(),
+  };
 }
 
 /**

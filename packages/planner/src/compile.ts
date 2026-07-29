@@ -109,14 +109,46 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
   const beats = lessonBeats(shaped);
   report(opts, { stage: 'plan', pct: 60, note: `${beats.length} beats → ${preset.name}` });
 
+  // The abstraction has to arrive *out of* the concrete drawing, which means the
+  // beat that plots it gives up its own cell and takes the drawing's place.
+  const reuse = findReuse(beats);
+  if (reuse.bridge) {
+    log.info(
+      `beat ${reuse.bridge.beat} turns beat ${reuse.bridge.host}'s drawing into a plot — morphing in place`,
+    );
+  }
+  // Every beat that builds on an earlier drawing shares that drawing's cell — words
+  // included. A caption in a cell of its own, describing a picture in a different
+  // cell, is what pulled the camera wide over an almost-empty panel.
   const board = planBoard(
     beats.map((b) => b.role),
-    { aspect: preset.aspect, maxPerRegion: preset.maxPerRegion },
+    {
+      aspect: preset.aspect,
+      maxPerRegion: preset.maxPerRegion,
+      sharesCellWith: reuse.annotates,
+    },
   );
+
+  // Who divides each shared cell's text zone, in beat order. The host is first,
+  // because it is the beat that draws the picture the others are talking about.
+  const sharers = new Map<number, number[]>();
+  for (const [beat, host] of reuse.annotates) {
+    const group = sharers.get(host) ?? [host];
+    group.push(beat);
+    sharers.set(host, group);
+  }
+  const bands = new Map<number, { bands: number; band: number }>();
+  for (const group of sharers.values()) {
+    const ordered = [...group].sort((a, b) => a - b);
+    ordered.forEach((beat, k) => bands.set(beat, { bands: ordered.length, band: k }));
+  }
+
   const assets = registry();
+  const memory: BoardMemory = {};
 
   const scenes: Scene[] = beats.map(({ step, role }, i) => {
     const cell = inset(board.cellOf(i), 10);
+    const share = bands.get(i);
     const built = buildBeat({
       step,
       role,
@@ -125,6 +157,11 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       preset,
       lesson: shaped,
       assets,
+      memory,
+      annotatesEarlier: reuse.annotates.has(i),
+      morphsAnchor: reuse.bridge?.beat === i,
+      cellBands: share?.bands ?? 1,
+      cellBand: share?.band ?? 0,
     });
     const scene: Scene = {
       id: `s${i}`,
@@ -176,6 +213,93 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
   return parseStoryboard(sb);
 }
 
+/* --------------------------------------------------- the abstraction's arrival */
+
+/**
+ * The beat that claims the concrete thing *is* the abstract one.
+ *
+ * "The hillside is a graph of how wrong you are." "Plot every setting against its
+ * number and the hillside becomes a curve." This is the sentence on which the whole
+ * lesson turns, and the brief is explicit that it has to be *shown*: the anchor
+ * morphing into the plot, in place, rather than a second picture appearing elsewhere
+ * while the narrator asserts they are the same thing.
+ *
+ * Matched as a becoming-verb followed by the vocabulary of a plot, in one clause, so
+ * an ordinary mention of a curve somewhere else in the lesson does not qualify.
+ */
+const BECOMES_A_PLOT =
+  /\b(?:is|are|becomes?|become|turns? into|turn into|is really|really is|same as|is just)\b[^.!?]{0,60}?\b(?:graph|curve|plot|axes|axis|function)\b/i;
+
+/**
+ * Which beats build on an earlier beat's freeform drawing rather than making one of
+ * their own.
+ *
+ * Two kinds, and the difference is how much they give up:
+ *
+ *  - **annotations** draw onto the host's picture while keeping their own cell for
+ *    their own words. The anchor walking down the hill the hook drew is this: one
+ *    hillside with a figure on it, not two hillsides side by side.
+ *  - the **bridge** additionally gives up its cell, because it is not annotating the
+ *    drawing but *replacing* it — the hill becoming the plot has to happen where the
+ *    hill is.
+ *
+ * Deliberately conservative. At most one bridge per lesson; it must be a `step` that
+ * actually asks for a `plot`, it must say the concrete thing *is* the abstract one,
+ * and there must be a drawing before it to grow out of. Anything less certain draws
+ * normally, which is what every lesson did before this existed.
+ */
+export type BoardReuse = {
+  /** `beat -> host beat` for every beat that draws onto an earlier drawing. */
+  annotates: Map<number, number>;
+  /** The beat whose plot replaces the host's drawing, and that host. */
+  bridge: { beat: number; host: number } | null;
+};
+
+export function findReuse(beats: { step: LessonStep; role: BeatRole }[]): BoardReuse {
+  const annotates = new Map<number, number>();
+  /** The beat that owns the setup's drawing — the first one to make it, not the last. */
+  let owner: number | null = null;
+  let bridge: { beat: number; host: number } | null = null;
+
+  for (let i = 0; i < beats.length; i++) {
+    const { step, role } = beats[i]!;
+    if (role === 'hook' || role === 'anchor') {
+      // Only a freeform drawing can be annotated or reshaped; a beat whose visuals
+      // are words or a diagram has nothing another beat can stand on.
+      if (!step.visuals.some((v) => v.kind === 'path')) continue;
+      if (owner === null) owner = i;
+      else annotates.set(i, owner);
+      continue;
+    }
+    if (bridge || role !== 'step' || owner === null) continue;
+    if (!step.visuals.some((v) => v.kind === 'plot')) continue;
+    if (!BECOMES_A_PLOT.test(`${step.idea} ${step.narration}`)) continue;
+    bridge = { beat: i, host: owner };
+    annotates.set(i, owner);
+  }
+  return { annotates, bridge };
+}
+
+/**
+ * What earlier beats left on the board for later ones to build on.
+ *
+ * Only the anchor's drawing so far, and only because the morph needs it: the beat
+ * that draws the plot has to know where the hillside is and what it is called, which
+ * is not something a beat can work out from its own step.
+ */
+type BoardMemory = {
+  /**
+   * The concrete freeform drawing the setup established.
+   *
+   * `id` and `box` are the stroke the abstraction is reshaped out of. `ink` is every
+   * element that belongs to that same drawing — the fog across the hillside, the
+   * figure standing on it, the strides down it — because when the hill becomes a
+   * graph those have to go with it. Left up, the fog lies across the finished axes
+   * and the walker stands in mid-air where the slope used to be.
+   */
+  anchor?: { id: string; box: Box; ink: string[] };
+};
+
 /** Seconds of silence after a beat: a breath, and longer after a question. */
 function holdFor(step: LessonStep, role: BeatRole, preset: Preset): number {
   const asks = /[?]\s*$/.test(step.narration.trim());
@@ -195,6 +319,16 @@ type BeatContext = {
   preset: Preset;
   lesson: Lesson;
   assets: Registry;
+  /** Mutable: what the setup drew, so a later beat can reshape it. */
+  memory: BoardMemory;
+  /** This beat draws onto the remembered drawing instead of making its own. */
+  annotatesEarlier: boolean;
+  /** This beat's plot grows out of the remembered drawing, replacing it. */
+  morphsAnchor: boolean;
+  /** How many beats divide this cell's text zone between them. 1 when it is ours. */
+  cellBands: number;
+  /** Which of those bands this beat's words go in, from the top. */
+  cellBand: number;
 };
 
 /** Which intents want a figure box, and which are text notes. */
@@ -243,11 +377,23 @@ function buildBeat(ctx: BeatContext): Element[] {
   }
 
   /* --- how much room the words may take before the picture wins --- */
+  //
+  // Several beats can draw into one cell — the anchor walking down the hook's hill,
+  // the step that turns it into a plot — and when they do, the cell's text zone is
+  // divided between them in advance. Doing it in advance is the point: the beat that
+  // draws the picture has to leave room for words a later beat has not written yet,
+  // or the second caption lands on the drawing.
+  //
+  // Every one of them keeps its words in the *same* cell as the drawing they are
+  // talking about. Giving an annotating beat its own cell for a caption is what
+  // dragged the camera wide over an almost-empty panel and put the frame fill at 16%.
+  const bands = Math.max(1, ctx.cellBands);
   const texts: TextElement[] = [caption, ...noteEls];
   const wanted = texts.reduce((h, t) => h + t.at.h, 0) + texts.length * 16;
-  const budget = Math.min(wanted, cell.h * (ctx.preset.vertical ? 0.34 : 0.4));
+  const zone = cell.h * (ctx.preset.vertical ? 0.34 : 0.4);
+  const budget = Math.min(wanted, zone / bands);
   const scale = wanted > budget ? budget / wanted : 1;
-  let y = cell.y;
+  let y = cell.y + (zone / bands) * Math.min(ctx.cellBand, bands - 1);
   texts.forEach((t, k) => {
     const h = round(t.at.h * scale, 2);
     t.at = { x: round(cell.x + (cell.w - t.at.w) / 2, 2), y: round(y, 2), w: t.at.w, h };
@@ -264,11 +410,17 @@ function buildBeat(ctx: BeatContext): Element[] {
   // what keeps every element provably inside its own cell, and therefore inside
   // its region: an element that overflowed downwards would collide with the beat
   // below it, which is the one thing region sharing must never do.
+  //
+  // With the cell to itself, the picture starts right under this beat's own words,
+  // so short text means a bigger drawing. With the cell shared it starts under the
+  // *whole* text zone instead, because the bands below this one belong to captions
+  // later beats have not written yet.
+  const figureTop = bands === 1 ? y : cell.y + zone;
   const figureArea: Box = {
     x: cell.x,
-    y: round(y, 2),
+    y: round(figureTop, 2),
     w: cell.w,
-    h: round(Math.max(60, cell.y + cell.h - y), 2),
+    h: round(Math.max(60, cell.y + cell.h - figureTop), 2),
   };
 
   // A `motion` intent alongside a `plot` intent rides that plot instead of
@@ -413,11 +565,39 @@ type IntentContext = BeatContext & {
 function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   const describe = intent.describe || ctx.step.idea;
   switch (intent.kind) {
-    case 'plot':
-      return buildPlot(
-        { id: ctx.id, box: ctx.box, narration: ctx.step.narration, vertical: ctx.preset.vertical },
+    case 'plot': {
+      // The one plot that is not drawn but *grown*: it takes the anchor's box so the
+      // axes appear around the shape already there, and names it so the renderer can
+      // bend one into the other. This is the moment the abstraction earns its keep,
+      // and it is the difference between showing that the hill and the graph are the
+      // same thing and merely saying so.
+      const grow = ctx.morphsAnchor ? ctx.memory.anchor : undefined;
+      const built = buildPlot(
+        {
+          id: ctx.id,
+          box: grow ? grow.box : ctx.box,
+          narration: ctx.step.narration,
+          vertical: ctx.preset.vertical,
+        },
         intent,
       );
+      if (grow) {
+        for (const el of built) {
+          if (el.type !== 'plot') continue;
+          el.morph = {
+            fromId: grow.id,
+            from: 0.12,
+            to: 0.62,
+            easing: 'ease',
+            retire: true,
+            // The rest of the hillside goes with it. Everything in `ink` was drawn
+            // onto the slope, so once the slope is a curve none of it means anything.
+            retires: [...grow.ink],
+          };
+        }
+      }
+      return built;
+    }
     case 'path':
       return buildFreeform(describe, ctx);
     case 'diagram':
@@ -469,8 +649,26 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
 
   // Default to a hillside: it is the shape almost every "concrete before
   // abstract" anchor reaches for, and the one the loss curve later becomes.
-  const hillBox: Box = { x: box.x + 8, y: box.y + box.h * 0.12, w: box.w - 16, h: box.h * 0.74 };
-  out.push(timed(hillPath(ctx.id, hillBox), 0.08));
+  //
+  // If the setup already drew one, this beat annotates *that* hill rather than
+  // drawing a second one beside it. Two hillsides side by side is the failure this
+  // guards against: the anchor's job is to walk down the hill the hook established,
+  // and a fresh drawing silently tells the learner it is a different hill.
+  const remembered = ctx.memory.anchor;
+  const annotate = ctx.annotatesEarlier && remembered !== undefined;
+  const hillBox: Box = annotate
+    ? remembered.box
+    : { x: box.x + 8, y: box.y + box.h * 0.12, w: box.w - 16, h: box.h * 0.74 };
+  if (annotate) {
+    log.debug(`beat ${ctx.index} annotates the hill drawn as "${remembered.id}"`);
+  } else {
+    out.push(timed(hillPath(ctx.id, hillBox), 0.08));
+    // Remembered for the beat that turns it into a plot, and for any later beat
+    // that wants to stand another figure on the same slope.
+    if (ctx.role === 'hook' || ctx.role === 'anchor') {
+      ctx.memory.anchor = { id: ctx.id, box: hillBox, ink: [] };
+    }
+  }
   if (FOG.test(text)) {
     fogPaths(`${ctx.id}_fog`, box, ctx.preset.vertical ? 2 : 3).forEach((el, k) =>
       out.push(timed(el, 0.2 + k * 0.04)),
@@ -499,6 +697,15 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
       step.enter = { at: round(0.5 + k * 0.14, 3), duration: 0.5, style: 'draw' };
       out.push(step);
     });
+  }
+
+  // Everything drawn onto the slope — fog across it, a figure on it, strides down
+  // it — is part of the same picture as the slope itself, whichever beat added it.
+  // The beat that turns the slope into a graph retires the lot, because none of it
+  // means anything once the slope is a curve.
+  const drawing = ctx.memory.anchor;
+  if (drawing) {
+    for (const el of out) if (el.id !== drawing.id) drawing.ink.push(el.id);
   }
   return out;
 }

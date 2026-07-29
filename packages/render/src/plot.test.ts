@@ -460,3 +460,46 @@ test('a ball riding a plot lands on the curve, not beside it', () => {
     `the ball is ${err.toFixed(1)} units off the curve (was ${before.toFixed(1)})`,
   );
 });
+
+/* --------------------------------------------------- one name per axis */
+
+/** Every text prim drawn for a plot, so labels can be counted by content. */
+function labelsOf(sb: Storyboard): string[] {
+  const out: string[] = [];
+  for (const item of compilePlan(sb, DIR).items) {
+    for (const prim of item.prims) if (prim.kind === 'text') out.push((prim as TextPrim).text);
+  }
+  return out;
+}
+
+test('a lone curve does not add a second name to the vertical axis', () => {
+  // The benchmark labelled the axis "height" and the trace "loss" and left the
+  // learner to work out whether those were the same measurement. With one curve both
+  // are names for the vertical axis, so only the axis keeps its name.
+  const labels = labelsOf(
+    plotBoard({
+      xLabel: 'where you stand',
+      yLabel: 'height',
+      curves: [{ id: 'c', label: 'loss', fn: { name: 'parabola', params: [1, 0, 0.5] } }],
+    }),
+  );
+  assert.ok(labels.includes('height'), 'the axis keeps its name');
+  assert.ok(!labels.includes('loss'), `the curve label was drawn too: ${JSON.stringify(labels)}`);
+});
+
+test('several curves keep their labels, because those tell the traces apart', () => {
+  // Here the labels are doing real work and the axis names the quantity they share.
+  const labels = labelsOf(
+    plotBoard({
+      xLabel: 'where you stand',
+      yLabel: 'height',
+      curves: [
+        { id: 'a', label: 'too small', fn: { name: 'parabola', params: [1, 0, 0.5] } },
+        { id: 'b', label: 'too large', fn: { name: 'parabola', params: [2, 0, 0.5] } },
+      ],
+    }),
+  );
+  assert.ok(labels.includes('too small'), `lost a distinguishing label: ${JSON.stringify(labels)}`);
+  assert.ok(labels.includes('too large'));
+  assert.ok(labels.includes('height'), 'the axis still names the quantity');
+});

@@ -556,8 +556,17 @@ function curvePhase(
   // written twice. Four of the benchmark's plots printed "loss" beside the y-axis
   // *and* beside the trace, and a learner reading two identical captions goes
   // looking for the distinction between them.
+  //
+  // The same applies when the two names merely *differ*, so long as there is only
+  // one curve: then both are names for the vertical axis, and two different words
+  // for one quantity is worse than two identical ones — the benchmark labelled the
+  // axis "height" and the trace "loss" and left the learner to guess whether those
+  // were the same measurement. With several curves the labels are doing real work,
+  // telling the traces apart, and the axis names the quantity they share.
+  const sole = el.curves.length === 1 && Boolean(el.yLabel);
   const redundant =
-    c.label !== undefined && c.label.trim().toLowerCase() === el.yLabel?.trim().toLowerCase();
+    c.label !== undefined &&
+    (sole || c.label.trim().toLowerCase() === el.yLabel?.trim().toLowerCase());
   if (c.label && !redundant) {
     const last = runs[runs.length - 1] as Pt[];
     const tip = last[last.length - 1] as Pt;

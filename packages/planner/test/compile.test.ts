@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 import type { PlotElement, Scene, Storyboard } from '@inkcast/core';
 import { Storyboard as StoryboardSchema, lessonBeats, parseStoryboard } from '@inkcast/core';
-import { compileLesson, updateLine } from '../src/compile.js';
+import { compileLesson, findReuse, updateLine } from '../src/compile.js';
 import { deriveCues, cueResolves } from '../src/cues.js';
 import { curveY, descend, evalFn, fitYDomain, slopeAt } from '../src/curves.js';
 import type { Box } from '../src/elements.js';
@@ -69,13 +69,35 @@ test('no two beats sharing a region overlap, and nothing leaves its region', () 
       lesson,
       PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'],
     );
+    const beats = lessonBeats(shaped);
+    const reuse = findReuse(beats);
     const plan = planBoard(
-      lessonBeats(shaped).map((b) => b.role),
+      beats.map((b) => b.role),
       {
         aspect: board.meta.aspect,
         maxPerRegion: PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'].maxPerRegion,
+        // Must match what the compiler passes, or this reconstructs a different
+        // board from the one it is checking.
+        sharesCellWith: reuse.annotates,
       },
     );
+    /**
+     * The pairs allowed to draw over each other: a beat that builds on an earlier
+     * beat's drawing is *supposed* to land on it — the anchor's walker stands on the
+     * hook's hill, and the bridge's plot replaces it. Anywhere else, overlapping ink
+     * in one region is the mess that region sharing exists to prevent.
+     */
+    const shared = new Set<string>();
+    for (const [beat, host] of reuse.annotates) {
+      // The host and everyone building on it are all drawing the same picture, so
+      // every pair within that group may legitimately land on the others' ink.
+      const group = [
+        host,
+        beat,
+        ...[...reuse.annotates].filter(([, h]) => h === host).map(([b]) => b),
+      ];
+      for (const a of group) for (const b of group) if (a !== b) shared.add(`s${a}|s${b}`);
+    }
     for (const scene of board.scenes) {
       const region = plan.regions.find((r) => r.key === scene.region);
       assert.ok(region, `${scene.id} has no region`);
@@ -89,6 +111,7 @@ test('no two beats sharing a region overlap, and nothing leaves its region', () 
       // what makes a shared region a growing board rather than a mess.
       for (const other of board.scenes) {
         if (other.id === scene.id || other.region !== scene.region) continue;
+        if (shared.has(`${scene.id}|${other.id}`)) continue;
         for (const a of scene.elements) {
           for (const b of other.elements) {
             assert.ok(!overlaps(a.at, b.at, 0), `${scene.id}/${a.id} overlaps ${other.id}/${b.id}`);
@@ -513,5 +536,97 @@ test('a learning rate is not mistaken for the vertical axis', () => {
   const worked = sceneFor(sb, 'worked');
   for (const plot of plots(worked)) {
     assert.notEqual(plot.yLabel, 'rate', 'the worked example plots loss, not a learning rate');
+  }
+});
+
+/* ------------------------------------------- the abstraction arriving in place */
+
+test("the anchor annotates the hook's hill instead of drawing a second one", () => {
+  // Two hillsides side by side is the failure this guards against: the anchor's job
+  // is to walk down the hill the hook established, and a fresh drawing silently
+  // tells the learner it is a different hill.
+  const hook = sceneFor(sb, 'hook');
+  const anchor = sceneFor(sb, 'anchor');
+  const hills = (s: Scene) =>
+    s.elements.filter((el) => el.type === 'path' && (el.points?.length ?? 0) > 30);
+  assert.equal(hills(hook).length, 1, 'the hook draws the hill');
+  assert.equal(hills(anchor).length, 0, 'the anchor must not draw a second hill');
+
+  // ...and its walker stands on the hook's hill, which is what sharing the cell is
+  // for. Overlap here is the feature, not a collision.
+  const hill = hills(hook)[0]!;
+  const walker = anchor.elements.filter((el) => el.id.includes('_you_'));
+  assert.ok(walker.length > 0, 'the anchor draws a figure');
+  assert.ok(
+    walker.some((el) => overlaps(el.at, hill.at, 0)),
+    'the figure is not standing on the hill',
+  );
+});
+
+test('the beat that calls the hill a graph morphs out of it, in place', () => {
+  const beats = lessonBeats(adaptLesson(lesson, PRESETS.standard));
+  const { bridge } = findReuse(beats);
+  assert.ok(bridge, 'the shipped lesson has a beat that turns the hill into a plot');
+
+  const hostScene = sb.scenes[bridge.host]!;
+  const bridgeScene = sb.scenes[bridge.beat]!;
+  const hill = hostScene.elements.find((el) => el.type === 'path' && (el.points?.length ?? 0) > 30);
+  assert.ok(hill, 'the host beat drew a hill to grow out of');
+
+  const plot = plots(bridgeScene)[0];
+  assert.ok(plot, 'the bridge beat draws a plot');
+  assert.equal(plot.morph?.fromId, hill.id, 'the plot names the hill it grows out of');
+
+  // In place: the axes have to appear *around* the shape already on the board, so
+  // the plot takes the hill's box rather than a panel of its own somewhere else.
+  // Compared with a tolerance because the hill element's own `at` is its ink bounds
+  // inflated by the stroke width, while the plot is placed on the hill's geometry.
+  const slack = 12;
+  for (const k of ['x', 'y', 'w', 'h'] as const) {
+    assert.ok(
+      Math.abs(plot.at[k] - hill.at[k]) <= slack,
+      `the plot is not where the hill is: ${k} ${plot.at[k]} vs ${hill.at[k]}`,
+    );
+  }
+
+  // And it stays in the hill's region, rather than opening a fresh panel.
+  assert.equal(bridgeScene.region, hostScene.region);
+});
+
+test('a lesson with no concrete drawing has nothing to morph', () => {
+  // The bridge is an upgrade, not a requirement: a lesson whose setup is words only
+  // must compile exactly as it did before this existed.
+  const wordy = {
+    ...lesson,
+    hook: { ...lesson.hook, visuals: [{ kind: 'text' as const, describe: 'a question' }] },
+    anchor: { ...lesson.anchor, visuals: [{ kind: 'text' as const, describe: 'a situation' }] },
+  };
+  const beats = lessonBeats(adaptLesson(wordy, PRESETS.standard));
+  assert.equal(findReuse(beats).bridge, null);
+  const board = compileLesson(wordy, {});
+  for (const scene of board.scenes) {
+    for (const el of scene.elements) assert.equal(el.morph, undefined);
+  }
+});
+
+test('cells are frame-shaped, so holding one fills the frame', () => {
+  // The camera fits the union of what has been drawn, so whenever it holds a single
+  // cell that cell's aspect ratio *is* the frame's fill. A 0.9:1 cell in a 1.78:1
+  // frame leaves half the width empty however well the beat packs it.
+  for (const [aspect, want] of [
+    ['16:9', 16 / 9],
+    ['9:16', 9 / 16],
+    ['1:1', 1],
+  ] as const) {
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      const region: Box = { x: 0, y: 0, w: 4000, h: 4000 };
+      for (const cell of cellBoxes(region, n, aspect)) {
+        const ratio = cell.w / cell.h;
+        assert.ok(
+          Math.abs(ratio - want) < 0.02,
+          `${aspect} cell ${n} is ${ratio.toFixed(3)}, wanted ${want.toFixed(3)}`,
+        );
+      }
+    }
   }
 });

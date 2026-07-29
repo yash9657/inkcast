@@ -307,7 +307,27 @@
       }
     }
     content.appendChild(g);
-    records.push({ item: item, g: g, built: built, parts: [] });
+
+    // A morphing item carries one extra path: the shape in flight, before the
+    // item's own ink takes over. It is never dash-revealed — a morph is a shape
+    // being bent, so there is nothing being "drawn" — and it is a *sibling* of the
+    // item rather than a child, because the item's own group is held at opacity 0
+    // until the morph finishes and the in-flight shape has to be visible before
+    // then. Its coordinates are absolute canvas units, so it needs no transform.
+    var morphEl = null;
+    if (item.morph) {
+      morphEl = document.createElementNS(SVGNS, 'path');
+      morphEl.setAttribute('fill', 'none');
+      morphEl.setAttribute('stroke', item.morph.stroke);
+      morphEl.setAttribute('stroke-width', f(item.morph.strokeWidth));
+      morphEl.setAttribute('stroke-linecap', 'round');
+      morphEl.setAttribute('stroke-linejoin', 'round');
+      morphEl.setAttribute('opacity', '0');
+      morphEl.setAttribute('d', item.morph.frames[0] || '');
+      content.appendChild(morphEl);
+    }
+
+    records.push({ item: item, g: g, built: built, parts: [], morphEl: morphEl });
   }
 
   /* --------------------------------------------------- measure (once, late) */
@@ -610,6 +630,41 @@
     return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
   }
 
+  /* ------------------------------------------------------------------- morph */
+
+  /**
+   * Progress of a morph at `t`, and which baked frame that lands on.
+   *
+   * The frames are sampled once per output frame in Node, so this is a lookup with
+   * no interpolation: blending two roughened `d` strings is not meaningful, and at
+   * capture time `t` sits on a frame boundary anyway.
+   */
+  function morphFrameAt(m, t) {
+    var n = m.frames.length;
+    if (n === 0) return null;
+    if (t <= m.start) return m.frames[0];
+    if (t >= m.end) return m.frames[n - 1];
+    var span = m.end - m.start;
+    var i = Math.round(span > 0 ? ((t - m.start) / span) * (n - 1) : 0);
+    return m.frames[clamp(i, 0, n - 1)];
+  }
+
+  /**
+   * How much of the source element's ink survives at `t`.
+   *
+   * Retired over the first stretch of the morph rather than all of it: the old
+   * shape has to be gone before the new one settles, or the last frames show two
+   * nearly-identical lines and the morph reads as a smudge instead of a
+   * transformation.
+   */
+  var RETIRE_FRACTION = 0.6;
+
+  function retireAmount(m, t) {
+    if (t <= m.start) return 1;
+    var span = Math.max(0.001, (m.end - m.start) * RETIRE_FRACTION);
+    return 1 - c01((t - m.start) / span);
+  }
+
   /* ------------------------------------------------------------ the camera */
 
   function sceneIndexAt(t) {
@@ -755,8 +810,20 @@
     var dimAmount = 0;
     var dimKeep = null;
     var pulse = null;
+    var retire = null;
     for (var i = 0; i < records.length; i++) {
       var it = records[i].item;
+      if (it.morph && it.morph.retire) {
+        var keep = retireAmount(it.morph, t);
+        if (keep < 1) {
+          if (!retire) retire = {};
+          for (var ri = 0; ri < it.morph.retire.length; ri++) {
+            var src = it.morph.retire[ri];
+            // Lowest wins: two morphs out of one shape must not resurrect it.
+            if (retire[src] === undefined || keep < retire[src]) retire[src] = keep;
+          }
+        }
+      }
       if (it.dimOthers) {
         var span = Math.max(0.001, it.sceneEnd - it.start);
         var into = c01((t - it.start) / Math.min(0.45, span));
@@ -811,6 +878,35 @@
 
       if (dimAmount > 0 && item.id !== dimKeep && !item.dimOthers) {
         alpha *= 1 - 0.62 * dimAmount;
+      }
+
+      // Being morphed *out of*: this item's ink hands over to the shape growing out
+      // of it. Matched exactly or by the `id~phase` prefix a plot produces, so
+      // retiring a plot takes its axes and curves with it.
+      if (retire) {
+        var keepAmt = retire[item.id];
+        if (keepAmt === undefined) {
+          for (var rk in retire) {
+            if (item.id.indexOf(rk + '~') === 0) {
+              if (keepAmt === undefined || retire[rk] < keepAmt) keepAmt = retire[rk];
+            }
+          }
+        }
+        if (keepAmt !== undefined) alpha *= keepAmt;
+      }
+
+      // Morphing: show the baked in-flight shape until the item's own ink takes
+      // over, then cross-fade the two. `alpha` above already ramps the item's own
+      // prims in from `start`, which the compiler set to the end of the morph.
+      if (rec.morphEl) {
+        var m = item.morph;
+        var mv = t >= m.start ? 1 : 0;
+        if (t > m.end) mv = 1 - c01((t - m.end) / Math.max(0.001, item.dur));
+        if (mv > 0) {
+          var frame = morphFrameAt(m, t);
+          if (frame) rec.morphEl.setAttribute('d', frame);
+        }
+        rec.morphEl.setAttribute('opacity', f(mv));
       }
 
       // Motion: the element's centre follows its path, and it is already sitting on

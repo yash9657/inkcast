@@ -92,6 +92,47 @@ export const Motion = z.object({
   trail: z.boolean().default(false),
 });
 
+/**
+ * An element that begins as another one already on the board, and becomes itself.
+ *
+ * This exists for the single most important move in an explanation: the moment an
+ * abstraction *arrives out of* the concrete thing the learner already accepted.
+ * The hillside you were standing on becomes the loss curve; the axes are drawn
+ * around it. Without this the two are separate drawings in separate places, and
+ * the claim that they are the same thing is carried entirely by narration — which
+ * is exactly the point at which a learner stops following.
+ *
+ * `fromId` must already be on the board (drawn by this scene or an earlier one and
+ * `persist`ed). The renderer interpolates the source's geometry into this
+ * element's, holding the hand-drawn wobble steady so it reads as one shape being
+ * reshaped rather than a crossfade between two pictures. Both must therefore *have*
+ * interpolable geometry: a `path` can morph into a `path` or into a `plot` (whose
+ * first curve is the target), and anything else is ignored with a warning.
+ */
+export const Morph = z.object({
+  /** Id of the element this one grows out of. */
+  fromId: z.string(),
+  from: z.number().min(0).max(1).default(0),
+  to: z.number().min(0).max(1).default(0.45),
+  easing: z.enum(['linear', 'ease', 'ease-in', 'ease-out']).default('ease'),
+  /**
+   * Fade the source out as this takes over. Almost always right — leaving it up
+   * means the old shape sits under the new one — but a morph that splits one thing
+   * into two wants the original kept.
+   */
+  retire: z.boolean().default(true),
+  /**
+   * Other elements whose ink this replaces, faded out alongside `fromId`.
+   *
+   * A drawing is rarely one stroke. The hillside comes with fog across it and a
+   * figure standing on it, and those belong to the hill rather than to the graph it
+   * becomes: left up, the fog lies across the finished axes and the walker stands in
+   * mid-air where the slope used to be. Naming them explicitly rather than inferring
+   * them from id prefixes keeps the renderer free of the planner's naming habits.
+   */
+  retires: z.array(z.string()).default([]),
+});
+
 const ElementBase = {
   id: z.string(),
   at: Box,
@@ -108,6 +149,11 @@ const ElementBase = {
   z: z.number().int().optional(),
   /** Optional movement along a path, after the element has entered. */
   motion: Motion.optional(),
+  /**
+   * Optional: enter by being reshaped out of another element rather than by being
+   * drawn from nothing. Only meaningful for elements with interpolable geometry.
+   */
+  morph: Morph.optional(),
 };
 
 export const TextElement = z.object({
@@ -403,6 +449,7 @@ export type PathElement = z.infer<typeof PathElement>;
 export type Curve = z.infer<typeof Curve>;
 export type PlotOverlay = z.infer<typeof PlotOverlay>;
 export type Motion = z.infer<typeof Motion>;
+export type Morph = z.infer<typeof Morph>;
 
 /* ------------------------------------------------------------- derivations */
 
