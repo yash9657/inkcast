@@ -1,5 +1,11 @@
 # Inkcast status
 
+> **Partly superseded, 2026-07-29.** Three defects reported below are now fixed — the
+> two vaults, the second hillside, and the frame-fill numbers. See `HANDOFF.md` for
+> which lines to disregard before acting on them. The rest of this report still stands.
+> It is left unedited on purpose: it is a dated record of what was measured, not a
+> live checklist.
+
 Written by the verification agent, 2026-07-28, against the working tree at
 `9d138b3` (nothing committed). Every claim is backed by a command run on this
 machine. Where something is broken it says so, and the gaps section is longer
