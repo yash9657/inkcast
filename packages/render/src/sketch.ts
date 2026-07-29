@@ -11,6 +11,7 @@
  * hand would lay them down. The renderer reveals them with stroke-dashoffset, so
  * "one stroke" and "one path" must be the same thing.
  */
+import { normalAt, resampleEven } from './geom.js';
 import type { Rect } from './types.js';
 
 export type Pt = [number, number];
@@ -181,6 +182,67 @@ export function sketchCurve(rng: Rng, st: SketchStyle, pts: Pt[], passes = st.pa
     out.push(curveThrough(jittered, false));
   }
   return out;
+}
+
+function lineThrough(pts: Pt[]): string {
+  if (pts.length === 0) return '';
+  let d = moveTo(pts[0] as Pt);
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i] as Pt;
+    d += ` L${n(p[0])} ${n(p[1])}`;
+  }
+  return d;
+}
+
+export type AlongOptions = {
+  /** Wobble amplitude, as a multiple of the ink style's roughness. */
+  amp?: number;
+  /** Distance between wobble samples, in canvas units. */
+  spacing?: number;
+  /** Straight segments instead of a spline — for staircases and hard corners. */
+  smooth?: boolean;
+  closed?: boolean;
+};
+
+/**
+ * One hand-drawn stroke that follows a dense polyline, in its own direction.
+ *
+ * This is the primitive behind `plot` curves and `path` elements, and it is
+ * deliberately not `sketchCurve`. Two differences matter:
+ *
+ * - **One stroke, not `passes` strokes.** The runtime reveals strokes in order, so
+ *   a two-pass curve would sweep left-to-right and then sweep again. A plotted
+ *   function has to be revealed exactly once, along the direction it was sampled
+ *   in, which is what makes "watch the curve grow" legible.
+ * - **Even wobble frequency.** Jittering raw samples of a function wobbles fast
+ *   where samples bunch up (a steep flank) and slowly where they spread out, which
+ *   reads as noise. Resampling by arc length first, then offsetting along the
+ *   normal with a smoothed random walk, reads as a hand.
+ */
+export function sketchAlong(rng: Rng, st: SketchStyle, pts: Pt[], opts: AlongOptions = {}): string {
+  if (pts.length < 2) return '';
+  const spacing = opts.spacing ?? 30 * st.scale;
+  const base = resampleEven(pts, spacing);
+  if (base.length < 2) return lineThrough(base as Pt[]);
+  const amp = st.roughness * st.scale * 1.7 * (opts.amp ?? 1);
+  const last = base.length - 1;
+  let walk = rng.sym(0.4);
+  const out: Pt[] = base.map((p, i) => {
+    // AR(1) noise: correlated between neighbours, so the line drifts instead of
+    // buzzing. Tapered towards the ends, which is where a hand aims deliberately.
+    walk = walk * 0.6 + rng.sym(1) * 0.5;
+    const taper = last > 0 ? 0.35 + 0.65 * Math.sin((Math.PI * i) / last) : 1;
+    const [nx, ny] = normalAt(base, i);
+    const k = walk * amp * taper;
+    return [p[0] + nx * k, p[1] + ny * k] as Pt;
+  });
+  if (opts.closed && out.length > 2) {
+    const head = out[0] as Pt;
+    out[out.length - 1] = [head[0], head[1]];
+  }
+  return opts.smooth === false
+    ? lineThrough(out)
+    : curveThrough(out, Boolean(opts.closed) && out.length > 3);
 }
 
 /* ------------------------------------------------------------------- shapes */

@@ -26,7 +26,7 @@ const TOOL = 'emit_storyboard';
 
 type ContentBlock = { type: string; name?: string; input?: unknown; text?: string };
 type MessageResponse = { content: ContentBlock[]; stop_reason?: string | null };
-type Message = { role: 'user' | 'assistant'; content: string };
+export type Message = { role: 'user' | 'assistant'; content: string };
 type CreateBody = {
   model: string;
   max_tokens: number;
@@ -39,7 +39,7 @@ type CreateBody = {
   }[];
   tool_choice: { type: 'tool'; name: string };
 };
-type Client = { messages: { create(body: CreateBody): Promise<MessageResponse> } };
+export type Client = { messages: { create(body: CreateBody): Promise<MessageResponse> } };
 type AnthropicCtor = new (opts: { apiKey: string }) => Client;
 
 /** True when the cloud planner can be used at all. */
@@ -51,7 +51,12 @@ export function plannerModel(opts?: { model?: string }): string {
   return opts?.model ?? process.env.INKCAST_PLANNER_MODEL ?? DEFAULT_MODEL;
 }
 
-async function client(): Promise<Client | undefined> {
+/**
+ * A constructed Anthropic client, or `undefined` when the key or the SDK is
+ * missing. Shared with the lesson adapter so there is one place that decides
+ * whether the cloud path is available at all.
+ */
+export async function anthropicClient(): Promise<Client | undefined> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return undefined;
   const mod = await optionalImport<{ default: AnthropicCtor } | AnthropicCtor>(
@@ -111,7 +116,10 @@ function userPrompt(doc: SourceDoc, opts: PlanOptions): string {
     .filter((s) => s.heading)
     .map((s) => `${'  '.repeat(Math.max(0, s.level - 1))}- ${s.heading}`)
     .join('\n');
-  const text = doc.text.length > MAX_INPUT_CHARS ? `${doc.text.slice(0, MAX_INPUT_CHARS)}\n…[truncated]` : doc.text;
+  const text =
+    doc.text.length > MAX_INPUT_CHARS
+      ? `${doc.text.slice(0, MAX_INPUT_CHARS)}\n…[truncated]`
+      : doc.text;
   return [
     `TITLE: ${doc.title}`,
     outline ? `OUTLINE:\n${outline}` : '',
@@ -126,35 +134,51 @@ function userPrompt(doc: SourceDoc, opts: PlanOptions): string {
 
 /* ------------------------------------------------------------------ calling */
 
-async function callTool(
+/**
+ * One forced tool call.
+ *
+ * `tool_choice` pins the model to the tool, and the tool's `input_schema` is our
+ * zod schema rendered as JSON Schema, so the model cannot answer with prose and
+ * cannot invent a shape. zod still validates what comes back: a forced tool call
+ * constrains the structure, not the semantics.
+ */
+export async function callTool(
   c: Client,
   model: string,
   system: string,
   messages: Message[],
   schema: Record<string, unknown>,
+  tool: { name: string; description: string } = {
+    name: TOOL,
+    description: 'Emit the finished storyboard for this document.',
+  },
+  maxTokens = 16000,
 ): Promise<unknown> {
   const res = await c.messages.create({
     model,
-    max_tokens: 16000,
+    max_tokens: maxTokens,
     system,
     messages,
     tools: [
       {
-        name: TOOL,
-        description: 'Emit the finished storyboard for this document.',
+        name: tool.name,
+        description: tool.description,
         input_schema: schema,
       },
     ],
-    tool_choice: { type: 'tool', name: TOOL },
+    tool_choice: { type: 'tool', name: tool.name },
   });
-  const block = res.content.find((b) => b.type === 'tool_use' && b.name === TOOL);
+  const block = res.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
   if (!block || block.input === undefined) {
-    throw new Error(`model returned no ${TOOL} tool call (stop_reason: ${res.stop_reason ?? '?'})`);
+    throw new Error(
+      `model returned no ${tool.name} tool call (stop_reason: ${res.stop_reason ?? '?'})`,
+    );
   }
   return block.input;
 }
 
-function errorDetail(err: unknown): string {
+/** zod issues (or any error) as a short list a model can act on. */
+export function errorDetail(err: unknown): string {
   const e = err as { issues?: { path?: unknown[]; message?: string }[]; message?: string };
   if (Array.isArray(e.issues)) {
     return e.issues
@@ -173,7 +197,7 @@ export async function anthropicPlan(
   doc: SourceDoc,
   opts: PlanOptions = {},
 ): Promise<Storyboard | undefined> {
-  const c = await client();
+  const c = await anthropicClient();
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;
@@ -221,7 +245,7 @@ export async function anthropicEdit(
   instruction: string,
   opts: { model?: string } = {},
 ): Promise<Storyboard | undefined> {
-  const c = await client();
+  const c = await anthropicClient();
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;

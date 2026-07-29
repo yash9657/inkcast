@@ -12,8 +12,7 @@ export type StageOptions = {
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 type Level = keyof typeof LEVELS;
 
-const threshold =
-  LEVELS[(process.env.INKCAST_LOG as Level) ?? 'info'] ?? LEVELS.info;
+const threshold = LEVELS[(process.env.INKCAST_LOG as Level) ?? 'info'] ?? LEVELS.info;
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';

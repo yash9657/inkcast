@@ -350,14 +350,40 @@
     return lines;
   }
 
+  function fitsBox(lines, size, box) {
+    return lines.length * size * LINE_H <= box.h * 1.06;
+  }
+
+  /**
+   * Wrap to the box by real measurement, shrinking until it fits.
+   *
+   * Never truncates. The MVP shipped ellipsised captions, which is the one failure
+   * a teaching video cannot absorb — the learner is reading the sentence that
+   * explains the picture. Stepping the size down by a fixed ratio a fixed number of
+   * times overflowed instead; a binary search finds the largest size that actually
+   * fits, and every word survives.
+   */
   function layoutText(prim, host) {
     var size = prim.size;
     var lines = wrapText(prim.text, prim.box.w, size);
-    for (var attempt = 0; attempt < 4; attempt++) {
-      if (!prim.shrink) break;
-      if (lines.length * size * LINE_H <= prim.box.h * 1.08 || size <= 12) break;
-      size = size * 0.86;
-      lines = wrapText(prim.text, prim.box.w, size);
+    if (prim.shrink && !fitsBox(lines, size, prim.box)) {
+      var lo = Math.max(9, prim.size * 0.42);
+      var hi = prim.size;
+      var bestSize = lo;
+      var bestLines = wrapText(prim.text, prim.box.w, lo);
+      for (var attempt = 0; attempt < 6; attempt++) {
+        var mid = (lo + hi) / 2;
+        var cand = wrapText(prim.text, prim.box.w, mid);
+        if (fitsBox(cand, mid, prim.box)) {
+          lo = mid;
+          bestSize = mid;
+          bestLines = cand;
+        } else {
+          hi = mid;
+        }
+      }
+      size = bestSize;
+      lines = bestLines;
     }
     var anchor = prim.align === 'center' ? 'middle' : prim.align === 'right' ? 'end' : 'start';
     var ax =
@@ -546,9 +572,42 @@
         parts[d2].c1 = acc / total;
       }
       if (parts.length) parts[parts.length - 1].c1 = 1;
+      // A trail bead becomes visible when the moving element passes it, so each
+      // part carries the progress at which it lights up rather than a time slice.
+      if (rec.item.trailAt && parts.length) {
+        var exact = rec.item.trailAt.length === parts.length;
+        for (var tk = 0; tk < parts.length; tk++) {
+          parts[tk].uAt = exact ? rec.item.trailAt[tk] : (tk + 1) / (parts.length + 1);
+        }
+        rec.uStep = 1 / (parts.length + 1);
+      }
       rec.parts = parts;
     }
     meas.textContent = '';
+  }
+
+  /* ------------------------------------------------------------------ motion */
+
+  /**
+   * Where a moving element is at time `t`, from the baked arc-length table.
+   *
+   * The table is sampled once per output frame in Node, so at capture time this is
+   * a lookup with a linear blend between neighbours — no path maths, no easing
+   * curve evaluated twice, nothing that can disagree with the plan.
+   */
+  function motionAt(m, t) {
+    var n = m.samples.length;
+    if (n === 0) return [0, 0, 0];
+    if (t <= m.start) return m.samples[0];
+    if (t >= m.end || n === 1) return m.samples[n - 1];
+    var span = m.end - m.start;
+    var pos = span > 0 ? ((t - m.start) / span) * (n - 1) : 0;
+    var i = Math.floor(pos);
+    if (i >= n - 1) return m.samples[n - 1];
+    var f = pos - i;
+    var a = m.samples[i];
+    var b = m.samples[i + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
   }
 
   /* ------------------------------------------------------------ the camera */
@@ -723,6 +782,7 @@
     var penItem = null;
     var penPart = null;
     var penLocal = 0;
+    var penShift = null;
     for (var r = 0; r < records.length; r++) {
       var rec = records[r];
       var item = rec.item;
@@ -753,11 +813,24 @@
         alpha *= 1 - 0.62 * dimAmount;
       }
 
+      // Motion: the element's centre follows its path, and it is already sitting on
+      // the path's first point before the move starts, so nothing ever jumps.
+      var travel = item.motion ? motionAt(item.motion, t) : null;
+      var moving = travel && !item.trailAt;
+
       var extra = pulse && pulse[item.id] ? pulse[item.id] : 1;
       var total = scale * extra;
-      var tr = 'translate(0,0)';
+      var tr = '';
+      if (moving && (travel[0] !== 0 || travel[1] !== 0)) {
+        tr += 'translate(' + f(travel[0]) + ',' + f(travel[1]) + ') ';
+      }
+      if (item.sweep && p < 1) {
+        // Swings into place: full offset at the start of the entry, none by the end.
+        var swing = item.sweep.deg * (1 - easeOutCubic(p));
+        tr += 'rotate(' + f(swing) + ',' + f(item.sweep.cx) + ',' + f(item.sweep.cy) + ') ';
+      }
       if (total !== 1) {
-        tr =
+        tr +=
           'translate(' +
           f(item.center[0]) +
           ',' +
@@ -771,25 +844,38 @@
           ')';
       }
       rec.g.setAttribute('opacity', f(alpha));
-      rec.g.setAttribute('transform', tr);
+      rec.g.setAttribute('transform', tr === '' ? 'translate(0,0)' : tr.trim());
 
       var parts = rec.parts;
       var active = null;
       var activeLocal = 0;
-      for (var q = 0; q < parts.length; q++) {
-        var part = parts[q];
-        var lp =
-          part.c1 > part.c0 ? c01((p - part.c0) / (part.c1 - part.c0)) : p >= part.c1 ? 1 : 0;
-        applyPart(part, lp, reveal);
-        if (reveal && p >= part.c0 && p < part.c1 && p > 0) {
-          active = part;
-          activeLocal = lp;
+      if (item.trailAt) {
+        // A trail is not drawn on the item's own clock: each bead appears as the
+        // moving element reaches it, so the route always matches where the thing is.
+        var u = travel ? travel[2] : 0;
+        var win = rec.uStep || 0.05;
+        for (var tq = 0; tq < parts.length; tq++) {
+          var bead = parts[tq];
+          applyPart(bead, 1, false);
+          bead.el.setAttribute('opacity', f((bead.baseOpacity || 1) * c01((u - bead.uAt) / win)));
+        }
+      } else {
+        for (var q = 0; q < parts.length; q++) {
+          var part = parts[q];
+          var lp =
+            part.c1 > part.c0 ? c01((p - part.c0) / (part.c1 - part.c0)) : p >= part.c1 ? 1 : 0;
+          applyPart(part, lp, reveal);
+          if (reveal && p >= part.c0 && p < part.c1 && p > 0) {
+            active = part;
+            activeLocal = lp;
+          }
         }
       }
-      if (active && alpha > 0.05 && (!penItem || item.start >= penItem.start)) {
+      if (active && !item.noPen && alpha > 0.05 && (!penItem || item.start >= penItem.start)) {
         penItem = item;
         penPart = active;
         penLocal = activeLocal;
+        penShift = moving ? travel : null;
       }
     }
 
@@ -804,9 +890,13 @@
         while (a < -90) a += 180;
         var deg = plan.pen.baseAngle + a * plan.pen.follow;
         var k = (Math.min(plan.frame.w, plan.frame.h) * 0.16) / (plan.pen.unit * pxPerUnit);
+        // `penPoint` reads the ink in the item's own coordinates; if the item is
+        // being carried along a motion path, the nib has to travel with it.
+        var px0 = pt.x + (penShift ? penShift[0] : 0);
+        var py0 = pt.y + (penShift ? penShift[1] : 0);
         penG.setAttribute(
           'transform',
-          'translate(' + f(pt.x) + ',' + f(pt.y) + ') rotate(' + f(deg) + ') scale(' + f(k) + ')',
+          'translate(' + f(px0) + ',' + f(py0) + ') rotate(' + f(deg) + ') scale(' + f(k) + ')',
         );
         var edgeFade = Math.min(t - penItem.start, penItem.start + penItem.dur - t) / PEN_FADE;
         penG.setAttribute('opacity', f(c01(edgeFade)));

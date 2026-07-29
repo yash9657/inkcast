@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { logger } from '@inkcast/core';
 import { clipWavFromFloat32 } from '../wav.js';
 import { splitSentences } from '../text.js';
+import { TEACHING_VOICE, voiceProfile } from '../voices.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
 
 const log = logger('voice:kokoro');
@@ -39,15 +40,43 @@ const DTYPES: readonly KokoroDtype[] = ['fp32', 'fp16', 'q8', 'q4', 'q4f16'];
  * (British) language prefixes — offering the rest would hand users a hard error.
  */
 export const KOKORO_VOICES = [
-  'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore', 'af_nicole',
-  'af_nova', 'af_river', 'af_sarah', 'af_sky',
-  'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
-  'am_puck', 'am_santa',
-  'bf_emma', 'bf_isabella', 'bf_alice', 'bf_lily',
-  'bm_george', 'bm_lewis', 'bm_daniel', 'bm_fable',
+  'af_heart',
+  'af_alloy',
+  'af_aoede',
+  'af_bella',
+  'af_jessica',
+  'af_kore',
+  'af_nicole',
+  'af_nova',
+  'af_river',
+  'af_sarah',
+  'af_sky',
+  'am_adam',
+  'am_echo',
+  'am_eric',
+  'am_fenrir',
+  'am_liam',
+  'am_michael',
+  'am_onyx',
+  'am_puck',
+  'am_santa',
+  'bf_emma',
+  'bf_isabella',
+  'bf_alice',
+  'bf_lily',
+  'bm_george',
+  'bm_lewis',
+  'bm_daniel',
+  'bm_fable',
 ] as const;
 
-export const KOKORO_DEFAULT_VOICE = 'af_heart';
+/**
+ * The teaching default, chosen by measuring every voice graded C or better
+ * rather than by taking the package default — see `voices.ts` for the experiment
+ * and the numbers. It resolves to `af_heart`: Kokoro's grade-A flagship, warm,
+ * with the steadiest level of the top tier.
+ */
+export const KOKORO_DEFAULT_VOICE = TEACHING_VOICE;
 
 /** Kokoro's ONNX decoder degrades on very long inputs; chunk on sentences. */
 const MAX_CHUNK_CHARS = 320;
@@ -141,7 +170,8 @@ export async function loadKokoro(onDownload?: (note: string) => void): Promise<K
     const cacheDir = modelCacheDir();
     await mkdir(cacheDir, { recursive: true });
 
-    const transformers = (await import('@huggingface/transformers')) as unknown as TransformersEnvModule;
+    const transformers =
+      (await import('@huggingface/transformers')) as unknown as TransformersEnvModule;
     transformers.env.cacheDir = cacheDir;
     transformers.env.useFSCache = true;
     transformers.env.allowLocalModels = true;
@@ -212,9 +242,7 @@ export function chunkForKokoro(text: string, maxChars = MAX_CHUNK_CHARS): string
 
 /* ------------------------------------------------------------------ provider */
 
-export function createKokoroProvider(
-  onDownload?: (note: string) => void,
-): VoiceProvider {
+export function createKokoroProvider(onDownload?: (note: string) => void): VoiceProvider {
   let availability: Promise<boolean> | undefined;
 
   return {
@@ -251,6 +279,10 @@ export function createKokoroProvider(
         `voice "${requested}" is not a Kokoro voice — falling back to ${KOKORO_DEFAULT_VOICE}`,
       );
       return KOKORO_DEFAULT_VOICE;
+    },
+
+    naturalWpm(voice: string) {
+      return voiceProfile(voice)?.baselineWpm;
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {

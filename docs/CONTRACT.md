@@ -34,15 +34,15 @@ Read it before writing any code. Key ideas you must respect:
 
 ## Pipeline stages and their signatures
 
-Each stage only *enriches* the storyboard. Keep these signatures exactly.
+Each stage only _enriches_ the storyboard. Keep these signatures exactly.
 
-| Stage | Package | Entry signature |
-| --- | --- | --- |
-| ingest | `@inkcast/planner` | `ingest(input: {text?, filePath?, url?}): Promise<SourceDoc>` |
-| plan | `@inkcast/planner` | `plan(doc: SourceDoc, opts: PlanOptions): Promise<Storyboard>` |
-| voice | `@inkcast/voice` | `narrate(sb: Storyboard, dir: string, opts?): Promise<Storyboard>` |
-| visuals | `@inkcast/visuals` | `resolveVisuals(sb: Storyboard, dir: string, opts?): Promise<Storyboard>` |
-| render | `@inkcast/render` | `render(sb: Storyboard, dir: string, opts?): Promise<{videoPath: string}>` |
+| Stage   | Package            | Entry signature                                                            |
+| ------- | ------------------ | -------------------------------------------------------------------------- |
+| ingest  | `@inkcast/planner` | `ingest(input: {text?, filePath?, url?}): Promise<SourceDoc>`              |
+| plan    | `@inkcast/planner` | `plan(doc: SourceDoc, opts: PlanOptions): Promise<Storyboard>`             |
+| voice   | `@inkcast/voice`   | `narrate(sb: Storyboard, dir: string, opts?): Promise<Storyboard>`         |
+| visuals | `@inkcast/visuals` | `resolveVisuals(sb: Storyboard, dir: string, opts?): Promise<Storyboard>`  |
+| render  | `@inkcast/render`  | `render(sb: Storyboard, dir: string, opts?): Promise<{videoPath: string}>` |
 
 `dir` is a per-project working directory (`projects/<id>/`). Stages write their
 artefacts there (`audio/`, `assets/`, `frames/`, `out.mp4`) and store **relative**
@@ -59,9 +59,9 @@ keys go in `<dir>/cache.json`.
    - planner → deterministic heuristic planner (structure-aware, no LLM)
    - voice → Kokoro ONNX running locally via `kokoro-js`
    - visuals → built-in icon set + procedural diagrams, no text-to-image
-   Cloud providers (Anthropic for planning, ElevenLabs for voice, Replicate/fal
-   for images) are **opt-in upgrades behind adapters**, selected by env var.
-   A missing key must degrade gracefully with a clear log line, never crash.
+     Cloud providers (Anthropic for planning, ElevenLabs for voice, Replicate/fal
+     for images) are **opt-in upgrades behind adapters**, selected by env var.
+     A missing key must degrade gracefully with a clear log line, never crash.
 2. **Renderer is Playwright + ffmpeg. Do NOT use Remotion.** Remotion needs a
    paid company licence above 3 employees, which is incompatible with this
    project's purpose. We drive a headless Chromium page, seek deterministically,
@@ -98,7 +98,11 @@ We consume TypeScript sources directly across the workspace (no build step
 needed for local dev). Each package needs a `tsconfig.json`:
 
 ```json
-{ "extends": "../../tsconfig.base.json", "include": ["src"], "compilerOptions": { "outDir": "dist", "rootDir": "src" } }
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"],
+  "compilerOptions": { "outDir": "dist", "rootDir": "src" }
+}
 ```
 
 Export a clean public API from `src/index.ts`. Log through

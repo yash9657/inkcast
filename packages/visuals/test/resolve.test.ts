@@ -6,7 +6,7 @@ import test from 'node:test';
 import { parseStoryboard, type Storyboard } from '@inkcast/core';
 import { loadVisualManifest } from '../src/manifest.js';
 import { resolveVisuals } from '../src/resolve.js';
-import { containsBox, n, padBox } from '../src/svg.js';
+import { containsBox, n, padBox, pathBBox, unionBox } from '../src/svg.js';
 
 /** A storyboard that exercises every element type and every lane. */
 function fixture(over: Record<string, unknown> = {}): Storyboard {
@@ -371,3 +371,243 @@ async function snapshot(dir: string): Promise<Record<string, string>> {
   }
   return out;
 }
+
+/* ------------------------------------- plot, path and motion, end to end --- */
+
+/** The gradient-descent picture the MVP's IR could not express at all. */
+function teachingFixture(): Storyboard {
+  return parseStoryboard({
+    version: 1,
+    title: 'Gradient descent',
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    scenes: [
+      {
+        id: 'anchor',
+        narration: 'You are on a foggy hillside and you want the valley.',
+        camera: { x: 960, y: 540, zoom: 1 },
+        region: 'hill',
+        role: 'anchor',
+        hold: 0.8,
+        elements: [
+          {
+            id: 'hill',
+            type: 'path',
+            at: { x: 140, y: 160, w: 700, h: 520 },
+            points: [
+              { x: 140, y: 640 },
+              { x: 300, y: 420 },
+              { x: 470, y: 220 },
+              { x: 640, y: 400 },
+              { x: 820, y: 660 },
+            ],
+            weight: 1.3,
+            enter: { at: 0, duration: 1.4, style: 'draw' },
+          },
+          {
+            id: 'walker',
+            type: 'shape',
+            shape: 'ellipse',
+            at: { x: 448, y: 196, w: 46, h: 46 },
+            fill: true,
+            motion: {
+              path: [
+                { x: 471, y: 219 },
+                { x: 640, y: 400 },
+                { x: 760, y: 560 },
+                { x: 820, y: 655 },
+              ],
+              from: 0.35,
+              to: 0.95,
+              easing: 'ease-out',
+              trail: true,
+            },
+          },
+        ],
+      },
+      {
+        id: 'step',
+        narration: 'That hillside is a graph, and the slope tells you which way is down.',
+        camera: { x: 1400, y: 500, zoom: 1.2 },
+        region: 'plot',
+        role: 'step',
+        elements: [
+          {
+            id: 'loss',
+            type: 'plot',
+            at: { x: 980, y: 140, w: 820, h: 640 },
+            xDomain: [-3, 3],
+            yDomain: [0, 10],
+            xLabel: 'weight w',
+            yLabel: 'loss',
+            grid: true,
+            ticks: true,
+            enter: { at: 0.05, duration: 1.6, style: 'draw' },
+            curves: [
+              { id: 'L', fn: { name: 'parabola', params: [1, 0, 0.5] }, label: 'loss' },
+              { id: 'flat', fn: { name: 'line', params: [0, 0.5] }, dashed: true, accent: 4 },
+            ],
+            overlays: [
+              { kind: 'point', curveId: 'L', x: 2, label: 'w = 2', at: 0.3 },
+              { kind: 'tangent', curveId: 'L', x: 2, span: 1.1, label: 'slope +4', at: 0.55 },
+              { kind: 'dropline', curveId: 'L', x: 2, to: 'both', at: 0.6 },
+              {
+                kind: 'steps',
+                curveId: 'L',
+                xs: [2, 1.2, 0.72, 0.43],
+                label: 'each step',
+                at: 0.8,
+              },
+              {
+                kind: 'annotate',
+                x: -2,
+                y: 8,
+                text: 'downhill is left',
+                leaderTo: { x: -1.2, y: 1.9 },
+                at: 0.9,
+              },
+              { kind: 'shade', curveId: 'L', fromX: -0.8, toX: 0.8, at: 0.95 },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+}
+
+async function runTeaching() {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-teach-'));
+  const out = await resolveVisuals(teachingFixture(), dir);
+  const manifest = await loadVisualManifest(dir);
+  assert.ok(manifest);
+  return { dir, out, manifest };
+}
+
+test('a plot element resolves into revealable parts with per-overlay timing', async () => {
+  const { dir, manifest } = await runTeaching();
+  const plot = manifest.elements.loss;
+  assert.ok(plot, 'no manifest record for the plot');
+  assert.equal(plot.type, 'plot');
+  assert.ok(plot.plot, 'the plot geometry must be recorded for the renderer');
+  assert.ok(plot.strokes.length > 20, `only ${plot.strokes.length} strokes for a whole plot`);
+  assert.ok((plot.texts?.length ?? 0) > 5, 'axis, tick and overlay labels must all be written');
+
+  // The frame maps the declared domain into the element box.
+  assert.deepEqual(plot.plot.xDomain, [-3, 3]);
+  assert.deepEqual(plot.plot.yDomain, [0, 10]);
+  assert.ok(containsBox(plot.box, plot.plot.area));
+
+  // Every part points at a real slice of the draw sequence.
+  const total = plot.strokes.length + (plot.texts?.length ?? 0);
+  const kinds = new Set(plot.plot.parts.map((p) => p.kind));
+  for (const want of ['grid', 'axis', 'ticks', 'axis-label', 'curve', 'point', 'tangent']) {
+    assert.ok(kinds.has(want as never), `no ${want} part`);
+  }
+  for (const part of plot.plot.parts) {
+    assert.ok(part.from >= 0 && part.to < total, `part ${part.id} indexes outside the sequence`);
+    assert.ok(part.at >= 0 && part.at <= 1, `part ${part.id} has an out-of-range at`);
+  }
+  // Overlays keep the fractions the author wrote; the frame inherits the element's.
+  const byKind = (k: string) => plot.plot?.parts.find((p) => p.kind === k);
+  assert.equal(byKind('axis')?.at, 0.05);
+  assert.equal(byKind('point')?.at, 0.3);
+  assert.equal(byKind('tangent')?.at, 0.55);
+  assert.equal(byKind('steps')?.at, 0.8);
+
+  // The tangent's slope is the analytic derivative of x² + 0.5 at x = 2.
+  const tangent = plot.plot.marks.find((m) => m.kind === 'tangent');
+  assert.ok(tangent?.slope !== undefined);
+  assert.ok(Math.abs((tangent.slope as number) - 4) < 1e-6, `slope was ${tangent.slope}`);
+
+  // Curve traces are canvas-space and even, so a ball can ride them.
+  assert.deepEqual(plot.plot.curves.map((c) => c.id).sort(), ['L', 'flat']);
+  const trace = plot.plot.curves.find((c) => c.id === 'L');
+  assert.ok(trace && trace.points.length > 40);
+
+  const svg = await readFile(path.resolve(dir, plot.svg), 'utf8');
+  assert.match(svg, /data-ink-type="plot"/);
+  assert.match(svg, /data-ink-group="plot:tangent:overlay:1"/);
+});
+
+test('a path element records the smooth curve a motion can follow', async () => {
+  const { dir, manifest } = await runTeaching();
+  const hill = manifest.elements.hill;
+  assert.ok(hill?.path, 'the path geometry must be recorded');
+  assert.equal(hill.path.from, 'points');
+  assert.equal(hill.path.closed, false);
+  assert.match(hill.path.d, /^M/);
+  assert.ok(hill.path.d.includes('C'), 'waypoints must be smoothed, not a polyline');
+  assert.ok(hill.path.length > 0);
+  assert.ok(hill.strokes.length > 0);
+  const bounds = unionBox(hill.strokes.map((s) => pathBBox(s.d)));
+  assert.ok(containsBox(padBox(hill.box, 12), bounds), 'the stroke left its box');
+  const svg = await readFile(path.resolve(dir, hill.svg), 'utf8');
+  assert.match(svg, /data-ink-type="path"/);
+});
+
+test('motion resolves to arc-length-even positions and centre-relative offsets', async () => {
+  const { manifest } = await runTeaching();
+  const walker = manifest.elements.walker;
+  assert.ok(walker?.motion, 'motion must be recorded for the renderer');
+  assert.equal(walker.motion.from, 0.35);
+  assert.equal(walker.motion.to, 0.95);
+  assert.equal(walker.motion.easing, 'ease-out');
+  assert.equal(walker.motion.trail, true);
+  assert.ok(walker.motion.length > 0);
+  assert.equal(walker.motion.points.length, walker.motion.offsets.length);
+
+  const gaps: number[] = [];
+  for (let i = 1; i < walker.motion.points.length; i++) {
+    const a = walker.motion.points[i - 1];
+    const b = walker.motion.points[i];
+    assert.ok(a && b);
+    gaps.push(Math.hypot(b.x - a.x, b.y - a.y));
+  }
+  assert.ok(Math.max(...gaps) - Math.min(...gaps) < Math.max(...gaps) * 0.05, 'uneven spacing');
+
+  // The offsets are deltas from the element's own centre.
+  const centre = { x: walker.box.x + walker.box.w / 2, y: walker.box.y + walker.box.h / 2 };
+  const first = walker.motion.points[0];
+  const firstOffset = walker.motion.offsets[0];
+  assert.ok(first && firstOffset);
+  assert.ok(Math.abs(first.x - centre.x - firstOffset.x) < 1e-6);
+
+  // The trail is not part of the element's own draw-on.
+  assert.ok(walker.strokes.every((s) => s.group !== 'trail'));
+});
+
+test('plots and paths are cached and reproduced byte-for-byte', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-teach-'));
+  await resolveVisuals(teachingFixture(), dir);
+  const first = await readFile(path.resolve(dir, 'assets/el-loss.svg'), 'utf8');
+  const firstPath = await readFile(path.resolve(dir, 'assets/el-hill.svg'), 'utf8');
+
+  await resolveVisuals(teachingFixture(), dir);
+  assert.equal(await readFile(path.resolve(dir, 'assets/el-loss.svg'), 'utf8'), first);
+  assert.equal(await readFile(path.resolve(dir, 'assets/el-hill.svg'), 'utf8'), firstPath);
+
+  // A forced rerun must also be deterministic — the seed comes from the ids.
+  await resolveVisuals(teachingFixture(), dir, { force: true });
+  assert.equal(await readFile(path.resolve(dir, 'assets/el-loss.svg'), 'utf8'), first);
+});
+
+test('a path element with neither points nor d warns and draws nothing', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-teach-'));
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'empty',
+    scenes: [
+      {
+        id: 's',
+        narration: 'n',
+        camera: { x: 0, y: 0 },
+        elements: [{ id: 'nothing', type: 'path', at: { x: 0, y: 0, w: 100, h: 100 } }],
+      },
+    ],
+  });
+  const out = await resolveVisuals(sb, dir);
+  const manifest = await loadVisualManifest(dir);
+  assert.ok(manifest);
+  assert.equal(manifest.elements.nothing?.strokes.length, 0);
+  assert.equal(manifest.elements.nothing?.path, undefined);
+  assert.equal(out.scenes.length, 1, 'the pipeline must survive it');
+});

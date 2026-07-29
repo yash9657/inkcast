@@ -49,9 +49,7 @@ export function LibraryView() {
   }, [load]);
 
   // Only poll while something is genuinely in flight.
-  const inFlight = (projects ?? []).some(
-    (p) => p.status === 'running' || p.status === 'queued',
-  );
+  const inFlight = (projects ?? []).some((p) => p.status === 'running' || p.status === 'queued');
 
   React.useEffect(() => {
     if (!inFlight) return;
@@ -88,7 +86,10 @@ export function LibraryView() {
             </span>
             <p className="text-base font-medium text-foreground">The library could not be read</p>
             <p className="max-w-prose text-sm text-muted-foreground">{error}</p>
-            <Button size="sm" onClick={() => void load().catch((e: unknown) => setError(errorMessage(e)))}>
+            <Button
+              size="sm"
+              onClick={() => void load().catch((e: unknown) => setError(errorMessage(e)))}
+            >
               Try again
             </Button>
           </CardContent>
@@ -181,11 +182,7 @@ function ProjectCard({ project, onDeleted }: { project: Project; onDeleted: () =
           </p>
         </div>
 
-        <DeleteProjectButton
-          projectId={project.id}
-          title={project.title}
-          onDeleted={onDeleted}
-        />
+        <DeleteProjectButton projectId={project.id} title={project.title} onDeleted={onDeleted} />
       </div>
     </CardInteractive>
   );

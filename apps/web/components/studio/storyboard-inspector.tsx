@@ -148,7 +148,10 @@ function SceneRow({
               >
                 <ChevronDownIcon
                   aria-hidden
-                  className={cn('transition-transform duration-fast ease-out', open && 'rotate-180')}
+                  className={cn(
+                    'transition-transform duration-fast ease-out',
+                    open && 'rotate-180',
+                  )}
                 />
                 {open ? 'Hide elements' : 'Elements'}
               </Button>

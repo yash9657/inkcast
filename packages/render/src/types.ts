@@ -61,6 +61,24 @@ export type SvgPrim = {
 
 export type PlanPrim = GeomPrim | TextPrim | SvgPrim;
 
+/**
+ * A baked `Motion`: one offset per output frame, plus how far along the path the
+ * element has travelled.
+ *
+ * Positions are resolved by **arc length** in Node (see `compile.ts`) rather than
+ * by waypoint index in the page. Interpolating the index makes an element sprint
+ * across long segments and crawl across short ones — a ball descending a curve
+ * stutters instead of rolling — and baking the table keeps the browser side a
+ * lookup, so there is no second implementation of the maths to drift.
+ */
+export type MotionTrack = {
+  /** Absolute seconds. */
+  start: number;
+  end: number;
+  /** `[dx, dy, u]` per sample: offset from the element's centre, and progress 0–1. */
+  samples: [number, number, number][];
+};
+
 export type PlanItem = {
   id: string;
   /** Index of the owning scene. */
@@ -72,7 +90,10 @@ export type PlanItem = {
   dur: number;
   style: EnterStyle;
   persist: boolean;
-  /** Absolute end of the owning scene — when a non-persistent item fades out. */
+  /**
+   * Absolute end of the owning scene, *including* `Scene.hold` — a non-persistent
+   * item stays up through the deliberate silence and only then fades.
+   */
   sceneEnd: number;
   /** Transform origin for `pop` / `grow`. */
   center: [number, number];
@@ -80,13 +101,36 @@ export type PlanItem = {
   /** Emphasis effects that act on another item rather than drawing anything. */
   pulseTarget?: string;
   dimOthers?: string;
+  /** Movement along a path, baked to even speed. */
+  motion?: MotionTrack;
+  /**
+   * Progress along `motion` at which each prim becomes visible — a dotted trail
+   * appearing bead by bead as the element passes it. The item itself does not move.
+   */
+  trailAt?: number[];
+  /**
+   * Degrees the item is rotated by at the start of its entry, easing to zero. A
+   * tangent swings into the slope it measures instead of blinking on at its final
+   * angle, which is the difference between showing a slope and asserting one.
+   */
+  sweep?: { cx: number; cy: number; deg: number };
+  /** Keep the pen sprite off this item (trails are not being hand-drawn). */
+  noPen?: boolean;
 };
 
 export type PlanScene = {
   id: string;
   start: number;
+  /** Narration plus `hold`: how long this scene owns the screen. */
   dur: number;
+  /** Measured narration length — what every `enter.at` fraction is relative to. */
+  speech: number;
+  /** Deliberate silence at the end of the scene, in seconds. */
+  hold: number;
   camera: { x: number; y: number; zoom: number; transition: number };
+  /** The board this scene draws onto, when it shares one. */
+  region?: string;
+  role?: 'hook' | 'anchor' | 'step' | 'worked' | 'misconception' | 'recap';
 };
 
 export type PenPart = { d: string; fill: string; stroke: string; strokeWidth: number };
@@ -108,6 +152,8 @@ export type RenderPlan = {
   /** Total runtime in seconds, including `meta.outroSec`. */
   duration: number;
   frame: { w: number; h: number };
+  /** Output shape. 9:16 is composed for a phone, not cropped from 16:9. */
+  aspect: '16:9' | '9:16' | '1:1';
   canvas: Rect;
   paper: string;
   ink: string;
@@ -118,10 +164,16 @@ export type RenderPlan = {
   fontFamily: string;
   /**
    * Canvas units per output pixel, at the camera's typical framing. Multiply a
-   * pixel-quoted constant — the type scale, stroke widths, the grid step — by
-   * this to get canvas units.
+   * pixel-quoted constant — stroke widths, the grid step — by this to get canvas
+   * units.
    */
   scale: number;
+  /** Same conversion for type, with the narrow-frame gain applied. */
+  typeScale: number;
+  /** Safe margins in output pixels the camera framing keeps clear. */
+  safe: { top: number; right: number; bottom: number; left: number };
+  /** Fraction of the frame carrying content, per scene. A slideshow shows here. */
+  fill: number[];
   scenes: PlanScene[];
   items: PlanItem[];
   pen: PenArt;

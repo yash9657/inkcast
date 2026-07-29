@@ -15,13 +15,16 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Asset, Element, TextElement } from '@inkcast/core';
 import type { DiagramLayout } from './diagram.js';
+import type { MotionLayout } from './motion.js';
+import type { PlotLayout } from './plot.js';
 import type { InkStyleName, Palette } from './style.js';
 import type { Box } from './svg.js';
 import type { TextLayout } from './text.js';
 import type { InkStroke } from './writer.js';
 
 export const MANIFEST_PATH = 'assets/visuals.json';
-export const MANIFEST_VERSION = 1;
+/** Bumped to 2 when plots, paths and motion joined the record. */
+export const MANIFEST_VERSION = 2;
 
 export type VisualSpace = 'canvas' | 'local';
 export type ViewBox = [number, number, number, number];
@@ -41,6 +44,8 @@ export type AssetVisual = {
   seed: number;
   prompt?: string;
   icon?: { slug: string; how: string };
+  /** Project-relative cached raster, when this came through the illustration lane. */
+  raster?: string;
 };
 
 export type ElementVisual = {
@@ -66,6 +71,16 @@ export type ElementVisual = {
   /** Handwriting blocks, with per-line masks and per-word progress windows. */
   texts?: TextLayout[];
   diagram?: DiagramLayout;
+  /**
+   * Plot geometry: the frame, the data mapping, one revealable record per axis /
+   * curve / overlay with its own `at` fraction and draw-index range, and
+   * arc-length-even canvas traces of every curve so something can ride them.
+   */
+  plot?: PlotLayout;
+  /** The smooth un-roughened path a `path` element describes, for motion to follow. */
+  path?: { d: string; length: number; closed: boolean; filled: boolean; from: 'points' | 'd' };
+  /** Resolved movement: arc-length-even positions plus centre-relative offsets. */
+  motion?: MotionLayout;
   asset?: { id: string; svg: string; flipX: boolean };
   emphasis?: { targetId: string; effect: string; targetBox: Box; resolved: boolean };
 };

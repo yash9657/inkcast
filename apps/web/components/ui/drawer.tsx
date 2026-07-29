@@ -87,7 +87,10 @@ export function DrawerHandle({ className, ...props }: React.ComponentProps<'div'
   return (
     <DrawerPrimitive.SwipeArea
       data-slot="drawer-handle"
-      className={cn('flex shrink-0 cursor-grab justify-center py-3 active:cursor-grabbing', className)}
+      className={cn(
+        'flex shrink-0 cursor-grab justify-center py-3 active:cursor-grabbing',
+        className,
+      )}
       {...props}
     >
       <div className="h-1.5 w-10 rounded-full bg-input" />
@@ -143,7 +146,10 @@ export function DrawerFooter({ className, ...props }: React.ComponentProps<'div'
   return (
     <div
       data-slot="drawer-footer"
-      className={cn('flex shrink-0 flex-col-reverse gap-2 px-6 pt-4 pb-6 sm:flex-row sm:justify-end', className)}
+      className={cn(
+        'flex shrink-0 flex-col-reverse gap-2 px-6 pt-4 pb-6 sm:flex-row sm:justify-end',
+        className,
+      )}
       {...props}
     />
   );

@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "topic": "Gradient Descent",
+  "audience": "someone who has never done calculus and does not want to start now",
+  "objective": "explain why the update subtracts the slope — why there is a minus sign — and why the step size can be too large",
+  "jargonBudget": [
+    "gradient",
+    "derivative",
+    "loss function",
+    "learning rate",
+    "optimisation",
+    "parameter"
+  ],
+  "hook": {
+    "idea": "A foggy hillside, and no map",
+    "because": "",
+    "narration": "You are on a hillside in thick fog. You want the valley floor. You cannot see it, and you have no map. So what do you do?",
+    "visuals": [
+      {
+        "describe": "a drawn hillside falling to a valley on the right, a figure standing high on the left slope, fog drifting across the middle",
+        "kind": "path",
+        "cue": "in thick fog"
+      }
+    ],
+    "hold": 1.4
+  },
+  "anchor": {
+    "idea": "Feel the ground, step downhill, repeat",
+    "because": "You do not need to see the whole hill to know which way is down: the ground under one foot is enough to choose a direction, and you can choose again from wherever you land.",
+    "narration": "You feel the ground with one foot. It drops away to the right, so you step right. Then you feel again, and step again.",
+    "visuals": [
+      {
+        "describe": "the same hillside with a figure on it and three short steps drawn walking down towards the valley",
+        "kind": "path",
+        "cue": "step again"
+      }
+    ],
+    "hold": 0.5
+  },
+  "steps": [
+    {
+      "idea": "That hillside is really a graph",
+      "because": "The height of the hill is just one number that depends on where you stand, and any number that depends on one thing can be drawn as a curve instead of a landscape.",
+      "narration": "That hill is really a graph. Height is just a number that depends on where you stand. So draw it as a curve.",
+      "visuals": [
+        {
+          "describe": "a bowl-shaped curve with hand-drawn axes, sideways axis is where you stand, upward axis is height",
+          "kind": "plot",
+          "cue": "draw it as a curve"
+        }
+      ],
+      "hold": 0.5
+    },
+    {
+      "idea": "Height becomes how wrong we are",
+      "because": "A machine that is learning has no hill, but it does have one number saying how badly it is doing right now, and that number rises and falls as its settings change exactly like ground under your feet.",
+      "narration": "A learning machine has no hill. It has a number for how wrong it is. Change its settings, and that number rises and falls like ground.",
+      "visuals": [
+        {
+          "describe": "the same bowl with loss up the vertical axis and the parameter sideways, a point marked on the curve and lines dropped to both axes",
+          "kind": "plot",
+          "cue": "rises and falls"
+        }
+      ],
+      "hold": 0.5
+    },
+    {
+      "idea": "The slope tells you which way is down",
+      "because": "A straight edge laid against the curve at your point tilts the way the ground tilts, so if it climbs to the right then right is uphill, and down is the other way — which is exactly why the step subtracts the slope instead of adding it, and where the minus sign comes from.",
+      "narration": "Lay a straight edge on the curve. It tilts up to the right, so right is uphill. Down is the other way. That is your minus sign.",
+      "visuals": [
+        {
+          "describe": "the bowl with a point at w = 3 and a straight tangent line touching the curve there, tilting up to the right, with an arrow underneath pointing downhill to the left",
+          "kind": "plot",
+          "cue": "tilts up to the right"
+        }
+      ],
+      "hold": 0.7
+    },
+    {
+      "idea": "How big a step is the one knob you choose",
+      "because": "Nothing tells you how far to go, only which way, so the size of each step is yours to pick: pick it too small and you crawl, too large and you leap clean over the bottom and land higher than you started.",
+      "narration": "How far should one step go? Nothing tells you. Too small, you crawl. Too large, you leap over the bottom. That size is the learning rate.",
+      "visuals": [
+        {
+          "describe": "three plots side by side of the same bowl: too small crawling, too large diverging, about right converging",
+          "kind": "plot",
+          "cue": "Too small, you crawl"
+        }
+      ],
+      "hold": 0.6
+    }
+  ],
+  "worked": {
+    "idea": "Three, minus a tenth of four, is 2.6",
+    "because": "The step is the slope scaled down by the size you chose and then subtracted, so a steep slope moves you a long way and a flat one barely moves you at all — which is why the steps shrink on their own as you near the bottom.",
+    "narration": "You are at three. The slope there is plus four. Scale it by nought point one: three minus nought point four is two point six. Again, and the step is smaller.",
+    "visuals": [
+      {
+        "describe": "the bowl with the ball at w = 3, slope = +4, learning rate 0.1, and the descent steps drawn as the ball moves down to 2.6, each step shorter than the one before",
+        "kind": "plot",
+        "cue": "three minus nought point four"
+      },
+      {
+        "describe": "the ball rolls down the curve and stops, leaving a dotted trail behind it",
+        "kind": "motion",
+        "cue": "the step is smaller"
+      }
+    ],
+    "hold": 0.8
+  },
+  "misconception": {
+    "idea": "It finds a minimum, not the minimum",
+    "because": "The rule only ever looks at the ground directly under the ball, so once the ball is inside a dip there is nothing left to pull it out, and a deeper valley two hills away is never even noticed.",
+    "narration": "This does not find the best answer. It finds the bottom of whichever dip it started in. The deeper valley on the left never gets visited.",
+    "visuals": [
+      {
+        "describe": "a curve with two wells, a shallow one on the right and a deeper local minimum on the left, the ball starting on the right and settling into the shallow one",
+        "kind": "plot",
+        "cue": "whichever dip it started in"
+      }
+    ],
+    "hold": 0.9
+  },
+  "recap": {
+    "idea": "The whole chain, in one breath",
+    "because": "",
+    "narration": "You cannot see the valley. But the ground has a slope, and the slope points uphill. So step the other way, a little at a time.",
+    "visuals": [],
+    "hold": 0.8
+  }
+}

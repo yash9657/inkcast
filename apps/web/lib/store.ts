@@ -166,8 +166,16 @@ export function mediaUrl(id: string, relPath: string): string {
 export const PROJECT_STATUSES = ['queued', 'running', 'ready', 'failed'] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+/**
+ * Kept in step with `SourceRef` in `@inkcast/pipeline`, which is the authority:
+ * the pipeline now also records `topic` (a bare subject went straight into the
+ * lesson stage) and `lesson` (a hand-authored `*.lesson.json` was rendered
+ * directly). The studio only ever *creates* the first three, but it indexes
+ * every project on disk — including ones the CLI made — so a narrower enum here
+ * would drop those from the library on read.
+ */
 const SourceRefSchema = z.object({
-  kind: z.enum(['text', 'url', 'file']),
+  kind: z.enum(['text', 'url', 'file', 'topic', 'lesson']),
   ref: z.string(),
 });
 

@@ -5,7 +5,7 @@ diagnosis and the plan. It is written to be executable by someone starting cold.
 
 ## Verdict on the MVP
 
-We built a working *compiler* and shipped a *slideshow*. The machinery is sound:
+We built a working _compiler_ and shipped a _slideshow_. The machinery is sound:
 25ms narration sync across 164 seconds, deterministic frames, real stroke-by-stroke
 drawing, a marker sprite riding the ink, resumable caching, 180 passing tests. None
 of that is the problem.
@@ -76,11 +76,12 @@ A `Lesson` is not a document outline. It has a required shape:
 - `worked` — a concrete numeric or narrative walkthrough. Real numbers. This is
   where understanding actually consolidates and we currently have nothing.
 - `misconception` — the specific wrong belief a learner forms here, named and
-  refuted. For gradient descent: that it finds *the* minimum.
+  refuted. For gradient descent: that it finds _the_ minimum.
 - `recap` — the chain of ideas restated compactly against the accumulated board.
 
 Rules the lesson stage must enforce, because they are what "thorough and
 first-principles" actually decomposes into:
+
 - Concrete before abstract, always. Never introduce notation before the picture.
 - One new idea per beat. If a beat needs two, split it.
 - Every abstraction must point back to the anchor.
@@ -151,8 +152,8 @@ category — the Odyssey, the French Revolution, a cell with recurring organelle
 
 ### 1. Identity across poses (the real gap)
 
-One cached drawing reused is consistent. Odysseus *standing*, then *on a ship*,
-then *stringing a bow* are three separate generations with three different faces.
+One cached drawing reused is consistent. Odysseus _standing_, then _on a ship_,
+then _stringing a bow_ are three separate generations with three different faces.
 Fix with reference-image conditioning rather than prompt repetition, which does not
 work:
 
@@ -212,7 +213,7 @@ Target shape, roughly 90 seconds:
 6. WORKED — real numbers. w = 3, slope = +4, lr = 0.1, so w becomes 2.6. Show
    the ball actually move (`motion`). Repeat twice; watch the steps shorten as
    the slope flattens.
-7. MISCONCEPTION — it finds *a* minimum, not *the* minimum. Draw a second valley
+7. MISCONCEPTION — it finds _a_ minimum, not _the_ minimum. Draw a second valley
    and land the ball in the wrong one.
 8. STEP — learning rate, shown as three plots side by side: too small crawls,
    too large diverges, about right converges.

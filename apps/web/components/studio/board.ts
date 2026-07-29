@@ -83,13 +83,21 @@ export type ElementKind = SceneElement['type'];
 export function describeElement(el: SceneElement): { kind: string; detail: string } {
   switch (el.type) {
     case 'text':
-      return { kind: el.role === 'title' ? 'Title' : el.role === 'heading' ? 'Heading' : 'Text', detail: el.text };
+      return {
+        kind: el.role === 'title' ? 'Title' : el.role === 'heading' ? 'Heading' : 'Text',
+        detail: el.text,
+      };
     case 'asset':
       return { kind: 'Drawing', detail: el.assetId };
     case 'shape':
       return { kind: 'Shape', detail: el.shape.replace(/-/g, ' ') };
     case 'arrow':
-      return { kind: 'Arrow', detail: el.label ?? `${round(el.from.x)},${round(el.from.y)} → ${round(el.to.x)},${round(el.to.y)}` };
+      return {
+        kind: 'Arrow',
+        detail:
+          el.label ??
+          `${round(el.from.x)},${round(el.from.y)} → ${round(el.to.x)},${round(el.to.y)}`,
+      };
     case 'diagram':
       return {
         kind: 'Diagram',
@@ -128,7 +136,8 @@ function round(n: number): number {
 /** The camera move into a scene, in words. */
 export function describeCamera(scene: Scene, previous: Scene | undefined): string {
   const cam = scene.camera;
-  if (!previous) return cam.zoom > 1 ? `opens at ${cam.zoom.toFixed(1)}× zoom` : 'opens on the whole board';
+  if (!previous)
+    return cam.zoom > 1 ? `opens at ${cam.zoom.toFixed(1)}× zoom` : 'opens on the whole board';
   const prev = previous.camera;
   const moved = Math.hypot(cam.x - prev.x, cam.y - prev.y) > 1;
   const zoomed = Math.abs(cam.zoom - prev.zoom) > 0.01;
@@ -136,6 +145,7 @@ export function describeCamera(scene: Scene, previous: Scene | undefined): strin
   const parts: string[] = [];
   if (moved) parts.push('pans');
   if (zoomed) parts.push(cam.zoom > prev.zoom ? 'zooms in' : 'zooms out');
-  const how = cam.transition === 0 ? 'cuts' : `${parts.join(' and ')} over ${cam.transition.toFixed(1)}s`;
+  const how =
+    cam.transition === 0 ? 'cuts' : `${parts.join(' and ')} over ${cam.transition.toFixed(1)}s`;
   return `camera ${how}`;
 }

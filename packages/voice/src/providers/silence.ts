@@ -11,18 +11,25 @@
  */
 import { logger } from '@inkcast/core';
 import { estimateSpokenSeconds } from '../text.js';
+import { TEACHING_WPM_TARGET } from '../voices.js';
 import { writeSilenceWav } from '../audio.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
 
 const log = logger('voice:silence');
 
-/** Words per minute used to estimate a scene's length. */
-const WPM = 155;
-const MIN_SEC = 1.2;
+/**
+ * Words per minute used to estimate a clip's length.
+ *
+ * Matches the teaching target rather than the old summarizer pace, so a
+ * silence-provider render has the same timing as a spoken one and layout
+ * iteration in CI is representative.
+ */
+const WPM = TEACHING_WPM_TARGET;
+const MIN_SEC = 0.4;
 const MAX_SEC = 60;
 
-export function estimateClipSeconds(text: string): number {
-  const estimate = estimateSpokenSeconds(text, WPM);
+export function estimateClipSeconds(text: string, wordsPerMinute = WPM): number {
+  const estimate = estimateSpokenSeconds(text, wordsPerMinute);
   return Math.max(MIN_SEC, Math.min(MAX_SEC, estimate));
 }
 
@@ -43,8 +50,15 @@ export function createSilenceProvider(): VoiceProvider {
       return 'silence';
     },
 
+    naturalWpm() {
+      // Silence is generated at exactly the requested rate, so no correction is
+      // needed and reporting the target keeps `speed` at 1.
+      return TEACHING_WPM_TARGET;
+    },
+
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
-      const seconds = estimateClipSeconds(req.text) / Math.max(0.5, req.speed);
+      const wpm = req.targetWpm ?? TEACHING_WPM_TARGET;
+      const seconds = estimateClipSeconds(req.text, wpm) / Math.max(0.5, req.speed);
       log.debug(`writing ${seconds.toFixed(2)}s of silence for ${req.text.length} chars`);
       await writeSilenceWav(req.outPath, seconds);
       return {};

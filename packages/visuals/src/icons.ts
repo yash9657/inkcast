@@ -834,6 +834,341 @@ export const ICON_KEYWORDS: Record<string, string[]> = {
   presentation: ['presentation', 'monitor'],
   slide: ['presentation', 'monitor'],
   whiteboard: ['presentation', 'pencil'],
+
+  /* ------------------------------------------------------------------------
+   * Everything below was added for *explainer* vocabulary rather than product
+   * vocabulary. The MVP mismatched four of nine assets in a maths film because
+   * the table only knew software nouns: "loss" fell through every tier and
+   * landed on a briefcase. A curve, a hill, a tangent, a minimum, a market and
+   * a cell are the words teaching actually uses, so they are named explicitly
+   * instead of being left to fuzzy matching, which is confidently wrong far
+   * more often than it is right.
+   * ---------------------------------------------------------------------- */
+
+  /* maths, as an explainer means it */
+  slope: ['trending-up', 'chart-spline'],
+  steep: ['trending-up', 'mountain'],
+  steepness: ['trending-up', 'mountain'],
+  tangent: ['chart-spline', 'trending-up'],
+  curve: ['chart-spline', 'spline'],
+  curves: ['chart-spline', 'spline'],
+  spline: ['spline', 'chart-spline'],
+  bowl: ['chart-spline', 'chart-area'],
+  valley: ['mountain', 'chart-spline'],
+  hill: ['mountain'],
+  hills: ['mountain'],
+  hillside: ['mountain'],
+  mountain: ['mountain', 'mountain-snow'],
+  peak: ['mountain-snow', 'trending-up'],
+  summit: ['mountain-snow', 'flag'],
+  downhill: ['trending-down'],
+  uphill: ['trending-up'],
+  descent: ['trending-down', 'arrow-down'],
+  minimum: ['trending-down', 'arrow-down-to-line'],
+  minima: ['trending-down', 'arrow-down-to-line'],
+  maximum: ['trending-up', 'arrow-up-from-line'],
+  optimum: ['target', 'crosshair'],
+  optimal: ['target'],
+  optimise: ['target', 'sliders-horizontal'],
+  optimize: ['target', 'sliders-horizontal'],
+  optimiser: ['sliders-horizontal', 'settings'],
+  optimizer: ['sliders-horizontal', 'settings'],
+  convergence: ['git-merge', 'target'],
+  diverge: ['git-fork', 'trending-up'],
+  divergence: ['git-fork', 'trending-up'],
+  plateau: ['minus', 'chart-area'],
+  saddle: ['move-diagonal', 'chart-spline'],
+  integral: ['sigma', 'chart-area'],
+  area: ['chart-area', 'square'],
+  axis: ['chart-line', 'move-vertical'],
+  axes: ['chart-line', 'move-vertical'],
+  plot: ['chart-line', 'chart-scatter'],
+  scatter: ['chart-scatter'],
+  histogram: ['chart-column'],
+  regression: ['chart-scatter', 'chart-line'],
+  correlation: ['chart-scatter', 'trending-up'],
+  variance: ['chart-column', 'activity'],
+  deviation: ['activity', 'chart-column'],
+  mean: ['sigma', 'divide'],
+  median: ['divide', 'sigma'],
+  sample: ['dices', 'flask-conical'],
+  population: ['users'],
+  outlier: ['circle-dot', 'triangle-alert'],
+  noise: ['audio-waveform', 'activity'],
+  overfitting: ['chart-spline', 'triangle-alert'],
+  underfitting: ['minus', 'chart-line'],
+  generalise: ['expand', 'globe'],
+  generalize: ['expand', 'globe'],
+  ratio: ['ratio', 'divide'],
+  fraction: ['divide', 'ratio'],
+  exponent: ['superscript', 'chart-spline'],
+  root: ['radical', 'square-radical'],
+  squareroot: ['radical', 'square-radical'],
+  prime: ['hash', 'asterisk'],
+  geometry: ['shapes', 'triangle'],
+  angle: ['triangle-right', 'move-diagonal'],
+  shape: ['shapes'],
+  shapes: ['shapes'],
+  radius: ['circle-dot', 'ruler'],
+  rotation: ['rotate-cw', 'rotate-3d'],
+  reflection: ['flip-horizontal', 'flip-vertical'],
+  symmetry: ['flip-horizontal', 'shapes'],
+  coordinate: ['crosshair', 'locate-fixed'],
+  cube: ['cuboid', 'box'],
+  sphere: ['circle', 'globe'],
+  cone: ['cone'],
+  cylinder: ['cylinder'],
+  pyramid: ['pyramid'],
+  torus: ['torus'],
+  learningrate: ['sliders-horizontal', 'gauge'],
+
+  /* physics */
+  force: ['arrow-right', 'zap'],
+  mass: ['weight', 'dumbbell'],
+  gravity: ['arrow-down', 'weight'],
+  acceleration: ['fast-forward', 'gauge'],
+  velocity: ['gauge', 'arrow-right'],
+  momentum: ['gauge', 'arrow-right'],
+  friction: ['brick-wall', 'flame'],
+  work: ['dumbbell', 'hammer'],
+  heat: ['flame', 'thermometer-sun'],
+  temperature: ['thermometer'],
+  thermometer: ['thermometer'],
+  pressure: ['gauge', 'arrow-down-to-line'],
+  density: ['boxes', 'weight'],
+  frequency: ['audio-waveform', 'waves'],
+  wavelength: ['waves', 'audio-waveform'],
+  amplitude: ['audio-lines', 'waves'],
+  oscillation: ['audio-waveform', 'waves'],
+  vibration: ['audio-waveform', 'waves'],
+  resonance: ['audio-lines', 'waves'],
+  lens: ['glasses', 'aperture'],
+  electricity: ['zap', 'plug'],
+  current: ['zap', 'cable'],
+  voltage: ['zap', 'battery-charging'],
+  resistance: ['brick-wall', 'zap'],
+  circuit: ['circuit-board', 'cpu'],
+  magnet: ['magnet'],
+  magnetic: ['magnet'],
+  field: ['grid-3x3', 'magnet'],
+  charge: ['zap', 'battery-charging'],
+  electron: ['atom', 'circle-dot'],
+  nucleus: ['atom', 'circle-dot'],
+  radiation: ['radiation'],
+  orbit: ['orbit'],
+  planet: ['globe', 'orbit'],
+  galaxy: ['orbit', 'sparkles'],
+  universe: ['orbit', 'globe'],
+  lever: ['scale', 'ruler'],
+  pulley: ['circle-dot', 'cable'],
+  ramp: ['trending-up', 'move-diagonal'],
+  incline: ['trending-up', 'move-diagonal'],
+  ball: ['circle', 'volleyball'],
+  rolling: ['circle', 'rotate-cw'],
+
+  /* chemistry and biology */
+  bond: ['link', 'atom'],
+  reaction: ['flask-conical', 'zap'],
+  catalyst: ['zap', 'flask-conical'],
+  acid: ['flask-round', 'droplet'],
+  solution: ['flask-round', 'droplet'],
+  mixture: ['blend', 'flask-round'],
+  oxygen: ['wind', 'droplet'],
+  carbon: ['atom', 'hexagon'],
+  photosynthesis: ['leaf', 'sun'],
+  respiration: ['wind', 'heart-pulse'],
+  evolution: ['dna', 'trending-up'],
+  species: ['bird', 'dna'],
+  ecosystem: ['trees', 'leaf'],
+  bacteria: ['bug', 'microscope'],
+  virus: ['bug', 'biohazard'],
+  immune: ['shield', 'heart-pulse'],
+  protein: ['dna', 'hexagon'],
+  enzyme: ['dna', 'flask-conical'],
+  blood: ['droplet', 'heart-pulse'],
+  lung: ['wind', 'heart-pulse'],
+  nerve: ['brain-circuit', 'zap'],
+  synapse: ['brain-circuit', 'zap'],
+  muscle: ['dumbbell', 'bone'],
+  bone: ['bone'],
+  skeleton: ['bone'],
+  digestion: ['utensils', 'soup'],
+  hormone: ['droplet', 'flask-conical'],
+  animal: ['dog', 'bird'],
+  insect: ['bug'],
+  forest: ['trees'],
+  woods: ['trees'],
+  pine: ['tree-pine'],
+  palm: ['tree-palm'],
+  flower: ['flower', 'flower-2'],
+
+  /* economics and finance */
+  demand: ['trending-up', 'shopping-cart'],
+  equilibrium: ['scale', 'equal'],
+  inflation: ['trending-up', 'banknote'],
+  deflation: ['trending-down', 'banknote'],
+  interest: ['percent', 'piggy-bank'],
+  compound: ['trending-up', 'percent'],
+  loan: ['handshake', 'banknote'],
+  debt: ['credit-card', 'trending-down'],
+  savings: ['piggy-bank', 'wallet'],
+  tax: ['receipt', 'landmark'],
+  trade: ['arrow-left-right', 'handshake'],
+  gdp: ['chart-column', 'landmark'],
+  unemployment: ['user-x', 'trending-down'],
+  recession: ['trending-down', 'chart-column'],
+  monopoly: ['crown', 'building-2'],
+  competition: ['swords', 'trophy'],
+  incentive: ['gift', 'target'],
+  scarcity: ['hourglass', 'package'],
+  surplus: ['boxes', 'trending-up'],
+  subsidy: ['hand-coins', 'banknote'],
+  elasticity: ['move-horizontal', 'chart-line'],
+  currency: ['banknote', 'coins'],
+  stocks: ['chart-candlestick', 'trending-up'],
+  bonds: ['file-badge', 'receipt'],
+  portfolio: ['briefcase', 'chart-pie'],
+  briefcase: ['briefcase'],
+  insurance: ['shield-check', 'umbrella'],
+  mortgage: ['house', 'banknote'],
+  rent: ['house', 'banknote'],
+  salary: ['banknote', 'wallet'],
+  wage: ['banknote', 'wallet'],
+  income: ['banknote', 'trending-up'],
+  expense: ['receipt', 'trending-down'],
+
+  /* how a lesson is built */
+  answer: ['circle-check', 'message-square'],
+  example: ['lightbulb', 'list'],
+  practise: ['dumbbell', 'repeat'],
+  summary: ['list', 'file-text'],
+  recap: ['history', 'list'],
+  definition: ['book-open', 'type'],
+  proof: ['circle-check', 'scroll'],
+  theorem: ['scroll', 'sigma'],
+  rule: ['ruler', 'scroll'],
+  principle: ['scroll', 'lightbulb'],
+  mistake: ['circle-x', 'eraser'],
+  misconception: ['circle-x', 'triangle-alert'],
+  tip: ['lightbulb', 'info'],
+  important: ['star', 'triangle-alert'],
+  remember: ['brain', 'bookmark'],
+  quiz: ['circle-help', 'list-checks'],
+  exam: ['file-text', 'graduation-cap'],
+  homework: ['notebook-pen', 'backpack'],
+  lesson: ['book-open', 'presentation'],
+  chapter: ['book', 'bookmark'],
+  topic: ['bookmark', 'hash'],
+  intuition: ['lightbulb', 'brain'],
+  analogy: ['arrow-left-right', 'lightbulb'],
+  metaphor: ['arrow-left-right', 'lightbulb'],
+  hook: ['circle-help', 'sparkles'],
+  therefore: ['arrow-right', 'corner-down-right'],
+  why: ['circle-help'],
+  how: ['circle-help', 'workflow'],
+  contrast: ['contrast', 'columns-3'],
+  concrete: ['brick-wall', 'box'],
+  abstract: ['layers', 'sparkles'],
+
+  /* everyday anchors — the concrete half of every explanation */
+  fog: ['cloudy', 'cloud'],
+  mist: ['cloudy', 'droplets'],
+  rain: ['cloud-rain', 'droplets'],
+  snow: ['cloud-snow', 'snowflake'],
+  storm: ['cloud-lightning', 'tornado'],
+  thunder: ['cloud-lightning', 'zap'],
+  lightning: ['zap', 'cloud-lightning'],
+  wind: ['wind'],
+  rainbow: ['rainbow'],
+  weather: ['cloud-sun', 'cloudy'],
+  walking: ['footprints', 'person-standing'],
+  walk: ['footprints', 'person-standing'],
+  stride: ['footprints', 'person-standing'],
+  hike: ['mountain', 'footprints'],
+  hiking: ['mountain', 'footprints'],
+  hiker: ['person-standing', 'mountain'],
+  blindfold: ['eye-off', 'venetian-mask'],
+  torch: ['flashlight'],
+  flashlight: ['flashlight'],
+  lantern: ['lamp', 'flame-kindling'],
+  campfire: ['flame-kindling', 'flame'],
+  tent: ['tent'],
+  camp: ['tent', 'flame-kindling'],
+  thermostat: ['thermometer', 'gauge'],
+  dial: ['gauge', 'circle-gauge'],
+  knob: ['gauge', 'sliders-horizontal'],
+  jar: ['cup-soda', 'flask-round'],
+  bottle: ['wine', 'milk'],
+  cup: ['coffee', 'cup-soda'],
+  kettle: ['coffee', 'thermometer-sun'],
+  oven: ['flame', 'utensils'],
+  fridge: ['snowflake', 'box'],
+  kitchen: ['utensils', 'soup'],
+  tap: ['droplet'],
+  faucet: ['droplet'],
+  garden: ['sprout', 'flower'],
+  stairs: ['arrow-up-narrow-wide', 'trending-up'],
+  ladder: ['waves-ladder', 'trending-up'],
+  elevator: ['arrow-up-down', 'move-vertical'],
+  maze: ['route', 'puzzle'],
+  treasure: ['gem', 'package'],
+  lighthouse: ['lightbulb', 'ship'],
+  harbour: ['anchor', 'ship'],
+  sail: ['sailboat', 'ship'],
+  sailboat: ['sailboat'],
+  rope: ['cable', 'link'],
+  knot: ['link', 'cable'],
+  chain: ['link', 'cable'],
+  brick: ['brick-wall'],
+  foundation: ['brick-wall', 'layers'],
+  blueprint: ['pencil-ruler', 'ruler'],
+  scaffolding: ['construction', 'brick-wall'],
+  toolbox: ['wrench', 'briefcase'],
+  workshop: ['hammer', 'wrench'],
+  race: ['flag', 'timer'],
+  finish: ['flag', 'circle-check'],
+  marathon: ['footprints', 'timer'],
+  hurdle: ['brick-wall', 'construction'],
+  game: ['gamepad-2', 'dices'],
+  dice: ['dices', 'dice-5'],
+  blocks: ['blocks', 'boxes'],
+  seesaw: ['scale', 'weight'],
+  weighing: ['scale', 'weight'],
+
+  /* the rest of computing */
+  recursion: ['repeat', 'folder-tree'],
+  sorting: ['arrow-down-wide-narrow', 'list-ordered'],
+  searching: ['search'],
+  complexity: ['trending-up', 'network'],
+  pointer: ['mouse-pointer-2', 'arrow-right'],
+  heap: ['layers', 'boxes'],
+  thread: ['git-branch', 'workflow'],
+  concurrency: ['git-branch', 'layers'],
+  parallel: ['columns-3', 'git-branch'],
+  deadlock: ['lock', 'octagon-x'],
+  compiler: ['cog', 'code'],
+  interpreter: ['terminal', 'code'],
+  bytecode: ['binary', 'code'],
+  register: ['cpu', 'binary'],
+  instruction: ['terminal', 'list-ordered'],
+  protocol: ['file-text', 'network'],
+  packet: ['package', 'network'],
+  socket: ['plug', 'cable'],
+  dns: ['globe', 'network'],
+  tls: ['lock', 'shield-check'],
+  http: ['globe', 'arrow-left-right'],
+  rest: ['plug', 'globe'],
+  graphql: ['network', 'braces'],
+  frontend: ['monitor', 'layout-dashboard'],
+  fullstack: ['layers', 'server'],
+  devops: ['infinity', 'workflow'],
+  kernel: ['cpu', 'cog'],
+  filesystem: ['folder-tree', 'hard-drive'],
+  bit: ['binary', 'toggle-left'],
+  byte: ['binary'],
+  encoding: ['binary', 'type'],
+  compression: ['minimize-2', 'archive'],
+  checksum: ['hash', 'shield-check'],
 };
 
 /** Last-resort icon when nothing matches but we still want a mark. */
@@ -1084,6 +1419,54 @@ function resolveUncached(
 function fallbackMatch(index: IconIndex): IconMatch | undefined {
   const slug = firstAvailable([FALLBACK_ICON, 'circle', 'square'], index) ?? index.slugList[0];
   return slug ? { slug, how: 'fallback', score: 0 } : undefined;
+}
+
+/**
+ * The confident tiers. An exact slug, a keyword-table hit, or a keyword on one
+ * of the term's tokens are the answers we trust; `tag` and `fuzzy` are guesses.
+ */
+const CONFIDENT: ReadonlySet<IconMatch['how']> = new Set(['slug', 'keyword', 'token']);
+
+/**
+ * Resolve an asset to a slug: **the id first, then the prompt.**
+ *
+ * This ordering is not a stylistic preference, it is a bug fix. The id is the
+ * noun the author chose and the planner's vocabulary is real lucide slugs; the
+ * prompt is prose written for the image adapters ("a downward trending arrow",
+ * "a mountain peak"). Feeding prose to the matcher pushes it into the tag and
+ * fuzzy tiers, which is how `trending-down` became `log-in`, `mountain` became
+ * `zodiac-capricorn`, `briefcase` became `spell-check` and `cpu` became
+ * `map-pin` — silently, in half the icons of both sample films.
+ *
+ * Only a *confident* id match wins outright. When the id is unhelpful (`asset-3`,
+ * `thing`) the prompt carries more words to go on and is the better bet, so it
+ * gets a full attempt including the fallback tiers.
+ */
+export function matchAsset(
+  asset: { id: string; prompt?: string },
+  opts: { allowFallback?: boolean } = {},
+): IconMatch | undefined {
+  const byId = matchIcon(asset.id, { allowFallback: false });
+  if (byId && CONFIDENT.has(byId.how)) return byId;
+
+  const prompt = asset.prompt?.trim();
+  if (prompt) {
+    const byPrompt = matchIcon(prompt, { allowFallback: false });
+    if (byPrompt && CONFIDENT.has(byPrompt.how)) return byPrompt;
+    // Neither is confident: prefer whichever scored better, id breaking ties.
+    const best = !byId
+      ? byPrompt
+      : !byPrompt
+        ? byId
+        : byPrompt.score > byId.score
+          ? byPrompt
+          : byId;
+    if (best) return best;
+  }
+  if (byId) return byId;
+  const index = loadIndex();
+  if (!index) return undefined;
+  return opts.allowFallback === false ? undefined : fallbackMatch(index);
 }
 
 /* ---------------------------------------------------------------- geometry */

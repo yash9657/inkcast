@@ -164,7 +164,11 @@ function advance(
   const next = { ...prev };
   GENERATION_STAGES.forEach((name, i) => {
     if (i < index) {
-      next[name] = { state: 'done', pct: 100, ...(prev[name].note ? { note: prev[name].note } : {}) };
+      next[name] = {
+        state: 'done',
+        pct: 100,
+        ...(prev[name].note ? { note: prev[name].note } : {}),
+      };
     } else if (i === index) {
       next[name] = { state: 'active', pct, ...(note ? { note } : {}) };
     }

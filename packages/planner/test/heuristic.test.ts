@@ -64,7 +64,10 @@ test('narration sounds spoken, not written', () => {
   ]) {
     assert.ok(!all.includes(banned), `narration still contains "${banned}"`);
   }
-  assert.ok(/\b(it's|that's|don't|isn't|here's|we'll|you'll|can't)\b/i.test(all), 'no contractions');
+  assert.ok(
+    /\b(it's|that's|don't|isn't|here's|we'll|you'll|can't)\b/i.test(all),
+    'no contractions',
+  );
 });
 
 test('entrances are staggered and use the right ink', () => {
@@ -112,11 +115,14 @@ test('element and scene ids are unique, and asset references resolve', () => {
 
 test('annotated elements persist so later scenes can mark them up', () => {
   const targets = new Set(
-    sb.scenes.flatMap((s) => s.elements.filter((e) => e.type === 'emphasis').map((e) => e.targetId)),
+    sb.scenes.flatMap((s) =>
+      s.elements.filter((e) => e.type === 'emphasis').map((e) => e.targetId),
+    ),
   );
   for (const s of sb.scenes) {
     for (const el of s.elements) {
-      if (targets.has(el.id)) assert.equal(el.persist, true, `${el.id} is annotated but not persistent`);
+      if (targets.has(el.id))
+        assert.equal(el.persist, true, `${el.id} is annotated but not persistent`);
     }
   }
   // Assets are declared once and reused, never redefined per scene.
@@ -131,7 +137,7 @@ test('a definition becomes a titled card that a later scene annotates', () => {
     .find((el) => el.type === 'text' && el.role === 'heading' && /cache/i.test(el.text));
   assert.ok(term, 'the term should be drawn as a titled card');
   const marks = board.scenes.flatMap((s) =>
-    s.elements.filter((el) => el.type === 'emphasis' ? el.targetId === term.id : false),
+    s.elements.filter((el) => (el.type === 'emphasis' ? el.targetId === term.id : false)),
   );
   assert.equal(marks.length, 1, 'the follow-up scene should annotate the term');
   const markScene = board.scenes.find((s) => s.elements.some((e) => e.id === marks[0]!.id))!;
@@ -146,7 +152,9 @@ test('a definition becomes a titled card that a later scene annotates', () => {
 
 test('the planner chooses visuals that match the content shape', () => {
   const layouts = sb.scenes.flatMap((s) =>
-    s.elements.filter((e) => e.type === 'diagram').map((e) => (e.type === 'diagram' ? e.layout : '')),
+    s.elements
+      .filter((e) => e.type === 'diagram')
+      .map((e) => (e.type === 'diagram' ? e.layout : '')),
   );
   assert.ok(layouts.includes('flow'), 'the numbered list should become a flow diagram');
   assert.ok(layouts.includes('stack'), 'the bullet list should become a stack diagram');

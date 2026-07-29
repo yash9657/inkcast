@@ -1,18 +1,37 @@
 /**
- * The optional text-to-image lane. **Strictly opt-in.**
+ * The illustration lane: text-to-image → vectorise → roughen.
  *
- * With `REPLICATE_API_TOKEN` or `FAL_KEY` set we generate one raster
- * illustration per *asset id* (never per scene — that is what makes competing
- * tools' characters mutate between shots), vectorise it with the Rust vtracer
- * binding, and roughen the traced paths so it belongs on the same board as the
- * icons.
+ * Nine roughened lucide icons is not a visual language. An Odyssey explainer
+ * needs a drawn Odysseus, an onboarding video needs a drawn laptop, and no icon
+ * set contains either. So this is a **real lane**, on by default wherever a key
+ * exists, not a switch nobody flips.
  *
- * Without a key — the default in this project — nothing here runs, we log one
- * info line, and the caller uses the icon lane. Every failure path returns
- * `undefined`; none of them throws, because a flaky image API must never fail a
- * render.
+ * Adapter order is fixed and env-driven: `REPLICATE_API_TOKEN`, then `FAL_KEY`,
+ * then none. With no key we log exactly once and the caller uses the icon lane —
+ * a missing key is a downgrade, never an error, because the project's headline
+ * promise is that everything works offline for free.
+ *
+ * Two decisions are worth understanding before changing them:
+ *
+ * 1. **We prompt for line art, not for a picture.** A photorealistic render
+ *    vectorises into hundreds of overlapping colour blobs that animate as noise;
+ *    flat black strokes on white vectorise into a few dozen closed outlines that
+ *    roughen into something that belongs on a whiteboard. The aesthetic
+ *    constraint and the technical one point the same way, which is lucky.
+ * 2. **One generation per asset id, ever.** The raster is cached on disk under
+ *    `assets/illustrations/<id>-<promptHash>.png` and in a per-process map keyed
+ *    the same way. Generating "the rover" a second time is exactly what makes
+ *    competing tools render a different rover in every scene, and it also costs
+ *    money per scene instead of per film.
+ *
+ * Request shapes were checked against the live provider schemas (Replicate's
+ * OpenAPI for `black-forest-labs/flux-schnell`, fal's OpenAPI for
+ * `fal-ai/flux/schnell`) rather than recalled; see the notes on each adapter.
  */
-import { logger } from '@inkcast/core';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { hash, logger } from '@inkcast/core';
 import type { DrawContext, InkPath } from './geometry.js';
 import { roughenPathData } from './geometry.js';
 import type { Box } from './svg.js';
@@ -25,14 +44,21 @@ import {
   transformSegs,
   unionBox,
 } from './svg.js';
+import { sanitiseId } from './writer.js';
 
 const log = logger('visuals:image');
 
 export type ImageProvider = 'replicate' | 'fal' | 'none';
 
-/** Flux-schnell class models: fast, cheap, and good at flat line art. */
+/**
+ * Flux-schnell class models: four denoising steps, cents per image, and by far
+ * the best of the cheap tier at flat line art.
+ */
 const REPLICATE_MODEL = 'black-forest-labs/flux-schnell';
 const FAL_MODEL = 'fal-ai/flux/schnell';
+
+/** Where cached rasters live, relative to the project directory. */
+export const ILLUSTRATION_DIR = 'assets/illustrations';
 
 let announced = false;
 
@@ -47,24 +73,38 @@ export function detectImageProvider(): ImageProvider {
     announced = true;
     if (provider === 'none') {
       log.info(
-        'no REPLICATE_API_TOKEN or FAL_KEY — illustrations come from the built-in icon set (free, offline)',
+        'no REPLICATE_API_TOKEN or FAL_KEY — illustrations fall back to the built-in icon set ' +
+          '(free, offline); set either key to draw real illustrated subjects',
       );
     } else {
-      log.info(`text-to-image enabled via ${provider}`);
+      log.info(`illustration lane enabled via ${provider}`);
     }
   }
   return provider;
 }
 
+/** Reset the once-per-process log latch. Tests only. */
+export function resetImageProviderNotice(): void {
+  announced = false;
+}
+
 /**
- * Steer the model towards something a tracer can actually vectorise: flat,
- * high-contrast, no gradients, no text, nothing bleeding off the edge.
+ * Shape the prompt for our aesthetic *and* for the tracer, which want the same
+ * thing: one subject, black strokes, white ground, no shading, no background,
+ * high contrast.
+ *
+ * The negatives matter as much as the positives. "no text" stops the model
+ * lettering the subject (traced lettering is unreadable mush); "no background"
+ * and "no shading" stop the large flat regions that swamp a binary trace; "not
+ * cropped" keeps the silhouette closed so the outline traces as one shape.
  */
 export function illustrationPrompt(prompt: string): string {
   return (
-    `${prompt.trim()}, single centred subject, hand-drawn thick black marker line art, ` +
-    'bold clean outlines, flat white background, no shading, no gradients, no colour fill, ' +
-    'no text, no watermark, whiteboard illustration'
+    `${prompt.trim()}, a single centred subject, clean black line art on a plain white ` +
+    'background, bold even marker outlines, high contrast pure black on pure white, ' +
+    'no shading, no hatching, no gradients, no colour, no grey tones, no background scenery, ' +
+    'no frame, no text, no watermark, whole subject in frame not cropped, ' +
+    'minimal hand-drawn whiteboard illustration'
   );
 }
 
@@ -102,7 +142,20 @@ function firstUrl(value: unknown): string | undefined {
   return undefined;
 }
 
-async function generateReplicate(prompt: string): Promise<Buffer | undefined> {
+/**
+ * Replicate.
+ *
+ * `POST /v1/models/{owner}/{model}/predictions` is the endpoint for official
+ * models, and `Prefer: wait` holds the connection open until the prediction
+ * finishes (60s ceiling, after which the incomplete prediction comes back with
+ * `status: starting|processing` and `urls.get` to poll — which is why the poll
+ * loop below still exists).
+ *
+ * Input fields are exactly flux-schnell's schema. Two are easy to get wrong:
+ * `output_format` defaults to **webp**, which the vectoriser cannot read, so png
+ * is explicit; and `num_inference_steps` is capped at 4 on this model.
+ */
+async function generateReplicate(prompt: string, seed?: number): Promise<Buffer | undefined> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return undefined;
   let body = await fetchJson(`https://api.replicate.com/v1/models/${REPLICATE_MODEL}/predictions`, {
@@ -110,7 +163,6 @@ async function generateReplicate(prompt: string): Promise<Buffer | undefined> {
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
-      // Ask the API to hold the connection open until the prediction is done.
       prefer: 'wait',
     },
     body: JSON.stringify({
@@ -118,15 +170,16 @@ async function generateReplicate(prompt: string): Promise<Buffer | undefined> {
         prompt,
         num_outputs: 1,
         aspect_ratio: '1:1',
+        num_inference_steps: 4,
         output_format: 'png',
-        output_quality: 90,
+        megapixels: '1',
         go_fast: true,
+        ...(seed !== undefined ? { seed } : {}),
       },
     }),
   });
   if (!body) return undefined;
 
-  // `Prefer: wait` usually returns a finished prediction, but poll if not.
   for (let i = 0; i < 40 && (body.status === 'starting' || body.status === 'processing'); i++) {
     const urls = body.urls as Record<string, string> | undefined;
     if (!urls?.get) break;
@@ -143,10 +196,21 @@ async function generateReplicate(prompt: string): Promise<Buffer | undefined> {
     log.warn(`replicate prediction ${String(body.status)}`, String(body.error ?? ''));
     return undefined;
   }
+  // flux-schnell's output is an array of file URIs.
   return download(firstUrl(body.output));
 }
 
-async function generateFal(prompt: string): Promise<Buffer | undefined> {
+/**
+ * fal.
+ *
+ * `https://fal.run/{endpoint}` is the synchronous endpoint (the queue lives on
+ * `queue.fal.run`), authenticated with `Authorization: Key <FAL_KEY>`.
+ *
+ * Schema notes: `output_format` defaults to **jpeg**, so png is explicit;
+ * `image_size` takes the named presets or an explicit `{width, height}`, and
+ * `square_hd` is 1024×1024; the response is `{ images: [{ url, width, height }] }`.
+ */
+async function generateFal(prompt: string, seed?: number): Promise<Buffer | undefined> {
   const key = process.env.FAL_KEY;
   if (!key) return undefined;
   const body = await fetchJson(`https://fal.run/${FAL_MODEL}`, {
@@ -157,7 +221,9 @@ async function generateFal(prompt: string): Promise<Buffer | undefined> {
       image_size: 'square_hd',
       num_images: 1,
       num_inference_steps: 4,
+      output_format: 'png',
       enable_safety_checker: true,
+      ...(seed !== undefined ? { seed } : {}),
     }),
   });
   if (!body) return undefined;
@@ -182,13 +248,107 @@ async function download(url: string | undefined): Promise<Buffer | undefined> {
   }
 }
 
-/** Generate one raster illustration, or `undefined` if unavailable. */
-export async function generateIllustration(prompt: string): Promise<Buffer | undefined> {
+/**
+ * Generate one raster illustration, or `undefined` if unavailable.
+ *
+ * Prefer `illustrationRaster`, which caches; this is the uncached call beneath
+ * it and is exported for previewing a prompt.
+ */
+export async function generateIllustration(
+  prompt: string,
+  opts: { seed?: number } = {},
+): Promise<Buffer | undefined> {
   const provider = detectImageProvider();
   if (provider === 'none') return undefined;
   const shaped = illustrationPrompt(prompt);
   log.debug(`generating illustration via ${provider}`, prompt);
-  return provider === 'replicate' ? generateReplicate(shaped) : generateFal(shaped);
+  return provider === 'replicate'
+    ? generateReplicate(shaped, opts.seed)
+    : generateFal(shaped, opts.seed);
+}
+
+/* ------------------------------------------------------------------ caching */
+
+/** Cache key for an illustration: the asset id plus a hash of its prompt. */
+export function illustrationKey(id: string, prompt: string): string {
+  return `${sanitiseId(id)}-${hash('illustration/v1', prompt.trim()).slice(0, 10)}`;
+}
+
+export type IllustrationRaster = {
+  png: Buffer;
+  /** Project-relative path to the cached raster. */
+  rel: string;
+  /** True when this run did not call the provider. */
+  cached: boolean;
+  provider: ImageProvider;
+};
+
+/**
+ * In-flight and completed generations, keyed by `illustrationKey`.
+ *
+ * The promise (not the buffer) is memoised on purpose: two elements referencing
+ * one asset can be resolved concurrently, and racing them would generate the
+ * subject twice and then disagree about which file won.
+ */
+const inflight = new Map<string, Promise<IllustrationRaster | undefined>>();
+
+/** Drop the per-process raster memo. Tests only. */
+export function resetIllustrationCache(): void {
+  inflight.clear();
+}
+
+/**
+ * The raster for one asset id — generated at most once per id and prompt, ever.
+ *
+ * On-disk cache first (so a re-run costs nothing and a project directory stays
+ * reproducible), then the in-process memo, then the provider. Returns
+ * `undefined` when no key is configured or the provider failed; the caller then
+ * uses the icon lane.
+ */
+export async function illustrationRaster(args: {
+  id: string;
+  prompt: string;
+  /** Project working directory. */
+  dir: string;
+  seed?: number;
+}): Promise<IllustrationRaster | undefined> {
+  const key = illustrationKey(args.id, args.prompt);
+  const rel = `${ILLUSTRATION_DIR}/${key}.png`;
+  const abs = path.resolve(args.dir, rel);
+  const memoKey = `${path.resolve(args.dir)}::${key}`;
+
+  const existing = inflight.get(memoKey);
+  if (existing) return existing;
+
+  const task = (async (): Promise<IllustrationRaster | undefined> => {
+    if (existsSync(abs)) {
+      try {
+        const png = await readFile(abs);
+        if (png.length > 0) {
+          log.debug(`illustration ${args.id} served from cache`, rel);
+          return { png, rel, cached: true, provider: detectImageProvider() };
+        }
+      } catch (err) {
+        log.warn(`could not read the cached illustration ${rel}`, err);
+      }
+    }
+    const provider = detectImageProvider();
+    if (provider === 'none') return undefined;
+    const png = await generateIllustration(args.prompt, {
+      ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    });
+    if (!png || png.length === 0) return undefined;
+    try {
+      await mkdir(path.dirname(abs), { recursive: true });
+      await writeFile(abs, png);
+    } catch (err) {
+      log.warn(`could not cache the illustration ${rel}`, err);
+    }
+    return { png, rel, cached: false, provider };
+  })();
+
+  inflight.set(memoKey, task);
+  return task;
 }
 
 /* ------------------------------------------------------------- vectorisation */
@@ -197,17 +357,30 @@ type VectorizeFn = (source: Buffer, config?: unknown) => Promise<string>;
 let vectorizer: { vectorize: VectorizeFn; config: unknown } | null | undefined;
 
 /**
- * `@neplex/vectorizer` is an optional native dependency: lazily imported, and a
- * missing binary is a warning, not a crash.
+ * `@neplex/vectorizer` (the Rust vtracer binding) is verified working on
+ * darwin-arm64 and linux-x64 prebuilds, which is why it is preferred over
+ * potrace: it traces to splines rather than to polygons, so the outline is
+ * already smooth before roughjs touches it, and it needs no ImageMagick-class
+ * external binary.
+ *
+ * It is still an `optionalDependency` — it ships a native binary, and a platform
+ * without a prebuild must degrade to the icon lane rather than fail to install.
+ * Hence the lazy import through a variable, so `tsc` never needs it either.
+ *
+ * `webpackIgnore` is what keeps that working inside the studio. To webpack an
+ * `import()` of a variable is a context module it cannot resolve, so it warned
+ * "Critical dependency: the request of a dependency is an expression" and the
+ * only symptom in a production build was this lane quietly reporting itself
+ * unavailable — a paid-for key silently ignored. Left alone, Node resolves the
+ * package at runtime from the root `node_modules` (`.npmrc` public-hoists
+ * `@neplex/*` exactly so the app directory can reach it), and `next.config.ts`
+ * already lists it under `serverExternalPackages`.
  */
 async function loadVectorizer(): Promise<{ vectorize: VectorizeFn; config: unknown } | null> {
   if (vectorizer !== undefined) return vectorizer;
   try {
-    // Deliberately imported through a variable: the package is an
-    // optionalDependency (a prebuilt native binary), so `pnpm typecheck` must
-    // not depend on it being present.
     const specifier = '@neplex/vectorizer';
-    const mod = (await import(specifier)) as {
+    const mod = (await import(/* webpackIgnore: true */ specifier)) as {
       vectorize: VectorizeFn;
       ColorMode: { Binary: number };
       Hierarchical: { Stacked: number };
@@ -216,6 +389,9 @@ async function loadVectorizer(): Promise<{ vectorize: VectorizeFn; config: unkno
     vectorizer = {
       vectorize: mod.vectorize,
       config: {
+        // Binary mode is the whole reason we prompt for black-on-white: it
+        // collapses the image to one layer of outlines instead of a stack of
+        // colour regions.
         colorMode: mod.ColorMode.Binary,
         hierarchical: mod.Hierarchical.Stacked,
         mode: mod.PathSimplifyMode.Spline,
@@ -250,9 +426,11 @@ export function extractPathData(svg: string): string[] {
 /**
  * Raster → traced SVG → roughened strokes fitted into `box`.
  *
- * The trace is scaled into the box before roughening (same reason as the icon
- * lane) and tiny specks are dropped, since a vtracer output of 400 two-pixel
- * paths animates as noise.
+ * The trace is scaled into the box *before* roughening (same reason as the icon
+ * lane: wobble applied in 1024-unit space and then scaled down disappears, and
+ * the reverse turns into a scribble) and specks are dropped, since 400
+ * two-pixel paths animate as noise rather than as a drawing. Largest-area first,
+ * so the reveal builds the silhouette before the details.
  */
 export async function vectoriseToInk(
   png: Buffer,
@@ -305,4 +483,31 @@ export async function vectoriseToInk(
     );
   });
   return paths.length > 0 ? paths : undefined;
+}
+
+/**
+ * The whole lane for one asset: cached raster → vector → hand-drawn strokes.
+ *
+ * Returns `undefined` for every kind of unavailability (no key, provider error,
+ * no vectoriser, nothing traceable) so the caller has exactly one fallback path
+ * to write.
+ */
+export async function illustrationPaths(args: {
+  id: string;
+  prompt: string;
+  dir: string;
+  box: Box;
+  ctx: DrawContext;
+  seed?: number;
+}): Promise<{ paths: InkPath[]; raster: string; cached: boolean } | undefined> {
+  const raster = await illustrationRaster({
+    id: args.id,
+    prompt: args.prompt,
+    dir: args.dir,
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+  });
+  if (!raster) return undefined;
+  const paths = await vectoriseToInk(raster.png, args.box, args.ctx);
+  if (!paths) return undefined;
+  return { paths, raster: raster.rel, cached: raster.cached };
 }

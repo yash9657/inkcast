@@ -5,7 +5,8 @@
  * structural: headings and lists in the source are a free outline, and the
  * heuristic planner leans on them heavily.
  */
-import type { StageOptions } from '@inkcast/core';
+import type { Lesson, StageOptions } from '@inkcast/core';
+import type { PresetName } from './presets.js';
 
 /** One heading and the body text that belongs to it. */
 export type SourceSection = {
@@ -50,12 +51,94 @@ export type IngestInput = {
 
 export type PlannerAdapter = 'auto' | 'anthropic' | 'heuristic';
 
+/** What the lesson stage will teach: a document, or a bare topic to teach cold. */
+export type LessonInput = SourceDoc | string;
+
+/**
+ * Options shared by everything that turns a lesson into pictures.
+ *
+ * `preset` is the output format (see `./presets.ts`); an explicit `aspect` always
+ * wins over the preset's own, so `--vertical` on a standard plan still works.
+ */
+export type FormatOptions = {
+  preset?: PresetName;
+  aspect?: '16:9' | '9:16' | '1:1';
+  palette?: 'mono' | 'color';
+  style?: 'marker' | 'pencil' | 'chalk' | 'ink';
+  voice?: string;
+  language?: string;
+  fps?: number;
+  /** Target runtime. Overrides the preset, and is what the critique measures. */
+  maxSeconds?: number;
+  /**
+   * Target words spoken per second. Default 2.5 (≈150 wpm), the teaching pace
+   * from `docs/LESSON-ENGINE.md` rather than the summariser's dump-and-move-on.
+   */
+  wordsPerSecond?: number;
+};
+
+export type LessonOptions = StageOptions &
+  FormatOptions & {
+    /**
+     * Which lesson author to use. `auto` (the default) picks `anthropic` when
+     * `ANTHROPIC_API_KEY` is set and `heuristic` otherwise. The heuristic author
+     * is honest but limited — it can only reorganise what the document says.
+     */
+    adapter?: PlannerAdapter;
+    /** Claude model id for the anthropic adapter. */
+    model?: string;
+    /** Who the lesson is pitched at. Drives vocabulary and what is assumed. */
+    audience?: string;
+    /** What the learner must be able to DO afterwards. The acceptance test. */
+    objective?: string;
+    /** Extra direction for the lesson author (tone, emphasis, constraints). */
+    brief?: string;
+    /** Project directory. When given, `lesson.json` is cached there. */
+    dir?: string;
+  };
+
+export type CompileOptions = StageOptions &
+  FormatOptions & {
+    /** Storyboard title. Defaults to the lesson's topic. */
+    title?: string;
+  };
+
+/** What an edit to a lesson actually did. */
+export type LessonEditReport = {
+  applied: string[];
+  /** Instructions understood but needing a model to carry out. */
+  needsKey: string[];
+  /** Instructions not understood at all. */
+  unsupported: string[];
+  /** Problems `critiqueLesson` still reports about the edited lesson. */
+  problems: string[];
+};
+
 export type PlanOptions = StageOptions & {
   /**
    * Which planner to use. `auto` (the default) picks `anthropic` when
    * `ANTHROPIC_API_KEY` is set and `heuristic` otherwise.
    */
   adapter?: PlannerAdapter;
+  /**
+   * How to get from a document to a storyboard.
+   *
+   * `lesson` (the default) runs the pedagogy stage: ingest → lesson → storyboard.
+   * `document` is the MVP's summarising path, kept because it is the zero-key CI
+   * fixture the renderer is tested against — it is not the recommended route to a
+   * watchable video.
+   */
+  via?: 'lesson' | 'document';
+  /** Use this lesson instead of writing one: a `Lesson`, or a path to its JSON. */
+  lesson?: Lesson | string;
+  /** Output format preset. See `./presets.ts`. */
+  preset?: PresetName;
+  /** Passed through to the lesson stage. */
+  audience?: string;
+  objective?: string;
+  maxSeconds?: number;
+  /** Storyboard title. Defaults to the lesson's topic (or the document's). */
+  title?: string;
   /** Claude model id for the anthropic adapter. Default `claude-opus-5`. */
   model?: string;
   /** Overrides for `storyboard.meta`. */

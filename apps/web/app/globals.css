@@ -66,7 +66,9 @@
 
   /* -- lines ------------------------------------------------------------ */
   --border: oklch(0.916 0.0055 75);
-  --input: oklch(0.885 0.0065 75); /* stronger than --border: a control edge
+  --input: oklch(
+    0.885 0.0065 75
+  ); /* stronger than --border: a control edge
                                       must read as interactive */
 
   /* -- accent (the one saturated hue) ----------------------------------- */
@@ -195,8 +197,7 @@
 
   /* Deeper and more opaque, plus a 1px inner top highlight so raised
      surfaces still have an edge where the shadow can't be seen. */
-  --elevation-1:
-    0 1px 2px -1px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.035);
+  --elevation-1: 0 1px 2px -1px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.035);
   --elevation-2:
     0 1px 2px -1px oklch(0 0 0 / 0.45), 0 2px 6px -2px oklch(0 0 0 / 0.45),
     inset 0 1px 0 0 oklch(1 0 0 / 0.04);
@@ -231,8 +232,7 @@
   --font-*: initial;
   --font-sans:
     var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:
-    var(--font-geist-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --font-display: var(--font-instrument-serif), ui-serif, Georgia, 'Times New Roman', serif;
   --font-hand: var(--font-shantell-sans), 'Segoe Print', 'Bradley Hand', cursive;
 

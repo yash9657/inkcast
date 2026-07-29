@@ -13,9 +13,7 @@ export function clock(seconds: number | undefined | null): string {
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
-  return h > 0
-    ? `${h}:${mm}:${String(s).padStart(2, '0')}`
-    : `${mm}:${String(s).padStart(2, '0')}`;
+  return h > 0 ? `${h}:${mm}:${String(s).padStart(2, '0')}` : `${mm}:${String(s).padStart(2, '0')}`;
 }
 
 /** `0:42` from milliseconds — the elapsed clock on the waiting screen. */

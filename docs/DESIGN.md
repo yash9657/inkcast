@@ -15,14 +15,14 @@ repo's strict settings. Nothing below is aspirational.
 
 ## 0. Where things live
 
-| What | Where | Who owns it |
-| --- | --- | --- |
-| Tokens, base layer, utilities | `apps/web/app/globals.css` | design system |
-| Typefaces | `apps/web/lib/fonts.ts` | design system |
-| `cn()` and helpers | `apps/web/lib/utils.ts` | design system |
-| Primitives | `apps/web/components/ui/**` | design system |
-| Root layout, providers | `apps/web/app/layout.tsx`, `components/ui/providers.tsx` | design system |
-| Pages, route layouts, feature components | `apps/web/app/**`, `apps/web/components/<feature>/**` | UI agents |
+| What                                     | Where                                                    | Who owns it   |
+| ---------------------------------------- | -------------------------------------------------------- | ------------- |
+| Tokens, base layer, utilities            | `apps/web/app/globals.css`                               | design system |
+| Typefaces                                | `apps/web/lib/fonts.ts`                                  | design system |
+| `cn()` and helpers                       | `apps/web/lib/utils.ts`                                  | design system |
+| Primitives                               | `apps/web/components/ui/**`                              | design system |
+| Root layout, providers                   | `apps/web/app/layout.tsx`, `components/ui/providers.tsx` | design system |
+| Pages, route layouts, feature components | `apps/web/app/**`, `apps/web/components/<feature>/**`    | UI agents     |
 
 There is **no `tailwind.config.js`** and there must never be one. Tailwind v4 is
 configured CSS-first; a JS config would create a second source of truth for the
@@ -80,31 +80,31 @@ substitutes the value.
 
 ### Surfaces and text
 
-| Token | Utilities | Use it for |
-| --- | --- | --- |
-| `background` / `foreground` | `bg-background`, `text-foreground` | The page and its primary text. Body already sets both — you rarely repeat them. |
-| `card` / `card-foreground` | `bg-card`, `text-card-foreground` | Any surface raised off the page: cards, panels, table headers, sticky bars. In light mode pure white on warm off-white; in dark mode one lightness step up. |
-| `popover` / `popover-foreground` | `bg-popover` | Overlays that float **above** cards: dialogs, menus, tooltips' host surfaces, toasts, the command palette. One step higher again in dark mode. |
-| `muted` / `muted-foreground` | `bg-muted`, `text-muted-foreground` | `bg-muted` = a recessed well (a tab strip, an input group, a code block). `text-muted-foreground` = **all** secondary text: descriptions, captions, timestamps, placeholder-ish copy, inactive tabs, icons inside quiet controls. |
-| `secondary` / `secondary-foreground` | `bg-secondary` | The neutral button surface. Not a second accent. |
+| Token                                | Utilities                           | Use it for                                                                                                                                                                                                                        |
+| ------------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `background` / `foreground`          | `bg-background`, `text-foreground`  | The page and its primary text. Body already sets both — you rarely repeat them.                                                                                                                                                   |
+| `card` / `card-foreground`           | `bg-card`, `text-card-foreground`   | Any surface raised off the page: cards, panels, table headers, sticky bars. In light mode pure white on warm off-white; in dark mode one lightness step up.                                                                       |
+| `popover` / `popover-foreground`     | `bg-popover`                        | Overlays that float **above** cards: dialogs, menus, tooltips' host surfaces, toasts, the command palette. One step higher again in dark mode.                                                                                    |
+| `muted` / `muted-foreground`         | `bg-muted`, `text-muted-foreground` | `bg-muted` = a recessed well (a tab strip, an input group, a code block). `text-muted-foreground` = **all** secondary text: descriptions, captions, timestamps, placeholder-ish copy, inactive tabs, icons inside quiet controls. |
+| `secondary` / `secondary-foreground` | `bg-secondary`                      | The neutral button surface. Not a second accent.                                                                                                                                                                                  |
 
 ### Lines
 
-| Token | Utilities | Use it for |
-| --- | --- | --- |
-| `border` | `border-border` | Every structural hairline: card edges, dividers, table rules. This is the default border colour on every element, so a bare `border` is already correct. |
-| `input` | `border-input`, `bg-input` | Control edges (inputs, selects, outline buttons) — deliberately a stronger line than `border`, because a control must read as interactive. Also the fill for a switch track or slider thumb rail. |
+| Token    | Utilities                  | Use it for                                                                                                                                                                                        |
+| -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `border` | `border-border`            | Every structural hairline: card edges, dividers, table rules. This is the default border colour on every element, so a bare `border` is already correct.                                          |
+| `input`  | `border-input`, `bg-input` | Control edges (inputs, selects, outline buttons) — deliberately a stronger line than `border`, because a control must read as interactive. Also the fill for a switch track or slider thumb rail. |
 
 ### Accent and status
 
-| Token | Utilities | Use it for |
-| --- | --- | --- |
-| `primary` / `primary-foreground` | `bg-primary`, `text-primary` | **One** primary action per view. Also links, active nav item, checked indicators, the progress bar. |
-| `ring` | `ring-ring`, `outline-ring` | Focus only. Same hue as primary. You will normally use the `focus-ring` utility rather than this directly. |
-| `accent` / `accent-foreground` | `bg-accent`, `text-accent-foreground` | A tinted **interaction** surface: hover on a ghost button, the highlighted menu item, a selected row. Never a page or section background. |
-| `destructive` / `destructive-foreground` | `bg-destructive`, `text-destructive` | Only actions that lose work, and their confirmations. |
-| `success` / `success-foreground` | `bg-success`, `text-success` | A finished render, a passed check. Not decoration. |
-| `warning` / `warning-foreground` | `bg-warning`, `text-warning` | A degraded path — e.g. "no `ANTHROPIC_API_KEY`, using the local planner". |
+| Token                                    | Utilities                             | Use it for                                                                                                                                |
+| ---------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `primary` / `primary-foreground`         | `bg-primary`, `text-primary`          | **One** primary action per view. Also links, active nav item, checked indicators, the progress bar.                                       |
+| `ring`                                   | `ring-ring`, `outline-ring`           | Focus only. Same hue as primary. You will normally use the `focus-ring` utility rather than this directly.                                |
+| `accent` / `accent-foreground`           | `bg-accent`, `text-accent-foreground` | A tinted **interaction** surface: hover on a ghost button, the highlighted menu item, a selected row. Never a page or section background. |
+| `destructive` / `destructive-foreground` | `bg-destructive`, `text-destructive`  | Only actions that lose work, and their confirmations.                                                                                     |
+| `success` / `success-foreground`         | `bg-success`, `text-success`          | A finished render, a passed check. Not decoration.                                                                                        |
+| `warning` / `warning-foreground`         | `bg-warning`, `text-warning`          | A degraded path — e.g. "no `ANTHROPIC_API_KEY`, using the local planner".                                                                 |
 
 ### Ink — the whiteboard's own palette
 
@@ -116,7 +116,7 @@ flourish, an empty-state board.
 `text-ink-amber`, `text-ink-violet` (plus `bg-*`, `border-*`, `stroke-*`,
 `fill-*` for each).
 
-`paper` and `ink` stay the same in both themes — the whiteboard is *content*,
+`paper` and `ink` stay the same in both themes — the whiteboard is _content_,
 not chrome, and it does not invert. The five ink hues brighten in dark mode so
 chips stay legible.
 
@@ -146,30 +146,30 @@ Tracking tightens as size grows and line-height loosens as size shrinks — both
 are baked into the scale, so you get them by using the step and should not add
 `tracking-*` on top unless you have a specific reason.
 
-| Step | Size | Tracking | Weight | Use |
-| --- | --- | --- | --- | --- |
-| `text-2xs` | 11px | +0.04em | 500 | Uppercase eyebrows, group labels, table meta, `Kbd`, shortcuts |
-| `text-xs` | 12px | +0.02em | 500 | Captions, helper text, badges, timestamps |
-| `text-sm` | 13px | +0.008em | — | Secondary UI text, menu items, tab labels, descriptions |
-| `text-base` | 14px | 0 | — | **Default UI body.** Inputs, buttons, table cells |
-| `text-md` | 15px | −0.003em | — | Long-form body, the script editor, command palette input |
-| `text-lg` | 17px | −0.006em | — | Lead paragraph, marketing body |
-| `text-xl` | 20px | −0.011em | 560 | Card titles, dialog titles, section subheads |
-| `text-2xl` | 24px | −0.014em | 560 | Page titles |
-| `text-3xl` | 30px | −0.018em | 560 | Section headings |
-| `text-4xl` | 38px | −0.022em | 560 | Big section headings |
-| `text-5xl` | 48px | −0.026em | — | Display floor — use `font-display` from here up |
-| `text-6xl` | 60px | −0.03em | — | Display |
-| `text-7xl` | 76px | −0.034em | — | The hero claim. One per page, ever |
+| Step        | Size | Tracking | Weight | Use                                                            |
+| ----------- | ---- | -------- | ------ | -------------------------------------------------------------- |
+| `text-2xs`  | 11px | +0.04em  | 500    | Uppercase eyebrows, group labels, table meta, `Kbd`, shortcuts |
+| `text-xs`   | 12px | +0.02em  | 500    | Captions, helper text, badges, timestamps                      |
+| `text-sm`   | 13px | +0.008em | —      | Secondary UI text, menu items, tab labels, descriptions        |
+| `text-base` | 14px | 0        | —      | **Default UI body.** Inputs, buttons, table cells              |
+| `text-md`   | 15px | −0.003em | —      | Long-form body, the script editor, command palette input       |
+| `text-lg`   | 17px | −0.006em | —      | Lead paragraph, marketing body                                 |
+| `text-xl`   | 20px | −0.011em | 560    | Card titles, dialog titles, section subheads                   |
+| `text-2xl`  | 24px | −0.014em | 560    | Page titles                                                    |
+| `text-3xl`  | 30px | −0.018em | 560    | Section headings                                               |
+| `text-4xl`  | 38px | −0.022em | 560    | Big section headings                                           |
+| `text-5xl`  | 48px | −0.026em | —      | Display floor — use `font-display` from here up                |
+| `text-6xl`  | 60px | −0.03em  | —      | Display                                                        |
+| `text-7xl`  | 76px | −0.034em | —      | The hero claim. One per page, ever                             |
 
 ### Families
 
-| Utility | Face | Rules |
-| --- | --- | --- |
-| `font-sans` | Geist | Everything. It is the body default; you rarely write it. |
-| `font-mono` | Geist Mono | Durations, timecodes, project ids, file sizes, CLI snippets. Pair with `tabular`. |
+| Utility        | Face             | Rules                                                                                                                                                                          |
+| -------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `font-sans`    | Geist            | Everything. It is the body default; you rarely write it.                                                                                                                       |
+| `font-mono`    | Geist Mono       | Durations, timecodes, project ids, file sizes, CLI snippets. Pair with `tabular`.                                                                                              |
 | `font-display` | Instrument Serif | **Only ≥48px, marketing surfaces only.** It is high-contrast and condensed: editorial at hero size, illegible at body size. Never set prose in it. Never use it in the studio. |
-| `font-hand` | Shantell Sans | Ink accents. A hand-drawn annotation, a `Badge variant="ink"`, a wordmark flourish. Small doses. Not a heading face. |
+| `font-hand`    | Shantell Sans    | Ink accents. A hand-drawn annotation, a `Badge variant="ink"`, a wordmark flourish. Small doses. Not a heading face.                                                           |
 
 ### Weights
 
@@ -197,16 +197,16 @@ components, 4–8; between sections, 16–32.
 **Radius.** Nested corners must be concentric — a child's radius is the parent's
 minus the padding between them.
 
-| Utility | Value | Use |
-| --- | --- | --- |
-| `rounded-xs` | 4px | Tiny chips, a close button |
-| `rounded-sm` | 6px | Menu items, list rows, table cells |
-| `rounded-md` | 8px | **Buttons**, segmented controls, tab pills |
-| `rounded-lg` | 10px | **Inputs, selects, popovers, menus** |
-| `rounded-xl` | 14px | **Cards, dialogs** |
-| `rounded-2xl` | 18px | Drawers, large hero panels |
-| `rounded-3xl` / `4xl` | 24 / 32px | Marketing feature blocks only |
-| `rounded-full` | — | Badges, avatars, status dots, progress tracks |
+| Utility               | Value     | Use                                           |
+| --------------------- | --------- | --------------------------------------------- |
+| `rounded-xs`          | 4px       | Tiny chips, a close button                    |
+| `rounded-sm`          | 6px       | Menu items, list rows, table cells            |
+| `rounded-md`          | 8px       | **Buttons**, segmented controls, tab pills    |
+| `rounded-lg`          | 10px      | **Inputs, selects, popovers, menus**          |
+| `rounded-xl`          | 14px      | **Cards, dialogs**                            |
+| `rounded-2xl`         | 18px      | Drawers, large hero panels                    |
+| `rounded-3xl` / `4xl` | 24 / 32px | Marketing feature blocks only                 |
+| `rounded-full`        | —         | Badges, avatars, status dots, progress tracks |
 
 **Page rhythm.** Studio content sits in a `max-w-6xl` container with `px-6`
 (`px-4` below `sm`). Marketing sections use `py-24` between them and `max-w-5xl`
@@ -220,16 +220,16 @@ Five levels, each a stack of 2–5 tinted layers. In light mode they read as
 ambient depth; in dark mode they deepen and add a 1px inner top highlight,
 because a shadow on a dark surface is invisible and the edge has to do the work.
 
-| Utility | Use |
-| --- | --- |
-| *(no shadow)* | A card at rest. In light mode `bg-card` + `border-border` already reads as raised — reach for a shadow only when something genuinely floats. |
-| `shadow-xs` | Buttons, inputs, a switch thumb, a tab indicator |
-| `shadow-sm` | A card that is interactive at rest |
-| `shadow-md` | Hover lift, a tooltip |
-| `shadow-lg` | Menus, selects, popovers, toasts |
-| `shadow-xl` | Dialogs, drawers |
-| `shadow-primary` | The primary button only. Coloured elevation; do not put it on anything else. |
-| `inset-shadow-well` | A recessed track: tab strips, slider and progress tracks, a switch track, the theme toggle |
+| Utility             | Use                                                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(no shadow)_       | A card at rest. In light mode `bg-card` + `border-border` already reads as raised — reach for a shadow only when something genuinely floats. |
+| `shadow-xs`         | Buttons, inputs, a switch thumb, a tab indicator                                                                                             |
+| `shadow-sm`         | A card that is interactive at rest                                                                                                           |
+| `shadow-md`         | Hover lift, a tooltip                                                                                                                        |
+| `shadow-lg`         | Menus, selects, popovers, toasts                                                                                                             |
+| `shadow-xl`         | Dialogs, drawers                                                                                                                             |
+| `shadow-primary`    | The primary button only. Coloured elevation; do not put it on anything else.                                                                 |
+| `inset-shadow-well` | A recessed track: tab strips, slider and progress tracks, a switch track, the theme toggle                                                   |
 
 ---
 
@@ -248,23 +248,23 @@ Two systems, and the choice between them is not stylistic:
 
 Five, and there is no sixth. Never write `duration-[250ms]`.
 
-| Utility | Value | For |
-| --- | --- | --- |
-| `duration-instant` | 80ms | Colour and opacity only. A tooltip. |
-| `duration-fast` | 140ms | Hover, focus, press. The default. |
-| `duration-brisk` | 200ms | Popovers, menus, tooltips, tab indicator |
-| `duration-slow` | 320ms | Dialogs, drawers, layout changes |
-| `duration-slower` | 480ms | Page-level transitions, ink drawing on |
+| Utility            | Value | For                                      |
+| ------------------ | ----- | ---------------------------------------- |
+| `duration-instant` | 80ms  | Colour and opacity only. A tooltip.      |
+| `duration-fast`    | 140ms | Hover, focus, press. The default.        |
+| `duration-brisk`   | 200ms | Popovers, menus, tooltips, tab indicator |
+| `duration-slow`    | 320ms | Dialogs, drawers, layout changes         |
+| `duration-slower`  | 480ms | Page-level transitions, ink drawing on   |
 
 ### Easings
 
-| Utility | Curve | For |
-| --- | --- | --- |
-| `ease-out` | `cubic-bezier(.16,1,.3,1)` | **The default.** Anything entering. Decelerates hard, so things feel placed rather than floated. |
-| `ease-in` | `cubic-bezier(.4,0,1,1)` | Anything leaving |
-| `ease-in-out` | `cubic-bezier(.65,0,.35,1)` | Something moving between two on-screen positions |
-| `ease-out-quart` | `cubic-bezier(.165,.84,.44,1)` | Longer travel; slightly gentler than `ease-out` |
-| `ease-overshoot` | `cubic-bezier(.34,1.4,.64,1)` | A single celebratory beat — a render completing. Once per flow, at most. |
+| Utility          | Curve                          | For                                                                                              |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `ease-out`       | `cubic-bezier(.16,1,.3,1)`     | **The default.** Anything entering. Decelerates hard, so things feel placed rather than floated. |
+| `ease-in`        | `cubic-bezier(.4,0,1,1)`       | Anything leaving                                                                                 |
+| `ease-in-out`    | `cubic-bezier(.65,0,.35,1)`    | Something moving between two on-screen positions                                                 |
+| `ease-out-quart` | `cubic-bezier(.165,.84,.44,1)` | Longer travel; slightly gentler than `ease-out`                                                  |
+| `ease-overshoot` | `cubic-bezier(.34,1.4,.64,1)`  | A single celebratory beat — a render completing. Once per flow, at most.                         |
 
 ### Springs
 
@@ -278,12 +278,12 @@ Five, and there is no sixth. Never write `duration-[250ms]`.
 
 Override it only for these:
 
-| Situation | Spring |
-| --- | --- |
-| Default: hover, press, open/close | `{ stiffness: 320, damping: 30, mass: 0.9 }` |
-| Large surface travelling far (a drawer, a panel) | `{ stiffness: 210, damping: 26 }` |
-| Tiny snap (a toggle, a chip) | `{ stiffness: 520, damping: 34 }` |
-| Anything the user is dragging | `{ stiffness: 700, damping: 42 }` — must feel attached to the finger |
+| Situation                                        | Spring                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| Default: hover, press, open/close                | `{ stiffness: 320, damping: 30, mass: 0.9 }`                         |
+| Large surface travelling far (a drawer, a panel) | `{ stiffness: 210, damping: 26 }`                                    |
+| Tiny snap (a toggle, a chip)                     | `{ stiffness: 520, damping: 34 }`                                    |
+| Anything the user is dragging                    | `{ stiffness: 700, damping: 42 }` — must feel attached to the finger |
 
 ### Rules
 
@@ -409,13 +409,13 @@ things are hand-circled has circled nothing.
 
 ### Utilities in `globals.css`
 
-| Utility | Use |
-| --- | --- |
-| `focus-ring` | The house focus ring. Put it on every interactive element you build. |
-| `tabular` | Tabular figures for anything that ticks |
-| `surface-grain` | ≤3% noise wash. **Marketing only** — never behind the canvas, where it competes with the actual drawing |
-| `scrollbar-none` | Short horizontal rails only, never a vertical region a user must page |
-| `mask-fade-r` / `mask-fade-b` | Fade a rail's trailing edge so it reads as continuing |
+| Utility                       | Use                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `focus-ring`                  | The house focus ring. Put it on every interactive element you build.                                    |
+| `tabular`                     | Tabular figures for anything that ticks                                                                 |
+| `surface-grain`               | ≤3% noise wash. **Marketing only** — never behind the canvas, where it competes with the actual drawing |
+| `scrollbar-none`              | Short horizontal rails only, never a vertical region a user must page                                   |
+| `mask-fade-r` / `mask-fade-b` | Fade a rail's trailing edge so it reads as continuing                                                   |
 
 ---
 
@@ -438,8 +438,8 @@ Not optional, and cheaper to do first.
 
 ## 9. Voice
 
-From `docs/research/golpo-ux.md` §6.10: the competitor's copy says *convert*,
-*generate*, *translate*. Ours says **draw, sketch, ink, write, hand, board**,
+From `docs/research/golpo-ux.md` §6.10: the competitor's copy says _convert_,
+_generate_, _translate_. Ours says **draw, sketch, ink, write, hand, board**,
 because that is what actually happens. Verbs over nouns. State the mechanism, not
 the magic: "one canvas the camera moves across", not "AI-powered visual
 intelligence".
@@ -477,7 +477,7 @@ No superlatives, no "#1", no exclamation marks. Numbers instead of adjectives �
   code that will not match the Base UI primitives already shipped. Write the
   component by hand in the same idiom, or ask for it.
 - **Do not** copy a component out of Aceternity UI. Magic UI and Motion
-  Primitives are fine to pull *source* from, one component at a time, restyled
+  Primitives are fine to pull _source_ from, one component at a time, restyled
   onto these tokens.
 - **Do not** gate anything client-side. Per `golpo-ux.md` §5.4, any gate must be
   enforced by the endpoint that serves the artefact, never by hiding a button.

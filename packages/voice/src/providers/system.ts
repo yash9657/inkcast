@@ -1,10 +1,17 @@
 /**
- * macOS `say` — the zero-download, zero-network safety net.
+ * macOS `say` — **build verification only. Never a user default.**
  *
- * Quality is well below Kokoro's, so this is never the default. What it is, is
- * *always there*: no weights, no npm package, no ffmpeg. When the Kokoro download
- * fails or has not happened yet, this is what keeps `pnpm cast` working on a
- * fresh clone with no API keys.
+ * This exists so `pnpm cast` and the test suite can prove the pipeline end to end
+ * on a fresh clone with no weights, no npm package, no ffmpeg and no key. It is
+ * not a voice a learner should ever be asked to listen to: formant synthesis with
+ * no prosody model reads notation as a list and turns a 90-second explanation
+ * into an announcement. Anything published must use Kokoro or a cloud voice, and
+ * the stage says so loudly (`SAY_NOT_FOR_PUBLISHING`) whenever this provider is
+ * what actually spoke.
+ *
+ * Rate is set *absolutely* from `req.targetWpm`, not from the speed multiplier:
+ * `say -r` takes words per minute directly, so the teaching band can be hit
+ * exactly instead of approximated.
  *
  * `say --file-format=WAVE --data-format=LEI16@24000` writes exactly the clip
  * format the rest of the stage expects in one step, so no conversion is needed.
@@ -22,12 +29,53 @@ import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.j
 const log = logger('voice:system');
 
 export const SAY_BIN = '/usr/bin/say';
+
+/**
+ * `say`'s own default rate, used only when no target is supplied.
+ */
 const BASE_WPM = 175;
+
+/**
+ * `say -r N` is **not** N words per minute of English.
+ *
+ * Measured on this machine (Samantha, the 63-word audit paragraph, one sample per
+ * rate): `-r 70 → 134.7 wpm`, `-r 110 → 165.7`, `-r 130 → 179.5`, `-r 150 →
+ * 195.7`. That is an affine relation with a large fixed offset, not a
+ * proportional one — the naive reading of the flag speaks 30% too fast, which is
+ * exactly how the MVP ended up at podcast pace on the fallback path.
+ *
+ *     wpm ≈ SAY_WPM_SLOPE * r + SAY_WPM_INTERCEPT
+ *
+ * Inverting it puts the teaching target at `-r 89`, which measured 153.9 wpm.
+ * Voice-dependent, and calibrated for one voice on purpose: this provider exists
+ * to verify a build, not to be listened to.
+ */
+const SAY_WPM_SLOPE = 0.75;
+const SAY_WPM_INTERCEPT = 83;
+
+/** The `-r` value that speaks at approximately `wpm` words per minute. */
+export function sayRateForWpm(wpm: number): number {
+  return Math.round(Math.max(30, Math.min(400, (wpm - SAY_WPM_INTERCEPT) / SAY_WPM_SLOPE)));
+}
+
+/** The line every caller must see when this provider produced the audio. */
+export const SAY_NOT_FOR_PUBLISHING =
+  'narration was produced by macOS `say` — this is build-verification audio and is NOT fit for publishing. ' +
+  'Install the Kokoro weights (unset INKCAST_OFFLINE and re-run) or set ELEVENLABS_API_KEY for a listenable voice.';
 
 /** Preference order per Kokoro voice family, best-sounding first. */
 const PREFERENCES: Record<string, readonly string[]> = {
   af: ['Samantha', 'Ava', 'Allison', 'Susan', 'Kathy', 'Victoria', 'Nicky', 'Zoe'],
-  am: ['Alex', 'Tom', 'Aaron', 'Nathan', 'Evan', 'Reed (English (US))', 'Eddy (English (US))', 'Fred'],
+  am: [
+    'Alex',
+    'Tom',
+    'Aaron',
+    'Nathan',
+    'Evan',
+    'Reed (English (US))',
+    'Eddy (English (US))',
+    'Fred',
+  ],
   bf: ['Serena', 'Kate', 'Stephanie', 'Fiona', 'Shelley (English (UK))', 'Flo (English (UK))'],
   bm: ['Daniel', 'Oliver', 'Arthur', 'Malcolm', 'Rocko (English (UK))', 'Reed (English (UK))'],
 };
@@ -135,17 +183,25 @@ export function createSystemProvider(): VoiceProvider {
       const textPath = `${req.outPath}.say.txt`;
       await writeFile(textPath, req.text, 'utf8');
 
-      const wpm = Math.round(Math.max(90, Math.min(400, BASE_WPM * req.speed)));
+      // Absolute rate when the stage supplied one, mapped through the measured
+      // calibration; otherwise fall back to scaling `say`'s own default.
+      const rate = req.targetWpm
+        ? sayRateForWpm(req.targetWpm * req.speed)
+        : Math.round(Math.max(30, Math.min(400, BASE_WPM * req.speed)));
       try {
         await run(
           SAY_BIN,
           [
-            '-v', req.voice,
-            '-r', String(wpm),
-            '-f', textPath,
+            '-v',
+            req.voice,
+            '-r',
+            String(rate),
+            '-f',
+            textPath,
             '--file-format=WAVE',
             `--data-format=LEI16@${CLIP_SAMPLE_RATE}`,
-            '-o', req.outPath,
+            '-o',
+            req.outPath,
           ],
           180_000,
         );

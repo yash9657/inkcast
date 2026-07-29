@@ -89,7 +89,15 @@ export async function ffprobeDuration(file: string): Promise<number | null> {
   try {
     const { stdout } = await run(
       'ffprobe',
-      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nokey=1:noprint_wrappers=1', file],
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=nokey=1:noprint_wrappers=1',
+        file,
+      ],
       30_000,
     );
     const value = Number.parseFloat(stdout.trim());
@@ -135,6 +143,113 @@ export async function padWav(file: string, seconds: number): Promise<void> {
   const body = buf.subarray(info.dataOffset, info.dataOffset + info.dataLength);
   const pad = silencePcm(seconds, info);
   await writeFile(file, encodeWav(Buffer.concat([body, pad]), info));
+}
+
+/* ------------------------------------------------------- clip assembly */
+
+/** Decode any WAV on disk to mono Float32 at the clip sample rate. */
+export async function readClipSamples(file: string): Promise<Float32Array> {
+  const buf = await readFile(file);
+  const info = readWavInfo(buf);
+  const mono = decodeWavToMonoFloat32(buf, info);
+  return resampleFloat32(mono, info.sampleRate, CLIP_FORMAT.sampleRate);
+}
+
+/** One measured phrase, ready to be placed in a scene clip. */
+export type ClipPart = {
+  samples: Float32Array;
+  /** Deliberate silence to insert after this part, in seconds. */
+  gapSec: number;
+};
+
+/** Where each part landed, plus how the clip splits into narration and hold. */
+export type AssembledClip = {
+  /** Speech span of each part, in seconds from the start of the clip. */
+  spans: Array<{ start: number; end: number }>;
+  /**
+   * Length of the narration portion — parts, inter-phrase gaps and the trailing
+   * breath. This is what `scene.durationSec` must report, because the IR defines
+   * `hold` as silence *after* the measured narration.
+   */
+  narrationSec: number;
+  /** Real silence appended after the narration, honouring `Scene.hold`. */
+  holdSec: number;
+  /** Total clip length on disk: `narrationSec + holdSec`, exactly. */
+  totalSec: number;
+};
+
+export type AssembleOptions = {
+  /**
+   * Trailing breath inside the narration, so consecutive beats never collide
+   * even when the planner set no `hold`.
+   */
+  padSec?: number;
+  /** `Scene.hold`, rendered as real silence rather than left as dead air. */
+  holdSec?: number;
+  sampleRate?: number;
+};
+
+/**
+ * Join measured phrase parts into one scene clip.
+ *
+ * All arithmetic is in samples and only converted to seconds at the end, so the
+ * returned spans and durations describe the bytes on disk exactly — which is the
+ * property cue resolution depends on. Nothing here can clip speech: parts are
+ * copied whole and only silence is inserted between them.
+ */
+export async function writeClipFromParts(
+  file: string,
+  parts: readonly ClipPart[],
+  opts: AssembleOptions = {},
+): Promise<AssembledClip> {
+  const rate = opts.sampleRate ?? CLIP_FORMAT.sampleRate;
+  const padFrames = Math.max(0, Math.round((opts.padSec ?? 0) * rate));
+  const holdFrames = Math.max(0, Math.round((opts.holdSec ?? 0) * rate));
+
+  const gapFrames = parts.map((p, i) =>
+    i === parts.length - 1 ? 0 : Math.max(0, Math.round(p.gapSec * rate)),
+  );
+  const speech = parts.reduce((acc, p) => acc + p.samples.length, 0);
+  const gaps = gapFrames.reduce((acc, g) => acc + g, 0);
+  const narrationFrames = speech + gaps + padFrames;
+
+  const merged = new Float32Array(narrationFrames + holdFrames);
+  const spans: Array<{ start: number; end: number }> = [];
+  let at = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!;
+    merged.set(part.samples, at);
+    spans.push({ start: at / rate, end: (at + part.samples.length) / rate });
+    at += part.samples.length + (gapFrames[i] ?? 0);
+  }
+  // The remainder of `merged` is already zeroed: pad and hold are literal silence.
+
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, clipWavFromFloat32(merged, rate));
+
+  return {
+    spans,
+    narrationSec: narrationFrames / rate,
+    holdSec: holdFrames / rate,
+    totalSec: (narrationFrames + holdFrames) / rate,
+  };
+}
+
+/**
+ * Append `seconds` of real silence to a clip and report how much was added.
+ *
+ * Used for scenes with no speech at all, where there are no parts to assemble
+ * but `hold` must still be honoured.
+ */
+export async function appendSilence(file: string, seconds: number): Promise<number> {
+  if (!(seconds > 0)) return 0;
+  const buf = await readFile(file);
+  const info = readWavInfo(buf);
+  const frames = Math.round(seconds * info.sampleRate);
+  const body = buf.subarray(info.dataOffset, info.dataOffset + info.dataLength);
+  const pad = silencePcm(frames / info.sampleRate, info);
+  await writeFile(file, encodeWav(Buffer.concat([body, pad]), info));
+  return frames / info.sampleRate;
 }
 
 /* ---------------------------------------------------------- concatenation */
@@ -213,11 +328,7 @@ async function concatInJs(inputs: string[], outPath: string): Promise<void> {
  *
  * Returns the measured duration of the result.
  */
-export async function concatWavs(
-  clips: string[],
-  outPath: string,
-  outroSec = 0,
-): Promise<number> {
+export async function concatWavs(clips: string[], outPath: string, outroSec = 0): Promise<number> {
   if (clips.length === 0) throw new Error('concatWavs: no clips to join');
   await mkdir(path.dirname(outPath), { recursive: true });
 
@@ -238,7 +349,9 @@ export async function concatWavs(
         await concatInJs(inputs, outPath);
       }
     } else {
-      log.warn('ffmpeg not found — joining narration in JavaScript (install ffmpeg for the fast path)');
+      log.warn(
+        'ffmpeg not found — joining narration in JavaScript (install ffmpeg for the fast path)',
+      );
       await concatInJs(inputs, outPath);
     }
   } finally {

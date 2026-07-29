@@ -80,7 +80,9 @@ export function ResultView({
               {storyboard ? <span>· {storyboard.scenes.length} scenes</span> : null}
               <span>· {aspect}</span>
               {created ? (
-                <span title={absoluteTime(project.updatedAt ?? project.createdAt)}>· {created}</span>
+                <span title={absoluteTime(project.updatedAt ?? project.createdAt)}>
+                  · {created}
+                </span>
               ) : null}
               <span className="font-mono">· {project.id}</span>
             </p>

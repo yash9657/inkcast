@@ -1,0 +1,12 @@
+# A vault must never be committed. These rules cover the encrypted vault and the
+# non-secret sidecar wherever they might be pointed with INKCAST_VAULT_PATH, and
+# they are duplicated in the repo-root .gitignore — belt and braces, because the
+# cost of one leaked file here is every key the user owns.
+vault.json
+*.vault.json
+vault.json.tmp-*
+keyvault-meta.json
+.inkcast/
+
+# Scratch directories the tests create.
+test/.tmp-*/

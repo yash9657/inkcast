@@ -95,16 +95,16 @@ StylePack = {
 Match the categories a user expects, and pick deliberately different surfaces so
 they are visibly distinct rather than eight tints of the same thing.
 
-| id | surface | ink | palette | type | notes |
-| --- | --- | --- | --- | --- | --- |
-| `chalkboard-mono` | dark slate + chalk dust | white, soft, high roughness | mono | rounded hand | the classroom default |
-| `chalkboard-color` | dark slate + chalk dust | white base | warm chalk accents | rounded hand | social-friendly |
-| `modern-minimal` | white | thin, near-zero roughness | one restrained accent | geometric sans | investor-facing; vector mode |
-| `technical` | faint blueprint grid | thin uniform, cyan | cool accents | mono labels | schematics, systems |
-| `editorial` | cream paper grain | ink pen, hatching on | muted, washed fill | serif display | **the reference image's family** |
-| `whiteboard` | white | marker, medium roughness | bright primaries | marker hand | the familiar default |
-| `playful` | warm tint | thick round, high bowing | saturated | rounded bold | kids, short-form |
-| `sharpie` | off-white | very thick black, raw | near-mono, one spot colour | condensed hand | raw and confident |
+| id                 | surface                 | ink                         | palette                    | type           | notes                            |
+| ------------------ | ----------------------- | --------------------------- | -------------------------- | -------------- | -------------------------------- |
+| `chalkboard-mono`  | dark slate + chalk dust | white, soft, high roughness | mono                       | rounded hand   | the classroom default            |
+| `chalkboard-color` | dark slate + chalk dust | white base                  | warm chalk accents         | rounded hand   | social-friendly                  |
+| `modern-minimal`   | white                   | thin, near-zero roughness   | one restrained accent      | geometric sans | investor-facing; vector mode     |
+| `technical`        | faint blueprint grid    | thin uniform, cyan          | cool accents               | mono labels    | schematics, systems              |
+| `editorial`        | cream paper grain       | ink pen, hatching on        | muted, washed fill         | serif display  | **the reference image's family** |
+| `whiteboard`       | white                   | marker, medium roughness    | bright primaries           | marker hand    | the familiar default             |
+| `playful`          | warm tint               | thick round, high bowing    | saturated                  | rounded bold   | kids, short-form                 |
+| `sharpie`          | off-white               | very thick black, raw       | near-mono, one spot colour | condensed hand | raw and confident                |
 
 Every style must be legible in both 16:9 and 9:16 and must pass a contrast check
 against its own surface — a style that fails accessibility is a bug, not a look.

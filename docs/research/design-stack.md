@@ -3,7 +3,7 @@
 Status: **binding**. This document plays the same role for UI work that
 `storyboard.ts` plays for the pipeline: downstream agents implement against it,
 they do not re-litigate it. `docs/DESIGN.md` (tokens, exact hex/oklch values,
-component inventory) is written by the design-system agent *on top of* the
+component inventory) is written by the design-system agent _on top of_ the
 choices below — it must not contradict them.
 
 Researched live (WebSearch/WebFetch + npm registry) on 2026-07-28. Versions
@@ -21,7 +21,7 @@ not pins, except where noted.
 - Tailwind v4 removed `tailwind.config.js` entirely. Configuration is
   **CSS-first**: you `@import "tailwindcss";` in one global stylesheet and
   declare design tokens inside an `@theme` block. Every `@theme` variable
-  becomes *both* a CSS custom property on `:root` *and* a generated Tailwind
+  becomes _both_ a CSS custom property on `:root` _and_ a generated Tailwind
   utility (e.g. `--color-brand: oklch(62% 0.19 265)` gives you `bg-brand`,
   `text-brand`, `border-brand` for free). Content scanning is automatic — no
   `content: []` array. The engine (Oxide, Rust) is ~5–10x faster to build.
@@ -64,11 +64,11 @@ not pins, except where noted.
 - Usage patterns worth being deliberate about, in priority order:
   1. **Springs over duration/easing curves** for anything that responds to a
      user action (hover, open/close, drag) — `transition: { type: "spring",
-     stiffness: 300, damping: 30 }` reads as alive; hand-tuned cubic-beziers
+stiffness: 300, damping: 30 }` reads as alive; hand-tuned cubic-beziers
      read as "animated," which is the wrong impression for a compiler-style
      product.
   2. **Layout animation** (`layout` / `layoutId` props) for anything that
-     changes size or position as a *consequence* of state (e.g. a storyboard
+     changes size or position as a _consequence_ of state (e.g. a storyboard
      scene card expanding into an editor) — avoids hand-computing FLIP.
   3. **Scroll-linked reveals** via `useScroll` + `useTransform`, used sparingly
      on the marketing surface only (hero, feature sections) — never in the
@@ -80,7 +80,7 @@ not pins, except where noted.
 - **View Transitions API**: native browser support is now broad (Chrome/Edge
   since 111, Safari since 18, Firefox since 129), and React 19.2 added a
   first-class `<ViewTransition>` primitive; Next.js exposes it behind
-  `experimental.viewTransition` in `next.config`. It is *real* and *free*
+  `experimental.viewTransition` in `next.config`. It is _real_ and _free_
   (zero JS cost, GPU-composited) but Next.js itself still labels it
   experimental. **Use it for same-document route transitions on the
   marketing site (progressive enhancement — no-op without support), do not
@@ -97,9 +97,9 @@ a per-`meta.style` handwriting font for on-canvas whiteboard text.**
   Fonts, so it loads through the same `next/font/google` path as everything
   else — no self-hosting step:
   ```ts
-  import { Geist, Geist_Mono } from "next/font/google";
-  const sans = Geist({ subsets: ["latin"], variable: "--font-sans" });
-  const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
+  import { Geist, Geist_Mono } from 'next/font/google';
+  const sans = Geist({ subsets: ['latin'], variable: '--font-sans' });
+  const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
   ```
   Geist is neutral, technical, and legible at small sizes — right for a
   developer-adjacent, compiler-flavored product. We picked it over
@@ -110,12 +110,16 @@ a per-`meta.style` handwriting font for on-canvas whiteboard text.**
 - **Instrument Serif** for oversized display headlines on the marketing
   surface only (hero claim, section dividers) — condensed, high-contrast,
   reads as confident/editorial at 64px+ and terrible at body sizes, so it is
-  *only* ever a display face, never body text. Pair with Geist for
+  _only_ ever a display face, never body text. Pair with Geist for
   everything else on the same page; this sans+serif contrast is the single
   highest-leverage typographic move for "premium" without looking corporate.
   ```ts
-  import { Instrument_Serif } from "next/font/google";
-  const display = Instrument_Serif({ subsets: ["latin"], weight: "400", variable: "--font-display" });
+  import { Instrument_Serif } from 'next/font/google';
+  const display = Instrument_Serif({
+    subsets: ['latin'],
+    weight: '400',
+    variable: '--font-display',
+  });
   ```
 - **Handwriting font for whiteboard rendering** (the actual hand-drawn text
   baked into rendered frames by `@inkcast/visuals`/`@inkcast/render` — this is
@@ -125,12 +129,12 @@ a per-`meta.style` handwriting font for on-canvas whiteboard text.**
   research assigns one, decisively, so the visuals/render agents don't have
   to guess:
 
-  | `meta.style` | Font | Why |
-  | --- | --- | --- |
-  | `marker` (default) | **Shantell Sans** | Made by Shantell Martin, an actual whiteboard/marker artist — variable font with real "wonky"/bounce axes for organic marker strokes. Best match for the *default* look. |
-  | `pencil` | **Caveat** | Light, thin, cursive — reads as pencil script, not marker. |
-  | `chalk` | **Gaegu** | Soft, rounded, slightly irregular forms suit a chalkboard texture. |
-  | `ink` | **Patrick Hand** | Uniform stroke width, clean and legible — closest to a felt-tip/ink pen among OFL handwriting fonts. |
+  | `meta.style`       | Font              | Why                                                                                                                                                                      |
+  | ------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `marker` (default) | **Shantell Sans** | Made by Shantell Martin, an actual whiteboard/marker artist — variable font with real "wonky"/bounce axes for organic marker strokes. Best match for the _default_ look. |
+  | `pencil`           | **Caveat**        | Light, thin, cursive — reads as pencil script, not marker.                                                                                                               |
+  | `chalk`            | **Gaegu**         | Soft, rounded, slightly irregular forms suit a chalkboard texture.                                                                                                       |
+  | `ink`              | **Patrick Hand**  | Uniform stroke width, clean and legible — closest to a felt-tip/ink pen among OFL handwriting fonts.                                                                     |
 
   All four are OFL-licensed (free for commercial use, redistributable, no
   attribution requirement beyond keeping the licence file). Exact, verified
@@ -150,7 +154,7 @@ a per-`meta.style` handwriting font for on-canvas whiteboard text.**
 ## 4. Niche design-inspiration sites — what to mine from each
 
 - **Godly (godly.website)** — tighter curation than Awwwards, organized so you
-  can evaluate *motion* without loading every site. Mine it for: hero-section
+  can evaluate _motion_ without loading every site. Mine it for: hero-section
   motion choreography and scroll-linked reveal timing, not layout.
 - **Curated.design** — broad, high-taste general gallery. Mine it for: overall
   page rhythm and section-to-section pacing on marketing pages.
@@ -182,23 +186,23 @@ a per-`meta.style` handwriting font for on-canvas whiteboard text.**
 
 ## 5. Component/effect libraries — use vs. avoid
 
-| Library | Verdict | Why |
-| --- | --- | --- |
-| **shadcn/ui** | Use — is the foundation | Owned source, Base UI-backed, current. |
-| **Vaul** (`vaul`) | Use | Best-in-class drawer primitive, tiny, gesture-correct on mobile. |
-| **Sonner** (`sonner`) | Use | The toast component every current "good taste" stack ships; don't hand-roll. |
-| **cmdk** (`cmdk`) | Use | Command palette (⌘K) — cheap way to read as a serious product. |
-| **Embla** (`embla-carousel-react`) | Use, only if we actually need a carousel | Lightest correct carousel; don't add speculatively. |
-| **react-dropzone** | Use | For the document/PDF upload entry point into `ingest()`. |
-| **class-variance-authority** | Use | Variant typing for every shadcn-style component. |
-| **tailwind-merge** | Use | Required alongside CVA to dedupe conflicting Tailwind classes from `className` overrides. |
-| **next-themes** | Use | See §6 — drives the `data-theme`/`class` attribute, not manual `dark:` sprinkling. |
-| **lucide-react** | Use | Icon set; consistent stroke width with Geist's neutrality. |
-| **tw-animate-css** | Use, not `tailwindcss-animate` | The old plugin is JS-config-based and doesn't exist in a Tailwind-v4-idiomatic form; this is its CSS-first, `@theme`-compatible replacement (accordion/caret keyframes etc.). |
-| **Recharts** | Use, only where we chart something real | e.g. render-cost/minute or duration breakdowns if/when the studio shows them. Do not add speculatively — it's the heaviest dependency in this table. |
-| **Motion Primitives / React Bits** | Use selectively, **copy-paste only, never as an npm dependency** | Same ownership model as shadcn. Pull one component's source at a time for hero-moment flourishes (animated beams, text reveals). |
-| **Magic UI** | Use selectively, same copy-paste rule | Polished, restrained micro-interactions (marquee, animated lists) fit our "upbeat, not theatrical" brief better than Aceternity's darker, more dramatic default aesthetic. |
-| **Aceternity UI** | **Avoid as a default source** | Its default visual language (dark, glowing, dramatic 3D) fights the "elegant, minimal, light-and-dark-both-first-class" brief. Only reach for it if a specific one-off effect is worth the mismatch — vet each pull individually, don't adopt its aesthetic wholesale. |
+| Library                            | Verdict                                                          | Why                                                                                                                                                                                                                                                                    |
+| ---------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **shadcn/ui**                      | Use — is the foundation                                          | Owned source, Base UI-backed, current.                                                                                                                                                                                                                                 |
+| **Vaul** (`vaul`)                  | Use                                                              | Best-in-class drawer primitive, tiny, gesture-correct on mobile.                                                                                                                                                                                                       |
+| **Sonner** (`sonner`)              | Use                                                              | The toast component every current "good taste" stack ships; don't hand-roll.                                                                                                                                                                                           |
+| **cmdk** (`cmdk`)                  | Use                                                              | Command palette (⌘K) — cheap way to read as a serious product.                                                                                                                                                                                                         |
+| **Embla** (`embla-carousel-react`) | Use, only if we actually need a carousel                         | Lightest correct carousel; don't add speculatively.                                                                                                                                                                                                                    |
+| **react-dropzone**                 | Use                                                              | For the document/PDF upload entry point into `ingest()`.                                                                                                                                                                                                               |
+| **class-variance-authority**       | Use                                                              | Variant typing for every shadcn-style component.                                                                                                                                                                                                                       |
+| **tailwind-merge**                 | Use                                                              | Required alongside CVA to dedupe conflicting Tailwind classes from `className` overrides.                                                                                                                                                                              |
+| **next-themes**                    | Use                                                              | See §6 — drives the `data-theme`/`class` attribute, not manual `dark:` sprinkling.                                                                                                                                                                                     |
+| **lucide-react**                   | Use                                                              | Icon set; consistent stroke width with Geist's neutrality.                                                                                                                                                                                                             |
+| **tw-animate-css**                 | Use, not `tailwindcss-animate`                                   | The old plugin is JS-config-based and doesn't exist in a Tailwind-v4-idiomatic form; this is its CSS-first, `@theme`-compatible replacement (accordion/caret keyframes etc.).                                                                                          |
+| **Recharts**                       | Use, only where we chart something real                          | e.g. render-cost/minute or duration breakdowns if/when the studio shows them. Do not add speculatively — it's the heaviest dependency in this table.                                                                                                                   |
+| **Motion Primitives / React Bits** | Use selectively, **copy-paste only, never as an npm dependency** | Same ownership model as shadcn. Pull one component's source at a time for hero-moment flourishes (animated beams, text reveals).                                                                                                                                       |
+| **Magic UI**                       | Use selectively, same copy-paste rule                            | Polished, restrained micro-interactions (marquee, animated lists) fit our "upbeat, not theatrical" brief better than Aceternity's darker, more dramatic default aesthetic.                                                                                             |
+| **Aceternity UI**                  | **Avoid as a default source**                                    | Its default visual language (dark, glowing, dramatic 3D) fights the "elegant, minimal, light-and-dark-both-first-class" brief. Only reach for it if a specific one-off effect is worth the mismatch — vet each pull individually, don't adopt its aesthetic wholesale. |
 
 None of the "selectively" libraries above appear as `package.json`
 dependencies — by design, their components are copied into our own
@@ -207,7 +211,8 @@ placeholders / everything must run" rule better than an opaque runtime dep
 would).
 
 ## 6. Craft details — the difference between "fine" and "we clearly know
-   what we're doing"
+
+what we're doing"
 
 1. **OKLCH, not HSL, for every color token.** HSL "lightness" is a display
    math construct, not a perceptual one — a linear sweep from light to dark
@@ -294,18 +299,19 @@ research). All ranges are `^` off the versions live on npm as of 2026-07-28.
     "cmdk": "^1.1.1",
     "embla-carousel-react": "^8.6.0",
     "react-dropzone": "^19.1.1",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
   },
   "devDependencies": {
     "tailwindcss": "^4.3.3",
     "@tailwindcss/postcss": "^4.3.3",
     "tw-animate-css": "^1.4.0",
-    "shadcn": "^4.16.0"
-  }
+    "shadcn": "^4.16.0",
+  },
 }
 ```
 
 Notes on this list:
+
 - **`zod` is pinned to `^3.24.1`, matching `@inkcast/core`'s dependency
   exactly** — npm's current `zod` latest is `4.x`, but the web app parses and
   patches the same `Storyboard` Zod schema `@inkcast/core` exports, so it

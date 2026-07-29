@@ -52,9 +52,7 @@ export function ScrollArea({
 
       {orientation !== 'horizontal' ? <ScrollBar orientation="vertical" /> : null}
       {orientation !== 'vertical' ? <ScrollBar orientation="horizontal" /> : null}
-      {orientation === 'both' ? (
-        <ScrollAreaPrimitive.Corner className="bg-transparent" />
-      ) : null}
+      {orientation === 'both' ? <ScrollAreaPrimitive.Corner className="bg-transparent" /> : null}
     </ScrollAreaPrimitive.Root>
   );
 }

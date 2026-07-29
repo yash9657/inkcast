@@ -38,8 +38,8 @@ import {
   seedFrom,
   shapePaths,
 } from './geometry.js';
-import { iconPaths, iconsAvailable, matchIcon } from './icons.js';
-import { detectImageProvider, generateIllustration, vectoriseToInk } from './image.js';
+import { iconPaths, iconsAvailable, matchAsset } from './icons.js';
+import { detectImageProvider, illustrationPaths } from './image.js';
 import type { AssetVisual, ElementVisual, VisualManifest } from './manifest.js';
 import {
   MANIFEST_PATH,
@@ -48,6 +48,9 @@ import {
   saveVisualManifest,
   toViewBox,
 } from './manifest.js';
+import { resolveMotion } from './motion.js';
+import { resolvePath } from './path.js';
+import { resolvePlot } from './plot.js';
 import type { InkStyle } from './style.js';
 import { inkStyleFor, roleFontSize, styleFingerprint } from './style.js';
 import type { Box } from './svg.js';
@@ -137,7 +140,10 @@ export async function resolveVisuals(
     const rel = `assets/${sanitiseId(asset.id)}.svg`;
     const key = `visuals:asset:${asset.id}`;
     const inputHash = hash(
-      'asset/v1',
+      // v2: the illustration lane now caches its raster by id + prompt hash and
+      // the icon matcher resolves the id before the prompt, so v1 keys describe
+      // geometry this build would no longer produce.
+      'asset/v2',
       asset.id,
       asset.kind,
       asset.prompt ?? '',
@@ -192,7 +198,8 @@ export async function resolveVisuals(
       const key = `visuals:element:${scene.id}:${el.id}`;
       const targetBox = el.type === 'emphasis' ? boxIndex.get(el.targetId) : undefined;
       const inputHash = hash(
-        'element/v1',
+        // v2: plot, path and motion elements produce geometry v1 never emitted.
+        'element/v2',
         JSON.stringify(el),
         el.type === 'asset' ? (assetHashes.get(el.assetId) ?? '') : '',
         targetBox ? JSON.stringify(targetBox) : '',
@@ -272,6 +279,8 @@ export async function resolveVisuals(
 
 /* ------------------------------------------------------------------- assets */
 
+let illustrationFallbackWarned = false;
+
 async function resolveAsset(args: {
   asset: Asset;
   dir: string;
@@ -311,44 +320,47 @@ async function resolveAsset(args: {
   let items: InkItem[] | undefined;
   let lane: AssetVisual['lane'] = 'letter';
   let icon: { slug: string; how: string } | undefined;
+  let raster: string | undefined;
 
-  // 1. cloud illustration, only when a key is present and the asset wants one
-  if (args.provider !== 'none' && (asset.kind === 'illustration' || asset.kind === 'image')) {
-    const png = await generateIllustration(term);
-    if (png) {
-      await writeFile(path.resolve(dir, rel.replace(/\.svg$/, '.src.png')), png);
-      const paths = await vectoriseToInk(png, box, ctx);
-      if (paths) {
-        items = pathItems(paths);
+  // 1. the illustration lane: text-to-image → vectorise → roughen, generated at
+  //    most once per asset id and cached on disk by id + prompt hash. A missing
+  //    key is a downgrade to the icon lane, never an error.
+  if (asset.kind === 'illustration' || asset.kind === 'image') {
+    if (args.provider === 'none') {
+      if (!illustrationFallbackWarned) {
+        illustrationFallbackWarned = true;
+        log.info(
+          'illustration assets are being drawn from the icon set — set REPLICATE_API_TOKEN ' +
+            'or FAL_KEY for real illustrated subjects',
+        );
+      }
+    } else {
+      const drawn = await illustrationPaths({
+        id: asset.id,
+        prompt: term,
+        dir,
+        box,
+        ctx,
+        seed,
+      });
+      if (drawn) {
+        items = pathItems(drawn.paths);
         lane = 'illustration';
+        raster = drawn.raster;
+      } else {
+        log.warn(`illustration "${asset.id}" could not be generated — using the icon lane`);
       }
     }
   }
 
-  // 2. the offline default: a roughened lucide icon
+  // 2. the offline default: a roughened lucide icon, matched on the id first
   if (!items) {
-    // Match the **id** before the prompt. The id is the noun the author chose and
-    // the planner's whole vocabulary is real lucide slugs (see
-    // `packages/planner/src/icons.ts`); the prompt is prose written for the cloud
-    // image adapters, and feeding prose to the matcher lands it in the fuzzy and
-    // tag tiers. That is how `trending-down` ("a downward trending arrow") became
-    // `log-in`, `mountain` ("a mountain peak") became `zodiac-capricorn`,
-    // `briefcase` became `spell-check` and `cpu` became `map-pin` — silently, in
-    // half the icons of both sample films.
-    //
-    // Only a *confident* id match is trusted (an exact slug, the keyword table,
-    // or a keyword on one of its tokens). Anything looser and the prompt, which
-    // carries more words to go on, is the better bet.
-    const byId = matchIcon(asset.id, { allowFallback: false });
-    const trusted =
-      byId && (byId.how === 'slug' || byId.how === 'keyword' || byId.how === 'token')
-        ? byId
-        : undefined;
-    const found = iconPaths(term, box, ctx, trusted ? { slug: trusted.slug } : {});
+    const match = matchAsset({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+    const found = iconPaths(term, box, ctx, match ? { slug: match.slug } : {});
     if (found) {
       items = pathItems(found.paths);
       lane = 'icon';
-      icon = { slug: found.slug, how: trusted ? trusted.how : found.how };
+      icon = { slug: found.slug, how: match ? match.how : found.how };
     }
   }
 
@@ -381,6 +393,7 @@ async function resolveAsset(args: {
     seed,
     ...(asset.prompt ? { prompt: asset.prompt } : {}),
     ...(icon ? { icon } : {}),
+    ...(raster ? { raster } : {}),
   };
 }
 
@@ -436,6 +449,8 @@ async function resolveElement(args: {
 
   let items: InkItem[] = [];
   let diagram: ElementVisual['diagram'];
+  let plot: ElementVisual['plot'];
+  let pathLayout: ElementVisual['path'];
   let assetRef: ElementVisual['asset'];
   let emphasis: ElementVisual['emphasis'];
 
@@ -514,6 +529,42 @@ async function resolveElement(args: {
       items = resolved.items;
       break;
     }
+    case 'plot': {
+      const resolved = resolvePlot(el, base, {
+        style,
+        font,
+        canvasHeight,
+        baseAt: el.enter.at,
+      });
+      plot = resolved.layout;
+      items = resolved.items;
+      break;
+    }
+    case 'path': {
+      const resolved = resolvePath(
+        {
+          ...(el.points ? { points: el.points } : {}),
+          ...(el.d ? { d: el.d } : {}),
+          closed: el.closed,
+          fill: el.fill,
+          weight: el.weight,
+        },
+        base,
+      );
+      if (resolved) {
+        items = pathItems(resolved.paths);
+        pathLayout = {
+          d: resolved.d,
+          length: resolved.length,
+          closed: resolved.closed,
+          filled: resolved.filled,
+          from: resolved.from,
+        };
+      } else {
+        log.warn(`path ${el.id} has neither points nor path data — nothing to draw`);
+      }
+      break;
+    }
     case 'emphasis': {
       const target = args.targetBox ?? el.at;
       items = pathItems(
@@ -557,6 +608,15 @@ async function resolveElement(args: {
       break;
   }
 
+  // Movement is resolved for *every* element type, since anything already drawn
+  // can travel. The trail is not added to `items`: it must appear as the element
+  // moves, not during the element's own draw-on, so the renderer strokes
+  // `motion.d` itself over the movement window.
+  const motion = el.motion ? resolveMotion(el.motion, el.at) : undefined;
+  if (el.motion && !motion) {
+    log.warn(`motion on ${el.id} has no length — the element will stay put`);
+  }
+
   const written = writeElementSvg({
     id: el.id,
     items,
@@ -591,6 +651,9 @@ async function resolveElement(args: {
     ...(el.z !== undefined ? { z: el.z } : {}),
     ...(written.texts.length > 0 ? { texts: written.texts } : {}),
     ...(diagram ? { diagram } : {}),
+    ...(plot ? { plot } : {}),
+    ...(pathLayout ? { path: pathLayout } : {}),
+    ...(motion ? { motion } : {}),
     ...(assetRef ? { asset: assetRef } : {}),
     ...(emphasis ? { emphasis } : {}),
   };

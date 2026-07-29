@@ -157,7 +157,10 @@ export function silenceWav(seconds: number, fmt: WavFormat = CLIP_FORMAT): Buffe
  * `CLIP_FORMAT`), but it means concatenation can never fail on a format
  * mismatch, which is the one thing that would silently break audio sync.
  */
-export function decodeWavToMonoFloat32(buf: Buffer, info: WavInfo = readWavInfo(buf)): Float32Array {
+export function decodeWavToMonoFloat32(
+  buf: Buffer,
+  info: WavInfo = readWavInfo(buf),
+): Float32Array {
   const { audioFormat, bitsPerSample, channels, dataOffset, dataLength } = info;
   const bytesPerSample = bitsPerSample / 8;
   const frames = Math.floor(dataLength / (bytesPerSample * channels));
@@ -173,8 +176,10 @@ export function decodeWavToMonoFloat32(buf: Buffer, info: WavInfo = readWavInfo(
       case 16:
         return buf.readInt16LE(at) / 0x8000;
       case 24:
-        return ((buf.readUInt8(at) | (buf.readUInt8(at + 1) << 8) | (buf.readInt8(at + 2) << 16)) /
-          0x800000);
+        return (
+          (buf.readUInt8(at) | (buf.readUInt8(at + 1) << 8) | (buf.readInt8(at + 2) << 16)) /
+          0x800000
+        );
       case 32:
         return buf.readInt32LE(at) / 0x80000000;
       default:
@@ -227,4 +232,86 @@ export function toClipWav(buf: Buffer): Buffer {
 /** Build a clip from Float32 samples at any rate. */
 export function clipWavFromFloat32(samples: Float32Array, sampleRate: number): Buffer {
   return encodeWav(floatToPcm16(resampleFloat32(samples, sampleRate, CLIP_SAMPLE_RATE)));
+}
+
+/* ----------------------------------------------------------- speech bounds */
+
+/** First and last sample of actual speech in a clip. */
+export type SpeechBounds = { start: number; end: number };
+
+export type BoundsOptions = {
+  /** Speech floor as a fraction of the clip's peak level. */
+  floor?: number;
+  /**
+   * Samples of silence kept on each side. This is the whole safety mechanism:
+   * fricatives and the decay of a final consonant sit below any sane floor, so
+   * trimming to the exact threshold clips the tail of the word. 40 ms is
+   * inaudible as a gap and comfortably longer than that decay.
+   */
+  guardSec?: number;
+  /** Analysis window. */
+  windowSec?: number;
+};
+
+/**
+ * Locate the speech inside a clip.
+ *
+ * Needed because every TTS engine pads its output: Kokoro consistently emits
+ * ~0.37 s of leading and ~0.55 s of trailing silence per `generate()` call.
+ * Concatenating phrase clips without trimming would therefore insert nearly a
+ * second of dead air at every clause boundary. Trimming to these bounds and then
+ * adding a *chosen* gap is what turns that accident into pacing.
+ *
+ * Returns the full range when the clip has no detectable peak, so silence in
+ * never destroyed by accident.
+ */
+export function findSpeechBounds(
+  samples: Float32Array,
+  sampleRate: number,
+  opts: BoundsOptions = {},
+): SpeechBounds {
+  const n = samples.length;
+  if (n === 0) return { start: 0, end: 0 };
+
+  const win = Math.max(1, Math.round((opts.windowSec ?? 0.01) * sampleRate));
+  const guard = Math.max(0, Math.round((opts.guardSec ?? 0.04) * sampleRate));
+
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const v = Math.abs(samples[i] ?? 0);
+    if (v > peak) peak = v;
+  }
+  if (peak <= 1e-5) return { start: 0, end: n };
+
+  const floor = peak * (opts.floor ?? 0.02);
+  const loud = (from: number): boolean => {
+    const to = Math.min(n, from + win);
+    let acc = 0;
+    for (let i = from; i < to; i++) {
+      const v = samples[i] ?? 0;
+      acc += v * v;
+    }
+    return Math.sqrt(acc / Math.max(1, to - from)) > floor;
+  };
+
+  let start = 0;
+  while (start + win <= n && !loud(start)) start += win;
+  if (start + win > n) return { start: 0, end: n }; // nothing above the floor
+
+  let end = n - win;
+  while (end > start && !loud(end)) end -= win;
+  end = Math.min(n, end + win);
+
+  return { start: Math.max(0, start - guard), end: Math.min(n, end + guard) };
+}
+
+/** Drop the engine's leading and trailing padding, keeping the guard margin. */
+export function trimEdgeSilence(
+  samples: Float32Array,
+  sampleRate: number,
+  opts: BoundsOptions = {},
+): Float32Array {
+  const { start, end } = findSpeechBounds(samples, sampleRate, opts);
+  if (start === 0 && end === samples.length) return samples;
+  return samples.slice(start, end);
 }

@@ -16,7 +16,10 @@ const SPOKEN: Rule[] = [
   // Reference plumbing nobody says out loud.
   [/\s*\[\d+(?:\s*[,–-]\s*\d+)*\]/g, ''],
   [/\s*\((?:see\s+)?(?:e\.g\.|i\.e\.)?[^()]{0,90}\bet al\.[^()]{0,20}\)/gi, ''],
-  [/,?\s*\bas\s+(?:shown|seen|described|illustrated|discussed)\s+in\s+(?:figure|fig\.?|table|section|chapter|appendix)\s*[\w.\d]*/gi, ''],
+  [
+    /,?\s*\bas\s+(?:shown|seen|described|illustrated|discussed)\s+in\s+(?:figure|fig\.?|table|section|chapter|appendix)\s*[\w.\d]*/gi,
+    '',
+  ],
   [/,?\s*\(?\bsee\s+(?:figure|fig\.?|table|section|chapter|appendix)\s*[\w.\d]*\)?/gi, ''],
   [/\s*\((?:[^()]{0,60})\)/g, ' '],
 
@@ -227,7 +230,8 @@ function lowerFirst(s: string): string {
  */
 const OPENERS = ['', '', 'So ', '', 'Now, ', '', "Here's the idea. ", '', 'And ', '', 'Next, ', ''];
 
-const ALREADY_CONNECTED = /^(so|now|next|and|but|then|first|second|third|finally|here|that|this|in|when|if)\b/i;
+const ALREADY_CONNECTED =
+  /^(so|now|next|and|but|then|first|second|third|finally|here|that|this|in|when|if)\b/i;
 
 export type NarrationOptions = {
   /** Beat index, used to vary spoken openers deterministically. */
@@ -287,9 +291,10 @@ export function writeNarration(source: string | string[], opts: NarrationOptions
   let text = picked.map((i) => candidates[i]!).join(' ');
   const opener = OPENERS[(opts.index ?? 0) % OPENERS.length] ?? '';
   if (opener && !ALREADY_CONNECTED.test(text) && wordCount(text) + 2 <= maxWords + 4) {
-    text = opener.endsWith(' ') && /^[A-Z]/.test(text) && opener !== "Here's the idea. "
-      ? `${opener}${text[0]!.toLowerCase()}${text.slice(1)}`
-      : `${opener}${text}`;
+    text =
+      opener.endsWith(' ') && /^[A-Z]/.test(text) && opener !== "Here's the idea. "
+        ? `${opener}${text[0]!.toLowerCase()}${text.slice(1)}`
+        : `${opener}${text}`;
   }
   return text.replace(/\s{2,}/g, ' ').trim();
 }
@@ -310,7 +315,9 @@ function density(s: string): number {
 export function mentionFraction(narration: string, term: string): number | undefined {
   const w = words(narration).map((x) => x.toLowerCase());
   if (!w.length) return undefined;
-  const target = words(term).map((x) => x.toLowerCase()).filter((x) => x.length > 2);
+  const target = words(term)
+    .map((x) => x.toLowerCase())
+    .filter((x) => x.length > 2);
   if (!target.length) return undefined;
   for (let i = 0; i < w.length; i++) {
     for (const t of target) {

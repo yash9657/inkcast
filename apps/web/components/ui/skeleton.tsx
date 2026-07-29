@@ -42,11 +42,7 @@ export function SkeletonText({
   ...props
 }: React.ComponentProps<'div'> & { lines?: number }) {
   return (
-    <div
-      data-slot="skeleton-text"
-      className={cn('flex flex-col gap-2', className)}
-      {...props}
-    >
+    <div data-slot="skeleton-text" className={cn('flex flex-col gap-2', className)} {...props}>
       {Array.from({ length: lines }, (_unused, i) => (
         <Skeleton key={i} className={cn('h-3.5', i === lines - 1 ? 'w-2/5' : 'w-full')} />
       ))}

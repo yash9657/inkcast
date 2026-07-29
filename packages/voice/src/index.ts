@@ -4,9 +4,90 @@
  * `narrate(sb, dir, opts)` synthesises one audio clip per scene, measures each
  * one, and writes `audio/narration.wav` for the renderer to mux. The measured
  * per-scene durations are what make the whole video time-aligned.
+ *
+ * Beyond measurement it does three things that decide whether the video teaches:
+ *
+ * - **Cue resolution.** Narration is synthesised in phrases and measured, so an
+ *   element's `enter.cue` ("a verbatim phrase from this narration") resolves to a
+ *   real offset and overwrites `enter.at`. See `cue.ts`.
+ * - **Pacing.** The target rate is 140–160 wpm and `speed` is derived from each
+ *   voice's *measured* baseline rather than assumed. See `voices.ts`.
+ * - **Silence.** `Scene.hold` becomes real trailing silence, and clauses get a
+ *   gap so ideas breathe. See `phrase.ts`.
  */
-export { narrate, sceneAudioPath, NARRATION_FILE } from './narrate.js';
+export { narrate, sceneAudioPath, sceneTimingPath, NARRATION_FILE } from './narrate.js';
 export type { NarrateOptions } from './narrate.js';
+
+/* --------------------------------------------------------- cues and phrases */
+
+export {
+  cueTokens,
+  findCueSpan,
+  matchTokens,
+  resolveSceneCues,
+  sceneTokenStream,
+  tokenOffsetSec,
+  MIN_CUE_SCORE,
+} from './cue.js';
+export type {
+  CueResolution,
+  ResolveCuesOptions,
+  ResolveCuesResult,
+  SceneToken,
+  TokenSpan,
+} from './cue.js';
+
+export {
+  gapAfter,
+  sentenceSpanWarnings,
+  splitClauses,
+  splitPhrases,
+  MIN_CLAUSE_WORDS,
+  PHRASE_GAP_SEC,
+  SENTENCE_GAP_SEC,
+} from './phrase.js';
+export type { Phrase, PhraseSplit, PhraseTiming, SplitOptions } from './phrase.js';
+
+/* -------------------------------------------------- voice choice and pacing */
+
+export {
+  analyseSpeech,
+  auditKokoroVoices,
+  measuredWpm,
+  pickTeachingVoice,
+  rankTeachingVoices,
+  speedForWpm,
+  teachingScore,
+  voiceProfile,
+  AUDIT_PARAGRAPH,
+  KOKORO_VOICE_PROFILES,
+  TEACHING_VOICE,
+  TEACHING_WPM_MAX,
+  TEACHING_WPM_MIN,
+  TEACHING_WPM_TARGET,
+} from './voices.js';
+export type {
+  SpeechAnalysis,
+  VoiceGrade,
+  VoiceMeasurement,
+  VoicePreference,
+  VoiceProfile,
+} from './voices.js';
+
+/* ------------------------------------------------------- optional alignment */
+
+export {
+  alignerCached,
+  alignerModelId,
+  hypothesisFromChunks,
+  isAlignMode,
+  mapToExpected,
+  nullAligner,
+  openAligner,
+  requestedAlign,
+  ALIGN_SAMPLE_RATE,
+} from './align.js';
+export type { AlignMode, Aligner, Hypothesis, OpenAlignerOptions } from './align.js';
 
 /* ------------------------------------------------------------------ voices */
 
@@ -29,6 +110,8 @@ export {
   pickSayVoice,
   alignmentToWords,
 } from './providers/index.js';
+export { SAY_NOT_FOR_PUBLISHING, sayRateForWpm } from './providers/system.js';
+export { estimateClipSeconds } from './providers/silence.js';
 
 export type {
   ActiveProvider,
@@ -81,13 +164,17 @@ export type { NormalizeResult } from './text.js';
 /* ----------------------------------------------------- audio utilities */
 
 export {
+  appendSilence,
   concatWavs,
   ffprobeDuration,
   measureDuration,
   padWav,
+  readClipSamples,
+  writeClipFromParts,
   writeSilenceWav,
   hasBinary,
 } from './audio.js';
+export type { AssembledClip, AssembleOptions, ClipPart } from './audio.js';
 
 export {
   CLIP_BITS,
@@ -96,8 +183,10 @@ export {
   CLIP_SAMPLE_RATE,
   CLIP_SIGNATURE,
   encodeWav,
+  findSpeechBounds,
   readWavInfo,
   silenceWav,
+  trimEdgeSilence,
   wavDurationFromBuffer,
 } from './wav.js';
-export type { WavFormat, WavInfo } from './wav.js';
+export type { BoundsOptions, SpeechBounds, WavFormat, WavInfo } from './wav.js';

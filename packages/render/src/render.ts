@@ -33,8 +33,13 @@ import type { RenderOptions, RenderPlan, RenderResult } from './types.js';
 
 const log = logger('render');
 
-/** Bump when the animation runtime changes in a way that alters output pixels. */
-const RENDER_VERSION = 3;
+/**
+ * Bump when the animation runtime changes in a way that alters output pixels.
+ *
+ * 4: board accumulation and the derived camera, plot/path/motion, cue-accurate
+ * entry, holds, and text that fits by binary search instead of overflowing.
+ */
+const RENDER_VERSION = 4;
 
 type Segment = { index: number; from: number; to: number; poster: number | null };
 

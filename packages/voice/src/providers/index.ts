@@ -13,12 +13,7 @@ import { createElevenLabsProvider } from './elevenlabs.js';
 import { createKokoroProvider } from './kokoro.js';
 import { createSilenceProvider } from './silence.js';
 import { createSystemProvider } from './system.js';
-import type {
-  SynthesisRequest,
-  SynthesisResult,
-  VoiceProvider,
-  VoiceProviderId,
-} from './types.js';
+import type { SynthesisRequest, SynthesisResult, VoiceProvider, VoiceProviderId } from './types.js';
 import { isVoiceProviderId, VOICE_PROVIDER_IDS } from './types.js';
 
 export * from './types.js';
@@ -39,7 +34,12 @@ export { alignmentToWords } from './elevenlabs.js';
  * `system` as the offline safety net, ElevenLabs only if a key exists, and timed
  * silence as the never-crash floor.
  */
-export const DEFAULT_CHAIN: readonly VoiceProviderId[] = ['kokoro', 'system', 'elevenlabs', 'silence'];
+export const DEFAULT_CHAIN: readonly VoiceProviderId[] = [
+  'kokoro',
+  'system',
+  'elevenlabs',
+  'silence',
+];
 
 export type ProviderHooks = {
   /** Fired while model weights download, so a long first run shows progress. */
@@ -81,6 +81,12 @@ export type ActiveProvider = {
   label: string;
   /** Provider-native voice id for this run. */
   voice: string;
+  /**
+   * Measured natural rate of `voice` in words per minute, when the provider
+   * characterises it. The voice stage turns this into the `speed` that lands the
+   * narration in the 140–160 wpm teaching band.
+   */
+  naturalWpm?: number;
 };
 
 export type VoiceChain = {
@@ -131,7 +137,8 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
           continue;
         }
         const voice = await provider.resolveVoice(opts.requestedVoice);
-        current = { provider, active: { id, label: provider.label, voice } };
+        const naturalWpm = provider.naturalWpm?.(voice);
+        current = { provider, active: { id, label: provider.label, voice, naturalWpm } };
         log.info(`provider: ${provider.label} · voice ${voice}`);
         return current.active;
       } catch (err) {

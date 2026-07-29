@@ -57,8 +57,16 @@ export type CostInputs = {
   providers: Providers;
   /** Characters of source text handed to the planner. */
   sourceChars: number;
-  /** Characters of storyboard JSON the planner produced. */
+  /** Characters of storyboard JSON produced. Used only when `lessonChars` is absent. */
   storyboardChars: number;
+  /**
+   * Characters of lesson JSON the model produced.
+   *
+   * This is the honest output measure now: the model writes a `Lesson`, and the
+   * storyboard is compiled from it locally. Charging for storyboard bytes would
+   * over-state the bill by whatever the compiler added.
+   */
+  lessonChars?: number;
   /** Characters of narration synthesised this run (0 when all cached). */
   narratedChars: number;
   /** Assets synthesised by a cloud image model this run. */
@@ -74,10 +82,12 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
     const price = PRICES.anthropic[model] ?? { in: 5, out: 25 };
     // The planner also sends a system prompt and the JSON schema; ~2k tokens.
     const inTok = input.sourceChars / CHARS_PER_TOKEN + 2000;
-    const outTok = input.storyboardChars / CHARS_PER_TOKEN;
+    const outTok = (input.lessonChars ?? input.storyboardChars) / CHARS_PER_TOKEN;
     const usd = (inTok / 1e6) * price.in + (outTok / 1e6) * price.out;
     lines.push({
-      stage: 'plan',
+      // The lesson stage is where the model actually runs; the storyboard stage
+      // downstream of it is local arithmetic and costs nothing.
+      stage: 'lesson',
       provider: `${planner.name}/${model}`,
       usd,
       basis: `~${Math.round(inTok)} in + ~${Math.round(outTok)} out tokens at $${price.in}/$${price.out} per MTok`,

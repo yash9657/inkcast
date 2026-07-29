@@ -27,10 +27,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog'
  * cmdk owns filtering, scoring and arrow-key navigation. Do not filter the
  * children yourself — pass everything and let it score.
  */
-export function Command({
-  className,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive>) {
+export function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"

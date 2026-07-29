@@ -83,9 +83,9 @@ summaries:
      accent, and emphasis in plain English and the narrator follows it.
      Business tier adds actual voice cloning (bring-your-own-voice) on top.
    - **Style/palette** — two separate style systems by product line:
-     - *Golpo Canvas* image styles: `chalkboard_white`, `neon`, `whiteboard`,
+     - _Golpo Canvas_ image styles: `chalkboard_white`, `neon`, `whiteboard`,
        `modern_minimal`, `playful`, `technical`, `editorial`, `marker`.
-     - *Golpo Sketch* modes: `classic`, `improved (beta)`, `advanced`, plus a
+     - _Golpo Sketch_ modes: `classic`, `improved (beta)`, `advanced`, plus a
        separate pacing control. Higher paid tiers unlock more sketch styles
        piecemeal: Growth adds "Dry Erase, Professional Clean, Crayon,
        Infographics, Creative"; Business adds "Formal" and "Pen in Hand".
@@ -98,7 +98,7 @@ summaries:
    videos with voiceovers in under 10 minutes," but a support question on
    Product Hunt ("processing may exceed 15 minutes... re-tweaking the
    prompt") shows the real p99 is worse than the marketing number and their
-   own fallback advice is to *resubmit*, not to show useful partial progress.
+   own fallback advice is to _resubmit_, not to show useful partial progress.
    No evidence of a staged progress UI (e.g., "outlining → drawing →
    narrating → rendering"); it reads as a single opaque spinner/percentage.
 4. **Result screen.** Lives inside the same authenticated SPA route as a
@@ -218,7 +218,7 @@ Given (do not re-derive, ship the fix):
 5. **Length limits contradict the marketing.** The brand promise is video
    creation "in minutes," but the cheapest paid tier (Starter, $39.99/mo)
    caps output at **30 seconds**, and Creator ($99.99/mo) is oddly capped
-   *shorter* at "15 sec videos available" per their own pricing copy — a
+   _shorter_ at "15 sec videos available" per their own pricing copy — a
    tier you pay more for that produces less. Longer-form (4/10/15 min) is
    walled behind Growth/Business/Enterprise and beta-flagged even there.
 
@@ -283,7 +283,7 @@ Additional weaknesses found during this research:
 this product category already expect — deviating here would just be
 friction, not delight):
 
-- Single hero input that accepts *either* a pasted prompt *or* an uploaded
+- Single hero input that accepts _either_ a pasted prompt _or_ an uploaded
   document — don't force users to pick a mode before they've typed anything.
 - Marketing site and the create app as separate route spaces, with the app
   behind one clear "Start" CTA.
@@ -292,7 +292,7 @@ friction, not delight):
   supports it and Golpo doesn't).
 - A plain-English "describe the voice/tone you want" affordance — this is a
   genuinely good pattern; keep the idea, not their gating of it.
-- Long-form SEO guide content as a *separate* content channel from the
+- Long-form SEO guide content as a _separate_ content channel from the
   product UI — reasonable content-marketing structure worth mirroring later,
   just not at the expense of the product itself being demoable.
 - Per-audience "solutions" landing pages as a cheap way to speak to

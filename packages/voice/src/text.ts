@@ -89,7 +89,10 @@ export function stripMarkdown(input: string): string {
     out.push(text);
   }
 
-  return out.join(' ').replace(/[^\S\n]{2,}/g, ' ').trim();
+  return out
+    .join(' ')
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .trim();
 }
 
 /* ------------------------------------------------------------- abbreviations */
@@ -171,7 +174,12 @@ export function splitSentences(input: string): string[] {
     if (next !== undefined && !/\s/.test(next)) continue; // mid-token dot
 
     // "J. Smith" — a lone capital before the dot is an initial, not an end.
-    if (c === '.' && end === i + 1 && /[A-Z]/.test(s[i - 1] ?? '') && !/[A-Za-z]/.test(s[i - 2] ?? '')) {
+    if (
+      c === '.' &&
+      end === i + 1 &&
+      /[A-Z]/.test(s[i - 1] ?? '') &&
+      !/[A-Za-z]/.test(s[i - 2] ?? '')
+    ) {
       continue;
     }
 
@@ -189,8 +197,25 @@ export function splitSentences(input: string): string[] {
 /* ------------------------------------------------------------------ numbers */
 
 const ONES = [
-  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen',
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
   'nineteen',
 ];
 const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
@@ -258,7 +283,13 @@ export function decimalToWords(text: string): string {
 /** Ordinals: 1 -> first, 22 -> twenty second. */
 export function ordinalToWords(n: number): string {
   const irregular: Record<number, string> = {
-    1: 'first', 2: 'second', 3: 'third', 5: 'fifth', 8: 'eighth', 9: 'ninth', 12: 'twelfth',
+    1: 'first',
+    2: 'second',
+    3: 'third',
+    5: 'fifth',
+    8: 'eighth',
+    9: 'ninth',
+    12: 'twelfth',
   };
   if (irregular[n]) return irregular[n];
   if (n < 20) return `${ONES[n] ?? ''}th`;
@@ -279,12 +310,23 @@ export function yearToWords(n: number): string {
 }
 
 const MAGNITUDES: Record<string, string> = {
-  k: 'thousand', K: 'thousand', M: 'million', B: 'billion', T: 'trillion', bn: 'billion',
+  k: 'thousand',
+  K: 'thousand',
+  M: 'million',
+  B: 'billion',
+  T: 'trillion',
+  bn: 'billion',
 };
 
 const FRACTIONS: Record<string, string> = {
-  '1/2': 'one half', '1/3': 'one third', '2/3': 'two thirds', '1/4': 'one quarter',
-  '3/4': 'three quarters', '1/5': 'one fifth', '1/8': 'one eighth', '1/10': 'one tenth',
+  '1/2': 'one half',
+  '1/3': 'one third',
+  '2/3': 'two thirds',
+  '1/4': 'one quarter',
+  '3/4': 'three quarters',
+  '1/5': 'one fifth',
+  '1/8': 'one eighth',
+  '1/10': 'one tenth',
 };
 
 /**
@@ -353,12 +395,15 @@ export function speakNumbers(input: string): string {
   let s = input;
 
   // Scientific notation: 1e-3 -> one times ten to the power of minus three
-  s = s.replace(/(?<!\w)(\d+(?:\.\d+)?)[eE]([-+]?\d+)(?!\w)/g, (_m, mantissa: string, exp: string) => {
-    const power = exp.startsWith('-')
-      ? `minus ${numberToWords(Number(exp.slice(1)))}`
-      : numberToWords(Number(exp.replace('+', '')));
-    return ` ${decimalToWords(mantissa)} times ten to the power of ${power} `;
-  });
+  s = s.replace(
+    /(?<!\w)(\d+(?:\.\d+)?)[eE]([-+]?\d+)(?!\w)/g,
+    (_m, mantissa: string, exp: string) => {
+      const power = exp.startsWith('-')
+        ? `minus ${numberToWords(Number(exp.slice(1)))}`
+        : numberToWords(Number(exp.replace('+', '')));
+      return ` ${decimalToWords(mantissa)} times ten to the power of ${power} `;
+    },
+  );
 
   // $1.2M -> one point two million dollars
   s = s.replace(
@@ -372,18 +417,21 @@ export function speakNumbers(input: string): string {
   );
 
   // $5 / $5.50 / $1
-  s = s.replace(/([$£€¥])\s?(\d+(?:,\d{3})*(?:\.\d+)?)/g, (_m, cur: string, num: string) =>
-    ` ${money(num.replace(/,/g, ''), cur)} `,
+  s = s.replace(
+    /([$£€¥])\s?(\d+(?:,\d{3})*(?:\.\d+)?)/g,
+    (_m, cur: string, num: string) => ` ${money(num.replace(/,/g, ''), cur)} `,
   );
 
   // 50% / 12.5 %
-  s = s.replace(/(-?\d+(?:,\d{3})*(?:\.\d+)?)\s?%/g, (_m, num: string) =>
-    ` ${decimalToWords(num.replace(/,/g, ''))} percent `,
+  s = s.replace(
+    /(-?\d+(?:,\d{3})*(?:\.\d+)?)\s?%/g,
+    (_m, num: string) => ` ${decimalToWords(num.replace(/,/g, ''))} percent `,
   );
 
   // 3x / 2.5x / 10×  (multipliers, not the letter x in an identifier)
-  s = s.replace(/(?<![\w.])(\d+(?:\.\d+)?)\s?[x×](?![\w])/g, (_m, num: string) =>
-    ` ${decimalToWords(num)} times `,
+  s = s.replace(
+    /(?<![\w.])(\d+(?:\.\d+)?)\s?[x×](?![\w])/g,
+    (_m, num: string) => ` ${decimalToWords(num)} times `,
   );
 
   // 1st, 22nd, 3rd, 14th
@@ -402,8 +450,9 @@ export function speakNumbers(input: string): string {
     const named = FRACTIONS[m];
     return named ? ` ${named} ` : m;
   });
-  s = s.replace(/\b(\d+)\s?\/\s?(\d+)\b/g, (_m, a: string, b: string) =>
-    ` ${numberToWords(Number(a))} over ${numberToWords(Number(b))} `,
+  s = s.replace(
+    /\b(\d+)\s?\/\s?(\d+)\b/g,
+    (_m, a: string, b: string) => ` ${numberToWords(Number(a))} over ${numberToWords(Number(b))} `,
   );
 
   // Number + unit.
@@ -418,8 +467,9 @@ export function speakNumbers(input: string): string {
   }
 
   // 5M / 3k / 2.4B (no currency)
-  s = s.replace(/(?<![\w.])(-?\d+(?:\.\d+)?)\s?(bn|[kKMBT])\b/g, (_m, num: string, mag: string) =>
-    ` ${decimalToWords(num)} ${MAGNITUDES[mag] ?? ''} `,
+  s = s.replace(
+    /(?<![\w.])(-?\d+(?:\.\d+)?)\s?(bn|[kKMBT])\b/g,
+    (_m, num: string, mag: string) => ` ${decimalToWords(num)} ${MAGNITUDES[mag] ?? ''} `,
   );
 
   // A range that carries a unit ("10-20 °C") must be matched as a whole, or the
@@ -433,27 +483,43 @@ export function speakNumbers(input: string): string {
   );
 
   // Degrees, before ranges for the same reason.
-  s = s.replace(/(-?\d+(?:\.\d+)?)\s?°\s?C\b/g, (_m, n: string) => ` ${decimalToWords(n)} degrees Celsius `);
-  s = s.replace(/(-?\d+(?:\.\d+)?)\s?°\s?F\b/g, (_m, n: string) => ` ${decimalToWords(n)} degrees Fahrenheit `);
+  s = s.replace(
+    /(-?\d+(?:\.\d+)?)\s?°\s?C\b/g,
+    (_m, n: string) => ` ${decimalToWords(n)} degrees Celsius `,
+  );
+  s = s.replace(
+    /(-?\d+(?:\.\d+)?)\s?°\s?F\b/g,
+    (_m, n: string) => ` ${decimalToWords(n)} degrees Fahrenheit `,
+  );
   s = s.replace(/(-?\d+(?:\.\d+)?)\s?°/g, (_m, n: string) => ` ${decimalToWords(n)} degrees `);
 
   // 10-20 / 10–20 -> ten to twenty
-  s = s.replace(/(?<!\w)(\d+(?:\.\d+)?)\s?[-–—]\s?(\d+(?:\.\d+)?)(?!\w|\.\d)/g, (_m, a: string, b: string) =>
-    ` ${decimalToWords(a)} to ${decimalToWords(b)} `,
+  s = s.replace(
+    /(?<!\w)(\d+(?:\.\d+)?)\s?[-–—]\s?(\d+(?:\.\d+)?)(?!\w|\.\d)/g,
+    (_m, a: string, b: string) => ` ${decimalToWords(a)} to ${decimalToWords(b)} `,
   );
 
   // Dotted sequences (versions, section numbers): 1.2.3
-  s = s.replace(/\b\d+(?:\.\d+){2,}\b/g, (m) =>
-    ` ${m.split('.').map((p) => numberToWords(Number(p))).join(' point ')} `,
+  s = s.replace(
+    /\b\d+(?:\.\d+){2,}\b/g,
+    (m) =>
+      ` ${m
+        .split('.')
+        .map((p) => numberToWords(Number(p)))
+        .join(' point ')} `,
   );
 
   // Comma-grouped integers.
-  s = s.replace(/\b\d{1,3}(?:,\d{3})+\b/g, (m) => ` ${numberToWords(Number(m.replace(/,/g, '')))} `);
+  s = s.replace(
+    /\b\d{1,3}(?:,\d{3})+\b/g,
+    (m) => ` ${numberToWords(Number(m.replace(/,/g, '')))} `,
+  );
 
   // Years, before generic integers so 1999 does not become "one thousand ...".
   // The trailing guard allows a sentence-final full stop but not "1999.5".
-  s = s.replace(/(?<!\w|\d\.|[$:])(1[89]\d{2}|20[0-3]\d)(?!\w|[:%]|\.\d)/g, (m) =>
-    ` ${yearToWords(Number(m))} `,
+  s = s.replace(
+    /(?<!\w|\d\.|[$:])(1[89]\d{2}|20[0-3]\d)(?!\w|[:%]|\.\d)/g,
+    (m) => ` ${yearToWords(Number(m))} `,
   );
 
   // Decimals, then anything left. Both guards tolerate a following full stop.
@@ -596,8 +662,13 @@ export function normalizeNarration(input: string): string {
   return normalizeNarrationDetailed(input).text;
 }
 
-/** Rough spoken length, used only when no TTS engine is reachable at all. */
-export function estimateSpokenSeconds(text: string, wordsPerMinute = 155): number {
+/**
+ * Rough spoken length, used only when no TTS engine is reachable at all.
+ *
+ * Defaults to the teaching pace so a keyless, engineless render has the same
+ * timing as a spoken one — see `TEACHING_WPM_TARGET`.
+ */
+export function estimateSpokenSeconds(text: string, wordsPerMinute = 150): number {
   const words = text.split(/\s+/).filter(Boolean).length;
   if (!words) return 0;
   return (words / wordsPerMinute) * 60;

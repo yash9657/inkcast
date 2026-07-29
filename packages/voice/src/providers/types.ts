@@ -22,8 +22,19 @@ export type SynthesisRequest = {
   text: string;
   /** Provider-native voice id, produced by `resolveVoice`. */
   voice: string;
-  /** 1 = natural rate. */
+  /**
+   * Multiplier on the provider's natural rate, already corrected for the voice's
+   * measured baseline by the voice stage. 1 = natural.
+   */
   speed: number;
+  /**
+   * The words-per-minute the stage is aiming for (140–160 for teaching).
+   *
+   * Providers that can be given an absolute rate — `say -r` is the obvious one —
+   * should use this in preference to `speed`, because it is the actual target
+   * rather than a multiplier derived from someone else's baseline.
+   */
+  targetWpm?: number;
   /** BCP-47-ish language tag from `storyboard.meta.language`. */
   language: string;
   /**
@@ -48,6 +59,13 @@ export type VoiceProvider = {
   voices(): Promise<string[]>;
   /** Best provider-native match for a requested storyboard voice. */
   resolveVoice(requested: string): Promise<string>;
+  /**
+   * Measured words per minute this voice speaks at `speed: 1`, if the provider
+   * knows. The voice stage divides its target rate by this to get `speed`, which
+   * is the only way a "140–160 wpm" instruction can be honoured rather than
+   * hoped for. Return `undefined` when the rate is not characterised.
+   */
+  naturalWpm?(voice: string): number | undefined;
   synthesize(req: SynthesisRequest): Promise<SynthesisResult>;
   /** Release any cached handles. Must be safe to call twice. */
   dispose(): Promise<void>;

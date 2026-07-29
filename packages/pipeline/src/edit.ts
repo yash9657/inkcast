@@ -120,8 +120,16 @@ async function opsFromClaude(
   instruction: string,
   model: string,
 ): Promise<EditOp[]> {
-  const spec = '@anthropic-ai/sdk';
-  const mod = (await import(spec)) as { default: new (o?: unknown) => AnthropicLike };
+  // A **literal** specifier, for the same reason `stages.ts` insists on them: an
+  // `import()` of a variable is a context module webpack cannot resolve, so the
+  // studio's production bundle left the SDK out and this whole path collapsed
+  // into the local instruction parser — a key the user paid for, silently
+  // ignored. The SDK is a declared dependency of this package and pure
+  // JavaScript, so bundling it is exactly right; it stays dynamic only so the
+  // no-key path never loads it.
+  const mod = (await import('@anthropic-ai/sdk')) as {
+    default: new (o?: unknown) => AnthropicLike;
+  };
   const Anthropic = mod.default;
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 

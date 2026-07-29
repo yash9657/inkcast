@@ -14,7 +14,7 @@ export async function listCommand(ctx: CliContext): Promise<number> {
   }
   if (projects.length === 0) {
     process.stdout.write(
-      `No projects yet. Make one:\n  ${c.cyan('cast examples/gradient-descent.md')}\n`,
+      `No projects yet. Make one:\n  ${c.cyan('inkcast teach "gradient descent"')}\n`,
     );
     return 0;
   }

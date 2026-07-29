@@ -7,7 +7,7 @@
 /** Words that carry no topical information when scoring or matching. */
 export const STOPWORDS = new Set(
   (
-    'a an the and or but if then than that this these those there here it its it\'s of to in on at ' +
+    "a an the and or but if then than that this these those there here it its it's of to in on at " +
     'for from with without by as is are was were be been being do does did done have has had ' +
     'will would can could should may might must not no nor so such very more most less least ' +
     'also just only even much many other another each every both few some any all we you they ' +
@@ -89,7 +89,12 @@ export function sentences(input: string): string[] {
     if (ABBREVIATIONS.some((a) => head.endsWith(a))) continue;
     // Decimal numbers: "3.5" — digit before and after the dot.
     const prev = text[i - 1];
-    if (ch === '.' && prev !== undefined && /\d/.test(prev) && /^\s?\d/.test(text.slice(i + 1, i + 3)))
+    if (
+      ch === '.' &&
+      prev !== undefined &&
+      /\d/.test(prev) &&
+      /^\s?\d/.test(text.slice(i + 1, i + 3))
+    )
       continue;
     // Single initial: "J. Smith"
     if (ch === '.' && /(^|\s)[A-Z]$/.test(text.slice(start, i))) continue;
@@ -169,11 +174,32 @@ export function keyTerms(s: string, limit = 8): string[] {
 }
 
 /**
- * Shorten a phrase to at most `max` words, preferring to cut at a natural
- * break. Used for diagram node labels and on-canvas text, never for narration.
+ * Words that cannot end a phrase, because they promise a next word that is not
+ * coming. Dropping them is what turns a cut into an ending.
+ */
+const DANGLING =
+  /^(?:the|a|an|and|or|but|of|to|in|on|at|by|for|from|with|into|onto|as|is|are|was|were|be|been|that|which|who|whose|whom|it|its|this|these|those|so|than|then|when|while|where|how|why|if|because|about|over|under|per|via|one|you|your|we|our|they|their|he|she|his|her)$/i;
+
+/**
+ * Shorten a phrase to at most `max` words, preferring to cut at a natural break.
+ * Used for diagram node labels and on-canvas text, never for narration.
+ *
+ * **Never ellipsises.** An "…" on a whiteboard is a promise the video does not
+ * keep: the learner reads "How big a step is the one knob you…" and waits for the
+ * rest of a sentence that is never written. Verification found five of them on the
+ * benchmark board, in captions and in recap nodes — the recap, of all places,
+ * where the accumulated board is supposed to *be* the summary.
+ *
+ * So a cut has to leave something that reads as finished. In order: cut at a real
+ * punctuation break, else take `max` words and keep dropping trailing words that
+ * dangle ("…is the one knob you" → "…is the one knob"). Only if that eats the
+ * phrase down to nothing do we fall back to the plain word cut, which is at worst
+ * a terse label rather than an unkept promise.
  */
 export function shorten(s: string, max: number): string {
-  const clean = stripMarkdown(s).replace(/[.;:,]+$/, '').trim();
+  const clean = stripMarkdown(s)
+    .replace(/[.;:,]+$/, '')
+    .trim();
   const w = words(clean);
   if (w.length <= max) return clean;
   // Prefer cutting at a comma / dash / colon if one lands in range.
@@ -183,7 +209,8 @@ export function shorten(s: string, max: number): string {
     if (wordCount(head) <= max && wordCount(head) >= Math.min(2, max)) return head;
   }
   const tokens = clean.split(/\s+/).slice(0, max);
-  return `${tokens.join(' ').replace(/[,;:.\-]+$/, '')}…`;
+  while (tokens.length > 1 && DANGLING.test(tokens[tokens.length - 1] as string)) tokens.pop();
+  return tokens.join(' ').replace(/[,;:.\-–—]+$/, '');
 }
 
 /** Longest common word overlap ratio, for matching a term to narration. */

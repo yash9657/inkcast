@@ -341,9 +341,7 @@ export const Scene = z.object({
    */
   region: z.string().optional(),
   /** The pedagogical job this beat does. Set by the lesson stage. */
-  role: z
-    .enum(['hook', 'anchor', 'step', 'worked', 'misconception', 'recap'])
-    .optional(),
+  role: z.enum(['hook', 'anchor', 'step', 'worked', 'misconception', 'recap']).optional(),
   /**
    * Seconds of deliberate silence after the narration, holding the visual on
    * screen. A learner needs a breath before the next idea, and a longer pause
@@ -358,9 +356,7 @@ export const Scene = z.object({
   /** Path to this scene's audio clip, relative to the project directory. */
   audioPath: z.string().optional(),
   /** Beat-level word timings, when the voice provider supplies them. */
-  words: z
-    .array(z.object({ word: z.string(), start: z.number(), end: z.number() }))
-    .optional(),
+  words: z.array(z.object({ word: z.string(), start: z.number(), end: z.number() })).optional(),
 });
 
 /* -------------------------------------------------------------- storyboard */

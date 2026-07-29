@@ -18,22 +18,22 @@ House rules that apply to every snippet here (from `docs/CONTRACT.md`):
 
 ### Dependency summary (copy into your own package.json)
 
-| Package | Range | Owner stage |
-| --- | --- | --- |
-| `kokoro-js` | `^1.2.1` | voice |
-| `@huggingface/transformers` | `^3.8.1` | voice (peer of kokoro-js) |
-| `roughjs` | `^4.6.6` | visuals + render |
-| `@dagrejs/dagre` | `^3.0.0` | visuals |
-| `elkjs` | `^0.12.0` | visuals (optional, only for `graph` layout) |
-| `lucide-static` | `^1.27.0` | visuals |
-| `@neplex/vectorizer` | `^0.1.0` | visuals (optional, raster→SVG) |
-| `playwright` | `^1.62.0` | render |
-| `unpdf` | `^1.8.0` | planner (ingest) |
-| `mammoth` | `^1.12.0` | planner (ingest) |
-| `turndown` | `^7.2.4` | planner (ingest) |
-| `cheerio` | `^1.2.0` | planner (ingest) |
-| `@anthropic-ai/sdk` | `^0.115.0` | planner (opt-in adapter) |
-| `zod-to-json-schema` | `^3.25.2` | planner (opt-in adapter) |
+| Package                     | Range      | Owner stage                                 |
+| --------------------------- | ---------- | ------------------------------------------- |
+| `kokoro-js`                 | `^1.2.1`   | voice                                       |
+| `@huggingface/transformers` | `^3.8.1`   | voice (peer of kokoro-js)                   |
+| `roughjs`                   | `^4.6.6`   | visuals + render                            |
+| `@dagrejs/dagre`            | `^3.0.0`   | visuals                                     |
+| `elkjs`                     | `^0.12.0`  | visuals (optional, only for `graph` layout) |
+| `lucide-static`             | `^1.27.0`  | visuals                                     |
+| `@neplex/vectorizer`        | `^0.1.0`   | visuals (optional, raster→SVG)              |
+| `playwright`                | `^1.62.0`  | render                                      |
+| `unpdf`                     | `^1.8.0`   | planner (ingest)                            |
+| `mammoth`                   | `^1.12.0`  | planner (ingest)                            |
+| `turndown`                  | `^7.2.4`   | planner (ingest)                            |
+| `cheerio`                   | `^1.2.0`   | planner (ingest)                            |
+| `@anthropic-ai/sdk`         | `^0.115.0` | planner (opt-in adapter)                    |
+| `zod-to-json-schema`        | `^3.25.2`  | planner (opt-in adapter)                    |
 
 ffmpeg/ffprobe and macOS `say` are **external binaries**, not npm deps. Do not add
 `ffmpeg-static` — the contract targets a system ffmpeg, and one is present.
@@ -51,19 +51,19 @@ import { KokoroTTS } from 'kokoro-js';
 import { writeFile } from 'node:fs/promises';
 
 const tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-  dtype: 'q8',    // "fp32" | "fp16" | "q8" | "q4" | "q4f16"
-  device: 'cpu',  // "cpu" in Node. "wasm" | "webgpu" are browser targets.
+  dtype: 'q8', // "fp32" | "fp16" | "q8" | "q4" | "q4f16"
+  device: 'cpu', // "cpu" in Node. "wasm" | "webgpu" are browser targets.
   progress_callback: (p) => log.debug('kokoro download', p),
 });
 
 const audio = await tts.generate('Gradient descent walks downhill.', {
-  voice: 'af_heart',  // storyboard.meta.voice default — matches the IR
+  voice: 'af_heart', // storyboard.meta.voice default — matches the IR
   speed: 1,
 });
 
 // RawAudio: { audio: Float32Array; sampling_rate: number }
-await writeFile(wavPath, Buffer.from(audio.toWav()));  // or: await audio.save(wavPath)
-const durationSec = audio.audio.length / audio.sampling_rate;  // -> scene.durationSec
+await writeFile(wavPath, Buffer.from(audio.toWav())); // or: await audio.save(wavPath)
+const durationSec = audio.audio.length / audio.sampling_rate; // -> scene.durationSec
 ```
 
 **Model id confirmed:** `onnx-community/Kokoro-82M-v1.0-ONNX` — hard-coded in the
@@ -103,12 +103,12 @@ sizes: `model_quantized.onnx` (**q8**) **92.4 MB**, `model_fp16.onnx` 163.2 MB,
 Caching / offline control, via `env` from `@huggingface/transformers` (kokoro-js also
 re-exports an `env` for wasm paths only):
 
-| Field | Default in Node | Use |
-| --- | --- | --- |
-| `cacheDir` | `./.cache` (cwd-relative!) | **Set this explicitly** or the cache lands wherever the CLI was invoked |
-| `useFSCache` | `true` | Keep on |
-| `allowLocalModels` | `true` | Keep on |
-| `allowRemoteModels` | `true` | Set `false` to hard-fail instead of downloading |
+| Field               | Default in Node            | Use                                                                     |
+| ------------------- | -------------------------- | ----------------------------------------------------------------------- |
+| `cacheDir`          | `./.cache` (cwd-relative!) | **Set this explicitly** or the cache lands wherever the CLI was invoked |
+| `useFSCache`        | `true`                     | Keep on                                                                 |
+| `allowLocalModels`  | `true`                     | Keep on                                                                 |
+| `allowRemoteModels` | `true`                     | Set `false` to hard-fail instead of downloading                         |
 
 **This is the one place the "zero network" requirement cannot be fully met** — a
 92 MB one-time download is required before local TTS works. Handle it explicitly:
@@ -160,17 +160,17 @@ stroke-dash draw-on animation. **You never need to walk `sets`/`ops` by hand.**
 
 All shape factories verified to produce path data with no DOM:
 
-| Call | `sets` types | paths from `toPaths()` |
-| --- | --- | --- |
-| `gen.rectangle(x,y,w,h,o)` | `path` | 1 |
-| `gen.ellipse(cx,cy,w,h,o)` | `path` | 1 |
-| `gen.circle(cx,cy,d,o)` | `path` | 1 |
-| `gen.line(x1,y1,x2,y2,o)` | `path` | 1 |
-| `gen.linearPath(pts,o)` | `path` | 1 |
-| `gen.curve(pts,o)` | `path` | 1 |
-| `gen.polygon(pts,o)` | `path` | 1 |
-| `gen.arc(cx,cy,w,h,start,stop,closed,o)` | `path` | 1 |
-| `gen.path('M10 10 C …',o)` | `path` | 1 |
+| Call                                     | `sets` types          | paths from `toPaths()`      |
+| ---------------------------------------- | --------------------- | --------------------------- |
+| `gen.rectangle(x,y,w,h,o)`               | `path`                | 1                           |
+| `gen.ellipse(cx,cy,w,h,o)`               | `path`                | 1                           |
+| `gen.circle(cx,cy,d,o)`                  | `path`                | 1                           |
+| `gen.line(x1,y1,x2,y2,o)`                | `path`                | 1                           |
+| `gen.linearPath(pts,o)`                  | `path`                | 1                           |
+| `gen.curve(pts,o)`                       | `path`                | 1                           |
+| `gen.polygon(pts,o)`                     | `path`                | 1                           |
+| `gen.arc(cx,cy,w,h,start,stop,closed,o)` | `path`                | 1                           |
+| `gen.path('M10 10 C …',o)`               | `path`                | 1                           |
 | `…,{ fill:'#e11', fillStyle:'hachure' }` | `fillSketch` + `path` | 2 (fill first, then stroke) |
 
 `points` are `[number, number][]`. Filled shapes return **two** paths — render them in
@@ -181,7 +181,7 @@ array order so the sketchy fill sits under the outline.
 Passing drawing options flat is **silently ignored**:
 
 ```ts
-rough.generator({ stroke: '#111' });              // -> toPaths() gives stroke "#000"  ✗
+rough.generator({ stroke: '#111' }); // -> toPaths() gives stroke "#000"  ✗
 rough.generator({ options: { stroke: '#111' } }); // -> toPaths() gives stroke "#111"  ✓
 ```
 
@@ -245,16 +245,16 @@ import * as dagre from '@dagrejs/dagre';
 
 const g = new dagre.graphlib.Graph({ directed: true });
 g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 70, marginx: 20, marginy: 20 });
-g.setDefaultEdgeLabel(() => ({}));            // required, or setEdge throws
+g.setDefaultEdgeLabel(() => ({})); // required, or setEdge throws
 
 for (const n of el.nodes) g.setNode(n.id, { label: n.label, width: 140, height: 60 });
 for (const e of el.edges) g.setEdge(e.from, e.to);
 
-dagre.layout(g);                              // mutates g in place, synchronous
+dagre.layout(g); // mutates g in place, synchronous
 
-g.graph();            // -> { width: 180, height: 360, … }  total bounds
-g.node('a');          // -> { x: 90, y: 50, width: 140, height: 60, label: 'Data' }
-g.edge('a', 'b');     // -> { points: [{x:90,y:80},{x:90,y:115},{x:90,y:150}] }
+g.graph(); // -> { width: 180, height: 360, … }  total bounds
+g.node('a'); // -> { x: 90, y: 50, width: 140, height: 60, label: 'Data' }
+g.edge('a', 'b'); // -> { points: [{x:90,y:80},{x:90,y:115},{x:90,y:150}] }
 ```
 
 `rankdir` is `'TB' | 'BT' | 'LR' | 'RL'` — maps directly onto the IR's
@@ -277,11 +277,14 @@ const elk = new ELK();
 const laid = await elk.layout({
   id: 'root',
   layoutOptions: {
-    'elk.algorithm': 'layered',            // or 'stress' / 'force' / 'mrtree' / 'radial'
+    'elk.algorithm': 'layered', // or 'stress' / 'force' / 'mrtree' / 'radial'
     'elk.direction': 'RIGHT',
     'elk.spacing.nodeNode': '40',
   },
-  children: [{ id: 'a', width: 140, height: 60 }, { id: 'b', width: 140, height: 60 }],
+  children: [
+    { id: 'a', width: 140, height: 60 },
+    { id: 'b', width: 140, height: 60 },
+  ],
   edges: [{ id: 'e1', sources: ['a'], targets: ['b'] }],
 });
 // laid.width/height; laid.children[i].x/y  (TOP-LEFT, unlike dagre)
@@ -306,13 +309,13 @@ if in doubt, ship dagre only and drop `elkjs` from the dependency list.
 
 On-disk layout under `node_modules/lucide-static/`:
 
-| Path | Contents |
-| --- | --- |
-| `icons/<name>.svg` | **2007 individual SVG files** — this is what we read |
-| `icon-nodes.json` | every icon as a parsed node tree (no SVG text) |
-| `sprite.svg` | all icons as one `<symbol>` sheet |
-| `tags.json` | `{ "rocket": ["ship","launch",…] }` — **use this for search//aliasing** |
-| `dist/`, `font/` | JS bundles and an icon font; not needed |
+| Path               | Contents                                                                |
+| ------------------ | ----------------------------------------------------------------------- |
+| `icons/<name>.svg` | **2007 individual SVG files** — this is what we read                    |
+| `icon-nodes.json`  | every icon as a parsed node tree (no SVG text)                          |
+| `sprite.svg`       | all icons as one `<symbol>` sheet                                       |
+| `tags.json`        | `{ "rocket": ["ship","launch",…] }` — **use this for search//aliasing** |
+| `dist/`, `font/`   | JS bundles and an icon font; not needed                                 |
 
 File names are kebab-case (`a-arrow-down.svg`, `activity-square.svg`, `rocket.svg`).
 Every icon is a 24×24 `viewBox="0 0 24 24"`, `fill="none"`, `stroke="currentColor"`,
@@ -367,9 +370,9 @@ import { vectorize, ColorMode, Hierarchical, PathSimplifyMode, Preset } from '@n
 import { readFile } from 'node:fs/promises';
 
 const svg: string = await vectorize(await readFile('in.png'), {
-  colorMode: ColorMode.Binary,          // Binary = 1 (black/white) | Color = 0
-  hierarchical: Hierarchical.Stacked,   // Stacked = 0 | Cutout = 1
-  mode: PathSimplifyMode.Spline,        // None = 0 | Polygon = 1 | Spline = 2
+  colorMode: ColorMode.Binary, // Binary = 1 (black/white) | Color = 0
+  hierarchical: Hierarchical.Stacked, // Stacked = 0 | Cutout = 1
+  mode: PathSimplifyMode.Spline, // None = 0 | Polygon = 1 | Spline = 2
   filterSpeckle: 4,
   cornerThreshold: 60,
   lengthThreshold: 4,
@@ -410,12 +413,16 @@ roughen and draw-on well.
 **VERDICT: USE `@neplex/vectorizer` (OPTIONAL dep), AVOID both potrace packages.**
 Prebuilt darwin-arm64 binary, modern typed API, no compile step, colour or binary modes.
 Keep it **optional and lazily imported** — the zero-key default path uses `lucide-static`
-+ procedural diagrams and must never require a native module to be present:
+
+- procedural diagrams and must never require a native module to be present:
 
 ```ts
 let vectorize: typeof import('@neplex/vectorizer').vectorize | undefined;
-try { ({ vectorize } = await import('@neplex/vectorizer')); }
-catch { log.warn('@neplex/vectorizer unavailable — skipping raster vectorisation'); }
+try {
+  ({ vectorize } = await import('@neplex/vectorizer'));
+} catch {
+  log.warn('@neplex/vectorizer unavailable — skipping raster vectorisation');
+}
 ```
 
 ---
@@ -439,9 +446,9 @@ const browser = await chromium.launch({
 });
 
 const context = await browser.newContext({
-  viewport: { width: 960, height: 540 },   // CSS px
-  deviceScaleFactor: 2,                    // -> 1920x1080 actual pixels
-  reducedMotion: 'reduce',                 // kills prefers-reduced-motion animations
+  viewport: { width: 960, height: 540 }, // CSS px
+  deviceScaleFactor: 2, // -> 1920x1080 actual pixels
+  reducedMotion: 'reduce', // kills prefers-reduced-motion animations
 });
 
 const page = await context.newPage();
@@ -452,7 +459,7 @@ await page.addStyleTag({
 await page.setContent(html);
 
 for (let i = 0; i < frameCount; i++) {
-  await page.evaluate((t) => window.seek(t), i / fps);   // pure function of t
+  await page.evaluate((t) => window.seek(t), i / fps); // pure function of t
   const png: Buffer = await page.screenshot({ type: 'png' });
   // -> ffmpeg stdin
 }
@@ -469,7 +476,9 @@ IR, set the viewport to half the target and `deviceScaleFactor: 2` (crisper text
 the render page. Expose one pure function and have Node drive it:
 
 ```js
-window.seek = (t) => { /* set every element's state purely from t */ };
+window.seek = (t) => {
+  /* set every element's state purely from t */
+};
 ```
 
 Layers of protection, all verified:
@@ -506,8 +515,11 @@ Playwright can therefore silently require a fresh browser download.
 import { existsSync } from 'node:fs';
 
 export function chromiumAvailable(): boolean {
-  try { return existsSync(chromium.executablePath()); }
-  catch { return false; }   // executablePath() throws if no build is registered
+  try {
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  } // executablePath() throws if no build is registered
 }
 ```
 
@@ -531,24 +543,50 @@ All verified with ffmpeg 8.1.2 against real captured frames.
 ### Frames on stdin → H.264 + WAV narration → web-ready mp4
 
 ```ts
-const ff = spawn('ffmpeg', [
-  '-y', '-v', 'error',
-  '-f', 'image2pipe', '-framerate', String(fps), '-i', 'pipe:0',  // PNG/JPEG frames
-  '-i', narrationWavPath,
-  '-map', '0:v:0', '-map', '1:a:0',
-  '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
-  '-pix_fmt', 'yuv420p',            // required for browser/QuickTime playback
-  '-r', String(fps),
-  '-c:a', 'aac', '-b:a', '160k',
-  '-movflags', '+faststart',        // moov before mdat -> starts playing while loading
-  'out.mp4',
-], { stdio: ['pipe', 'inherit', 'inherit'] });
+const ff = spawn(
+  'ffmpeg',
+  [
+    '-y',
+    '-v',
+    'error',
+    '-f',
+    'image2pipe',
+    '-framerate',
+    String(fps),
+    '-i',
+    'pipe:0', // PNG/JPEG frames
+    '-i',
+    narrationWavPath,
+    '-map',
+    '0:v:0',
+    '-map',
+    '1:a:0',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'medium',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p', // required for browser/QuickTime playback
+    '-r',
+    String(fps),
+    '-c:a',
+    'aac',
+    '-b:a',
+    '160k',
+    '-movflags',
+    '+faststart', // moov before mdat -> starts playing while loading
+    'out.mp4',
+  ],
+  { stdio: ['pipe', 'inherit', 'inherit'] },
+);
 
 for (const png of frames) {
-  if (!ff.stdin.write(png)) await once(ff.stdin, 'drain');   // MUST respect backpressure
+  if (!ff.stdin.write(png)) await once(ff.stdin, 'drain'); // MUST respect backpressure
 }
 ff.stdin.end();
-await once(ff, 'close');   // check the exit code
+await once(ff, 'close'); // check the exit code
 ```
 
 Confirmed output: `h264 / yuv420p / 1280x720 / 30 fps` video + `aac 16000 Hz` audio, and
@@ -610,11 +648,11 @@ frames→H.264+AAC→faststart chain is verified working. Watch backpressure and
 
 ## 8. Document ingest — one library per format
 
-| Format | Pick | Why |
-| --- | --- | --- |
-| **PDF** | **`unpdf@^1.8.0`** | Bundles pdf.js; **zero runtime dependencies** |
-| **.docx** | **`mammoth@^1.12.0`** | The only real answer in JS |
-| **URL/HTML** | **`cheerio@^1.2.0` + `turndown@^7.2.4`** | cheerio strips chrome, turndown converts |
+| Format       | Pick                                     | Why                                           |
+| ------------ | ---------------------------------------- | --------------------------------------------- |
+| **PDF**      | **`unpdf@^1.8.0`**                       | Bundles pdf.js; **zero runtime dependencies** |
+| **.docx**    | **`mammoth@^1.12.0`**                    | The only real answer in JS                    |
+| **URL/HTML** | **`cheerio@^1.2.0` + `turndown@^7.2.4`** | cheerio strips chrome, turndown converts      |
 
 ### PDF — `unpdf` (not raw `pdfjs-dist`)
 
@@ -634,7 +672,7 @@ import { extractText, getDocumentProxy, getMeta } from 'unpdf';
 import { readFile } from 'node:fs/promises';
 
 const raw = await readFile(filePath);
-const doc = await getDocumentProxy(new Uint8Array(raw));   // parse ONCE
+const doc = await getDocumentProxy(new Uint8Array(raw)); // parse ONCE
 const { totalPages, text } = await extractText(doc, { mergePages: true });
 const meta = await getMeta(doc);
 // -> totalPages: 1, text: string, meta.info.Title: 'Gradient Descent'
@@ -657,6 +695,7 @@ scene-splitting hint for the heuristic planner.
   **Fix:** call `getDocumentProxy(new Uint8Array(raw))` once and pass the **proxy** to
   `extractText`/`getMeta`/`extractLinks`, or hand every call its own fresh
   `new Uint8Array(raw)`. Never reuse the array.
+
 - **GOTCHA (noisy, harmless):** on Node 22 you get repeated
   `Warning: TypeError: Math.sumPrecise is not a function` plus
   `Cannot substitute the font because of its name: …`. `Math.sumPrecise` does not exist
@@ -691,7 +730,7 @@ browser needed**). `main` is CJS, `module` is ESM, no `exports` map. Verified wo
 import TurndownService from 'turndown';
 
 const td = new TurndownService({
-  headingStyle: 'atx',        // "# H1" rather than underlines
+  headingStyle: 'atx', // "# H1" rather than underlines
   codeBlockStyle: 'fenced',
   bulletListMarker: '-',
 });
@@ -708,11 +747,12 @@ An _iterative_ optimisation algorithm.
 
 ## Update rule
 
--   Compute the gradient
--   Step downhill
-
+- Compute the gradient
+- Step downhill
 ```
+
 w = w - lr * grad
+
 ```
 
 See [the docs](https://example.com/docs).
@@ -763,13 +803,13 @@ import Anthropic from '@anthropic-ai/sdk';
 
 ### Current Claude model ids
 
-| Model | Model id | Context | In / Out per MTok |
-| --- | --- | --- | --- |
-| Claude Opus 5 | `claude-opus-5` | 1M | $5 / $25 |
-| Claude Sonnet 5 | `claude-sonnet-5` | 1M | $3 / $15 |
-| Claude Haiku 4.5 | `claude-haiku-4-5` | 200K | $1 / $5 |
-| Claude Opus 4.8 | `claude-opus-4-8` | 1M | $5 / $25 |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | $3 / $15 |
+| Model             | Model id            | Context | In / Out per MTok |
+| ----------------- | ------------------- | ------- | ----------------- |
+| Claude Opus 5     | `claude-opus-5`     | 1M      | $5 / $25          |
+| Claude Sonnet 5   | `claude-sonnet-5`   | 1M      | $3 / $15          |
+| Claude Haiku 4.5  | `claude-haiku-4-5`  | 200K    | $1 / $5           |
+| Claude Opus 4.8   | `claude-opus-4-8`   | 1M      | $5 / $25          |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M      | $3 / $15          |
 
 **Default to `claude-opus-5`.** Ids are complete as written — **never append a date
 suffix**. For the planner, `claude-sonnet-5` is a reasonable cost-tier option.
@@ -808,18 +848,20 @@ const res = await client.messages.create({
   max_tokens: 16000,
   system: PLANNER_SYSTEM,
   messages: [{ role: 'user', content: doc.text }],
-  tools: [{
-    name: 'emit_storyboard',
-    description: 'Emit the finished storyboard for this document.',
-    strict: true,                          // top-level, NOT on tool_choice
-    input_schema: storyboardJsonSchema,    // needs additionalProperties:false + required
-  }],
-  tool_choice: { type: 'tool', name: 'emit_storyboard' },   // forces the call
+  tools: [
+    {
+      name: 'emit_storyboard',
+      description: 'Emit the finished storyboard for this document.',
+      strict: true, // top-level, NOT on tool_choice
+      input_schema: storyboardJsonSchema, // needs additionalProperties:false + required
+    },
+  ],
+  tool_choice: { type: 'tool', name: 'emit_storyboard' }, // forces the call
 });
 
 const block = res.content.find((b) => b.type === 'tool_use');
 if (!block) throw new Error('planner returned no tool_use block');
-const storyboard = parseStoryboard(block.input);   // zod is the real gate
+const storyboard = parseStoryboard(block.input); // zod is the real gate
 ```
 
 `strict: true` goes on the **tool definition**, alongside `name`/`description`/
@@ -904,7 +946,7 @@ irrelevant for `scene.durationSec`.
   `Opening output file failed: fmt?`. The container is inferred from the **extension**,
   and little-endian PCM cannot go in an AIFF. Either use a `.wav` extension, or pass
   `--file-format=WAVE` explicitly. Being explicit is better — `say --file-format=WAVE
-  --data-format=LEI16@16000 -o out.wav` writes the exact format we want in one step and
+--data-format=LEI16@16000 -o out.wav` writes the exact format we want in one step and
   skips ffmpeg entirely.
 - Default (`say -o out.aiff "…"`) writes **AIFF-C compressed** audio, which then needs the
   ffmpeg step. Prefer the explicit WAVE form.
@@ -929,19 +971,19 @@ needs. Kokoro (§1) stays the documented local default.
    `>= 20.11`. Don't rely on Node 24 APIs.
 2. **CJS/ESM per library** — get these right the first time:
 
-   | Import | Correct form |
-   | --- | --- |
-   | roughjs | `import rough from 'roughjs/bundled/rough.esm.js'` (**subpath required**) |
-   | dagre | `import * as dagre from '@dagrejs/dagre'` |
-   | elkjs | `import ELK from 'elkjs/lib/elk.bundled.js'` |
-   | playwright | `import { chromium } from 'playwright'` |
-   | unpdf | `import { extractText, getDocumentProxy } from 'unpdf'` |
-   | mammoth | `import mammoth from 'mammoth'` (CJS default interop) |
-   | turndown | `import TurndownService from 'turndown'` (CJS default interop) |
-   | cheerio | `import * as cheerio from 'cheerio'` |
-   | kokoro-js | `import { KokoroTTS } from 'kokoro-js'` |
-   | anthropic | `import Anthropic from '@anthropic-ai/sdk'` |
-   | vectorizer | `await import('@neplex/vectorizer')` (lazy, optional) |
+   | Import     | Correct form                                                              |
+   | ---------- | ------------------------------------------------------------------------- |
+   | roughjs    | `import rough from 'roughjs/bundled/rough.esm.js'` (**subpath required**) |
+   | dagre      | `import * as dagre from '@dagrejs/dagre'`                                 |
+   | elkjs      | `import ELK from 'elkjs/lib/elk.bundled.js'`                              |
+   | playwright | `import { chromium } from 'playwright'`                                   |
+   | unpdf      | `import { extractText, getDocumentProxy } from 'unpdf'`                   |
+   | mammoth    | `import mammoth from 'mammoth'` (CJS default interop)                     |
+   | turndown   | `import TurndownService from 'turndown'` (CJS default interop)            |
+   | cheerio    | `import * as cheerio from 'cheerio'`                                      |
+   | kokoro-js  | `import { KokoroTTS } from 'kokoro-js'`                                   |
+   | anthropic  | `import Anthropic from '@anthropic-ai/sdk'`                               |
+   | vectorizer | `await import('@neplex/vectorizer')` (lazy, optional)                     |
 
 3. **Everything optional must be lazily imported inside a `try`/`catch`** and degrade with
    one `logger.warn` line: `@neplex/vectorizer`, `@anthropic-ai/sdk`, `elkjs`.
@@ -949,5 +991,5 @@ needs. Kokoro (§1) stays the documented local default.
    (`{ seed, randomizer: undefined }`, §2) and anything in the render page (seed in Node,
    never in the browser).
 5. **Cache keys** — use `hash()` / `isFresh()` / `markFresh()` from
-   `@inkcast/core`'s `project.ts`. Model weights are *not* project artefacts; cache them
+   `@inkcast/core`'s `project.ts`. Model weights are _not_ project artefacts; cache them
    outside `projects/<id>/`.

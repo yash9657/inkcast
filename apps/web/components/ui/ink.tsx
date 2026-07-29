@@ -301,12 +301,18 @@ export function InkArrow({
   weight = 2,
   className,
 }: InkCommon & {
-  direction?: 'right' | 'down' | 'left' | 'up' | 'down-right' | 'down-left' | 'up-right' | 'up-left';
+  direction?:
+    'right' | 'down' | 'left' | 'up' | 'down-right' | 'down-left' | 'up-right' | 'up-left';
   weight?: number;
 }) {
   const rand = randomFromSeed(resolveSeed(seed, null));
   const shaft = inkStrokePath(rand, { x: 6, y: 30 }, { x: 52, y: 30 }, { amplitude: 2.2 });
-  const headTop = inkStrokePath(rand, { x: 38, y: 18 }, { x: 54, y: 30 }, { segments: 3, amplitude: 1 });
+  const headTop = inkStrokePath(
+    rand,
+    { x: 38, y: 18 },
+    { x: 54, y: 30 },
+    { segments: 3, amplitude: 1 },
+  );
   const headBottom = inkStrokePath(
     rand,
     { x: 38, y: 42 },

@@ -15,7 +15,23 @@ import type { CostReport } from './cost.js';
 import { emptyCost } from './cost.js';
 import type { StageName } from './progress.js';
 
-export type SourceRef = { kind: 'text' | 'url' | 'file'; ref: string };
+/**
+ * What a project was made from.
+ *
+ * `topic` and `lesson` exist because a document is no longer the normal input: a
+ * topic string ("gradient descent") goes straight into the lesson stage, and a
+ * hand-authored `*.lesson.json` skips it altogether.
+ */
+export type SourceRef = { kind: 'text' | 'url' | 'file' | 'topic' | 'lesson'; ref: string };
+
+/** Enough of the lesson to show in a library listing without reading `lesson.json`. */
+export type LessonSummary = {
+  topic: string;
+  objective: string;
+  beats: number;
+  /** `critiqueLesson()` output at the time of the run. Empty means it passed. */
+  problems: string[];
+};
 
 export type PipelineState = {
   projectId: string;
@@ -31,6 +47,8 @@ export type PipelineState = {
   skipped: StageName[];
   cost: CostReport;
   providers: Record<string, string>;
+  /** Absent on the `via: 'document'` route, which has no lesson. */
+  lesson?: LessonSummary;
 };
 
 const FILE = 'pipeline.json';
@@ -61,6 +79,8 @@ export type ProjectSummary = {
   updatedAt: string;
   cost: CostReport;
   source?: SourceRef;
+  /** What the project teaches, when it was built through the lesson stage. */
+  lesson?: LessonSummary;
 };
 
 /** Every project on disk, newest first. Tolerates half-finished directories. */
@@ -99,6 +119,7 @@ export async function listProjects(root: string = PROJECTS_ROOT): Promise<Projec
       updatedAt,
       cost: state?.cost ?? emptyCost(),
       ...(state?.source ? { source: state.source } : {}),
+      ...(state?.lesson ? { lesson: state.lesson } : {}),
     });
   }
   out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

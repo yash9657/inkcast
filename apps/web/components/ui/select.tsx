@@ -45,7 +45,7 @@ export function SelectTrigger({
         'focus-ring outline-none data-[popup-open]:border-ring',
         'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         'data-invalid:border-destructive',
-        "[&>span]:truncate data-[placeholder]:[&>span]:text-muted-foreground",
+        '[&>span]:truncate data-[placeholder]:[&>span]:text-muted-foreground',
         className,
       )}
       {...props}

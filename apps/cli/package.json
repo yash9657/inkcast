@@ -2,7 +2,7 @@
   "name": "@inkcast/cli",
   "version": "0.1.0",
   "type": "module",
-  "description": "Inkcast command line: documents in, hand-drawn explainer video out.",
+  "description": "Inkcast command line: a topic in, a hand-drawn explainer lesson out.",
   "license": "AGPL-3.0-only",
   "main": "./src/index.ts",
   "bin": {
@@ -15,10 +15,12 @@
   ],
   "scripts": {
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@inkcast/core": "workspace:*",
+    "@inkcast/keyvault": "workspace:*",
     "@inkcast/pipeline": "workspace:*",
     "tsx": "^4.19.2"
   },

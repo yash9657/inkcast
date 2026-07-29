@@ -387,7 +387,11 @@ export const VideoPlayer = React.forwardRef<VideoPlayerHandle, VideoPlayerProps>
                     }
                   }}
                 >
-                  {muted || volume === 0 ? <VolumeXIcon aria-hidden /> : <Volume2Icon aria-hidden />}
+                  {muted || volume === 0 ? (
+                    <VolumeXIcon aria-hidden />
+                  ) : (
+                    <Volume2Icon aria-hidden />
+                  )}
                 </Button>
                 <Slider
                   label={<span className="sr-only">Volume</span>}

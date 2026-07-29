@@ -2,14 +2,48 @@
  * `@inkcast/planner` — the front half of the Inkcast compiler.
  *
  * ```ts
- * import { ingest, plan, editStoryboard } from '@inkcast/planner';
+ * import { ingest, teachLesson, compileLesson, editLesson } from '@inkcast/planner';
  *
- * const doc = await ingest({ filePath: 'examples/gradient-descent.md' });
- * const sb  = await plan(doc, { dir: 'projects/abc' });
- * const v2  = await editStoryboard(sb, 'retitle to "Downhill" and make it vertical');
+ * const doc    = await ingest({ filePath: 'examples/gradient-descent.md' });
+ * const lesson = await teachLesson(doc, { objective: 'explain why the update has a minus sign' });
+ * const sb     = compileLesson(lesson, { preset: 'standard' });
+ * const better = await editLesson(lesson, 'spend longer on the tangent; drop step 4');
  * ```
  *
- * ## The two entry points
+ * ## The pipeline this package owns
+ *
+ *     ingest -> lesson -> storyboard
+ *
+ * The middle stage is the product. `plan()` used to go straight from document to
+ * storyboard, which made it a summariser: it chopped prose into beats and read
+ * them aloud. Teaching is a different algorithm — anchor the abstraction in
+ * something concrete, introduce one idea at a time, justify rather than assert,
+ * consolidate with real numbers, name the wrong belief the learner just formed —
+ * and it has to happen before anything is drawn. See `docs/LESSON-ENGINE.md`.
+ *
+ * - **`teachLesson(input, opts)` → `Lesson`**
+ *   `input` is a `SourceDoc` or a bare topic string. With `ANTHROPIC_API_KEY` set,
+ *   Claude writes the lesson through a forced tool call against the Lesson schema
+ *   and then has to survive `critiqueLesson()`; problems are fed back for one
+ *   revision pass. With no key, a lesson is *derived* from document structure —
+ *   real, renderable, and clearly logged as the lesser path.
+ *
+ * - **`compileLesson(lesson, opts)` → `Storyboard`**
+ *   One scene per beat, carrying its `role` and `hold`. Visual intents become real
+ *   elements: `plot` intents produce genuine `PlotElement`s with derived domains,
+ *   named functions and overlays that serve the idea (tangents where slope is
+ *   explained, real gradient-descent steps where descent is shown, a second
+ *   shallower well for local minima); `path` intents produce drawn ink. Beats
+ *   share regions so the board accumulates, and the camera frames the growing
+ *   union instead of one patch at a time.
+ *
+ * - **`editLesson(lesson, instruction, opts)` → `Lesson`**
+ *   Revise the teaching rather than the drawing. With a key Claude patches the
+ *   lesson under the same brief; without one, pacing, silence, dropping a beat,
+ *   reordering steps, the jargon budget, the objective and a vertical refit are all
+ *   local, and anything needing new prose is reported as needing a key.
+ *
+ * ## The original entry points
  *
  * - **`ingest({ text?, filePath?, url? })` → `SourceDoc`**
  *   Reads raw text, `.md`, `.txt`, `.pdf`, `.docx`, `.html` or an `http(s)` URL
@@ -20,13 +54,10 @@
  *   and URL ingest has a dependency-free HTML fallback.
  *
  * - **`plan(doc, opts)` → `Storyboard`**
- *   Compiles a document into the IR from `@inkcast/core`: beats, spoken
- *   narration, visual elements, asset references, layout and camera. Validated
- *   with zod before it returns. Adapter selection:
- *   `heuristic` (default, zero keys, zero network) or `anthropic`
- *   (`ANTHROPIC_API_KEY` set, or `adapter: 'anthropic'`), which asks Claude for
- *   the plan through a forced tool call and falls back to the heuristic planner
- *   on any failure.
+ *   The pipeline's stage entry: `teachLesson` then `compileLesson`, validated with
+ *   zod before it returns. `via: 'document'` selects the MVP's summarising path
+ *   instead, which is kept as the renderer's zero-key CI fixture. `lesson:` takes a
+ *   `Lesson` or a path to one, so a hand-authored lesson can be rendered directly.
  *
  * - **`editStoryboard(sb, instruction)` → `Storyboard`**
  *   Natural-language editing. With a key, Claude patches the IR. Without one, a
@@ -52,19 +83,86 @@
 
 /* ------------------------------------------------------------ stage entries */
 export { ingest, buildDoc, htmlToMarkdown, htmlToMarkdownFallback, reflow } from './ingest.js';
-export { plan, resolveAdapter, PLANNER_VERSION } from './plan.js';
+export { plan, resolveAdapter, resolveRoute, PLANNER_VERSION } from './plan.js';
+export { teachLesson, resolveLessonAdapter, LESSON_VERSION } from './lesson.js';
+export { compileLesson, updateLine, assignTiming, nodesFrom, COMPILER_VERSION } from './compile.js';
 export { editStoryboard, editStoryboardDetailed, splitInstructions } from './edit.js';
+export { editLesson, editLessonDetailed, splitLessonInstructions } from './lesson-edit.js';
+
+/* -------------------------------------------------------------- lesson bits */
+export { deriveLesson } from './lesson-derive.js';
+export {
+  anthropicLesson,
+  anthropicLessonEdit,
+  lessonModel,
+  DEFAULT_LESSON_MODEL,
+} from './lesson-anthropic.js';
+export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';
+export {
+  PRESETS,
+  adaptLesson,
+  clampNarration,
+  critiqueFor,
+  lessonSeconds,
+  pickVisuals,
+  resolvePreset,
+} from './presets.js';
+export type { Preset, PresetName, PresetInput } from './presets.js';
+export { deriveCues, cueResolves, preferredCue } from './cues.js';
+
+/* ------------------------------------------------------------ plots + ink */
+export {
+  buildPlot,
+  makePlot,
+  deriveBowl,
+  plotHints,
+  axisLabels,
+  recipeFor,
+  trim,
+} from './plots.js';
+export type { PlotHints, PlotContext } from './plots.js';
+export {
+  curveParams,
+  curveY,
+  curvePath,
+  descend,
+  evalFn,
+  fitYDomain,
+  sampleCurve,
+  slopeAt,
+  stepPath,
+  dataToCanvas,
+} from './curves.js';
+export {
+  makePath,
+  boundsOf,
+  ballPath,
+  blobPath,
+  bowlPath,
+  chevronPath,
+  circlePoints,
+  fogPaths,
+  hillPath,
+  hillPoint,
+  hillProfile,
+  walkerPaths,
+} from './figures.js';
+export { planBoard, groupIntoRegions, cellBoxes, cellGrid, phaseOf, unionBox } from './regions.js';
+export type { Board, BoardOptions, RegionSpec, BeatRole } from './regions.js';
 
 /* ---------------------------------------------------------------- adapters */
 export { heuristicPlan, pacing } from './heuristic.js';
 export {
   anthropicAvailable,
+  anthropicClient,
   anthropicPlan,
   anthropicEdit,
+  callTool,
+  errorDetail,
   plannerModel,
   DEFAULT_MODEL,
 } from './anthropic.js';
-export { storyboardJsonSchema } from './schema.js';
+export { storyboardJsonSchema, lessonJsonSchema } from './schema.js';
 
 /* ------------------------------------------------------- layout + building */
 export {
@@ -77,7 +175,7 @@ export {
   sceneBoxes,
 } from './layout.js';
 export type { Hints, PlacementHint, LayoutOptions, Span, Grid } from './layout.js';
-export type { Box } from './elements.js';
+export type { Box, Point } from './elements.js';
 export {
   FONT,
   charWidth,
@@ -131,4 +229,9 @@ export type {
   PlannerAdapter,
   EditOptions,
   EditReport,
+  CompileOptions,
+  FormatOptions,
+  LessonEditReport,
+  LessonInput,
+  LessonOptions,
 } from './types.js';

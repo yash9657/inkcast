@@ -27,6 +27,13 @@ import { words } from './text.js';
  */
 export type Box = Element['at'];
 
+/**
+ * A canvas-space point. `@inkcast/core` exports `Point` as a zod schema rather
+ * than a type, so derive it from the IR field that already has this shape — that
+ * way it can never drift from the schema.
+ */
+export type Point = ArrowElement['from'];
+
 type Z = { x: number; y: number };
 type Role = TextElement['role'];
 

@@ -60,7 +60,9 @@ function applyOne(sb: Storyboard, raw: string): Applied {
 
   /* --- title --- */
   const title =
-    s.match(/\b(?:retitle|rename|title)\b[^"'\w]*(?:it|the video|this)?\s*(?:to|as|:)?\s*["“']([^"”']+)["”']/i) ??
+    s.match(
+      /\b(?:retitle|rename|title)\b[^"'\w]*(?:it|the video|this)?\s*(?:to|as|:)?\s*["“']([^"”']+)["”']/i,
+    ) ??
     s.match(/\b(?:retitle|rename)\b(?:\s+(?:it|the video|this))?\s+(?:to|as)\s+(.+)$/i) ??
     s.match(/^\s*title\s*[:=]\s*(.+)$/i) ??
     s.match(/\bcall it\s+["“']?([^"”']+)["”']?$/i);
@@ -73,7 +75,9 @@ function applyOne(sb: Storyboard, raw: string): Applied {
   }
 
   /* --- voice --- */
-  const voice = s.match(/\bvoice\b\s*(?:to|=|:)?\s*([a-z]{2}_[a-z]+)/i) ?? s.match(/\buse\s+([a-z]{2}_[a-z]+)\b/i);
+  const voice =
+    s.match(/\bvoice\b\s*(?:to|=|:)?\s*([a-z]{2}_[a-z]+)/i) ??
+    s.match(/\buse\s+([a-z]{2}_[a-z]+)\b/i);
   if (voice?.[1]) {
     sb.meta.voice = voice[1].toLowerCase();
     return { sb, note: `voice set to ${sb.meta.voice}` };
@@ -84,7 +88,10 @@ function applyOne(sb: Storyboard, raw: string): Applied {
     sb.meta.palette = 'mono';
     return { sb, note: 'palette set to mono' };
   }
-  if (/\b(colour|color|colourful|colorful)\b/i.test(lower) && /\b(add|use|make|switch|change|in)\b/i.test(lower)) {
+  if (
+    /\b(colour|color|colourful|colorful)\b/i.test(lower) &&
+    /\b(add|use|make|switch|change|in)\b/i.test(lower)
+  ) {
     sb.meta.palette = 'color';
     return { sb, note: 'palette set to color' };
   }
@@ -187,10 +194,7 @@ function applyOne(sb: Storyboard, raw: string): Applied {
       }
       scene.camera.transition = Math.round(scene.camera.transition * factor * 100) / 100;
       for (const el of scene.elements) {
-        el.enter.duration = Math.max(
-          0.15,
-          Math.round(el.enter.duration * factor * 100) / 100,
-        );
+        el.enter.duration = Math.max(0.15, Math.round(el.enter.duration * factor * 100) / 100);
       }
     }
     const scope = sceneMatch?.[1] !== undefined ? `scene ${sceneMatch[1]}` : 'every scene';

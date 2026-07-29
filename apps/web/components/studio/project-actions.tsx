@@ -106,7 +106,9 @@ export function DeleteProjectButton({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose render={<Button variant="ghost" disabled={deleting} />}>Keep it</DialogClose>
+            <DialogClose render={<Button variant="ghost" disabled={deleting} />}>
+              Keep it
+            </DialogClose>
             <Button
               variant="destructive"
               disabled={deleting}

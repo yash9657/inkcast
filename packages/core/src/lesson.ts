@@ -86,10 +86,14 @@ export type LessonStep = z.infer<typeof LessonStep>;
 export type VisualIntent = z.infer<typeof VisualIntent>;
 
 /** Every beat in running order, tagged with the role it plays. */
-export function lessonBeats(
-  l: Lesson,
-): Array<{ step: LessonStep; role: 'hook' | 'anchor' | 'step' | 'worked' | 'misconception' | 'recap' }> {
-  const beats: Array<{ step: LessonStep; role: 'hook' | 'anchor' | 'step' | 'worked' | 'misconception' | 'recap' }> = [
+export function lessonBeats(l: Lesson): Array<{
+  step: LessonStep;
+  role: 'hook' | 'anchor' | 'step' | 'worked' | 'misconception' | 'recap';
+}> {
+  const beats: Array<{
+    step: LessonStep;
+    role: 'hook' | 'anchor' | 'step' | 'worked' | 'misconception' | 'recap';
+  }> = [
     { step: l.hook, role: 'hook' },
     { step: l.anchor, role: 'anchor' },
     ...l.steps.map((step) => ({ step, role: 'step' as const })),
@@ -124,7 +128,9 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     problems.push('hook opens with a preamble instead of a concrete question or surprise');
   }
   for (const term of l.jargonBudget) {
-    const firstUse = beats.findIndex((b) => b.step.narration.toLowerCase().includes(term.toLowerCase()));
+    const firstUse = beats.findIndex((b) =>
+      b.step.narration.toLowerCase().includes(term.toLowerCase()),
+    );
     if (firstUse === 0) problems.push(`jargon "${term}" appears in the hook before being earned`);
   }
   if (opts.maxSeconds) {

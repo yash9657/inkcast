@@ -6,7 +6,7 @@
  * through `zod-to-json-schema` — an optional dependency, because the schema is
  * only needed by the opt-in Anthropic adapter.
  */
-import { Storyboard } from '@inkcast/core';
+import { Lesson, Storyboard } from '@inkcast/core';
 import { optionalImport } from './optional.js';
 
 /** Keys tool-use / structured-output schemas do not support. */
@@ -55,24 +55,37 @@ function prune(node: unknown): unknown {
   return out;
 }
 
+type Mod = {
+  zodToJsonSchema(schema: unknown, opts?: { target?: string; $refStrategy?: string }): Json;
+};
+
+async function toJsonSchema(schema: unknown, why: string): Promise<Json | undefined> {
+  const mod = await optionalImport<Mod>('zod-to-json-schema', why);
+  if (!mod) return undefined;
+  // `$refStrategy: 'none'` inlines every definition. The schema is bigger, but a
+  // tool schema full of `$ref` pointers measurably degrades what models emit.
+  const raw = mod.zodToJsonSchema(schema, { target: 'jsonSchema7', $refStrategy: 'none' });
+  const pruned = prune(raw) as Json;
+  delete pruned.$schema;
+  return pruned;
+}
+
 /**
  * The Storyboard as a JSON Schema an LLM can be forced to emit, or `undefined`
  * when `zod-to-json-schema` is not installed (callers fall back to heuristics).
  */
 export async function storyboardJsonSchema(): Promise<Json | undefined> {
-  type Mod = {
-    zodToJsonSchema(
-      schema: unknown,
-      opts?: { target?: string; $refStrategy?: string },
-    ): Json;
-  };
-  const mod = await optionalImport<Mod>(
-    'zod-to-json-schema',
-    'the Anthropic planner needs it to describe the Storyboard',
-  );
-  if (!mod) return undefined;
-  const raw = mod.zodToJsonSchema(Storyboard, { target: 'jsonSchema7', $refStrategy: 'none' });
-  const pruned = prune(raw) as Json;
-  delete pruned.$schema;
-  return pruned;
+  return toJsonSchema(Storyboard, 'the Anthropic planner needs it to describe the Storyboard');
+}
+
+/**
+ * The Lesson as a JSON Schema, for the forced tool call in the lesson stage.
+ *
+ * The point of forcing the tool is that the *shape* of good teaching is not
+ * optional: a hook, an anchor, ordered steps, a worked example, the misconception
+ * and a recap are required fields, so a model cannot quietly hand back a summary
+ * with a title on it.
+ */
+export async function lessonJsonSchema(): Promise<Json | undefined> {
+  return toJsonSchema(Lesson, 'the Anthropic lesson author needs it to describe a Lesson');
 }

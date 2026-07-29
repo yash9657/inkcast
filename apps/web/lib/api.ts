@@ -15,6 +15,12 @@
  *   POST   /api/projects/:id/rerender -> 202 { projectId, streamUrl }
  *   DELETE /api/projects/:id        -> { ok, id } (409 while a render is in flight)
  *   GET    /api/media/:id/*         -> mp4 / wav / thumbnail bytes
+ *   GET    /api/providers           -> { providers, local, keys, warnings, accepts }
+ *
+ * `/api/keys` is deliberately absent from this module. Its client lives in
+ * `components/settings/client.ts`, next to the only screen that may call it, so
+ * that nothing which imports the general studio client acquires the ability to
+ * post a credential.
  *
  * The generate endpoint validates strictly: storyboard overrides go under
  * `meta`, and exactly one source may be present. Both rules are enforced here.
@@ -81,6 +87,15 @@ export type ProjectDetail = {
   storyboard?: Storyboard;
 };
 
+/**
+ * How thoroughly to teach, and therefore how long the video runs.
+ *
+ * A choice about pedagogy rather than about file size: `short` is the 9:16
+ * constraint — one idea, one visual, one payoff — and `deep` is the one that can
+ * afford to justify every step and name the misconception.
+ */
+export type Depth = 'short' | 'standard' | 'deep';
+
 export type GenerateInput = {
   text?: string;
   url?: string;
@@ -92,6 +107,19 @@ export type GenerateInput = {
   voice: string;
   style: InkStyle;
   palette: Palette;
+  depth?: Depth;
+  /** Target runtime the lesson stage should plan against. */
+  targetSeconds?: number;
+  /**
+   * The `meta` field names this server validates, from `GET /api/providers`.
+   *
+   * Depth and target length are newer than the generate endpoint's schema, which
+   * is `.strict()` — an unrecognised field is a 400, not a shrug. So they are sent
+   * only when the server has advertised them, which means a studio that knows
+   * about an option can never break against a build that does not. Leave it
+   * undefined and neither is sent.
+   */
+  accepts?: readonly string[];
 };
 
 /* ---------------------------------------------------------------- transport */
@@ -153,6 +181,16 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   return body;
 }
 
+/**
+ * The transport, for the one feature client that lives outside this module.
+ *
+ * `components/settings/client.ts` needs the same error normalisation — an
+ * `ApiError` whose message is the server's sentence — and duplicating it would
+ * mean two behaviours for a failed request. Exported rather than copied; the
+ * settings client is still the only place that knows the keys endpoints exist.
+ */
+export const apiRequest = request;
+
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
@@ -168,7 +206,14 @@ function num(v: unknown): number | undefined {
 /* ------------------------------------------------------------ normalisation */
 
 const READY = new Set(['ready', 'done', 'complete', 'completed', 'finished', 'rendered']);
-const RUNNING = new Set(['running', 'generating', 'rendering', 'in_progress', 'in-progress', 'busy']);
+const RUNNING = new Set([
+  'running',
+  'generating',
+  'rendering',
+  'in_progress',
+  'in-progress',
+  'busy',
+]);
 const QUEUED = new Set(['queued', 'pending', 'waiting', 'starting']);
 const FAILED = new Set(['failed', 'error', 'errored', 'cancelled', 'canceled']);
 
@@ -240,6 +285,124 @@ export function parseProjectDetail(raw: unknown, fallbackId?: string): ProjectDe
   return storyboard ? { project, storyboard } : { project };
 }
 
+/* ------------------------------------------------------------ capabilities */
+
+/** Which provider a stage will use on this machine, and why. */
+export type StageProvider = {
+  name: string;
+  /** True when the work leaves this machine and can be billed. */
+  cloud: boolean;
+  why: string;
+  model?: string;
+};
+
+/** The masked view of one credential. A key value never appears here. */
+export type KeyState = {
+  id: 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
+  envVar: string;
+  configured: boolean;
+  /**
+   * `keychain` appears once the studio delegates to `@inkcast/keyvault`, which
+   * stores keys in the OS keychain on macOS. Handled now so that swap needs no
+   * change here.
+   */
+  source: 'env' | 'vault' | 'keychain' | 'none';
+  mask?: string;
+  length?: number;
+  updatedAt?: string;
+  unreadable?: boolean;
+  shadowedByEnv?: boolean;
+};
+
+export type Capabilities = {
+  planner: StageProvider;
+  voice: StageProvider;
+  images: StageProvider;
+  /** True when nothing in a run leaves this machine. */
+  local: boolean;
+  keys: KeyState[];
+  /** The degradations in plain language, worst first. */
+  warnings: string[];
+  /** `meta` fields `POST /api/generate` will accept on this build. */
+  accepts: string[];
+};
+
+function parseStageProvider(raw: unknown): StageProvider {
+  const rec = asRecord(raw);
+  const model = str(rec.model);
+  return {
+    name: str(rec.name) ?? 'unknown',
+    cloud: rec.cloud === true,
+    why: str(rec.why) ?? '',
+    ...(model === undefined ? {} : { model }),
+  };
+}
+
+const KEY_IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+
+function parseKeyState(raw: unknown): KeyState | undefined {
+  const rec = asRecord(raw);
+  const id = KEY_IDS.find((candidate) => candidate === rec.id);
+  if (!id) return undefined;
+  const mask = str(rec.mask);
+  const updatedAt = str(rec.updatedAt);
+  const length = num(rec.length);
+  const source =
+    rec.source === 'env' || rec.source === 'vault' || rec.source === 'keychain'
+      ? rec.source
+      : 'none';
+  return {
+    id,
+    envVar: str(rec.envVar) ?? '',
+    configured: rec.configured === true,
+    source,
+    ...(mask === undefined ? {} : { mask }),
+    ...(length === undefined ? {} : { length }),
+    ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(rec.unreadable === true ? { unreadable: true as const } : {}),
+    ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
+  };
+}
+
+/**
+ * What this machine can currently do.
+ *
+ * Every field is derived from the server's answer; nothing is inferred. If the
+ * request fails the caller gets an `ApiError` and should render the studio as if
+ * fully local — which is the truthful default, since local is what runs when
+ * nothing else is configured.
+ */
+export async function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
+  const out = asRecord(await request('/api/providers', signal ? { signal } : undefined));
+  const providers = asRecord(out.providers);
+  const keys: KeyState[] = [];
+  for (const raw of Array.isArray(out.keys) ? out.keys : []) {
+    const parsed = parseKeyState(raw);
+    if (parsed) keys.push(parsed);
+  }
+  return {
+    planner: parseStageProvider(providers.planner),
+    voice: parseStageProvider(providers.voice),
+    images: parseStageProvider(providers.images),
+    local: out.local === true,
+    keys,
+    warnings: (Array.isArray(out.warnings) ? out.warnings : []).filter(
+      (line): line is string => typeof line === 'string' && line.trim() !== '',
+    ),
+    accepts: (Array.isArray(out.accepts) ? out.accepts : []).filter(
+      (field): field is string => typeof field === 'string',
+    ),
+  };
+}
+
+/** The key state for one provider, or `undefined` when the server omitted it. */
+export function keyStateFor(
+  caps: Capabilities | undefined,
+  id: KeyState['id'],
+): KeyState | undefined {
+  return caps?.keys.find((key) => key.id === id);
+}
+
 /* ------------------------------------------------------------------- routes */
 
 /** The API path for a project's detail record. Used by server components too. */
@@ -253,6 +416,43 @@ export function streamPath(id: string): string {
 }
 
 /**
+ * The names a build might use for "how long should this be".
+ *
+ * Checked in order against what the server advertises. The lesson stage's own
+ * option is `maxSeconds`; a storyboard-level mirror of it would more naturally be
+ * `targetSeconds`. Rather than betting on one, this sends whichever the endpoint
+ * says it validates, and nothing at all when it validates neither.
+ */
+const SECONDS_FIELDS = ['targetSeconds', 'maxSeconds', 'targetSec'] as const;
+
+/**
+ * The teaching-depth part of `meta`, reduced to what this server accepts.
+ *
+ * Silently dropping an option is normally a bad idea, which is why the create
+ * form reads the same `accepts` list and says out loud when length is not being
+ * sent. The alternative — posting the field regardless — turns a missing feature
+ * into a failed render, and the aspect ratio, ink and voice the user also chose
+ * would go down with it.
+ */
+function teachingMeta(input: GenerateInput): Record<string, unknown> {
+  const accepts = input.accepts;
+  if (!accepts || accepts.length === 0) return {};
+  const out: Record<string, unknown> = {};
+  if (input.depth !== undefined && accepts.includes('depth')) out.depth = input.depth;
+  if (input.targetSeconds !== undefined) {
+    const field = SECONDS_FIELDS.find((name) => accepts.includes(name));
+    if (field) out[field] = Math.round(input.targetSeconds);
+  }
+  return out;
+}
+
+/** True when this server will honour a chosen runtime. Drives the form's copy. */
+export function acceptsTargetLength(accepts: readonly string[] | undefined): boolean {
+  if (!accepts) return false;
+  return accepts.includes('depth') || SECONDS_FIELDS.some((name) => accepts.includes(name));
+}
+
+/**
  * Start a run.
  *
  * A pasted document or a URL goes as JSON. A dropped binary (pdf, docx) goes as
@@ -262,12 +462,13 @@ export function streamPath(id: string): string {
 export async function generate(input: GenerateInput, signal?: AbortSignal): Promise<string> {
   // `POST /api/generate` validates with a strict schema: the storyboard
   // overrides go under `meta`, and exactly one source may be present.
-  const meta = {
+  const meta: Record<string, unknown> = {
     aspect: input.aspect,
     language: input.language,
     voice: input.voice,
     style: input.style,
     palette: input.palette,
+    ...teachingMeta(input),
   };
   const title = input.title?.trim();
 

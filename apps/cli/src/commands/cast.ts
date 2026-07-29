@@ -1,30 +1,56 @@
 /**
- * `cast <file|url|->` — the main command.
+ * `cast <file|url|topic|lesson.json|->` and the shared run/report machinery.
  *
- * Resolves the input, runs the pipeline with live progress, then prints a
- * summary that answers the three questions people actually have: where is my
- * video, how long did each stage take, and what did it cost.
+ * Resolves the input, prints anything that is running degraded *before* the work
+ * starts (with the one command that fixes it), runs the pipeline with live
+ * progress, then prints a summary that answers the four questions people actually
+ * have: what does it teach, where is my video, how long did each stage take, and
+ * what did it cost.
+ *
+ * `teach` is the same machinery with a topic instead of a document, so both
+ * commands share `runCast`.
  */
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { frameSize, totalDuration } from '@inkcast/core';
-import { cast, formatCost, STAGES, type CastInput, type CastResult } from '@inkcast/pipeline';
+import {
+  cast,
+  degradations,
+  formatCost,
+  providers as detectProviders,
+  STAGES,
+  type CastInput,
+  type CastResult,
+  type Degradation,
+} from '@inkcast/pipeline';
 import type { CliContext } from '../env.js';
-import { metaFromFlags, UsageError, type Flags } from '../main.js';
+import { metaFromFlags, lessonFromFlags, UsageError, type Flags } from '../main.js';
 import { bytes, clock, paint, reporter, secs } from '../ui.js';
 import { openInOs, pretty } from './shared.js';
 
 const DOCUMENT_EXT = /\.(md|markdown|txt|text|pdf|docx|html?|rtf|json|adoc|rst)$/i;
+const LESSON_EXT = /\.lesson\.json$/i;
+
+/**
+ * Free text shorter than this is treated as a **topic** to teach, not as source
+ * material to summarise. `cast "gradient descent"` should teach gradient descent;
+ * only something document-length is a document.
+ */
+const TOPIC_MAX_CHARS = 140;
 
 export async function castCommand(
   ctx: CliContext,
   positionals: string[],
   flags: Flags,
 ): Promise<number> {
-  const c = paint(ctx.color);
-  const input = await buildInput(ctx, positionals, flags);
+  return runCast(ctx, await buildInput(ctx, positionals, flags), flags);
+}
 
+/* ---------------------------------------------------------------- the run */
+
+export async function runCast(ctx: CliContext, input: CastInput, flags: Flags): Promise<number> {
+  const c = paint(ctx.color);
   const rep = reporter(ctx);
   const cleanup = () => rep.stop();
   process.once('SIGINT', () => {
@@ -37,8 +63,11 @@ export async function castCommand(
 
   if (!ctx.json && !ctx.quiet) {
     rep.note(
-      `${c.bold('inkcast')} ${c.dim('·')} ${describe(input)} ${c.dim('·')} ${input.meta?.aspect ?? '16:9'} ${input.meta?.style ?? 'marker'}`,
+      `${c.bold('inkcast')} ${c.dim('·')} ${describe(input)} ${c.dim('·')} ${input.meta?.aspect ?? '16:9'} ${input.meta?.style ?? 'marker'}${input.depth ? c.dim(` · ${input.depth}`) : ''}`,
     );
+    // Before the work, not after: the point of saying it is that the user can
+    // stop, run one command, and get a better video instead of a worse one.
+    for (const line of degradationLines(ctx, input)) rep.note(line);
   }
 
   let result: CastResult;
@@ -79,13 +108,16 @@ async function buildInput(
   positionals: string[],
   flags: Flags,
 ): Promise<CastInput> {
-  const meta = metaFromFlags(flags);
-  const base: CastInput = {
-    ...(flags.title ? { title: flags.title } : {}),
-    ...(Object.keys(meta).length > 0 ? { meta } : {}),
-  };
+  const base = baseInput(flags);
+  const lessonFlag = lessonFromFlags(ctx, flags);
+  if (lessonFlag) return { ...base, lesson: lessonFlag };
+
   const first = positionals[0];
-  if (!first) throw new UsageError('nothing to cast — pass a file, a URL, `-` for stdin, or text');
+  if (!first) {
+    throw new UsageError(
+      'nothing to cast — pass a topic, a file, a URL, `-` for stdin, or a *.lesson.json',
+    );
+  }
 
   if (first === '-') {
     if (process.stdin.isTTY) {
@@ -100,7 +132,10 @@ async function buildInput(
 
   for (const candidate of [path.resolve(ctx.cwd, first), path.resolve(ctx.root, first)]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) {
-      return { ...base, filePath: candidate };
+      // A hand-authored lesson goes straight to the compiler: no planner, no key.
+      return LESSON_EXT.test(candidate)
+        ? { ...base, lesson: candidate }
+        : { ...base, filePath: candidate };
     }
   }
 
@@ -110,12 +145,31 @@ async function buildInput(
   }
 
   const text = positionals.join(' ').trim();
-  if (text.length < 12) {
+  if (text.length < 3) {
     throw new UsageError(
-      `"${text}" is neither a file nor enough text to make a video. Pass a document, a URL, or a sentence.`,
+      `"${text}" is neither a file nor a topic. Pass a topic, a document, or a URL.`,
     );
   }
-  return { ...base, text };
+  // Short free text is a topic to teach; document-length text is source material.
+  return text.length <= TOPIC_MAX_CHARS && !text.includes('\n')
+    ? { ...base, topic: text }
+    : { ...base, text };
+}
+
+/** Everything the flags contribute, independent of what the positional was. */
+export function baseInput(flags: Flags): CastInput {
+  const meta = metaFromFlags(flags);
+  return {
+    ...(flags.title ? { title: flags.title } : {}),
+    ...(Object.keys(meta).length > 0 ? { meta } : {}),
+    ...(flags.preset ? { preset: flags.preset } : {}),
+    ...(flags.depth ? { depth: flags.depth } : {}),
+    ...(flags.seconds ? { maxSeconds: flags.seconds } : {}),
+    ...(flags.audience ? { audience: flags.audience } : {}),
+    ...(flags.objective ? { objective: flags.objective } : {}),
+    ...(flags.brief ? { brief: flags.brief } : {}),
+    ...(flags.via ? { via: flags.via } : {}),
+  };
 }
 
 async function readStdin(): Promise<string> {
@@ -125,9 +179,38 @@ async function readStdin(): Promise<string> {
 }
 
 function describe(input: CastInput): string {
+  if (input.topic) return `teaching “${input.topic}”`;
+  if (input.lesson) {
+    return typeof input.lesson === 'string'
+      ? `lesson ${path.basename(input.lesson)}`
+      : 'a supplied lesson';
+  }
   if (input.filePath) return path.basename(input.filePath);
   if (input.url) return input.url;
   return `${(input.text ?? '').trim().split(/\s+/).length} words of text`;
+}
+
+/* ------------------------------------------------------------- degradation */
+
+/** What is running in its lesser mode, and the command that fixes it. */
+export function degradationLines(ctx: CliContext, input: CastInput): string[] {
+  const c = paint(ctx.color);
+  const provs = detectProviders(input.meta?.voice);
+  const found: Degradation[] = degradations(provs, {
+    ...(input.via ? { via: input.via } : {}),
+    ...(input.lesson === undefined ? {} : { lessonSupplied: true }),
+  });
+  const lines: string[] = [];
+  for (const d of found) {
+    if (d.severity === 'major') {
+      lines.push(
+        `${c.yellow('degraded')} ${c.bold(d.stage)} ${c.dim(`— ${d.missing}.`)} ${d.effect}\n         ${c.dim('fix:')} ${c.cyan(d.fix)}`,
+      );
+    } else {
+      lines.push(`${c.dim(`         ${d.stage}: ${d.missing} — ${d.effect} fix: ${d.fix}`)}`);
+    }
+  }
+  return lines;
 }
 
 /* ------------------------------------------------------------------- output */
@@ -172,6 +255,20 @@ function jsonResult(result: CastResult, copied?: string) {
     ...(copied ? { copiedTo: copied } : {}),
     dir: result.dir,
     storyboardPath: path.join(result.dir, 'storyboard.json'),
+    ...(result.lessonPath ? { lessonPath: result.lessonPath } : {}),
+    lesson: result.lesson
+      ? {
+          topic: result.lesson.topic,
+          audience: result.lesson.audience,
+          objective: result.lesson.objective,
+          steps: result.lesson.steps.length,
+        }
+      : undefined,
+    lessonProblems: result.problems,
+    lessonAuthor: result.author,
+    route: result.route,
+    preset: result.preset,
+    targetSec: result.targetSec,
     durationSec: Math.round(totalDuration(sb) * 100) / 100,
     scenes: sb.scenes.length,
     assets: sb.assets.length,
@@ -181,6 +278,7 @@ function jsonResult(result: CastResult, copied?: string) {
     timings: result.timings,
     skipped: result.skipped,
     cost: result.cost,
+    degraded: result.degradations,
     providers: {
       planner: result.providers.planner.name,
       voice: result.providers.voice.name,
@@ -200,6 +298,19 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
 
   const row = (label: string, value: string) => `  ${c.dim(label.padEnd(11))}${value}\n`;
   let out = `\n${c.green('✔')} ${c.bold(sb.title)} ${c.dim(`· ${clock(totalDuration(sb))} · ${secs(total)}`)}\n\n`;
+
+  if (result.lesson) {
+    // The objective is the acceptance test for the whole video, so it leads.
+    out += row('teaches', result.lesson.objective);
+    out += row(
+      'lesson',
+      `${pretty(ctx, result.lessonPath ?? path.join(result.dir, 'lesson.json'))} ${c.dim(
+        `(${count(result.lesson.steps.length, 'step')}, for ${result.lesson.audience})`,
+      )}`,
+    );
+  } else {
+    out += row('lesson', c.yellow('none — this was cast with --via document, which summarises'));
+  }
   out += row(
     'video',
     `${pretty(ctx, result.videoPath)} ${c.dim(`(${w}×${h}, ${sb.meta.fps}fps, ${size})`)}`,
@@ -212,15 +323,14 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
   out += row(
     'stages',
     STAGES.map((s) =>
-      result.skipped.includes(s)
-        ? c.dim(`${s} cached`)
-        : `${s} ${c.dim(secs(result.timings[s] ?? 0))}`,
+      result.skipped.includes(s) ? c.dim(`${s} —`) : `${s} ${c.dim(secs(result.timings[s] ?? 0))}`,
     ).join(c.dim(' · ')),
   );
   out += row(
     'providers',
     [
-      `plan ${result.providers.planner.name}`,
+      // Who wrote the lesson, not which key happens to be set.
+      `lesson ${result.author}`,
       `voice ${result.providers.voice.name}`,
       `art ${result.providers.images.name}`,
     ]
@@ -234,6 +344,13 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     : `${c.yellow(formatCost(cost))} ${c.dim(`(estimated · ${cost.lines.map((l) => `${l.stage} ${l.provider} $${l.usd.toFixed(4)}`).join(', ')} · $${cost.perMinuteUsd.toFixed(3)}/min)`)}`;
   out += row('cost', costLine);
 
-  out += `\n  ${c.dim(`next: inkcast preview ${result.projectId}   ·   inkcast edit ${result.projectId} "…"`)}\n\n`;
+  if (result.problems.length > 0) {
+    out += `\n  ${c.yellow('the lesson has known weaknesses:')}\n`;
+    for (const p of result.problems.slice(0, 5)) out += `    ${c.dim('·')} ${p}\n`;
+    const major = result.degradations.find((d) => d.severity === 'major');
+    if (major) out += `    ${c.dim('fix:')} ${c.cyan(major.fix)}\n`;
+  }
+
+  out += `\n  ${c.dim(`next: inkcast lesson ${result.projectId}   ·   inkcast preview ${result.projectId}   ·   inkcast edit ${result.projectId} "…"`)}\n\n`;
   process.stdout.write(out);
 }

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ctxFor } from '../src/geometry.js';
-import { iconPathData, iconPaths, iconsAvailable, matchIcon, readIconSvg } from '../src/icons.js';
+import {
+  ICON_KEYWORDS,
+  iconPathData,
+  iconPaths,
+  iconsAvailable,
+  matchAsset,
+  matchIcon,
+  readIconSvg,
+} from '../src/icons.js';
 import { inkStyleFor } from '../src/style.js';
 import { containsBox, padBox, pathBBox, unionBox } from '../src/svg.js';
 
@@ -218,4 +226,146 @@ test('an explicit slug bypasses matching', opts, () => {
     slug: 'rocket',
   });
   assert.equal(result?.slug, 'rocket');
+});
+
+/* ------------------------------------------- the explainer vocabulary sweep */
+
+test('every keyword in the table resolves to an icon that really exists', opts, () => {
+  const broken: string[] = [];
+  for (const [word, candidates] of Object.entries(ICON_KEYWORDS)) {
+    assert.ok(candidates.length > 0, `${word} has no candidates`);
+    // Candidate lists are rename chains, so only one has to be installed — but a
+    // word whose whole chain is dead silently degrades to fuzzy matching, which is
+    // exactly how "loss" became a briefcase.
+    if (!candidates.some((slug) => readIconSvg(slug) !== undefined)) broken.push(word);
+  }
+  assert.deepEqual(broken, [], `keywords with no installed icon: ${broken.join(', ')}`);
+});
+
+test('the keyword table covers the vocabulary teaching needs', opts, () => {
+  // Maths, physics, biology, economics, pedagogy and the everyday anchors an
+  // explanation is built on — none of which the product-flavoured MVP table had.
+  const needed = [
+    'slope',
+    'tangent',
+    'curve',
+    'hill',
+    'valley',
+    'minimum',
+    'maximum',
+    'gradient',
+    'loss',
+    'weights',
+    'derivative',
+    'overfitting',
+    'plateau',
+    'convergence',
+    'force',
+    'mass',
+    'gravity',
+    'energy',
+    'temperature',
+    'wave',
+    'frequency',
+    'circuit',
+    'atom',
+    'orbit',
+    'magnet',
+    'lever',
+    'ball',
+    'cell',
+    'dna',
+    'protein',
+    'bacteria',
+    'virus',
+    'blood',
+    'bone',
+    'photosynthesis',
+    'demand',
+    'inflation',
+    'interest',
+    'tax',
+    'debt',
+    'savings',
+    'equilibrium',
+    'example',
+    'summary',
+    'proof',
+    'mistake',
+    'misconception',
+    'question',
+    'answer',
+    'intuition',
+    'analogy',
+    'abstract',
+    'concrete',
+    'fog',
+    'rain',
+    'walking',
+    'hiking',
+    'thermostat',
+    'maze',
+    'ladder',
+    'brick',
+    'race',
+  ];
+  const missing = needed.filter((w) => ICON_KEYWORDS[w] === undefined);
+  assert.deepEqual(missing, [], `the table is missing: ${missing.join(', ')}`);
+  for (const word of needed) {
+    const match = matchIcon(word, { allowFallback: false });
+    assert.ok(match, `${word} resolves to nothing`);
+    assert.equal(match.how, 'keyword', `${word} fell through to a ${match.how} guess`);
+  }
+});
+
+test('the nouns the MVP got wrong now land on the right icon', opts, () => {
+  // Each of these was a real, visible mismatch in the shipped sample films.
+  const cases: Array<[string, string]> = [
+    ['loss', 'trending-down'],
+    ['trending-down', 'trending-down'],
+    ['mountain', 'mountain'],
+    ['briefcase', 'briefcase'],
+    ['cpu', 'cpu'],
+    ['gradient', 'trending-down'],
+    ['weights', 'sliders-horizontal'],
+  ];
+  for (const [term, slug] of cases) {
+    assert.equal(matchIcon(term)?.slug, slug, `${term} should be ${slug}`);
+  }
+});
+
+/* ------------------------------------------------------------- matchAsset --- */
+
+test('matchAsset trusts a confident id over the prompt', opts, () => {
+  // The exact failure this ordering exists to prevent: the id is a real slug and
+  // the prompt is prose, and the prose used to win and drag the match into the
+  // fuzzy tier.
+  const cases: Array<{ id: string; prompt: string; slug: string }> = [
+    { id: 'trending-down', prompt: 'a downward trending arrow', slug: 'trending-down' },
+    { id: 'mountain', prompt: 'a mountain peak in the fog', slug: 'mountain' },
+    { id: 'briefcase', prompt: 'a business briefcase', slug: 'briefcase' },
+    { id: 'cpu', prompt: 'a computer processor chip', slug: 'cpu' },
+    { id: 'loss', prompt: 'how wrong the model is right now', slug: 'trending-down' },
+  ];
+  for (const c of cases) {
+    assert.equal(
+      matchAsset({ id: c.id, prompt: c.prompt })?.slug,
+      c.slug,
+      `${c.id} should stay ${c.slug}`,
+    );
+  }
+});
+
+test('matchAsset falls back to the prompt when the id says nothing', opts, () => {
+  assert.equal(matchAsset({ id: 'asset-7', prompt: 'a rocket launching' })?.slug, 'rocket');
+  assert.equal(matchAsset({ id: 'thing-2', prompt: 'a database' })?.slug, 'database');
+  // No prompt and a useless id still yields a mark rather than nothing.
+  const bare = matchAsset({ id: 'xq-91' });
+  assert.ok(bare, 'a drawing is better than a hole in the board');
+  assert.equal(matchAsset({ id: 'xq-91' }, { allowFallback: false })?.how !== 'fallback', true);
+});
+
+test('matchAsset agrees with matchIcon when only one of them can decide', opts, () => {
+  assert.equal(matchAsset({ id: 'database' })?.slug, matchIcon('database')?.slug);
+  assert.equal(matchAsset({ id: '', prompt: 'a brain' })?.slug, matchIcon('a brain')?.slug);
 });

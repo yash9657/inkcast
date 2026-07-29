@@ -104,7 +104,9 @@ async function request(
   });
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 400);
-    throw new Error(`ElevenLabs ${urlPath} -> ${res.status} ${res.statusText}${body ? `: ${body}` : ''}`);
+    throw new Error(
+      `ElevenLabs ${urlPath} -> ${res.status} ${res.statusText}${body ? `: ${body}` : ''}`,
+    );
   }
   return res;
 }
@@ -196,12 +198,19 @@ export function createElevenLabsProvider(): VoiceProvider {
 
       // Preferred: the timestamped endpoint, which also gives us word timings.
       try {
-        const res = await request(`/text-to-speech/${encodeURIComponent(req.voice)}/with-timestamps${query}`, {
-          method: 'POST',
-          headers,
-          body: payload,
-        });
-        const json = (await res.json()) as { audio_base64?: unknown; alignment?: AlignmentPayload; normalized_alignment?: AlignmentPayload };
+        const res = await request(
+          `/text-to-speech/${encodeURIComponent(req.voice)}/with-timestamps${query}`,
+          {
+            method: 'POST',
+            headers,
+            body: payload,
+          },
+        );
+        const json = (await res.json()) as {
+          audio_base64?: unknown;
+          alignment?: AlignmentPayload;
+          normalized_alignment?: AlignmentPayload;
+        };
         if (typeof json.audio_base64 !== 'string' || !json.audio_base64) {
           throw new Error('ElevenLabs returned no audio_base64');
         }

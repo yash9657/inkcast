@@ -100,7 +100,9 @@ test('the dependency-free HTML fallback keeps headings and lists', () => {
 });
 
 test('PDF-style hard-wrapped text is reflowed into paragraphs', () => {
-  const flowed = reflow('Gradient descent walks\ndownhill on the loss sur-\nface.\n\n• first bullet\n• second');
+  const flowed = reflow(
+    'Gradient descent walks\ndownhill on the loss sur-\nface.\n\n• first bullet\n• second',
+  );
   assert.ok(flowed.includes('Gradient descent walks downhill on the loss surface.'));
   assert.ok(flowed.includes('- first bullet'));
 });

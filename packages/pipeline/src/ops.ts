@@ -178,6 +178,10 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
           narration,
           camera: { ...(neighbour.camera as Camera) },
           elements: [],
+          // Inherit the neighbour's silence: an inserted beat lands in the same
+          // rhythm as the one it follows, rather than running straight into it.
+          hold: neighbour.hold,
+          ...(neighbour.region === undefined ? {} : { region: neighbour.region }),
         };
         sb.scenes.splice(at, 0, scene);
         applied.push(`inserted scene ${scene.id} at position ${at + 1}`);

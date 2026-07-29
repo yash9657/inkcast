@@ -1,317 +1,208 @@
 # Inkcast status
 
-Written by the verification agent on 2026-07-28. Every claim below is backed by a
-command that was actually run on this machine, with its output quoted. Where
-something is broken or unfinished it says so.
+Written by the verification agent, 2026-07-28, against the working tree at
+`9d138b3` (nothing committed). Every claim is backed by a command run on this
+machine. Where something is broken it says so, and the gaps section is longer
+than the wins.
 
-**Machine:** Apple M3, 8 cores, 16 GB RAM, macOS 15.6, Node v22.17.0,
-ffmpeg 8.1.2, Playwright Chromium. **No API keys were set for any of this** —
-`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN` and `FAL_KEY`
-were all unset, which `inkcast providers` confirms and every run reports as
-`cost $0.00`.
+**Machine:** macOS 15.6 (Darwin 24.6), Node v22.17.0, ffmpeg 8.1.2, Playwright
+Chromium. **Zero API keys** for every render below; `providers` reports
+`planner heuristic · voice kokoro · images builtin` and every run ends
+`cost $0.00 — nothing left this machine`.
 
----
+## Verifiably working
 
-## 1. What verifiably works
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **486 pass, 0 fail, 3 skipped** (keychain tests opt-in) ·
+`apps/web` 24 pass · `pnpm --filter @inkcast/web build` 0 warnings.
 
-### The documented smoke test produces a watchable video
+**The benchmark renders from the shipped hand-authored lesson with no key, in
+both formats, first try.** No fix was needed to _get_ an mp4 — every fix below
+was for what the mp4 showed.
 
-```
-$ pnpm cast examples/gradient-descent.md          # cold: projects/ deleted first
+|                            | 16:9                              | 9:16 `--short`                |
+| -------------------------- | --------------------------------- | ----------------------------- |
+| output                     | 1920x1080 h264 + 24 kHz aac mono  | 1080x1920 h264 + aac          |
+| ffprobe duration           | 104.667 s                         | 61.500 s                      |
+| storyboard `totalDuration` | 104.635 s (delta 32 ms = 1 frame) | 61.470 s (delta 30 ms)        |
+| scenes                     | 9                                 | 6 (compiler cut 3 for budget) |
+| audio                      | mean -23.3 dB, peak -2.8 dB       | mean -23.1 dB, peak -3.6 dB   |
+| narration pace             | 151 wpm (target 140-160)          | 151 wpm                       |
+| wall clock                 | 110.5 s                           | 58.3 s                        |
 
-✔ Gradient descent · 2:44 · 326.0s
-  video      projects/5b5566b87593/out.mp4 (1920×1080, 30fps, 6.6 MB)
-  storyboard projects/5b5566b87593/storyboard.json (24 scenes, 9 assets)
-  stages     ingest 0.1s · plan 0.1s · voice 209.3s · visuals 0.2s · render 116.2s
-  providers  plan heuristic · voice kokoro · art builtin
-  cost       $0.00 — nothing left this machine
+Audio is present and non-silent in both. `silencedetect=noise=-45dB:d=1.5` finds
+only the authored `hold` gaps and the outro, not dead air.
 
-pnpm cast examples/gradient-descent.md  5:27.97 total     # exit 0
-```
+**Measured cost and speed per finished minute** (this machine, no keys): 16:9
+**63 s wall / $0.00**; 9:16 **57 s / $0.00**; cached `rerender` with voice reused
+**26 s / $0.00**; studio SSE run **53 s / $0.00**. Roughly 1x realtime cold, 4x
+warm. Marginal cost is genuinely zero against a $0.20/min target.
 
-Run three times from a deleted `projects/` directory; exit 0 every time.
+**BYOK, proven with a deliberately invalid key.** `keys set anthropic` stored it
+in the macOS keychain; `keys list` showed only `sk-ant-api03-ZZ…AAAA`;
+`keys validate` exited 1 with
+`✘ anthropic: key rejected (from keychain) — {"type":"error",…"API key is invalid."}`.
+A full `teach` run with that key hydrated hit a real 401, warned, and degraded to
+the derived lesson. `grep` for a 47-character interior slice of the key found
+**zero** hits across the repo, `projects/`, `~/.inkcast`, all three render logs,
+the Next server log, the 351-event SSE stream, and `/api/{projects,providers,keys}`.
+Only the keychain held it; `keyvault-meta.json` held only the mask. `keys delete`
+removed the keychain item and emptied the meta.
 
-### The artefact is a real, correct mp4
+**Studio end to end.** `next start` after `rm -rf .next`: `/settings` 200
+(25.9 kB, no `sk-ant` substring), `/api/providers` and `/api/keys` return masked
+status only, `POST /api/generate` returned 202 plus a `streamUrl`, the SSE stream
+ran 351 events through ingest → lesson → storyboard → voice → visuals → render to
+`{"done":true,…"durationSec":36.07}`, and `/api/media/…/out.mp4` served a valid
+1920x1080 h264+aac file. Server killed afterwards.
 
-```
-$ ffprobe -v error -show_format -show_streams projects/5b5566b87593/out.mp4
-duration 163.700000   size 6944029   bit_rate 339576
-video  h264 High  1920x1080  yuv420p  nb_frames=4911  fps=30/1
-audio  aac LC     24000 Hz   mono     nb_frames=3838
+## Frame-by-frame assessment (the real acceptance test)
 
-storyboard totalDuration = 163.675 s        → mp4 is 163.700 s, Δ 25 ms
-$ ffmpeg -i out.mp4 -af volumedetect -f null -
-mean_volume: -23.3 dB   max_volume: -1.4 dB   → real narration, not silence
-```
+I extracted about 60 frames across both timelines and read them. On the first
+pass, before any fix, the verdict was **no** — it failed nearly every question.
 
-Video stream at the expected dimensions, audio stream present, duration matches
-the storyboard to 25 ms, 6.9 MB for 2:44.
+**Is there a real drawn loss curve with hand-drawn axes?** Yes, and it is the
+best thing in the video: roughened axes with arrowheads, a real parabola revealed
+left to right, `height` / `where you stand` / `loss` in handwriting. Six
+independent plots across the film. A genuine capability the MVP did not have.
 
-### The frames look like a hand-drawn whiteboard explainer
+**Is the tangent at the right slope?** Yes, and correct by construction rather
+than by eye. `deriveBowl` fits `(w-1)²` so the slope at w = 3 really is +4; the
+drawn tangent is `m.y(y ± slope·span)` through the same mapping as the curve; the
+board's `w ← 3 − 0.1 × 4 = 2.6` is _computed_ from those numbers; and the steps
+3 → 2.6 → 2.28 → 2.024 are a real descent run on the drawn curve. A learner who
+checks the arithmetic is rewarded.
 
-Frames were extracted at 11 s, 45 s, 80 s, 100 s and 162 s and inspected
-directly. They show: hand-lettered ShantellSans text on off-white paper with a
-faint dot grid, a roughened hand-drawn underline under each heading, roughened
-`lucide` icons (a downward-trending arrow, a brain, a database cylinder, a
-percent sign) drawn stroke by stroke, boxed diagram nodes, and a marker sprite
-that rides the ink as it is laid down. Text is legible, does not overlap, and
-stays inside the frame; the camera frames each region with even margins; the
-board builds up within a beat rather than popping in.
+**Does the ball actually MOVE down the curve?** Now yes — it was two bugs. (1)
+The voice stage rewrote `enter.at` from the cue and left `motion` behind, so the
+ball popped in at 90% of the beat already 91% along its path: it teleported to the
+bottom. (2) The planner maps data space across the plot's whole `at` box while the
+renderer insets that box for axis gutters, so the ball was drawn _off the curve_,
+sitting on the x-axis while the staircase stepped down the curve correctly a few
+dozen units away — two disagreeing pictures of the same descent. Both fixed;
+consecutive frames at 72.5 / 73.5 / 74.5 / 75.5 s now show it on the curve at
+w ≈ 3.0, 2.7, 2.5, 2.15. The ease-out makes the final ~2 s look static.
 
-This was **not** true when verification started. Eight real defects were found
-and fixed — see §3.
+**Does the board ACCUMULATE?** Yes within a region, and it is real: by 66 s the
+frame holds four plots drawn across four separate beats, and the 95 s recap pulls
+back over two hillsides, six plots and the recap chain — visibly far more ink late
+than early. But it was **badly broken between regions**, and this was the worst
+defect found. The shipped lesson cues six of its figures on the _closing clause_
+of their beat ("so draw it as a curve"), the resolver honoured that faithfully,
+and the camera cut to a fresh region — so twice the video showed **eight seconds
+of a caption alone in an empty frame**. Fixed by capping a beat's dominant
+_figure_ at 15% of the narration; text is exempt, because a line written as it is
+spoken is the feature. Residual: 2-3 s of caption-only at each region change. Mean
+content fill is **48% (16:9) / 53% (9:16)** — better than the MVP's ~20%, still
+not "full".
 
-### The renderer works without the planner
+**Does content fill the frame?** Mostly. Single-plot beats are excellent (t = 27 s
+and t = 71 s genuinely fill the frame). Beats with one figure in a two-cell region
+leave a visibly empty half (t = 33 s, t = 83 s), and the hook wastes the lower
+right.
 
-```
-$ cp examples/storyboard-handwritten.json projects/handwritten/storyboard.json
-$ pnpm cast rerender handwritten
+**Is all text legible, wrapped, never truncated, never overlapping?** Now largely
+yes; it was bad. Five ellipsised captions, including
+`"How big a step is the one knob you…"` and — worse — inside the recap chain,
+where the board is meant to _be_ the summary. `shorten()` now drops dangling
+function words instead of ellipsising. Overlaps were systemic, because each plot
+label site is chosen from local geometry by phases that never see one another:
+`"the bottom"` printed through the y-axis, `"how wrong we are here"` across the
+curve, `"too small"` / `"too large"` through each other, and `"loss"` printed
+twice on four plots (axis name _and_ curve name). Added a deterministic
+de-confliction pass over the finished plot phases, plus a redundant-label rule.
+Remaining: the `downhill` arrow label still clips the tangent label (arrows are
+separate elements, outside the pass), and captions silently lose words — "The
+slope tells you which way" drops "is down".
 
-✔ Why caches make code fast · 0:46 · 85.0s     # voice 47.4s · visuals 0.6s · render ~36s
-pnpm cast rerender handwritten  1:26.84 total  # exit 0
+**Is the 9:16 deliberately vertical?** Yes: a 1640x9560 canvas the camera walks
+down, two hillsides stacked, heavier ink and larger type. Not a crop. But its
+recap was the worst frame in either film — `role: 'recap'` was exempt from the
+pull-out limit, so it fitted a 1:5.8 board into a 1:1.78 frame and rendered the
+entire lesson as a ~90-pixel-wide ribbon of illegible marks. The recap now obeys
+the same legibility floor as every other beat: readable, but it no longer shows
+the whole board, which at this canvas aspect is geometrically unavoidable.
 
-$ ffprobe projects/handwritten/out.mp4
-duration 45.967   size 2110429   h264 1920x1080   aac
-storyboard totalDuration = 45.950 s            → Δ 17 ms
-```
+## Fixed during verification
 
-The final frame of this one is the best evidence that the persistent-canvas
-design pays off: a title with a blue hand-drawn rule, a CPU icon, a memory chip,
-a labelled cache box, a three-node flow diagram with three edge captions, and a
-closing caption — all accumulated on one board, all legible, nothing clipped.
+- `packages/voice/src/cue.ts` — a cue no longer strands `motion`; a mover's cue
+  anchors the _movement_ with `MIN_TRAVEL` guaranteed; a beat's dominant figure is
+  capped at `MAX_DOMINANT_AT`.
+- `packages/render/src/compile.ts` — `rebaseOntoPlot` carries plot-relative
+  coordinates through the renderer's own axis gutters.
+- `packages/render/src/plot.ts` — label de-confliction; a curve label equal to the
+  axis name is suppressed.
+- `packages/render/src/camera.ts` — the recap obeys the pull-out limit.
+- `packages/planner/src/text.ts` — `shorten()` never ellipsises.
+- `packages/planner/src/plots.ts` — `\bspeed|rate\b` matched "learning rate 0.1"
+  and labelled the worked example's loss axis **"rate"**: loose alternation fixed
+  and the step-size sense vetoed. Duplicated learning-rate panel labels removed.
+- `packages/planner/src/lesson-derive.ts` — stopped telling users with a _rejected_
+  key that they have no key; fixed a run-together sentence.
+- `apps/cli/src/commands/keys.ts` — hard-coded column widths printed
+  `sk-ant-api03-ZZ…AAAAkeychain`, welding the mask to the next column in the one
+  view whose job is to prove a key is masked. Widths now measured from content.
 
-### Caching and resumability
+Eight regression tests added (voice x2, render x3, planner x3). The camera test
+was verified to fail against the old code before being kept.
 
-```
-$ pnpm cast examples/gradient-descent.md        # immediately after the run above
-✔ Gradient descent · 2:44 · 0.0s
-  stages  ingest cached · plan cached · voice cached · visuals cached · render cached
-pnpm cast examples/gradient-descent.md  1.931s total
-```
+## Partial
 
-All five stages hit `cache.json`; 1.9 s instead of 5.5 minutes.
+- **Accumulation is per-region, not per-board.** Each new region opens empty and
+  costs 2-3 s of caption-only screen.
+- **The anchor draws a second hillside** instead of annotating the first, so the
+  board shows two hills side by side. The brief's key move — the hill _morphing_
+  into the plot — does not happen at all; the plot simply appears elsewhere.
+- **The recap is a new flowchart** in an empty corner rather than the accumulated
+  board annotated. The camera does pull back over everything on 16:9.
+- **The "ball" is a small dark wedge**, not a recognisable ball, and it is black
+  while its own trail is blue.
+- **Voice** is intelligible, correctly paced and word-aligned (39/39 elements
+  placed word-exactly) but flat. Root cause 4 of `LESSON-ENGINE.md` — "default to
+  a genuinely good voice" — is not met without an ElevenLabs key.
+- **Topic-only lessons degenerate.** `teach "compound interest"` with no key
+  produced a 1-step, 20-second lesson. Confirms integration's report.
 
-### Typecheck and tests
+## Missing or broken
 
-```
-$ pnpm -r typecheck      # 8/8 packages, 0 errors
-$ pnpm -r test
-packages/planner  31 tests, 31 pass, 0 fail
-packages/visuals 104 tests, 104 pass, 0 fail
-packages/render   23 tests, 23 pass, 0 fail
-packages/voice    22 tests, 22 pass, 0 fail
-                 180 total, 180 pass
-```
+- **Two vaults.** The studio writes `<repo>/.inkcast/keys.json`; the CLI writes
+  the keychain. With a key in the keychain, `/api/keys` still reported
+  `"configured": false`. A key set in one place is unusable from the other. Not
+  fixed here: that route is the most security-sensitive file in the repo and needs
+  new `keyvault` public API, not a caller patch.
+- **`visuals.json` and 40 per-element SVGs are written and never read.** The
+  renderer re-derives all geometry from `packages/render/src/plot.ts`, so
+  `packages/visuals/src/plot.ts` — which already contains a _richer_
+  label-placement solver than the one I had to add to the renderer — is inert in
+  the render path. Two plot implementations that must agree by hand. This is the
+  largest structural problem in the codebase and it is invisible from outside.
+- **`illustration` never resolves without a key**, and the "hand-authored SVG cast
+  of archetypes" the brief asks for does not exist. Characters are stick figures.
+- **`next build` over a dirty `.next`** leaves a 0-byte `prerender-manifest.json`
+  and `next start` dies on the first request. `rm -rf apps/web/.next` first.
+- **`/api/generate` rejects unknown `meta` keys** with a 400 instead of ignoring
+  them; `seconds` is accepted by the CLI but not by the API.
+- `keys validate` surfaces the provider's raw JSON body rather than a curated hint.
 
-Six of those tests are new regressions written during verification, one per
-defect in §3 that could be pinned in a unit test.
+## Verdict: does the gradient-descent video now teach?
 
-### The studio
+**Partly — enough that the answer moved from "no" to "yes on the one question
+that matters", but not enough to call it good.**
 
-```
-$ pnpm dev
-▲ Next.js 16.2.12 (webpack)   ✓ Ready in 655ms
-```
+Could someone who does not know calculus explain why the update has a minus sign
+after watching? I think yes, and that is a real change. The chain is now genuinely
+_shown_: you are on a foggy hill; the hill becomes a curve with drawn axes; a
+straight edge laid on the curve tilts up to the right; the words "uphill is right,
+so step left" sit under a tangent that really has slope +4; and a ball then rolls
+left down the curve while `w ← 3 − 0.1 × 4 = 2.6` is written above it. Nothing is
+asserted that is not drawn, and the arithmetic on the board is computed from the
+drawn curve, so it survives a sceptical learner checking it.
 
-Exercised entirely with `curl`, no browser:
-
-| Request                                                     | Result                                                                                                                           |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /`                                                     | 200, 145 KB, contains `pnpm cast examples/gradient-descent.md`                                                                   |
-| `GET /studio`                                               | 200, 43 KB                                                                                                                       |
-| `GET /library`                                              | 200, 28 KB                                                                                                                       |
-| `GET /project/<id>`                                         | 200, 26 KB                                                                                                                       |
-| `GET /share/<id>`                                           | 200, 20 KB                                                                                                                       |
-| `GET /api/providers`                                        | 200, `"local": true`, every stage local with its reason                                                                          |
-| `POST /api/generate`                                        | 202, `{"projectId":"…","streamUrl":"…"}`                                                                                         |
-| `GET /api/generate/<id>/stream`                             | 200, 336 SSE events across `ingest → plan → voice → visuals → render`, terminated by `{"done":true,…,"videoUrl":"/api/media/…"}` |
-| `GET /api/projects`                                         | 200, all three projects on disk, with status and cost                                                                            |
-| `GET /api/projects/<id>`                                    | 200, 3.6 KB                                                                                                                      |
-| `HEAD /api/media/<id>/out.mp4`                              | 200, `accept-ranges: bytes`, `content-type: video/mp4`                                                                           |
-| `GET` with `Range: bytes=0-2047`                            | **206**, `content-range: bytes 0-2047/601610`                                                                                    |
-| `GET /api/media/<id>/nope.mp4`                              | 404                                                                                                                              |
-| `POST /api/projects/<id>/edit` `{"instruction":"title: …"}` | 200, patched storyboard returned — **no API key involved**                                                                       |
-| `POST /api/projects/<id>/rerender`                          | 202, stream ran to `done`, new title in place                                                                                    |
-
-The whole pipeline ran **in-process** inside the Next server: planner → Kokoro
-ONNX → visuals → Playwright → ffmpeg. The dev log contains no errors or
-unexpected warnings across 600 lines. Server killed afterwards.
-
-### Cost and wall-clock, per finished minute
-
-Marginal cost is **$0.00** — nothing leaves the machine. Wall clock, measured:
-
-| Film                         | Length | Wall clock  | Per finished minute |
-| ---------------------------- | ------ | ----------- | ------------------- |
-| gradient-descent (24 scenes) | 2:44   | 3:41 – 5:28 | **81 – 120 s**      |
-| handwritten (4 scenes)       | 0:46   | 1:27        | **113 s**           |
-
-So **roughly 1.5–2 minutes of compute per finished minute of video, at zero
-marginal cost.** The split is voice 25–77 s/min and render 43–63 s/min; ingest,
-plan and visuals together are under a second for a 24-scene film.
-
-The voice figure is the honest weak spot: three cold runs of the _same_ 24
-scenes took 68.2 s, 204.8 s and 209.3 s. The 68 s run was the first thing this
-session did; the slow ones came after 40 minutes of sustained rendering, so
-thermal throttling is the likely cause, but that is a hypothesis and not a
-measurement. Kokoro is the whole cost either way.
-
----
-
-## 2. What is partially working
-
-- **The board does not accumulate across scenes.** The IR's headline idea is one
-  persistent canvas the camera tours. The planner gives every scene its own
-  1600×900 region and the camera frames exactly one region, so although it _is_
-  one canvas and elements _do_ persist, you never see two beats at once. Only
-  annotation-only scenes reuse a region. The result reads as a tidy slideshow,
-  not as a board being built — which is the specific failure mode the contract
-  names as "the single biggest quality failure of competing tools".
-- **Sparse frames.** A beat with a heading, one line of body and an icon leaves
-  35–40% of the frame empty. The layout centres content in its region and never
-  scales up to fill it. A one-node `stack` diagram also draws a box around a
-  single sentence, which no person would do.
-- **Heuristic copy quality.** Headings and diagram node labels are cut out of
-  running prose, so some are mid-clause fragments — `"under you gets gentler"`,
-  `"falls. People call this…"`, `"divergence; on a graph it looks like a
-curve…"` — and several end in a `…` truncation. Grammatical, spoken narration
-  is good; the _on-board_ text is the weak half. A leading-comma bug here was
-  fixed (§3.9) but the underlying "cut a sentence at the subject" approach still
-  produces fragments.
-- **`@inkcast/visuals` is 90% dead weight.** It resolves every element into
-  `projects/<id>/assets/el-*.svg` plus an `assets/visuals.json` manifest with
-  measured stroke geometry — 74 files for the sample film — and **nothing reads
-  any of it.** `grep` for `visuals.json` and `loadVisualManifest` outside that
-  package returns nothing; the renderer re-derives all its own geometry in
-  `packages/render/src/compile.ts` and consumes only `storyboard.assets[].svg`.
-  So there are two independent ink engines, one of which is unused. It is fast
-  (0.2–0.6 s) so it costs little time, but it is a duplicate that will drift —
-  and it already carries its own copy of the bug fixed in §3.1
-  (`roleFontSize(role, canvasHeight)` in `packages/visuals/src/style.ts` scales
-  type by canvas height, which is wrong for the same reason).
-- **`buildPreviewHtml` is not wired up.** The instant-preview page (the real
-  animation with a clock, no Chromium, no ffmpeg) is exported from
-  `@inkcast/render` and covered by `page.test.ts`, but neither `inkcast preview`
-  nor the studio serves it — both play the finished mp4. Verified:
-  `grep buildPreviewHtml apps/` finds nothing, and `inkcast preview <id>` serves
-  an mp4 player page (200, plus `storyboard.json` and `audio/narration.wav`).
-- **`pnpm lint` fails.** 55 files carry pre-existing Prettier drift. The 8 files
-  this agent changed are clean (`prettier --check` on them passes); the rest were
-  left alone deliberately so the substantive diff stays readable.
-
-## 3. Defects found and fixed during verification
-
-All eight were real, all eight were silent — nothing crashed, nothing logged a
-warning. The first two made the MVP unwatchable.
-
-1. **Type and ink were ~6× too large; the film was illegible.**
-   `compilePlan` derived its unit scale from `min(canvas.w/1920, canvas.h/1080)`.
-   The planner packs 24 scenes onto a 9440×5940 canvas and then zooms 5.4× into
-   each region, so a canvas unit is ≈1 px, not ≈5. A 96 px title was emitted as
-   472 canvas units. Frames at 3 s and 8 s showed `ient / desc / ent` — the title
-   wrapped to fragments, overflowing the frame, with the next element drawn on
-   top of it. Replaced with `unitsPerPixel()`, which inverts
-   `baseScale × median(zoom)` — the renderer's own camera maths.
-   _(`packages/render/src/compile.ts`; test: "the unit scale follows the camera,
-   not the canvas size")_
-2. **Every `asset` element drew nothing at all.**
-   `@inkcast/visuals` writes the _path_ `assets/brain.svg` into
-   `Asset.svg`; `compile.ts` treated that string as markup, so the page's
-   `DOMParser` failed and returned an empty `<g>`. Fourteen icons in the sample
-   film were invisible, with no warning. `assetMarkup()` now accepts either
-   inline markup or a project-relative file, which is what the contract's
-   "stages store relative paths" rule implies.
-   _(test: "an asset resolves from inline markup or from a project-relative file")_
-3. **Four of nine icons were the wrong icon.**
-   `resolveAsset` matched on `asset.prompt` (prose for the cloud image adapters)
-   instead of `asset.id` (which the planner guarantees is a real lucide slug), so
-   the fuzzy/tag tiers answered: `trending-down` → `log-in`, `mountain` →
-   `zodiac-capricorn`, `briefcase` → `spell-check`, `sliders-horizontal` →
-   `cog`, and in the hand-authored example `cpu` → `map-pin`, `ram` → `cpu`. The
-   id is now matched first and trusted when the match is exact.
-   _(`packages/visuals/src/resolve.ts`; test: "an asset id that names an icon
-   wins over its prose prompt")_
-4. **`stack` diagrams were laid out as a horizontal row.**
-   An edgeless stack — what the planner emits for every bullet list and for the
-   closing recap — ranked all nodes 0, and a single rank on the cross axis became
-   a single _row_. Five recap items shared one row of a 406-unit-wide box: 61×38
-   unit nodes with 16-unit labels spilling out of them. A stack is now a column
-   by construction; an edgeless `flow` is now a row.
-   _(`packages/render/src/layout.ts`; test: "a stack is a column, edges or no
-   edges")_
-5. **The planner's camera framing used the wrong model.**
-   It computed the viewport as `canvas / zoom`, assuming the canvas fits the
-   frame on both axes. The renderer fits it (`min` of the two ratios), so only
-   the binding axis matches. Two 16:9 scenes make a 3920×1380 canvas against a
-   1.78 frame: zoom came out 1.33 where 2.12 was right, the viewport was
-   2954×1662 for a 1600×900 region, the horizontal clamp pinned _both_ cameras to
-   the canvas centre, and the first scene was rendered half off-screen. Now
-   derived from `frameSpan()`, which uses core's own `frameSize`.
-   _(`packages/planner/src/layout.ts`; test: "the camera frames one region,
-   whatever the canvas aspect ratio")_
-6. **Prose was squeezed to its heading's width.**
-   A child element attached with `below:` was capped at the head's width, so
-   `Osmosis` plus a 90-character sentence became a 254-unit column of one-word
-   lines. Decorations (rules, brackets) still match their head; text and diagrams
-   now get the full span and are re-measured down.
-   _(test: "prose attached under a short heading keeps its measure")_
-7. **Arrow and diagram-edge labels were struck through by their own ink.**
-   A label placed a fixed distance "above the midpoint" is crossed by any sloped
-   or strongly bowed shaft; three labels in one frame of the hand-authored film
-   were illegible. `labelOffset()` now clears the bow and steps sideways on a
-   steep line, and a caption on a short inter-node edge is lifted clear of the
-   node row (with there-and-back pairs stacked).
-8. **The plan cache never invalidated on a planner change.**
-   The key was `'plan@1'` + source hash, with no code version — so fixes 5 and 6
-   would have been invisible on every existing project, which reads exactly like
-   "the fix did not work". Bumped to `'plan@2'`, with a comment explaining the
-   lever, mirroring the renderer's `RENDER_VERSION`.
-   _(`packages/pipeline/src/cast.ts`)_
-9. Minor: a contrast panel's second line began with the punctuation it was cut
-   at — `", and the loss climbs"`. Leading punctuation and dangling conjunctions
-   are now stripped. _(`packages/planner/src/beats.ts`)_
-
-## 4. Not implemented / not verified
-
-- **Every cloud adapter is untested.** Anthropic planning, ElevenLabs voice,
-  Replicate/fal images. They are wired behind env vars and the zero-key fallback
-  path is proven, but with no keys available none of the upgrade paths has ever
-  executed. `@neplex/vectorizer` (the opt-in image lane's vectoriser) has an
-  unmet `@emnapi/runtime` peer for its wasm fallback.
-- **`9:16` and `1:1` output.** The planner has region sizes and a unit test for
-  vertical layout, and the renderer has frame sizes, but no vertical or square
-  video was rendered end to end.
-- **No CI.** Nothing runs `pnpm -r test` automatically. Given how quiet all eight
-  defects above were, a check that renders a short film and asserts on the frames
-  would have caught most of them.
-- **`inkcast edit` with a model.** The zero-key pattern-matched path was
-  exercised over HTTP and works; the Claude tool-call path was not.
-- **Determinism across machines.** `page.test.ts` asserts two seeks of the same
-  frame are byte-identical in one browser; nothing checks that two machines, or
-  two Chromium versions, agree.
-- Nothing was committed. The working tree carries the verification fixes across
-  8 files; a commit made by the repo owner mid-session already contains fixes 1–6
-  and 9, so `git diff` shows only 7 and 8 plus their tests.
-
-## 5. What to do next, in order
-
-1. **Make the board accumulate.** Group consecutive beats of the same section
-   into one region and frame the camera on the union of what has been drawn so
-   far, instead of one scene per region. This is the product thesis and it is the
-   one thing the output does not yet deliver; it also fixes the sparse frames,
-   because a region with three beats in it is full.
-2. **Resolve the two ink engines.** Either the renderer consumes
-   `assets/visuals.json` (and `@inkcast/visuals` becomes the single geometry
-   authority), or the element lane is deleted and the package keeps only the icon
-   and image lanes it actually contributes. Leaving both is how the `roleFontSize`
-   copy of defect 1 survives.
-3. **Fix on-board copy.** Stop cutting headings and diagram labels mid-clause:
-   prefer a whole short sentence, or a noun phrase, over a truncated fragment
-   ending in `…`. This is the most visible remaining quality gap to a viewer.
-4. **Add CI, and format once.** `pnpm format` (55 files), then a workflow running
-   `pnpm -r typecheck && pnpm -r test && pnpm lint` plus a 15-second render whose
-   frames are checked for ink coverage and text-inside-frame. Every defect in §3
-   was silent; only a pixel-level assertion catches that class.
-5. **Prove one cloud adapter and one vertical render.** An `ELEVENLABS_API_KEY`
-   run and a `--aspect 9:16` run, so the two biggest untested branches stop being
-   theoretical.
+What still stops it being a video I would send to someone: the abstraction never
+_earns_ its keep visually. The hill and the graph are two separate drawings, so
+the single most important moment in the lesson — that they are the same thing — is
+carried entirely by narration. Half the frame is often empty. Every region change
+opens on a caption in a void. And the narrator is a robot. Those are quality
+failures rather than capability failures, which is the honest good news: the IR
+can now express the picture, and the remaining work is craft in the compiler
+rather than another rebuild.

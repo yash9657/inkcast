@@ -6,12 +6,17 @@
  * reveal masks, the serialiser) and because the studio wants to preview a single
  * element without running the whole stage.
  *
- * Five lanes, in order of preference for a given element:
- *   geometry  — roughjs shapes, arrows, emphasis marks     (always available)
- *   icon      — lucide-static, roughened                    (offline, free)
- *   diagram   — dagre + deterministic layouts               (offline, free)
- *   text      — real handwriting with per-line reveal masks  (offline, free)
- *   image     — flux-schnell + vtracer                       (opt-in, needs a key)
+ * Lanes, in order of preference for a given element:
+ *   plot      — cartesian frames, curves, tangents, overlays (offline, free)
+ *   path      — smoothed freeform strokes                    (offline, free)
+ *   geometry  — roughjs shapes, arrows, emphasis marks        (offline, free)
+ *   icon      — lucide-static, roughened                      (offline, free)
+ *   diagram   — dagre + deterministic layouts                 (offline, free)
+ *   text      — real handwriting with per-line reveal masks    (offline, free)
+ *   image     — flux-schnell + vtracer illustrations           (needs a key)
+ *
+ * `motion` is not a lane but a layer over any of them: it turns a path into
+ * arc-length-even positions so a ball descending a curve moves at one speed.
  */
 
 /* ---- the stage ---------------------------------------------------------- */
@@ -50,6 +55,66 @@ export {
   type StrokeWeight,
 } from './geometry.js';
 
+/* ---- plot lane ---------------------------------------------------------- */
+export {
+  CURVE_FUNCTIONS,
+  DEFAULT_SAMPLES,
+  curveEval,
+  curveInk,
+  describeCurveFunctions,
+  niceStep,
+  plotFrame,
+  resolvePlot,
+  tickValues,
+  type CurveEval,
+  type CurveFnDoc,
+  type CurveFnName,
+  type PlotCurveTrace,
+  type PlotFrame,
+  type PlotLayout,
+  type PlotMark,
+  type PlotPart,
+  type PlotPartKind,
+  type PlotPartRecord,
+  type ResolvedPlot,
+  type ResolvePlotOptions,
+} from './plot.js';
+
+/* ---- path lane ---------------------------------------------------------- */
+export {
+  CATMULL_ROM_ALPHA,
+  catmullRomBeziers,
+  catmullRomPath,
+  clipPolylineToBox,
+  clipPolylineToRange,
+  clipSegmentToBox,
+  cubicAt,
+  cubicDerivativeAt,
+  dedupePoints,
+  flattenCubics,
+  resolvePath,
+  simplifyPolyline,
+  type CubicSeg,
+  type PathSpec,
+  type ResolvedPath,
+} from './path.js';
+
+/* ---- motion helpers ----------------------------------------------------- */
+export {
+  MOTION_SAMPLES,
+  ease,
+  fractionAtLength,
+  motionAt,
+  motionPath,
+  polylineLength,
+  resamplePolyline,
+  resolveMotion,
+  type Easing,
+  type MotionLayout,
+  type MotionPath,
+  type MotionSample,
+} from './motion.js';
+
 /* ---- icon lane ---------------------------------------------------------- */
 export {
   FALLBACK_ICON,
@@ -57,6 +122,7 @@ export {
   iconPathData,
   iconPaths,
   iconsAvailable,
+  matchAsset,
   matchIcon,
   readIconSvg,
   type IconMatch,
@@ -99,13 +165,20 @@ export {
   type FontMetrics,
 } from './fontmetrics.js';
 
-/* ---- optional text-to-image lane --------------------------------------- */
+/* ---- illustration lane (needs REPLICATE_API_TOKEN or FAL_KEY) ----------- */
 export {
+  ILLUSTRATION_DIR,
   detectImageProvider,
   extractPathData,
   generateIllustration,
+  illustrationKey,
+  illustrationPaths,
   illustrationPrompt,
+  illustrationRaster,
+  resetIllustrationCache,
+  resetImageProviderNotice,
   vectoriseToInk,
+  type IllustrationRaster,
   type ImageProvider,
 } from './image.js';
 

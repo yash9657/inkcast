@@ -1,9 +1,14 @@
 /**
- * A tiny storyboard used by the tests: two seconds, two scenes, and at least one
- * of every element type and enter style, so a regression in any part of the
- * vocabulary shows up in the smoke render.
+ * Storyboards used by the tests.
  *
- * Not exported from the package's public API — it is a test fixture, not content.
+ * `fixtureStoryboard` is the original two-second board: one of every classic
+ * element and enter style, authored cameras, no regions. `lessonStoryboard` is the
+ * lesson-engine shape — regions that accumulate, holds, cues, a plot, a hand-drawn
+ * path and a ball that rolls down it. `verticalStoryboard` is the same idea
+ * composed for 9:16.
+ *
+ * Not exported from the package's public API — these are test fixtures, not
+ * content.
  */
 import { parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
@@ -117,6 +122,308 @@ export function fixtureStoryboard(overrides: { fps?: number } = {}): Storyboard 
             effect: 'pulse',
             at: { x: 180, y: 380, w: 900, h: 420 },
             enter: { at: 0.5, duration: 0.3, style: 'fade' },
+          },
+        ],
+      },
+    ],
+  });
+}
+
+/**
+ * A hillside, as canvas-unit waypoints: high on the left, flattening into a valley
+ * on the right. Shared by the `path` that draws it and the `motion` that rolls a
+ * ball down it, so the ball is provably on the ink rather than near it.
+ */
+export function hillPoints(): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    const x = 180 + t * 1080;
+    // A decaying slope: steep at the top, almost level at the bottom.
+    const y = 420 + 520 * (1 - Math.pow(1 - t, 2.2));
+    pts.push({ x: Math.round(x), y: Math.round(y) });
+  }
+  return pts;
+}
+
+/**
+ * The lesson-engine storyboard: two accumulating regions and a recap.
+ *
+ * Scenes 1–2 share the `hill` region, so the camera must frame the union of both
+ * beats rather than each in turn; scenes 3–4 share `loss`; scene 5 is a `recap`,
+ * which must pull back over everything drawn. Scene 3 carries word timings and an
+ * `enter.cue`, so cue resolution is exercised end to end.
+ */
+export function lessonStoryboard(overrides: { fps?: number } = {}): Storyboard {
+  const hill = hillPoints();
+  const roll = hill.slice(1, 10);
+  return parseStoryboard({
+    version: 1,
+    title: 'Gradient descent (lesson fixture)',
+    meta: { fps: overrides.fps ?? 30, outroSec: 0.4, style: 'marker', palette: 'color' },
+    canvas: { x: 0, y: 0, w: 3200, h: 1800 },
+    scenes: [
+      {
+        id: 'hook',
+        role: 'hook',
+        region: 'hill',
+        narration: 'You are on a foggy hillside and you want to reach the valley.',
+        durationSec: 1.2,
+        hold: 0.3,
+        camera: { x: 700, y: 700, zoom: 2, transition: 0 },
+        elements: [
+          {
+            id: 'hill',
+            type: 'path',
+            points: hill,
+            weight: 1.2,
+            at: { x: 180, y: 420, w: 1080, h: 520 },
+            enter: { at: 0, duration: 0.5, style: 'draw' },
+          },
+          {
+            id: 'ask',
+            type: 'text',
+            text: 'Which way do you step?',
+            role: 'heading',
+            align: 'left',
+            at: { x: 200, y: 200, w: 900, h: 130 },
+            enter: { at: 0.5, duration: 0.4, style: 'write' },
+          },
+        ],
+      },
+      {
+        id: 'anchor',
+        role: 'anchor',
+        region: 'hill',
+        narration: 'You feel the ground, step downhill, and repeat.',
+        durationSec: 1.0,
+        hold: 0.2,
+        camera: { x: 700, y: 700, zoom: 2, transition: 0.4 },
+        elements: [
+          {
+            id: 'ball',
+            type: 'shape',
+            shape: 'ellipse',
+            fill: true,
+            at: { x: 240, y: 380, w: 78, h: 78 },
+            motion: { path: roll, from: 0.15, to: 0.95, easing: 'ease', trail: true },
+            enter: { at: 0, duration: 0.3, style: 'pop' },
+          },
+          {
+            id: 'valley',
+            type: 'text',
+            text: 'downhill, one step at a time',
+            role: 'label',
+            align: 'center',
+            at: { x: 640, y: 1020, w: 640, h: 90 },
+            enter: { at: 0.6, duration: 0.35, style: 'fade' },
+          },
+        ],
+      },
+      {
+        id: 'plot',
+        role: 'step',
+        region: 'loss',
+        narration: 'That hillside is the loss curve for one weight.',
+        durationSec: 1.6,
+        hold: 0.2,
+        camera: { x: 2300, y: 800, zoom: 2, transition: 0.6 },
+        words: [
+          { word: 'That', start: 0, end: 0.22 },
+          { word: 'hillside', start: 0.22, end: 0.55 },
+          { word: 'is', start: 0.55, end: 0.66 },
+          { word: 'the', start: 0.66, end: 0.74 },
+          { word: 'loss', start: 0.74, end: 1.0 },
+          { word: 'curve', start: 1.0, end: 1.28 },
+          { word: 'for', start: 1.28, end: 1.4 },
+          { word: 'one', start: 1.4, end: 1.5 },
+          { word: 'weight.', start: 1.5, end: 1.6 },
+        ],
+        elements: [
+          {
+            id: 'loss',
+            type: 'plot',
+            xDomain: [-3, 3],
+            yDomain: [0, 10],
+            xLabel: 'weight',
+            yLabel: 'loss',
+            axes: 'both',
+            curves: [{ id: 'bowl', fn: { name: 'parabola', params: [1, 0, 0.5] }, accent: 0 }],
+            overlays: [
+              { kind: 'point', curveId: 'bowl', x: -2.4, label: 'here' },
+              { kind: 'dropline', curveId: 'bowl', x: -2.4, to: 'both' },
+            ],
+            // No `at` fraction: the cue below must place it on the words "loss curve".
+            at: { x: 1780, y: 320, w: 1240, h: 900 },
+            enter: { cue: 'loss curve', duration: 0.35, style: 'draw' },
+          },
+        ],
+      },
+      {
+        id: 'slope',
+        role: 'step',
+        region: 'loss',
+        narration: 'The tangent tells you which way is downhill, so you step against it.',
+        durationSec: 1.6,
+        camera: { x: 2300, y: 800, zoom: 2, transition: 0.5 },
+        elements: [
+          {
+            id: 'tan',
+            // The same frame and curve as the beat before: the IR's way of saying
+            // "annotate the plot already on the board". The compiler must ink the
+            // frame and curve once and draw only the new overlays here.
+            type: 'plot',
+            xDomain: [-3, 3],
+            yDomain: [0, 10],
+            xLabel: 'weight',
+            yLabel: 'loss',
+            axes: 'both',
+            curves: [{ id: 'bowl', fn: { name: 'parabola', params: [1, 0, 0.5] }, accent: 0 }],
+            overlays: [
+              { kind: 'tangent', curveId: 'bowl', x: -2.4, span: 1.1, label: 'slope', at: 0.25 },
+              { kind: 'steps', curveId: 'bowl', xs: [-2.4, -1.6, -1, -0.6], at: 0.6 },
+            ],
+            at: { x: 1780, y: 320, w: 1240, h: 900 },
+            enter: { at: 0, duration: 0.3, style: 'draw' },
+          },
+          {
+            id: 'rule',
+            type: 'text',
+            text: 'step against the slope',
+            role: 'label',
+            align: 'center',
+            at: { x: 1860, y: 1280, w: 1080, h: 90 },
+            enter: { at: 0.8, duration: 0.3, style: 'fade' },
+          },
+        ],
+      },
+      {
+        id: 'recap',
+        role: 'recap',
+        narration: 'Feel the slope, step downhill, repeat until it goes flat.',
+        durationSec: 1.0,
+        hold: 0.4,
+        camera: { x: 1600, y: 900, zoom: 1, transition: 0.9 },
+        elements: [
+          {
+            id: 'chain',
+            type: 'text',
+            text: 'slope -> step -> repeat',
+            role: 'heading',
+            align: 'center',
+            at: { x: 900, y: 1500, w: 1400, h: 130 },
+            enter: { at: 0.2, duration: 0.4, style: 'write' },
+          },
+        ],
+      },
+    ],
+  });
+}
+
+/**
+ * The same lesson composed for 9:16: a tall canvas the camera walks down.
+ *
+ * Deliberately not a crop of the landscape board — the ink is stacked vertically,
+ * each beat sits below the last, and the recap pulls back over the column.
+ */
+export function verticalStoryboard(overrides: { fps?: number } = {}): Storyboard {
+  return parseStoryboard({
+    version: 1,
+    title: 'Gradient descent, vertical',
+    meta: {
+      fps: overrides.fps ?? 12,
+      outroSec: 0.3,
+      style: 'marker',
+      palette: 'color',
+      aspect: '9:16',
+    },
+    canvas: { x: 0, y: 0, w: 1080, h: 2600 },
+    scenes: [
+      {
+        id: 'v-hook',
+        role: 'hook',
+        region: 'column',
+        narration: 'You are walking downhill in fog.',
+        durationSec: 0.9,
+        hold: 0.2,
+        camera: { x: 540, y: 700, zoom: 1.4, transition: 0 },
+        elements: [
+          {
+            id: 'v-title',
+            type: 'text',
+            text: 'Which way is downhill?',
+            role: 'heading',
+            align: 'center',
+            at: { x: 90, y: 150, w: 900, h: 300 },
+            enter: { at: 0, duration: 0.4, style: 'write' },
+          },
+          {
+            id: 'v-hill',
+            type: 'path',
+            points: [
+              { x: 110, y: 640 },
+              { x: 320, y: 720 },
+              { x: 530, y: 880 },
+              { x: 750, y: 1010 },
+              { x: 970, y: 1060 },
+            ],
+            weight: 1.2,
+            at: { x: 110, y: 640, w: 860, h: 420 },
+            enter: { at: 0.4, duration: 0.4, style: 'draw' },
+          },
+          {
+            id: 'v-fog',
+            type: 'text',
+            text: 'you cannot see the valley',
+            role: 'label',
+            align: 'center',
+            at: { x: 90, y: 1160, w: 900, h: 170 },
+            enter: { at: 0.75, duration: 0.3, style: 'fade' },
+          },
+        ],
+      },
+      {
+        id: 'v-step',
+        role: 'step',
+        region: 'column',
+        narration: 'The hill is a curve, and its slope points the way.',
+        durationSec: 1.1,
+        hold: 0.2,
+        camera: { x: 540, y: 1800, zoom: 1.4, transition: 0.5 },
+        elements: [
+          {
+            id: 'v-plot',
+            type: 'plot',
+            xDomain: [-3, 3],
+            yDomain: [0, 10],
+            yLabel: 'loss',
+            xLabel: 'weight',
+            curves: [{ id: 'bowl', fn: { name: 'parabola', params: [1, 0, 0.5] }, accent: 0 }],
+            overlays: [
+              { kind: 'point', curveId: 'bowl', x: -2.3, label: 'here' },
+              { kind: 'tangent', curveId: 'bowl', x: -2.3, span: 1, at: 0.55 },
+            ],
+            at: { x: 100, y: 1420, w: 880, h: 900 },
+            enter: { at: 0, duration: 0.35, style: 'draw' },
+          },
+        ],
+      },
+      {
+        id: 'v-recap',
+        role: 'recap',
+        narration: 'Feel the slope. Step downhill. Repeat.',
+        durationSec: 0.9,
+        hold: 0.3,
+        camera: { x: 540, y: 1300, zoom: 1, transition: 0.8 },
+        elements: [
+          {
+            id: 'v-chain',
+            type: 'text',
+            text: 'slope -> step -> repeat',
+            role: 'label',
+            align: 'center',
+            at: { x: 100, y: 2400, w: 880, h: 150 },
+            enter: { at: 0.2, duration: 0.35, style: 'write' },
           },
         ],
       },

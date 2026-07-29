@@ -40,8 +40,7 @@ export const metadata: Metadata = {
     // and it inherits nothing from the theme so it reads on any browser chrome.
     icon: [
       {
-        url:
-          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23535ae4'/%3E%3Cpath d='M8 22c3-9 8-13 16-14' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M19 21l5 3-1-5.6z' fill='white'/%3E%3C/svg%3E",
+        url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23535ae4'/%3E%3Cpath d='M8 22c3-9 8-13 16-14' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M19 21l5 3-1-5.6z' fill='white'/%3E%3C/svg%3E",
         type: 'image/svg+xml',
       },
     ],

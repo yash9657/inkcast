@@ -42,6 +42,7 @@ const nextConfig: NextConfig = {
    */
   transpilePackages: [
     '@inkcast/core',
+    '@inkcast/keyvault',
     '@inkcast/pipeline',
     '@inkcast/planner',
     '@inkcast/render',

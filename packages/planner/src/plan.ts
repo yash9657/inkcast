@@ -1,14 +1,21 @@
 /**
- * Stage 2 — plan. `SourceDoc` in, `Storyboard` out.
+ * Stage 2+3 — plan. `SourceDoc` in, `Storyboard` out.
  *
- * Two adapters, one contract. The heuristic planner is the default and always
- * available; the Anthropic adapter is an opt-in upgrade that degrades back to it
- * on a missing key, a missing SDK, an API error or a schema violation.
+ * This used to be one step that chopped a document into beats and narrated them.
+ * It is now two, and the first one is the point:
  *
- * When `opts.dir` is given the result is cached in that project directory, so
- * re-running the pipeline after an edit downstream costs nothing.
+ *     ingest -> lesson -> storyboard
+ *
+ * `teachLesson` decides what to teach and what each beat should show; then
+ * `compileLesson` turns that into a board. `plan()` keeps its signature so the
+ * pipeline, the CLI and the studio do not have to care — but what it does inside
+ * is now pedagogy first, drawing second.
+ *
+ * The old document→storyboard path is still reachable with `via: 'document'`. It
+ * is the zero-key fixture the renderer is tested against, not a route to a
+ * watchable video; `docs/LESSON-ENGINE.md` explains why that distinction matters.
  */
-import type { Storyboard } from '@inkcast/core';
+import type { Lesson, Storyboard } from '@inkcast/core';
 import {
   hash,
   isFresh,
@@ -19,14 +26,19 @@ import {
   saveStoryboard,
 } from '@inkcast/core';
 import { anthropicAvailable, anthropicPlan, plannerModel } from './anthropic.js';
+import { COMPILER_VERSION, compileLesson } from './compile.js';
 import { heuristicPlan } from './heuristic.js';
 import { layoutStoryboard } from './layout.js';
+import { LESSON_VERSION, resolveLessonAdapter, teachLesson } from './lesson.js';
+import { lessonModel } from './lesson-anthropic.js';
+import { readLessonFile } from './lesson-io.js';
+import { resolvePreset } from './presets.js';
 import type { PlanOptions, PlannerAdapter, SourceDoc } from './types.js';
 
 const log = logger('planner');
 
 /** Bump when planner output changes in a way that should invalidate caches. */
-export const PLANNER_VERSION = 1;
+export const PLANNER_VERSION = 2;
 
 const CACHE_KEY = 'plan';
 const ARTEFACT = 'storyboard.json';
@@ -43,8 +55,17 @@ export function resolveAdapter(opts: PlanOptions = {}): Exclude<PlannerAdapter, 
   return anthropicAvailable() ? 'anthropic' : 'heuristic';
 }
 
-function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string): string {
-  return hash(PLANNER_VERSION, adapter, doc.title, doc.text, {
+/** Whether this plan runs the pedagogy stage. Default: yes. */
+export function resolveRoute(opts: PlanOptions = {}): 'lesson' | 'document' {
+  return opts.via ?? 'lesson';
+}
+
+function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string, route: string): string {
+  return hash(PLANNER_VERSION, adapter, route, doc.title, doc.text, {
+    lesson: typeof opts.lesson === 'string' ? opts.lesson : opts.lesson ? 'inline' : undefined,
+    lessonVersion: route === 'lesson' ? LESSON_VERSION : undefined,
+    compiler: route === 'lesson' ? COMPILER_VERSION : undefined,
+    preset: opts.preset,
     aspect: opts.aspect,
     palette: opts.palette,
     style: opts.style,
@@ -52,20 +73,38 @@ function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string): string {
     language: opts.language,
     fps: opts.fps,
     maxScenes: opts.maxScenes,
+    maxSeconds: opts.maxSeconds,
     wordsPerSecond: opts.wordsPerSecond,
+    audience: opts.audience,
+    objective: opts.objective,
     brief: opts.brief,
-    model: adapter === 'anthropic' ? plannerModel(opts) : undefined,
+    model:
+      adapter === 'anthropic'
+        ? route === 'lesson'
+          ? lessonModel(opts)
+          : plannerModel(opts)
+        : undefined,
   });
 }
 
+/** A lesson supplied by the caller: an object, or a path to a `.lesson.json`. */
+async function suppliedLesson(opts: PlanOptions): Promise<Lesson | undefined> {
+  if (!opts.lesson) return undefined;
+  if (typeof opts.lesson !== 'string') return opts.lesson;
+  const lesson = await readLessonFile(opts.lesson);
+  log.info(`using the hand-authored lesson at ${opts.lesson}`, { topic: lesson.topic });
+  return lesson;
+}
+
 /**
- * Compile a `SourceDoc` into a `Storyboard`: beats, narration, visuals, assets,
- * layout and camera. The result is validated against the IR before it is
- * returned, so every later stage can trust its shape.
+ * Compile a `SourceDoc` into a `Storyboard`: a lesson, then beats, narration,
+ * plots, drawn ink, regions, cues and camera. The result is validated against the
+ * IR before it is returned, so every later stage can trust its shape.
  */
 export async function plan(doc: SourceDoc, opts: PlanOptions = {}): Promise<Storyboard> {
-  const adapter = resolveAdapter(opts);
-  const key = inputHash(doc, opts, adapter);
+  const route = resolveRoute(opts);
+  const adapter = route === 'lesson' ? resolveLessonAdapter(opts) : resolveAdapter(opts);
+  const key = inputHash(doc, opts, adapter, route);
 
   if (opts.dir && !opts.force) {
     if (await isFresh(opts.dir, CACHE_KEY, key, [ARTEFACT])) {
@@ -76,19 +115,29 @@ export async function plan(doc: SourceDoc, opts: PlanOptions = {}): Promise<Stor
     }
   }
 
-  report(opts, { stage: 'plan', pct: 2, note: `${adapter} planner` });
-
   let sb: Storyboard | undefined;
-  if (adapter === 'anthropic') {
-    sb = await anthropicPlan(doc, opts);
-    if (sb && opts.relayout !== false) {
-      // The model chooses the content; the layout engine guarantees the geometry.
-      sb = layoutStoryboard(sb, { aspect: sb.meta.aspect });
-      log.debug('re-laid out the model storyboard for collision-free placement');
+
+  if (route === 'lesson') {
+    const preset = resolvePreset(opts);
+    report(opts, { stage: 'plan', pct: 2, note: `${adapter} lesson → ${preset.name}` });
+    const lesson = (await suppliedLesson(opts)) ?? (await teachLesson(doc, opts));
+    sb = compileLesson(lesson, {
+      ...opts,
+      ...(opts.title === undefined ? {} : { title: opts.title }),
+    });
+  } else {
+    report(opts, { stage: 'plan', pct: 2, note: `${adapter} document planner` });
+    if (adapter === 'anthropic') {
+      sb = await anthropicPlan(doc, opts);
+      if (sb && opts.relayout !== false) {
+        // The model chooses the content; the layout engine guarantees the geometry.
+        sb = layoutStoryboard(sb, { aspect: sb.meta.aspect });
+        log.debug('re-laid out the model storyboard for collision-free placement');
+      }
+      if (!sb) log.warn('falling back to the heuristic planner');
     }
-    if (!sb) log.warn('falling back to the heuristic planner');
+    if (!sb) sb = heuristicPlan(doc, opts);
   }
-  if (!sb) sb = heuristicPlan(doc, opts);
 
   if (opts.dir) {
     await saveStoryboard(opts.dir, sb);
@@ -96,6 +145,7 @@ export async function plan(doc: SourceDoc, opts: PlanOptions = {}): Promise<Stor
   }
 
   log.info(`plan ready: "${sb.title}"`, {
+    route,
     scenes: sb.scenes.length,
     assets: sb.assets.length,
     canvas: `${sb.canvas.w}x${sb.canvas.h}`,

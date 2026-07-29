@@ -34,11 +34,7 @@ export function Separator({
  * A separator with a label in the gap — for "or" between a paste box and an
  * upload zone, which is exactly the choice the studio's entry screen presents.
  */
-export function SeparatorLabelled({
-  children,
-  className,
-  ...props
-}: React.ComponentProps<'div'>) {
+export function SeparatorLabelled({ children, className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="separator-labelled"

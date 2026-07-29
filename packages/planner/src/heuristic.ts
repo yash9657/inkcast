@@ -120,6 +120,7 @@ export function heuristicPlan(doc: SourceDoc, opts: PlanOptions = {}): Storyboar
       narration: narration || `${doc.title}.`,
       camera: { x: 0, y: 0, zoom: 1, transition: 0 },
       elements: [title],
+      hold: 0,
     });
   }
 
@@ -214,10 +215,19 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
 
   switch (beat.shape) {
     case 'title': {
-      const t = add(makeText(eid('title'), doc.title, 'title', { align: 'center' }), { span: 'full' }, 'anchor');
+      const t = add(
+        makeText(eid('title'), doc.title, 'title', { align: 'center' }),
+        { span: 'full' },
+        'anchor',
+      );
       add(makeShape(eid('rule'), 'underline', 620, 14), { below: t, span: 'full' });
       const sub = subtitleOf(beat.source, doc.title);
-      if (sub) add(makeText(eid('sub'), sub, 'body', { align: 'center' }), { below: t, span: 'full' }, 'sub');
+      if (sub)
+        add(
+          makeText(eid('sub'), sub, 'body', { align: 'center' }),
+          { below: t, span: 'full' },
+          'sub',
+        );
       const ic = iconId();
       if (ic) add(makeAsset(eid('icon'), ic, 260), { breakBefore: true, span: 'block' }, 'icon');
       break;
@@ -237,10 +247,18 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
     }
 
     case 'definition': {
-      const term = add(makeText(eid('term'), beat.term ?? beat.heading, 'heading'), { span: 'full' }, 'term');
+      const term = add(
+        makeText(eid('term'), beat.term ?? beat.heading, 'heading'),
+        { span: 'full' },
+        'term',
+      );
       add(makeShape(eid('rule'), 'underline', 380, 12), { below: term, span: 'full' });
       if (beat.definition) {
-        add(makeText(eid('def'), beat.definition, 'body'), { below: term, span: 'full' }, 'definition');
+        add(
+          makeText(eid('def'), beat.definition, 'body'),
+          { below: term, span: 'full' },
+          'definition',
+        );
       }
       const ic = iconId();
       if (ic) add(makeAsset(eid('icon'), ic, 220), { breakBefore: true, span: 'block' }, 'icon');
@@ -259,11 +277,19 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
     case 'steps': {
       const items = beat.items ?? [];
       if (!items.length) return undefined;
-      const lead = pickLead(ctx, headingShown ? 'Step by step' : (beat.lead ?? 'Step by step'), false);
+      const lead = pickLead(
+        ctx,
+        headingShown ? 'Step by step' : (beat.lead ?? 'Step by step'),
+        false,
+      );
       if (lead) add(makeText(eid('lead'), shorten(lead, 6), 'heading'), { span: 'full' }, 'anchor');
       const nodes = items.map((label, k) => ({ id: `n${k}`, label }));
       const edges = nodes.slice(1).map((n, k) => ({ from: nodes[k]!.id, to: n.id }));
-      add(makeDiagram(eid('flow'), 'flow', nodes, edges), { span: 'full', breakBefore: true }, 'figure');
+      add(
+        makeDiagram(eid('flow'), 'flow', nodes, edges),
+        { span: 'full', breakBefore: true },
+        'figure',
+      );
       break;
     }
 
@@ -313,7 +339,11 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
     }
 
     case 'quote': {
-      const q = add(makeText(eid('quote'), `“${shorten(beat.source, 26)}”`, 'body'), { span: 'full' }, 'anchor');
+      const q = add(
+        makeText(eid('quote'), `“${shorten(beat.source, 26)}”`, 'body'),
+        { span: 'full' },
+        'anchor',
+      );
       add(makeShape(eid('bracket'), 'bracket', 480, 26), { below: q, span: 'full' });
       const ic = iconId();
       if (ic) add(makeAsset(eid('icon'), ic, 200), { breakBefore: true, span: 'block' }, 'icon');
@@ -344,18 +374,31 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       if (tableHead) add(makeText(eid('head'), tableHead, 'heading'), { span: 'full' }, 'anchor');
       const nodes: { id: string; label: string }[] = [];
       t.header.slice(0, 3).forEach((h, k) => nodes.push({ id: `h${k}`, label: shorten(h, 4) }));
-      t.rows.slice(0, 3).forEach((row, r) =>
-        row.slice(0, 3).forEach((cell, c) => nodes.push({ id: `r${r}c${c}`, label: shorten(cell, 4) })),
-      );
+      t.rows
+        .slice(0, 3)
+        .forEach((row, r) =>
+          row
+            .slice(0, 3)
+            .forEach((cell, c) => nodes.push({ id: `r${r}c${c}`, label: shorten(cell, 4) })),
+        );
       add(makeDiagram(eid('grid'), 'grid', nodes), { span: 'full', breakBefore: true }, 'figure');
       break;
     }
 
     case 'recap': {
-      const h = add(makeText(eid('head'), 'The whole picture', 'heading'), { span: 'full' }, 'anchor');
+      const h = add(
+        makeText(eid('head'), 'The whole picture', 'heading'),
+        { span: 'full' },
+        'anchor',
+      );
       add(makeShape(eid('rule'), 'underline', 460, 12), { below: h, span: 'full' });
       const nodes = (beat.items ?? []).map((label, k) => ({ id: `r${k}`, label }));
-      if (nodes.length) add(makeDiagram(eid('recap'), 'stack', nodes), { span: 'full', breakBefore: true }, 'figure');
+      if (nodes.length)
+        add(
+          makeDiagram(eid('recap'), 'stack', nodes),
+          { span: 'full', breakBefore: true },
+          'figure',
+        );
       break;
     }
 
@@ -370,7 +413,13 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       // Annotation scenes deliberately reuse the previous region: the camera
       // stays put and the earlier elements are still on the board.
       return {
-        scene: { id: sid, narration, camera: { x: 0, y: 0, zoom: 1, transition: 0.45 }, elements },
+        scene: {
+          id: sid,
+          narration,
+          camera: { x: 0, y: 0, zoom: 1, transition: 0.45 },
+          elements,
+          hold: 0,
+        },
         hints,
         slots: { ...ctx.prevSlots, ...slots },
       };
@@ -381,7 +430,8 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       const point = keyPhrase(beat.source, beat.heading, 14) || shorten(beat.source, 14);
       const p = add(makeText(eid('point'), point, 'heading'), { span: 'full' }, 'anchor');
       const detail = supportingPhrase(beat.source, point);
-      if (detail) add(makeText(eid('detail'), detail, 'body'), { below: p, span: 'full' }, 'detail');
+      if (detail)
+        add(makeText(eid('detail'), detail, 'body'), { below: p, span: 'full' }, 'detail');
       const ic = iconId();
       if (ic) add(makeAsset(eid('icon'), ic, 220), { breakBefore: true, span: 'block' }, 'icon');
       break;
@@ -396,6 +446,10 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       narration,
       camera: { x: 0, y: 0, zoom: 1, transition: index === 0 ? 0 : 0.9 },
       elements,
+      // Deliberate silence is a teaching decision, so it belongs to the lesson
+      // compiler (see `compile.ts`). The document planner is the no-key CI
+      // fixture for the renderer and holds nothing.
+      hold: 0,
     },
     hints,
     slots,
@@ -419,7 +473,11 @@ function pickLead(ctx: BuildCtx, wanted: string, headingShown: boolean): string 
 
 /** True when two on-canvas strings say the same thing. */
 function echoes(a: string, b: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, '')
+      .trim();
   const x = norm(a);
   const y = norm(b);
   return x === y || x.includes(y) || y.includes(x);
@@ -504,7 +562,10 @@ function trimBeats(beats: Beat[], maxScenes: number): Beat[] {
  * Report scenes that fall outside the 3.5–12 second window, so callers (and the
  * tests) can see the pacing the planner actually achieved.
  */
-export function pacing(sb: Storyboard, wordsPerSecond = 2.6): {
+export function pacing(
+  sb: Storyboard,
+  wordsPerSecond = 2.6,
+): {
   sceneId: string;
   words: number;
   seconds: number;

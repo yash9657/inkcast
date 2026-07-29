@@ -5,7 +5,13 @@ import { cn, randomFromSeed, seedFrom } from '@/lib/utils';
 import type { Storyboard } from '@inkcast/core';
 
 import { aspectValue } from './format';
-import { findAsset, visibleElements, type BoardElement, type Box, type SceneElement } from './board';
+import {
+  findAsset,
+  visibleElements,
+  type BoardElement,
+  type Box,
+  type SceneElement,
+} from './board';
 
 /**
  * A real preview of one scene of the storyboard, drawn from the IR.
@@ -57,7 +63,12 @@ export type MiniBoardProps = {
   soloScene?: boolean;
 };
 
-export function MiniBoard({ storyboard, sceneIndex, className, soloScene = false }: MiniBoardProps) {
+export function MiniBoard({
+  storyboard,
+  sceneIndex,
+  className,
+  soloScene = false,
+}: MiniBoardProps) {
   const scene = storyboard.scenes[sceneIndex];
   if (!scene) return null;
 
@@ -294,7 +305,8 @@ function wrap(text: string, perLine: number, maxLines: number): string[] {
   if (lines.length === maxLines) {
     const last = lines[maxLines - 1] ?? '';
     const consumed = lines.join(' ').length;
-    if (consumed < text.trim().length) lines[maxLines - 1] = `${last.slice(0, Math.max(perLine - 1, 1))}…`;
+    if (consumed < text.trim().length)
+      lines[maxLines - 1] = `${last.slice(0, Math.max(perLine - 1, 1))}…`;
   }
   return lines.length ? lines : [''];
 }
@@ -405,14 +417,24 @@ function BoardShape({
       return (
         <>
           <path
-            d={inkStrokePath(rand, { x: box.x, y: box.y }, { x: box.x, y: box.y + box.h }, { amplitude: box.w * 0.03 })}
+            d={inkStrokePath(
+              rand,
+              { x: box.x, y: box.y },
+              { x: box.x, y: box.y + box.h },
+              { amplitude: box.w * 0.03 },
+            )}
             className={stroke}
             fill="none"
             strokeWidth={weight}
             strokeLinecap="round"
           />
           <path
-            d={inkStrokePath(rand, { x: box.x, y: box.y }, { x: box.x + lip, y: box.y }, { segments: 2, amplitude: 1 })}
+            d={inkStrokePath(
+              rand,
+              { x: box.x, y: box.y },
+              { x: box.x + lip, y: box.y },
+              { segments: 2, amplitude: 1 },
+            )}
             className={stroke}
             fill="none"
             strokeWidth={weight}
@@ -440,7 +462,12 @@ function BoardShape({
       const y = el.shape === 'underline' ? box.y + box.h : box.y + box.h / 2;
       return (
         <path
-          d={inkStrokePath(rand, { x: box.x, y }, { x: box.x + box.w, y }, { amplitude: Math.max(box.h * 0.06, 1.5) })}
+          d={inkStrokePath(
+            rand,
+            { x: box.x, y },
+            { x: box.x + box.w, y },
+            { amplitude: Math.max(box.h * 0.06, 1.5) },
+          )}
           className={stroke}
           fill="none"
           strokeWidth={el.shape === 'underline' ? weight * 1.5 : weight}

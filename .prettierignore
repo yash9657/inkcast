@@ -1,0 +1,27 @@
+# Generated, vendored or machine-owned. `pnpm lint` and `pnpm format` run over
+# the whole repo, so anything we do not hand-author has to be listed here or the
+# check is noise and the write is destructive.
+
+# Package manager and build output
+pnpm-lock.yaml
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Written by tools that rewrite them on the next run
+apps/web/next-env.d.ts
+
+# Per-project working directories: storyboards, lessons, caches, frames, media
+projects/
+renders/
+.inkcast/
+
+# Model weights fetched at runtime
+.models/
+
+# Binary-ish assets and vendored fonts
+assets/fonts/*.ttf
+assets/fonts/*.otf
+assets/fonts/*.woff
+assets/fonts/*.woff2

@@ -2,9 +2,22 @@
  * Storyboard IR -> RenderPlan.
  *
  * This is where fractional scene timings become absolute seconds, semantic roles
- * become ink and type sizes, and shapes/arrows/diagrams become hand-drawn path
- * data from a seeded PRNG. Nothing here touches a DOM or a clock, so it is
- * synchronous, pure (given the same storyboard and directory) and unit-testable.
+ * become ink and type sizes, and shapes/curves/paths become hand-drawn path data
+ * from a seeded PRNG. Nothing here touches a DOM or a clock, so it is synchronous,
+ * pure (given the same storyboard and directory) and unit-testable.
+ *
+ * Four things this stage owns, in the order they matter:
+ *
+ * 1. **Time.** Scene lengths come from `sceneLength()`/`sceneOffsets()` in core, so
+ *    `Scene.hold` — deliberate silence with the visual still up — is part of the
+ *    scene rather than dead air the renderer invents. Element timings stay
+ *    fractions of the *narration*, which is what `Enter.cue` resolves against.
+ * 2. **Framing.** `camera.ts` turns regions into an accumulating board.
+ * 3. **Vocabulary.** A `plot` becomes many independently timed items (axes, then
+ *    curves, then overlays); `path` becomes one hand-drawn stroke; `motion` becomes
+ *    a baked arc-length table so the browser has no maths left to get wrong.
+ * 4. **Scale.** Type and stroke weight are quoted in output pixels and converted
+ *    through the *camera*, never through the canvas size.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -15,21 +28,32 @@ import type {
   DiagramElement,
   Element,
   EmphasisElement,
+  PathElement,
+  PlotElement,
   Scene,
   ShapeElement,
   Storyboard,
+  StoryboardMeta,
   TextElement,
 } from '@inkcast/core';
-import { frameSize } from '@inkcast/core';
+import { frameSize, sceneLength, sceneOffsets, totalDuration } from '@inkcast/core';
+import { contentFill, reportFill, resolveFraming, safeInsets, unitsPerPixel } from './camera.js';
+import type { SceneFraming } from './camera.js';
+import { cumulativeLengths, easeFn, flattenPathData, pointAtLength, rectContains } from './geom.js';
+import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
+import { plotMap, plotPhases } from './plot.js';
+import type { PlotPhase } from './plot.js';
+import { dotPrim, geom, geoms, textPrim } from './prims.js';
 import {
   Rng,
   hachureEllipse,
   hachurePolygon,
   rectPoly,
   seedOf,
+  sketchAlong,
   sketchArrowHead,
   sketchBracket,
   sketchCurve,
@@ -40,12 +64,12 @@ import {
 import type { Pt, SketchStyle } from './sketch.js';
 import type {
   GeomPrim,
+  MotionTrack,
   PlanItem,
   PlanPrim,
   PlanScene,
   Rect,
   RenderPlan,
-  TextPrim,
 } from './types.js';
 
 const log = logger('render:compile');
@@ -60,6 +84,7 @@ export type CompileOptions = {
 /** Words-per-second used only when the voice stage has not measured a scene. */
 const WPS = 2.6;
 
+/** Measured narration length, or an honest estimate when voice has not run. */
 export function sceneDuration(scene: Scene): number {
   if (scene.durationSec && scene.durationSec > 0) return scene.durationSec;
   const words = scene.narration.trim().split(/\s+/).filter(Boolean).length;
@@ -80,28 +105,35 @@ function inflate(box: Rect, padX: number, padY = padX): Rect {
   return { x: box.x - padX, y: box.y - padY, w: box.w + padX * 2, h: box.h + padY * 2 };
 }
 
-function geom(d: string, stroke: string, strokeWidth: number, extra?: Partial<GeomPrim>): GeomPrim {
-  return { kind: 'geom', d, stroke, strokeWidth, fill: 'none', ...extra };
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
 }
 
-function geoms(ds: string[], stroke: string, strokeWidth: number, opacity?: number): GeomPrim[] {
-  return ds.map((d) =>
-    opacity === undefined
-      ? geom(d, stroke, strokeWidth)
-      : geom(d, stroke, strokeWidth, { opacity }),
-  );
+/**
+ * Fixed precision for progress fractions.
+ *
+ * Positions round to a thousandth of a canvas unit — far below a pixel — but
+ * progress is a 0–1 fraction sampled once per frame, so three decimals quantise it
+ * to steps of 0.001 against increments of ~0.008 and the "even speed" the arc-length
+ * bake exists to provide is thrown away as ±6% jitter.
+ */
+function round6(v: number): number {
+  return Math.round(v * 1e6) / 1e6;
 }
 
-function textPrim(
-  text: string,
-  box: Rect,
-  size: number,
-  color: string,
-  align: TextPrim['align'],
-  vAlign: TextPrim['vAlign'] = 'middle',
-  shrink = true,
-): TextPrim {
-  return { kind: 'text', text, box, size, align, vAlign, color, shrink };
+/**
+ * How much bigger type and ink are on a narrow frame.
+ *
+ * `TYPE_SCALE` is quoted for a 1920-wide frame. A 1080-wide vertical frame is
+ * watched on a phone at arm's length, where the same *relative* type is too small
+ * to read and the same relative stroke too thin to see — so 9:16 is composed with
+ * heavier ink and larger letters rather than being a 16:9 board with the sides cut
+ * off. Ink grows less than type: doubling stroke weight muddies detail.
+ */
+function frameGain(aspect: StoryboardMeta['aspect']): number {
+  if (aspect === '9:16') return 1.42;
+  if (aspect === '1:1') return 1.18;
+  return 1;
 }
 
 /** Data-URI any relative `<image href>` so the page needs no file access. */
@@ -133,6 +165,82 @@ function inlineImages(svg: string, dir: string): string {
   );
 }
 
+/* --------------------------------------------------------------------- cues */
+
+const CUE_STRIP = /[^\p{L}\p{N}']+/gu;
+
+function cueTokens(text: string): string[] {
+  return text.toLowerCase().replace(CUE_STRIP, ' ').split(' ').filter(Boolean);
+}
+
+/**
+ * Resolve `Enter.cue` against the voice stage's word timings.
+ *
+ * The voice stage normally does this and overwrites `enter.at`. This is the
+ * fallback for when it could not (no aligner, a provider without word timings on
+ * the first pass, a hand-edited storyboard): if the words are on the scene and the
+ * fraction was never set, the renderer can still land the visual on the phrase
+ * that names it. Beat-level sync is not enough for teaching — audio can be
+ * perfectly aligned while a diagram arrives seconds before the sentence about it,
+ * which a learner experiences as drift.
+ */
+export function cueFraction(
+  cue: string,
+  words: NonNullable<Scene['words']>,
+  durationSec: number,
+): number | null {
+  const needle = cueTokens(cue);
+  if (needle.length === 0 || words.length === 0 || !(durationSec > 0)) return null;
+  const hay = words.map((w) => cueTokens(w.word).join(' '));
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    let ok = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (hay[i + j] !== needle[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      const start = words[i]?.start;
+      if (typeof start !== 'number') return null;
+      return clamp(start / durationSec, 0, 1);
+    }
+  }
+  // A single-word cue may be spoken as part of a longer token ("downhill." vs
+  // "downhill"), so fall back to a substring hit before giving up.
+  const joined = hay.join(' ');
+  const phrase = needle.join(' ');
+  const idx = joined.indexOf(phrase);
+  if (idx >= 0) {
+    const wordIndex = joined.slice(0, idx).split(' ').filter(Boolean).length;
+    const start = words[Math.min(wordIndex, words.length - 1)]?.start;
+    if (typeof start === 'number') return clamp(start / durationSec, 0, 1);
+  }
+  return null;
+}
+
+function enterFraction(el: Element, scene: Scene, missing: string[]): number {
+  const at = clamp(el.enter.at, 0, 1);
+  const cue = el.enter.cue;
+  if (!cue) return at;
+  if (at > 0) return at; // already resolved by the voice stage
+  const words = scene.words;
+  if (!words || words.length === 0 || !scene.durationSec) {
+    missing.push(cue);
+    return at;
+  }
+  // Word timings on the scene mean the voice stage ran and already resolved every
+  // cue it could, so `at` is its answer and a failed re-resolve here is not news.
+  // It happens routinely: a cue on the opening words of a beat resolves to
+  // exactly 0, which is indistinguishable from "never set", and this matcher is
+  // stricter about contractions than the voice stage's. Warning here told the
+  // user to "run the voice stage" immediately after the voice stage had reported
+  // placing that very cue word-exactly — advice that is both wrong and
+  // trust-eroding. The warning belongs only to the branch above, where there
+  // genuinely is no measured audio to resolve against.
+  return cueFraction(cue, words, scene.durationSec) ?? at;
+}
+
 /* ------------------------------------------------------------------ compile */
 
 type Ctx = {
@@ -140,46 +248,56 @@ type Ctx = {
   st: SketchStyle;
   /** Base stroke width in canvas units. */
   sw: number;
+  /** Canvas units per output pixel, for geometry. */
   scale: number;
+  /** Canvas units per output pixel, for type. */
+  type: number;
   dir: string;
   assets: Map<string, string | undefined>;
   boxes: Map<string, Rect>;
+  alpha: number | undefined;
+  /** Plot frames and curves already on the board, so they are not re-inked. */
+  drawn: Set<string>;
 };
 
-/**
- * Canvas units per output pixel, at the camera's typical framing.
- *
- * `TYPE_SCALE`, stroke widths and the grid step are quoted in *output pixels*;
- * the board is measured in canvas units, and how large a canvas unit lands on
- * screen is decided entirely by the camera. Taking the multiplier from the
- * canvas size (`canvas.w / 1920`) is the obvious guess and it is wrong for every
- * storyboard whose camera tours a canvas bigger than one frame: the planner packs
- * 24 scenes onto a 9440×5940 canvas and then zooms 5.4× into each region, so one
- * canvas unit is ≈1 px, not ≈5. Sizing type off the canvas made every title six
- * times taller than the box the planner had measured for it — text overflowed the
- * frame and consecutive elements drew on top of each other.
- *
- * The median zoom rather than the mean, so a single deliberately wide
- * establishing shot cannot shrink the ink for the whole film.
- */
-function unitsPerPixel(canvas: Rect, frame: { w: number; h: number }, scenes: Scene[]): number {
-  const base = Math.min(frame.w / canvas.w, frame.h / canvas.h);
-  const zooms = scenes.map((s) => (s.camera.zoom > 0 ? s.camera.zoom : 1)).sort((a, b) => a - b);
-  const n = zooms.length;
-  const median =
-    n === 0
-      ? 1
-      : n % 2 === 1
-        ? (zooms[(n - 1) / 2] as number)
-        : ((zooms[n / 2 - 1] as number) + (zooms[n / 2] as number)) / 2;
-  const pxPerUnit = base * median;
-  return pxPerUnit > 0 ? clamp(1 / pxPerUnit, 0.05, 24) : 1;
+type SceneTiming = {
+  index: number;
+  start: number;
+  /** Measured narration length — what every `enter.at` fraction is a fraction of. */
+  speech: number;
+  /** Narration plus `hold`: how long the scene owns the screen. */
+  length: number;
+  end: number;
+};
+
+/** Fill in estimated durations so core's timing helpers can own the arithmetic. */
+function withMeasuredDurations(sb: Storyboard): Storyboard {
+  let missing = 0;
+  const scenes = sb.scenes.map((s) => {
+    if (s.durationSec && s.durationSec > 0) return s;
+    missing += 1;
+    return { ...s, durationSec: sceneDuration(s) };
+  });
+  if (missing > 0) {
+    log.warn(
+      `${missing}/${sb.scenes.length} scenes have no measured durationSec — estimating from the narration. Run the voice stage for synced timing.`,
+    );
+  }
+  return { ...sb, scenes };
 }
 
 export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = {}): RenderPlan {
   const frame = frameSize(sb.meta.aspect);
   const canvas: Rect = { ...sb.canvas };
-  const scale = unitsPerPixel(canvas, frame, sb.scenes);
+  const timed = withMeasuredDurations(sb);
+
+  const framing: SceneFraming[] = resolveFraming(timed, frame);
+  const gain = frameGain(sb.meta.aspect);
+  const scale = unitsPerPixel(
+    canvas,
+    frame,
+    framing.map((f) => f.camera.zoom),
+  );
   const pal = paletteFor(sb.meta.palette);
   const ink = inkStyle(sb.meta.style);
   const st: SketchStyle = {
@@ -188,80 +306,82 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     passes: ink.passes,
     scale,
   };
-  const sw = 6 * ink.width * scale;
+  const inkGain = 1 + (gain - 1) * 0.6;
+  const sw = 6 * ink.width * scale * inkGain;
 
-  const missing = sb.scenes.filter((s) => !s.durationSec).length;
-  if (missing > 0) {
-    log.warn(
-      `${missing}/${sb.scenes.length} scenes have no measured durationSec — estimating from the narration. Run the voice stage for synced timing.`,
-    );
-  }
-
-  const scenes: PlanScene[] = [];
-  let t = 0;
-  for (const scene of sb.scenes) {
-    const dur = sceneDuration(scene);
-    scenes.push({
+  const offsets = sceneOffsets(timed);
+  const scenes: PlanScene[] = timed.scenes.map((scene, i) => {
+    const speech = scene.durationSec ?? 0;
+    const length = sceneLength(scene);
+    const start = offsets[i] ?? 0;
+    const cam = (framing[i] as SceneFraming).camera;
+    return {
       id: scene.id,
-      start: t,
-      dur,
-      camera: {
-        x: scene.camera.x,
-        y: scene.camera.y,
-        zoom: scene.camera.zoom,
-        transition: scene.camera.transition,
-      },
-    });
-    t += dur;
-  }
-  const duration = t + sb.meta.outroSec;
+      start,
+      dur: length,
+      speech,
+      hold: scene.hold,
+      camera: { x: cam.x, y: cam.y, zoom: cam.zoom, transition: cam.transition },
+      ...(scene.region ? { region: scene.region } : {}),
+      ...(scene.role ? { role: scene.role } : {}),
+    };
+  });
+  const duration = totalDuration(timed);
 
   const ctx: Ctx = {
     pal,
     st,
     sw,
     scale,
+    type: scale * gain,
     dir,
     assets: new Map(sb.assets.map((a) => [a.id, a.svg])),
     boxes: new Map(),
+    alpha: ink.opacity < 1 ? ink.opacity : undefined,
+    drawn: new Set<string>(),
   };
-  for (const scene of sb.scenes) for (const el of scene.elements) ctx.boxes.set(el.id, el.at);
+  for (const scene of timed.scenes) for (const el of scene.elements) ctx.boxes.set(el.id, el.at);
 
   const items: PlanItem[] = [];
+  const unresolvedCues: string[] = [];
   let seq = 0;
-  for (let si = 0; si < sb.scenes.length; si++) {
-    const scene = sb.scenes[si] as Scene;
+  for (let si = 0; si < timed.scenes.length; si++) {
+    const scene = timed.scenes[si] as Scene;
     const ps = scenes[si] as PlanScene;
-    for (const el of scene.elements) {
-      const startLocal = clamp(el.enter.at, 0, 1) * ps.dur;
-      const room = Math.max(0.14, ps.dur - startLocal);
-      const dur = Math.max(0.08, Math.min(el.enter.duration, room));
-      const item: PlanItem = {
-        id: el.id,
-        scene: si,
-        order: [el.z ?? 0, seq++],
-        start: ps.start + startLocal,
-        dur,
-        style: el.enter.style,
-        persist: el.persist,
-        sceneEnd: ps.start + ps.dur,
-        center: center(el.at),
-        prims: primsFor(el, ctx, ink.opacity),
-      };
-      if (el.type === 'emphasis') {
-        if (el.effect === 'pulse') item.pulseTarget = el.targetId;
-        if (el.effect === 'dim-others') item.dimOthers = el.targetId;
+    const timing: SceneTiming = {
+      index: si,
+      start: ps.start,
+      speech: ps.speech,
+      length: ps.dur,
+      end: ps.start + ps.dur,
+    };
+    const hosts = scene.elements.filter((e) => e.type === 'plot');
+    for (const raw of scene.elements) {
+      const el = rebaseOntoPlot(raw, hosts, ctx);
+      const fraction = enterFraction(el, scene, unresolvedCues);
+      for (const item of itemsFor(el, fraction, timing, ctx, sb.meta.fps)) {
+        item.order = [el.z ?? 0, seq++];
+        items.push(item);
       }
-      items.push(item);
     }
   }
+  if (unresolvedCues.length > 0) {
+    log.warn(
+      `${unresolvedCues.length} enter cue${unresolvedCues.length === 1 ? '' : 's'} could not be placed on a word ` +
+        `(e.g. "${unresolvedCues[0] ?? ''}") — falling back to enter.at. Run the voice stage so cues resolve to real timestamps.`,
+    );
+  }
   items.sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
+
+  const fill = contentFill(framing, canvas, frame).map(round3);
+  reportFill(fill, timed);
 
   return {
     version: 1,
     fps: sb.meta.fps,
     duration,
     frame,
+    aspect: sb.meta.aspect,
     canvas,
     paper: pal.paper,
     ink: pal.ink,
@@ -270,17 +390,296 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     style: sb.meta.style,
     fontFamily: opts.fontFamily ?? 'InkcastHand, cursive',
     scale,
+    typeScale: ctx.type,
+    safe: safeInsets(sb.meta.aspect, frame),
+    fill,
     scenes,
     items,
     pen: penArt(sb.meta.style, pal.accent),
   };
 }
 
+/* -------------------------------------------------------------------- items */
+
+function baseItem(
+  id: string,
+  el: Element,
+  start: number,
+  dur: number,
+  timing: SceneTiming,
+  prims: PlanPrim[],
+  origin: [number, number],
+): PlanItem {
+  return {
+    id,
+    scene: timing.index,
+    order: [0, 0],
+    start,
+    dur,
+    style: el.enter.style,
+    persist: el.persist,
+    sceneEnd: timing.end,
+    center: origin,
+    prims,
+  };
+}
+
+/**
+ * One element becomes one plan item — except a plot, which becomes one per phase.
+ *
+ * Splitting a plot is what makes its build order teachable: the axes, each curve
+ * and every overlay get their own start time, so a tangent can arrive eight
+ * seconds after the curve it measures, and a descent can step one move at a time.
+ */
+function itemsFor(
+  el: Element,
+  fraction: number,
+  timing: SceneTiming,
+  ctx: Ctx,
+  fps: number,
+): PlanItem[] {
+  const startLocal = clamp(fraction, 0, 1) * timing.speech;
+  const start = timing.start + startLocal;
+  const room = Math.max(0.14, timing.length - startLocal);
+  const dur = Math.max(0.08, Math.min(el.enter.duration, room));
+  const motion = bakeMotion(el, timing, fps);
+
+  const items: PlanItem[] =
+    el.type === 'plot'
+      ? plotItems(el, start, timing, ctx)
+      : [baseItem(el.id, el, start, dur, timing, primsFor(el, ctx), center(el.at))];
+
+  if (el.type === 'emphasis') {
+    const first = items[0];
+    if (first) {
+      if (el.effect === 'pulse') first.pulseTarget = el.targetId;
+      if (el.effect === 'dim-others') first.dimOthers = el.targetId;
+    }
+  }
+
+  if (motion) {
+    for (const item of items) item.motion = motion;
+    const trail = trailItem(el, motion, timing, ctx);
+    if (trail) items.unshift(trail);
+  }
+  return items;
+}
+
+/**
+ * Time the phases of a plot.
+ *
+ * Unpinned phases run back to back from the element's entry; a phase with an
+ * author-pinned `at` starts on that fraction of the narration, never before the
+ * axes exist. If the whole build would run past the end of the scene it is
+ * compressed to fit rather than being cut off mid-curve.
+ */
+function plotItems(el: PlotElement, start: number, timing: SceneTiming, ctx: Ctx): PlanItem[] {
+  const all: PlotPhase[] = plotPhases(el, {
+    pal: ctx.pal,
+    st: ctx.st,
+    sw: ctx.sw,
+    scale: ctx.scale,
+    type: ctx.type,
+    alpha: ctx.alpha,
+  });
+  // A later beat annotating this plot re-declares its frame and curves, because an
+  // overlay needs the curve definition to know where a tangent goes. Draw that ink
+  // once: the board accumulates, so it is still there to be annotated.
+  const phases = all.filter((phase) => {
+    if (!phase.sig) return true;
+    if (ctx.drawn.has(phase.sig)) {
+      log.debug(`plot "${el.id}" phase ${phase.key} is already on the board — annotating it`);
+      return false;
+    }
+    if (el.persist) ctx.drawn.add(phase.sig);
+    return true;
+  });
+  if (phases.length === 0) return [];
+
+  const base = Math.max(0.18, el.enter.duration);
+  const planned: { phase: PlotPhase; start: number; dur: number }[] = [];
+  let cursor = start;
+  for (const phase of phases) {
+    const pinned = phase.at === null ? null : timing.start + clamp(phase.at, 0, 1) * timing.speech;
+    // A pinned overlay lands on its cue, but never before the ink it annotates
+    // exists: the axes come first whatever fraction the author wrote.
+    const at = pinned === null ? cursor : Math.max(pinned, cursor);
+    const span = base * phase.weight;
+    planned.push({ phase, start: at, dur: span });
+    cursor = at + span;
+  }
+
+  const available = Math.max(0.2, timing.end - start);
+  const needed = cursor - start;
+  const k = needed > available ? available / needed : 1;
+  if (k < 1) {
+    log.debug(
+      `plot "${el.id}" wants ${needed.toFixed(2)}s of build but the scene has ${available.toFixed(2)}s — compressing`,
+    );
+  }
+
+  return planned.map(({ phase, start: at, dur }) => {
+    const s = start + (at - start) * k;
+    const d = Math.max(0.1, dur * k);
+    const item = baseItem(
+      phase.key === 'axes' ? el.id : `${el.id}~${phase.key}`,
+      el,
+      s,
+      Math.min(d, Math.max(0.1, timing.end - s)),
+      timing,
+      phase.prims,
+      phase.center,
+    );
+    if (phase.sweep) item.sweep = phase.sweep;
+    return item;
+  });
+}
+
+/* ------------------------------------------------- riding on top of a plot */
+
+/**
+ * Correct an element that is positioned relative to a plot it sits on.
+ *
+ * The IR says a plot occupies its `at` box, and that is the only information an
+ * author — the lesson compiler, an LLM, or a person writing JSON — has for working
+ * out where a point on the curve lands. So they all map data space across the full
+ * box. The renderer does not draw it there: `plotMap` insets the box by gutters
+ * sized from the type scale, to leave room for the axis names and ticks. Those
+ * gutters are a renderer invention that the IR never exposes.
+ *
+ * The consequence was visible and silently wrong. The benchmark's descending ball
+ * was authored on the curve at w = 3 and rendered *below and left* of it, ending up
+ * sitting on the x-axis while the drawn staircase — which the renderer places with
+ * its own mapping — stepped down the curve correctly a few dozen units away. Two
+ * pictures of the same descent, disagreeing, in the one beat where the numbers are
+ * supposed to be checkable.
+ *
+ * So anything living inside a plot's box gets its box-relative coordinates carried
+ * through the same inset the curve got. This is a fix to the *renderer's* private
+ * layout leaking into author coordinates, which is why it belongs here rather than
+ * in a stage that would have to guess a font size to reproduce it.
+ */
+function rebaseOntoPlot(el: Element, hosts: readonly Element[], ctx: Ctx): Element {
+  if (el.type === 'plot' || hosts.length === 0) return el;
+  const host = hosts.find(
+    (h) => h.type === 'plot' && h.id !== el.id && rectContains(h.at, el.at, 1),
+  );
+  if (!host || host.type !== 'plot') return el;
+  const area = plotMap(host, ctx).area;
+  const box = host.at;
+  if (!(box.w > 0) || !(box.h > 0)) return el;
+  const map = (p: { x: number; y: number }): { x: number; y: number } => ({
+    x: area.x + ((p.x - box.x) / box.w) * area.w,
+    y: area.y + ((p.y - box.y) / box.h) * area.h,
+  });
+  const corner = map({ x: el.at.x, y: el.at.y });
+  const next: Element = {
+    ...el,
+    at: {
+      x: corner.x,
+      y: corner.y,
+      w: (el.at.w / box.w) * area.w,
+      h: (el.at.h / box.h) * area.h,
+    },
+  };
+  // A `path` carries its own geometry, which has to travel with the box.
+  if (next.type === 'path' && next.points) next.points = next.points.map(map);
+  if (el.motion) next.motion = { ...el.motion, path: el.motion.path.map(map) };
+  return next;
+}
+
+/* ------------------------------------------------------------------- motion */
+
+/**
+ * Bake `Motion` into a table of offsets, one per output frame.
+ *
+ * The maths that matters is arc length: interpolating the waypoint index makes an
+ * element sprint across long segments and crawl across short ones, so a ball
+ * descending a curve would stutter instead of rolling. Resolving every position by
+ * distance travelled — and doing it here in Node rather than in the page — keeps
+ * the browser side a lookup and keeps this testable without a browser.
+ *
+ * The offset is held at its first value before the motion starts, so an element
+ * whose `at` box is not centred on the path is *drawn* in the right place instead
+ * of jumping there when the motion begins.
+ */
+function bakeMotion(el: Element, timing: SceneTiming, fps: number): MotionTrack | null {
+  const motion = el.motion;
+  if (!motion) return null;
+  const pts: GPt[] = motion.path.map((p) => [p.x, p.y]);
+  if (pts.length < 2) return null;
+  const cum = cumulativeLengths(pts);
+  const total = cum[cum.length - 1] ?? 0;
+  if (!(total > 0)) return null;
+
+  const a = clamp(motion.from, 0, 1) * timing.speech;
+  const b = clamp(motion.to, 0, 1) * timing.speech;
+  const startLocal = Math.min(a, b);
+  let endLocal = Math.max(a, b);
+  if (endLocal - startLocal < 0.2) endLocal = Math.min(timing.length, startLocal + 0.2);
+  const span = Math.max(0.1, endLocal - startLocal);
+  const ease = easeFn(motion.easing);
+  const steps = Math.max(1, Math.min(600, Math.round(span * Math.max(1, fps))));
+  const [cx, cy] = center(el.at);
+  const samples: [number, number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const p = i / steps;
+    const u = clamp(ease(p), 0, 1);
+    const q = pointAtLength(pts, cum, u * total);
+    samples.push([round3(q[0] - cx), round3(q[1] - cy), round6(u)]);
+  }
+  return {
+    start: round3(timing.start + startLocal),
+    end: round3(timing.start + startLocal + span),
+    samples,
+  };
+}
+
+/** The dotted route a moving element leaves behind, bead by bead as it passes. */
+function trailItem(
+  el: Element,
+  motion: MotionTrack,
+  timing: SceneTiming,
+  ctx: Ctx,
+): PlanItem | null {
+  if (!el.motion?.trail) return null;
+  const pts: GPt[] = el.motion.path.map((p) => [p.x, p.y]);
+  const cum = cumulativeLengths(pts);
+  const total = cum[cum.length - 1] ?? 0;
+  if (!(total > 0)) return null;
+  const spacing = Math.max(30 * ctx.scale, ctx.sw * 4.5);
+  const beads = Math.max(4, Math.min(60, Math.round(total / spacing)));
+  const prims: PlanPrim[] = [];
+  const trailAt: number[] = [];
+  for (let k = 1; k < beads; k++) {
+    const u = k / beads;
+    const q = pointAtLength(pts, cum, u * total);
+    prims.push(dotPrim(q[0], q[1], ctx.sw * 0.62, ctx.pal.accent, ctx.sw * 0.2));
+    trailAt.push(round6(u));
+  }
+  if (prims.length === 0) return null;
+  const item = baseItem(
+    `${el.id}~trail`,
+    el,
+    motion.start,
+    Math.max(0.1, motion.end - motion.start),
+    timing,
+    prims,
+    center(el.at),
+  );
+  item.style = 'fade';
+  item.motion = motion;
+  item.trailAt = trailAt;
+  // The pen is drawing the element, not laying beads behind it.
+  item.noPen = true;
+  return item;
+}
+
 /* -------------------------------------------------------------------- prims */
 
-function primsFor(el: Element, ctx: Ctx, opacity: number): PlanPrim[] {
+function primsFor(el: Element, ctx: Ctx): PlanPrim[] {
   const rng = new Rng(seedOf(el.id, el.type));
-  const alpha = opacity < 1 ? opacity : undefined;
+  const alpha = ctx.alpha;
   switch (el.type) {
     case 'text':
       return textPrims(el, ctx);
@@ -294,6 +693,8 @@ function primsFor(el: Element, ctx: Ctx, opacity: number): PlanPrim[] {
       return diagramPrims(el, ctx, rng, alpha);
     case 'emphasis':
       return emphasisPrims(el, ctx, rng, alpha);
+    case 'path':
+      return pathPrims(el, ctx, rng, alpha);
     default:
       return [];
   }
@@ -301,9 +702,51 @@ function primsFor(el: Element, ctx: Ctx, opacity: number): PlanPrim[] {
 
 function textPrims(el: TextElement, ctx: Ctx): PlanPrim[] {
   const role: TextRole = el.role;
-  const size = TYPE_SCALE[role] * ctx.scale;
+  const size = TYPE_SCALE[role] * ctx.type;
   const color = role === 'caption' ? ctx.pal.inkSoft : ctx.pal.ink;
   return [textPrim(el.text, el.at, size, color, el.align, 'middle')];
+}
+
+/**
+ * A freeform stroke — the escape hatch for any shape the vocabulary lacks.
+ *
+ * `points` are roughened here so a hillside looks drawn rather than plotted; raw
+ * `d` is trusted verbatim, because whatever produced it (the visuals stage's
+ * vectoriser, a hand-authored storyboard) has already decided how it should look
+ * and re-roughening would smear it.
+ */
+function pathPrims(el: PathElement, ctx: Ctx, rng: Rng, alpha: number | undefined): PlanPrim[] {
+  const width = ctx.sw * el.weight;
+  const out: PlanPrim[] = [];
+  let poly: Pt[] = [];
+
+  if (el.points && el.points.length >= 2) {
+    poly = el.points.map((p) => [p.x, p.y] as Pt);
+    if (el.closed) {
+      const head = poly[0] as Pt;
+      poly = [...poly, [head[0], head[1]]];
+    }
+  } else if (el.d) {
+    const subs = flattenPathData(el.d);
+    poly = (subs[0] ?? []).map((p) => [p[0], p[1]] as Pt);
+  }
+
+  if (el.fill && poly.length >= 3) {
+    const gap = Math.max(width * 3.4, 18 * ctx.scale);
+    for (const d of hachurePolygon(rng, ctx.st, poly, gap)) {
+      out.push(geom(d, ctx.pal.accent, width * 0.5, { opacity: 0.26, noDash: true }));
+    }
+  }
+
+  if (el.points && el.points.length >= 2) {
+    const d = sketchAlong(rng, ctx.st, poly, { amp: 0.9, closed: el.closed });
+    if (d) out.push(...geoms([d], ctx.pal.ink, width, alpha));
+  } else if (el.d) {
+    out.push(...geoms([el.d], ctx.pal.ink, width, alpha));
+  } else {
+    log.warn(`path "${el.id}" has neither points nor d — nothing to draw`);
+  }
+  return out;
 }
 
 function shapePrims(el: ShapeElement, ctx: Ctx, rng: Rng, alpha: number | undefined): PlanPrim[] {
@@ -463,9 +906,9 @@ function arrowPrims(el: ArrowElement, ctx: Ctx, rng: Rng, alpha: number | undefi
     alpha,
   );
   if (el.label) {
-    const size = TYPE_SCALE.caption * ctx.scale;
+    const size = TYPE_SCALE.caption * ctx.type;
     const [mx, my] = curveMidpoint(from, to, el.curve);
-    const w = Math.max(160 * ctx.scale, el.label.length * size * 0.6);
+    const w = Math.max(160 * ctx.type, el.label.length * size * 0.6);
     const [ox, oy] = labelOffset(from, to, controlPoint(from, to, el.curve), size + ctx.sw);
     out.push(
       textPrim(
@@ -522,7 +965,7 @@ function assetPrims(el: AssetElement, ctx: Ctx, rng: Rng): PlanPrim[] {
   // Graceful degradation: the visuals stage has not resolved this asset yet, so
   // draw an honest labelled frame rather than nothing at all.
   log.warn(`asset "${el.assetId}" has no svg — drawing a placeholder frame`);
-  const size = TYPE_SCALE.label * ctx.scale;
+  const size = TYPE_SCALE.label * ctx.type;
   return [
     ...geoms(sketchRect(rng, ctx.st, el.at), ctx.pal.inkSoft, ctx.sw * 0.7, 0.75),
     textPrim(el.assetId, el.at, size, ctx.pal.inkSoft, 'center'),
@@ -541,8 +984,8 @@ function diagramPrims(
   const drawn = new Set<string>();
   const pending = [...laid.edges];
   const labelSize = Math.max(
-    14 * ctx.scale,
-    Math.min(TYPE_SCALE.label * ctx.scale, (laid.nodes[0]?.box.h ?? 60) * 0.42),
+    14 * ctx.type,
+    Math.min(TYPE_SCALE.label * ctx.type, (laid.nodes[0]?.box.h ?? 60) * 0.42),
   );
   const nodeBoxes = new Map(laid.nodes.map((nd) => [nd.id, nd.box]));
   const boxOf = (id: string): Rect | undefined => nodeBoxes.get(id);
@@ -563,7 +1006,7 @@ function diagramPrims(
     );
     if (e.label) {
       const size = labelSize * 0.72;
-      const w = Math.max(120 * ctx.scale, e.label.length * size * 0.62);
+      const w = Math.max(120 * ctx.type, e.label.length * size * 0.62);
       // Same rule as an arrow's label: clear the bow, and step sideways rather
       // than up when the edge is steep. `mid` is the bow's waypoint, so it is
       // also the control point the drawn curve passes through.
@@ -580,7 +1023,7 @@ function diagramPrims(
       if (from && into && w > len * 0.85 && Math.abs(b[1] - a[1]) <= Math.abs(b[0] - a[0])) {
         // Two nodes can be joined both ways ("miss" out, "fill" back); stack the
         // second caption above the first rather than printing them on each other.
-        const pair = [e.from, e.to].sort().join(' ');
+        const pair = [e.from, e.to].sort().join(' ');
         const rank = lifted.get(pair) ?? 0;
         lifted.set(pair, rank + 1);
         y = Math.min(from.y, into.y) - size * (1.7 + rank * 1.55);

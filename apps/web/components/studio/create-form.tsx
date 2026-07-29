@@ -1,9 +1,12 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowRightIcon,
+  BrainIcon,
+  KeyRoundIcon,
   LinkIcon,
   PencilLineIcon,
   SettingsIcon,
@@ -35,13 +38,24 @@ import {
   Textarea,
   toast,
 } from '@/components/ui';
-import { errorMessage, generate, type Aspect, type GenerateInput, type InkStyle, type Palette } from '@/lib/api';
+import {
+  acceptsTargetLength,
+  errorMessage,
+  generate,
+  getCapabilities,
+  keyStateFor,
+  type Aspect,
+  type Capabilities,
+  type Depth,
+  type GenerateInput,
+  type InkStyle,
+  type Palette,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 import { FileDrop } from './file-drop';
 import { clock, estimateSpokenSeconds, wordCount } from './format';
 import {
-  ASPECTS,
   DEFAULT_VOICE,
   MAX_SOURCE_CHARS,
   MIN_SOURCE_CHARS,
@@ -68,6 +82,73 @@ import { AspectGlyph, TileGroup } from './tile-group';
 
 type Mode = 'text' | 'file' | 'url';
 
+/**
+ * Frame shapes, vertical first.
+ *
+ * Not a re-ordering for taste: short-form vertical is the distribution channel
+ * for teaching, and the 45-second constraint improves the video by forcing one
+ * idea, one visual, one payoff. A picker that lists it third, in a collapsed
+ * "Options" panel, states the opposite. So this lives above the fold with the
+ * other two beside it, and the shape choice sets the default depth.
+ *
+ * Declared here rather than in `options.ts` because the two tables below are
+ * about *teaching*, not about what the pipeline's enums happen to be; the values
+ * themselves are still exactly `StoryboardMeta['aspect']`.
+ */
+const FORMATS: { value: Aspect; label: string; hint: string; glyph: string }[] = [
+  {
+    value: '9:16',
+    label: 'Short · vertical',
+    hint: 'Shorts, Reels, TikTok. A tall canvas the camera walks down.',
+    glyph: 'h-9 w-5',
+  },
+  {
+    value: '16:9',
+    label: 'Wide · landscape',
+    hint: 'YouTube, slides, a doc. Room for a whole lesson to accumulate.',
+    glyph: 'h-7 w-12',
+  },
+  { value: '1:1', label: 'Square', hint: 'Feeds and embeds.', glyph: 'h-8 w-8' },
+];
+
+/**
+ * How thoroughly to teach.
+ *
+ * Phrased as pedagogy rather than as a duration slider, because the length is a
+ * consequence of the choice and not the choice itself. `seconds` is the target
+ * the lesson stage plans against — see `critiqueLesson(l, { maxSeconds })` in
+ * `@inkcast/core`, which rejects a plan that overruns it by more than a quarter.
+ */
+const DEPTHS: { value: Depth; label: string; hint: string; seconds: number }[] = [
+  {
+    value: 'short',
+    label: 'One idea',
+    hint: '≈45s. A hook, a single idea, one payoff. Nothing else fits.',
+    seconds: 45,
+  },
+  {
+    value: 'standard',
+    label: 'A lesson',
+    hint: '≈90s. Hook, everyday anchor, a few steps, a worked example, recap.',
+    seconds: 90,
+  },
+  {
+    value: 'deep',
+    label: 'Thorough',
+    hint: '≈3 min. Every step justified from first principles, misconception named.',
+    seconds: 180,
+  },
+];
+
+/** The depth a freshly chosen frame implies. Vertical is short-form by nature. */
+function depthForAspect(aspect: Aspect): Depth {
+  return aspect === '9:16' ? 'short' : 'standard';
+}
+
+function depthOption(depth: Depth) {
+  return DEPTHS.find((option) => option.value === depth) ?? DEPTHS[1]!;
+}
+
 export function CreateForm() {
   const router = useRouter();
   // `/studio?example=gradient-descent` arrives from the library's empty state,
@@ -81,6 +162,13 @@ export function CreateForm() {
   const [title, setTitle] = React.useState(preset?.title ?? '');
 
   const [aspect, setAspect] = React.useState<Aspect>('16:9');
+  const [depth, setDepth] = React.useState<Depth>(depthForAspect('16:9'));
+  /**
+   * Once the depth has been chosen by hand, changing the frame stops overriding
+   * it. A default that keeps reasserting itself over an explicit choice is a bug,
+   * however sensible the default is.
+   */
+  const [depthChosen, setDepthChosen] = React.useState(false);
   const [style, setStyle] = React.useState<InkStyle>('marker');
   const [palette, setPalette] = React.useState<Palette>('color');
   const [language, setLanguage] = React.useState('en');
@@ -95,8 +183,29 @@ export function CreateForm() {
 
   const textRef = React.useRef<HTMLTextAreaElement>(null);
 
+  /**
+   * What this machine can do, asked once on mount.
+   *
+   * Two jobs. It decides whether the planner banner warns or reassures, and it
+   * carries `accepts` — the `meta` fields this build's generate endpoint
+   * validates — which is what lets the depth choice be sent without risking a 400
+   * against a server whose schema has not learned about it yet. A failure is
+   * swallowed: the form must work whether or not this answers, so an unknown
+   * capability shows no banner rather than a scary one.
+   */
+  const [caps, setCaps] = React.useState<Capabilities | undefined>(undefined);
+  React.useEffect(() => {
+    const controller = new AbortController();
+    getCapabilities(controller.signal)
+      .then((value) => setCaps(value))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const words = wordCount(text);
   const estimate = estimateSpokenSeconds(text);
+  const chosenDepth = depthOption(depth);
+  const lengthHonoured = acceptsTargetLength(caps?.accepts);
 
   const validate = React.useCallback((): string | undefined => {
     if (mode === 'text') {
@@ -145,7 +254,17 @@ export function CreateForm() {
 
     setSubmitting(true);
     try {
-      const input: GenerateInput = { aspect, language, voice, style, palette };
+      const input: GenerateInput = {
+        aspect,
+        language,
+        voice,
+        style,
+        palette,
+        depth,
+        targetSeconds: chosenDepth.seconds,
+        // Only fields the server advertised are actually sent. See `generate()`.
+        ...(caps ? { accepts: caps.accepts } : {}),
+      };
       const trimmedTitle = title.trim();
       if (trimmedTitle) input.title = trimmedTitle;
 
@@ -187,6 +306,8 @@ export function CreateForm() {
       }}
       className="flex flex-col gap-6"
     >
+      <PlannerNotice caps={caps} />
+
       <Card className="gap-4 py-4">
         <CardContent className="px-4">
           <Tabs
@@ -311,6 +432,64 @@ export function CreateForm() {
         </CardContent>
       </Card>
 
+      {/* ------------------------------------------------- format and depth */}
+
+      <Card className="gap-6">
+        <CardContent className="flex flex-col gap-6">
+          <TileGroup
+            name="format"
+            legend="Format"
+            hint="Vertical is a first-class target with its own pacing, not a cropped landscape."
+            value={aspect}
+            onValueChange={(next) => {
+              setAspect(next);
+              // The frame implies a length until the user says otherwise.
+              if (!depthChosen) setDepth(depthForAspect(next));
+            }}
+            options={FORMATS.map((option) => ({
+              value: option.value,
+              label: option.label,
+              hint: option.hint,
+              visual: <AspectGlyph glyph={option.glyph} />,
+            }))}
+            className="grid-cols-1 sm:grid-cols-3"
+          />
+
+          <Separator />
+
+          <TileGroup
+            name="depth"
+            legend="Teaching depth"
+            hint="How much is explained, and therefore how long it runs."
+            value={depth}
+            onValueChange={(next) => {
+              setDepth(next);
+              setDepthChosen(true);
+            }}
+            options={DEPTHS.map((option) => ({
+              value: option.value,
+              label: option.label,
+              hint: option.hint,
+            }))}
+            className="grid-cols-1 sm:grid-cols-3"
+          />
+
+          <LabelHint>
+            {lengthHonoured ? (
+              <>
+                The planner aims for {clock(chosenDepth.seconds)} and is rejected if it overruns by
+                more than a quarter.
+              </>
+            ) : (
+              <>
+                This studio build plans from the length of the source rather than a target, so depth
+                is recorded with the project and the runtime follows the document.
+              </>
+            )}
+          </LabelHint>
+        </CardContent>
+      </Card>
+
       {/* ---------------------------------------------------------- options */}
 
       <div className="flex flex-col gap-4">
@@ -329,7 +508,7 @@ export function CreateForm() {
 
           {showOptions ? null : (
             <p className="tabular min-w-0 text-xs text-muted-foreground">
-              {aspect} · {languageLabel} · {voiceLabel(voice)} ·{' '}
+              {languageLabel} · {voiceLabel(voice)} ·{' '}
               {INK_STYLES.find((s) => s.value === style)?.label} ·{' '}
               {PALETTES.find((p) => p.value === palette)?.label}
             </p>
@@ -337,27 +516,10 @@ export function CreateForm() {
         </div>
 
         {showOptions ? (
-          <Card
-            id="create-options"
-            className="animate-in fade-in gap-6 duration-brisk ease-out"
-          >
+          <Card id="create-options" className="animate-in fade-in gap-6 duration-brisk ease-out">
             <CardContent className="flex flex-col gap-6">
-              <TileGroup
-                name="aspect"
-                legend="Shape"
-                hint="The frame the camera crops to as it tours the canvas."
-                value={aspect}
-                onValueChange={setAspect}
-                options={ASPECTS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                  hint: option.hint,
-                  visual: <AspectGlyph glyph={option.glyph} />,
-                }))}
-              />
-
-              <Separator />
-
+              {/* Frame and depth are not here: they changed what the video *is*,
+                  so they were promoted above rather than folded away. */}
               <TileGroup
                 name="style"
                 legend="Ink"
@@ -481,5 +643,75 @@ export function CreateForm() {
         to start from the paste box
       </p>
     </form>
+  );
+}
+
+/**
+ * The one thing worth interrupting the form for: whether a lesson planner is
+ * available at all.
+ *
+ * It is a banner rather than a line of helper text because the difference is not
+ * a preference — with no Anthropic key the video summarises the document instead
+ * of teaching it, and someone who renders three of those before finding the
+ * setting will conclude the product is bad rather than unconfigured.
+ *
+ * While `caps` is undefined nothing is rendered. A banner that appears and then
+ * disappears is worse than one that arrives late, and the studio's whole promise
+ * is that it works with no keys — so the absence of an answer must never read as
+ * an error.
+ */
+function PlannerNotice({ caps }: { caps: Capabilities | undefined }) {
+  if (!caps) return null;
+
+  const anthropic = keyStateFor(caps, 'anthropic');
+  const planning = caps.planner.name === 'anthropic';
+
+  if (planning) {
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <BrainIcon className="size-3.5 shrink-0" aria-hidden />
+        Planning the lesson with {caps.planner.model ?? 'Claude'}.
+        <Link
+          href="/settings"
+          className="focus-ring rounded-xs text-primary underline-offset-4 outline-none hover:underline"
+        >
+          Keys
+        </Link>
+      </p>
+    );
+  }
+
+  return (
+    <Card className="gap-3 border-warning/40 bg-warning/6 py-4">
+      <CardContent className="flex flex-col gap-3 px-4">
+        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+          <Badge variant="warning">
+            <KeyRoundIcon aria-hidden />
+            Limited output
+          </Badge>
+          No Anthropic key, so this will summarise rather than teach.
+        </p>
+        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          The local planner splits your document into beats and narrates them in order. It is free,
+          instant and deterministic, and it cannot build an idea: no hook, no everyday anchor, no
+          worked example, no misconception named and refuted. Everything else — the drawing, the
+          narration, the timing — works exactly as it will with a key.
+          {anthropic?.unreadable
+            ? ' A key is saved but can no longer be decrypted; paste it again.'
+            : ''}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="self-start"
+          render={<Link href="/settings" />}
+        >
+          <KeyRoundIcon aria-hidden />
+          Add a key
+          <ArrowRightIcon aria-hidden />
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

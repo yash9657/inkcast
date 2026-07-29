@@ -207,7 +207,10 @@ function htmlTitle(html: string): string | undefined {
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (h1?.[1]) return stripTags(h1[1]).trim();
   const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  if (t?.[1]) return stripTags(t[1]).split(/\s+[|–—-]\s+/)[0]?.trim();
+  if (t?.[1])
+    return stripTags(t[1])
+      .split(/\s+[|–—-]\s+/)[0]
+      ?.trim();
   return undefined;
 }
 
@@ -259,8 +262,14 @@ export function htmlToMarkdownFallback(html: string): string {
         return `\n\n${'#'.repeat(Number.isFinite(level) ? level : 2)} ${stripTags(t)}\n\n`;
       })
       .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, t: string) => `\n- ${stripTags(t)}`)
-      .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_m, t) => `\n\n> ${stripTags(t)}\n\n`)
-      .replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_m, t) => `\n\n\`\`\`\n${stripTags(t)}\n\`\`\`\n\n`)
+      .replace(
+        /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi,
+        (_m, t) => `\n\n> ${stripTags(t)}\n\n`,
+      )
+      .replace(
+        /<pre[^>]*>([\s\S]*?)<\/pre>/gi,
+        (_m, t) => `\n\n\`\`\`\n${stripTags(t)}\n\`\`\`\n\n`,
+      )
       .replace(/<(p|div|section|article|br|tr|table|ul|ol)[^>]*>/gi, '\n\n')
       .replace(/<[^>]+>/g, ' '),
   )
@@ -270,7 +279,9 @@ export function htmlToMarkdownFallback(html: string): string {
 }
 
 function stripTags(s: string): string {
-  return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  return decodeEntities(s.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const ENTITIES: Record<string, string> = {
@@ -374,7 +385,8 @@ function extractTitle(
   if (first?.kind === 'heading' && first.level <= 2 && first.text.trim()) {
     // Promote the leading heading to the document title so it is not also a
     // section — otherwise the opening scene says the same thing twice.
-    const onlyTop = blocks.filter((b) => b.kind === 'heading' && b.level === first.level).length === 1;
+    const onlyTop =
+      blocks.filter((b) => b.kind === 'heading' && b.level === first.level).length === 1;
     if (onlyTop) return { title: first.text.trim(), rest: blocks.slice(1) };
     return { title: first.text.trim(), rest: blocks };
   }
@@ -382,12 +394,19 @@ function extractTitle(
   const firstPara = blocks.find((b) => b.kind === 'paragraph');
   if (firstPara?.kind === 'paragraph') {
     const s = stripMarkdown(firstPara.text).split(/(?<=[.!?])\s/)[0] ?? '';
-    const t = s.split(/\s+/).slice(0, 9).join(' ').replace(/[.,;:]$/, '');
+    const t = s
+      .split(/\s+/)
+      .slice(0, 9)
+      .join(' ')
+      .replace(/[.,;:]$/, '');
     if (t.length > 2) return { title: t, rest: blocks };
   }
   if (ref) {
     const base = ref.startsWith('http') ? new URL(ref).hostname : path.basename(ref);
-    return { title: titleCase(base.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ')), rest: blocks };
+    return {
+      title: titleCase(base.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ')),
+      rest: blocks,
+    };
   }
   return { title: 'Untitled', rest: blocks };
 }

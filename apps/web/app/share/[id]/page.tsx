@@ -34,7 +34,8 @@ const load = cache(async (id: string): Promise<Shared | null> => {
     const headerList = await headers();
     const host = headerList.get('host');
     if (!host) return null;
-    const proto = headerList.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+    const proto =
+      headerList.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
     base = `${proto}://${host}`;
   }
 

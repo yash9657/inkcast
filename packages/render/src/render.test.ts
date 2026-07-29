@@ -12,7 +12,8 @@ import test from 'node:test';
 import type { Progress } from '@inkcast/core';
 import { chromiumAvailable } from './browser.js';
 import { ensureFfmpeg, probeMedia, run } from './ffmpeg.js';
-import { fixtureStoryboard } from './fixture.js';
+import { compilePlan } from './compile.js';
+import { fixtureStoryboard, verticalStoryboard } from './fixture.js';
 import { render } from './render.js';
 
 const SKIP = chromiumAvailable()
@@ -112,6 +113,52 @@ test('renders a 2 second storyboard to a real mp4', { skip: SKIP, timeout: 300_0
   });
   assert.equal(forced.cached, false);
 });
+
+test(
+  'renders 9:16 as a composed vertical film, not a cropped one',
+  { skip: SKIP, timeout: 300_000 },
+  async (t) => {
+    await ensureFfmpeg();
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'inkcast-vertical-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+
+    const sb = verticalStoryboard({ fps: 12 });
+    const plan = compilePlan(sb, dir);
+    // Composed for the frame: the camera fits the accumulating column into the
+    // phone's safe area, and type is scaled up for it rather than shrunk to fit.
+    assert.deepEqual(plan.frame, { w: 1080, h: 1920 });
+    assert.ok(plan.typeScale > plan.scale);
+    assert.ok(
+      plan.fill.every((v) => v > 0.25),
+      `every vertical beat should carry ink: ${plan.fill.join(', ')}`,
+    );
+
+    const result = await render(sb, dir, { concurrency: 2, preset: 'ultrafast', crf: 30 });
+    const info = await probeMedia(result.videoPath);
+    assert.ok(info?.video);
+    assert.equal(info.video.width, 1080, 'a real vertical frame, not a letterboxed one');
+    assert.equal(info.video.height, 1920);
+    assert.equal(result.frames, Math.ceil(plan.duration * 12));
+
+    // A frame from the middle of the film has to contain real ink, not blank paper.
+    const frame = path.join(dir, 'mid.png');
+    const grabbed = await run('ffmpeg', [
+      '-y',
+      '-v',
+      'error',
+      '-ss',
+      (plan.duration * 0.55).toFixed(2),
+      '-i',
+      result.videoPath,
+      '-frames:v',
+      '1',
+      frame,
+    ]);
+    assert.equal(grabbed.code, 0, grabbed.stderr);
+    const png = await stat(frame);
+    assert.ok(png.size > 40_000, `a composed board, not an empty one (${png.size} bytes)`);
+  },
+);
 
 test(
   'renders without narration rather than failing',

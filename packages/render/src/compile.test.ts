@@ -8,13 +8,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { parseStoryboard } from '@inkcast/core';
-import { compilePlan, sceneDuration } from './compile.js';
-import { fixtureStoryboard } from './fixture.js';
+import { parseStoryboard, sceneLength, sceneOffsets, totalDuration } from '@inkcast/core';
+import { compilePlan, cueFraction, sceneDuration } from './compile.js';
+import { fixtureStoryboard, lessonStoryboard } from './fixture.js';
 import { layoutDiagram } from './layout.js';
 import { paletteFor } from './palette.js';
 import { Rng, seedOf, sketchRect } from './sketch.js';
-import type { DiagramElement } from '@inkcast/core';
+import type { DiagramElement, Scene } from '@inkcast/core';
 import type { GeomPrim, SvgPrim, TextPrim } from './types.js';
 
 const DIR = '/tmp/inkcast-compile-test';
@@ -353,4 +353,163 @@ test('grid can be switched off', () => {
   const sb = fixtureStoryboard();
   assert.ok(compilePlan(sb, DIR, { grid: true }).grid);
   assert.equal(compilePlan(sb, DIR, { grid: false }).grid, null);
+});
+
+test('a hold is deliberate silence the visual stays up through', () => {
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'holds',
+    meta: { outroSec: 1 },
+    scenes: [
+      {
+        id: 'ask',
+        narration: 'so which way do you step?',
+        durationSec: 2,
+        // A question needs a pause afterwards, so the learner can try to answer.
+        hold: 1.5,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'q',
+            type: 'text',
+            text: 'which way?',
+            persist: false,
+            at: { x: 0, y: 0, w: 400, h: 100 },
+            enter: { at: 0.5, duration: 0.4, style: 'write' },
+          },
+        ],
+      },
+      { id: 'next', narration: 'downhill.', durationSec: 1, camera: { x: 0, y: 0 } },
+    ],
+  });
+  const plan = compilePlan(sb, DIR);
+
+  // Core owns the arithmetic: scene length is narration + hold, and the offsets
+  // follow from it. The renderer must not recompute either.
+  assert.deepEqual(sceneOffsets(sb), [0, 3.5]);
+  assert.equal(sceneLength(sb.scenes[0] as Scene), 3.5);
+  assert.equal(plan.scenes[0]?.dur, 3.5);
+  assert.equal(plan.scenes[0]?.speech, 2);
+  assert.equal(plan.scenes[0]?.hold, 1.5);
+  assert.equal(plan.scenes[1]?.start, 3.5);
+  assert.equal(plan.duration, totalDuration(sb));
+  assert.equal(plan.duration, 3.5 + 1 + 1);
+
+  const q = plan.items.find((i) => i.id === 'q');
+  assert.ok(q);
+  // `enter.at` is a fraction of the *narration*, not of narration plus silence —
+  // otherwise every cue in a scene with a hold drifts late by the length of the hold.
+  assert.equal(q.start, 1, '0.5 of a 2s narration');
+  // ...and the visual survives the silence, fading only at the very end of it.
+  assert.equal(q.sceneEnd, 3.5);
+});
+
+test('an enter cue lands on the word that names it', () => {
+  const words = [
+    { word: 'That', start: 0, end: 0.2 },
+    { word: 'hillside', start: 0.2, end: 0.5 },
+    { word: 'is', start: 0.5, end: 0.6 },
+    { word: 'the', start: 0.6, end: 0.7 },
+    { word: 'loss', start: 0.7, end: 1 },
+    { word: 'curve.', start: 1, end: 1.4 },
+  ];
+  assert.equal(cueFraction('loss curve', words, 2), 0.35, 'the phrase starts at 0.7s of 2s');
+  assert.equal(cueFraction('Hillside', words, 2), 0.1, 'case and punctuation are ignored');
+  assert.equal(cueFraction('the loss curve', words, 2), 0.3);
+  assert.equal(cueFraction('never said', words, 2), null);
+  assert.equal(cueFraction('loss curve', [], 2), null);
+
+  // End to end: the lesson fixture's plot carries a cue and no fraction, so its
+  // frame must be drawn on the words "loss curve", not at the start of the beat.
+  const sb = lessonStoryboard();
+  const plan = compilePlan(sb, DIR);
+  const scene = plan.scenes[2];
+  const frame = plan.items.find((i) => i.id === 'loss');
+  assert.ok(scene && frame);
+  assert.ok(Math.abs(frame.start - (scene.start + 0.74)) < 1e-9, `landed at ${frame.start}`);
+
+  // Without word timings the cue cannot be resolved, so `enter.at` still stands.
+  const blind = parseStoryboard({
+    ...sb,
+    scenes: sb.scenes.map((s) => {
+      const { words: _drop, ...rest } = s;
+      return rest;
+    }),
+  });
+  const fallback = compilePlan(blind, DIR).items.find((i) => i.id === 'loss');
+  assert.equal(fallback?.start, compilePlan(blind, DIR).scenes[2]?.start);
+});
+
+test('an unresolvable cue only warns when there was no audio to resolve against', () => {
+  // The voice stage resolves cues and writes `enter.at`; a cue on the opening
+  // words of a beat resolves to exactly 0, which is indistinguishable from
+  // "never set". The compiler therefore re-resolves, and its matcher is stricter
+  // about contractions than the voice stage's — so it used to warn "run the voice
+  // stage so cues resolve" one line after the voice stage reported placing that
+  // very cue word-exactly. Word timings on the scene are the proof that it ran.
+  const base = lessonStoryboard();
+  const withCue = parseStoryboard({
+    ...base,
+    scenes: base.scenes.map((s, i) =>
+      i === 0
+        ? {
+            ...s,
+            words: [
+              { word: 'You', start: 0, end: 0.3 },
+              { word: 'are', start: 0.3, end: 0.6 },
+            ],
+            elements: s.elements.map((el) =>
+              el.id === 'hill' ? { ...el, enter: { ...el.enter, cue: "Here's the idea" } } : el,
+            ),
+          }
+        : s,
+    ),
+  });
+
+  const warnings = capture(() => compilePlan(withCue, DIR));
+  assert.ok(
+    !warnings.includes('could not be placed on a word'),
+    `warned despite measured audio: ${warnings}`,
+  );
+  // The fallback is still `enter.at`, so the visual keeps its timing either way.
+  const plan = compilePlan(withCue, DIR);
+  assert.equal(plan.items.find((i) => i.id === 'hill')?.start, plan.scenes[0]?.start);
+
+  // With no word timings the advice is correct, so the warning must survive.
+  const blind = parseStoryboard({
+    ...withCue,
+    scenes: withCue.scenes.map((s) => {
+      const { words: _drop, ...rest } = s;
+      return rest;
+    }),
+  });
+  assert.ok(
+    capture(() => compilePlan(blind, DIR)).includes('could not be placed on a word'),
+    'a cue with nothing to resolve against must still be reported',
+  );
+});
+
+/** Everything written to stderr while `fn` runs — the logger's warn channel. */
+function capture(fn: () => unknown): string {
+  const original = process.stderr.write.bind(process.stderr);
+  let out = '';
+  process.stderr.write = ((chunk: unknown) => {
+    out += typeof chunk === 'string' ? chunk : String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    fn();
+  } finally {
+    process.stderr.write = original;
+  }
+  return out;
+}
+
+test('the plan records how much of the frame carries ink', () => {
+  const plan = compilePlan(lessonStoryboard(), DIR);
+  assert.equal(plan.fill.length, plan.scenes.length);
+  assert.ok(plan.fill.every((v) => v >= 0 && v <= 1));
+  assert.equal(plan.aspect, '16:9');
+  assert.equal(plan.typeScale, plan.scale, '16:9 needs no type gain');
+  assert.ok(plan.safe.left > 0 && plan.safe.bottom > 0);
 });

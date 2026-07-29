@@ -3,21 +3,34 @@
  *
  * Exit codes are the contract with scripts and CI: 0 success, 1 handled
  * failure, 2 bad usage. Every path through this file returns one of those three.
+ *
+ * One ordering rule matters here: stored API keys are copied into `process.env`
+ * *before* any command that runs a stage, because every stage adapter picks its
+ * provider by reading the environment. The `keys` command is the deliberate
+ * exception — it has to see the real environment to report which key wins.
  */
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import type { StoryboardMeta } from '@inkcast/core';
 import type { CliContext } from './env.js';
 import { paint } from './ui.js';
 import { usage } from './usage.js';
+import { hydrateKeys } from './vault.js';
 
 const ASPECTS = ['16:9', '9:16', '1:1'] as const;
 const STYLES = ['marker', 'pencil', 'chalk', 'ink'] as const;
 const PALETTES = ['mono', 'color'] as const;
+const PRESETS = ['standard', 'short', 'square'] as const;
+const DEPTHS = ['quick', 'standard', 'deep'] as const;
+const ROUTES = ['lesson', 'document'] as const;
 
 const COMMANDS = [
+  'teach',
   'cast',
+  'lesson',
+  'keys',
   'list',
   'open',
   'edit',
@@ -28,6 +41,9 @@ const COMMANDS = [
 ] as const;
 type Command = (typeof COMMANDS)[number];
 
+/** Commands that never run a stage, so they must not have the env hydrated. */
+const NO_HYDRATE: ReadonlySet<Command> = new Set(['keys', 'help', 'list']);
+
 export type Flags = {
   title?: string;
   aspect?: (typeof ASPECTS)[number];
@@ -35,6 +51,16 @@ export type Flags = {
   voice?: string;
   style?: (typeof STYLES)[number];
   palette?: (typeof PALETTES)[number];
+  preset?: (typeof PRESETS)[number];
+  depth?: (typeof DEPTHS)[number];
+  via?: (typeof ROUTES)[number];
+  /** Hard runtime target in seconds. */
+  seconds?: number;
+  audience?: string;
+  objective?: string;
+  brief?: string;
+  /** Path to a hand-authored `*.lesson.json`. */
+  lesson?: string;
   out?: string;
   project?: string;
   port?: number;
@@ -55,10 +81,19 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
       options: {
         title: { type: 'string', short: 't' },
         aspect: { type: 'string' },
+        short: { type: 'boolean', default: false },
         lang: { type: 'string' },
         voice: { type: 'string' },
         style: { type: 'string' },
         palette: { type: 'string' },
+        preset: { type: 'string' },
+        depth: { type: 'string' },
+        seconds: { type: 'string' },
+        audience: { type: 'string' },
+        objective: { type: 'string' },
+        brief: { type: 'string' },
+        lesson: { type: 'string' },
+        via: { type: 'string' },
         out: { type: 'string', short: 'o' },
         project: { type: 'string' },
         port: { type: 'string' },
@@ -92,13 +127,31 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
 
   const command = pickCommand(positionals);
   const rest = command && positionals[0] === command ? positionals.slice(1) : positionals;
+  const effective: Command = command ?? 'cast';
 
   try {
     const flags = readFlags(values);
-    switch (command ?? 'cast') {
+    if (!NO_HYDRATE.has(effective)) {
+      // Stored keys only take effect once they are in the environment.
+      await hydrateKeys();
+    }
+
+    switch (effective) {
       case 'help':
         process.stdout.write(usage(ctx.color));
         return 0;
+      case 'keys': {
+        const { keysCommand } = await import('./commands/keys.js');
+        return await keysCommand(ctx, rest);
+      }
+      case 'lesson': {
+        const { lessonCommand } = await import('./commands/lesson.js');
+        return await lessonCommand(ctx, rest[0]);
+      }
+      case 'teach': {
+        const { teachCommand } = await import('./commands/teach.js');
+        return await teachCommand(ctx, rest, flags);
+      }
       case 'list': {
         const { listCommand } = await import('./commands/list.js');
         return await listCommand(ctx);
@@ -124,7 +177,8 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         return await providersCommand(ctx);
       }
       default: {
-        if (rest.length === 0 && !values.help) {
+        // `cast` with nothing to cast, and no --lesson to fall back on.
+        if (rest.length === 0 && !flags.lesson && !values.help) {
           process.stdout.write(usage(ctx.color));
           return 2;
         }
@@ -153,7 +207,8 @@ function pickCommand(positionals: string[]): Command | undefined {
   return first as Command;
 }
 
-function readFlags(values: Record<string, unknown>): Flags {
+/** Exported for tests: the mapping from raw `parseArgs` values to `Flags`. */
+export function readFlags(values: Record<string, unknown>): Flags {
   const flags: Flags = {
     force: values.force === true,
     open: values.open === true,
@@ -163,10 +218,35 @@ function readFlags(values: Record<string, unknown>): Flags {
   if (typeof values.project === 'string') flags.project = values.project;
   if (typeof values.lang === 'string') flags.lang = values.lang.trim();
   if (typeof values.voice === 'string') flags.voice = values.voice.trim();
+  if (typeof values.audience === 'string') flags.audience = values.audience.trim();
+  if (typeof values.objective === 'string') flags.objective = values.objective.trim();
+  if (typeof values.brief === 'string') flags.brief = values.brief.trim();
+  if (typeof values.lesson === 'string') flags.lesson = values.lesson;
   if (typeof values.aspect === 'string') flags.aspect = oneOf('aspect', values.aspect, ASPECTS);
   if (typeof values.style === 'string') flags.style = oneOf('style', values.style, STYLES);
   if (typeof values.palette === 'string') {
     flags.palette = oneOf('palette', values.palette, PALETTES);
+  }
+  if (typeof values.preset === 'string') flags.preset = oneOf('preset', values.preset, PRESETS);
+  if (typeof values.depth === 'string') flags.depth = oneOf('depth', values.depth, DEPTHS);
+  if (typeof values.via === 'string') flags.via = oneOf('via', values.via, ROUTES);
+
+  // `--short` is the headline form of "9:16 vertical, short-form pacing". It sets
+  // both the aspect and the preset, because a short is not a cropped landscape
+  // video — it has its own beat budget and its own type scale.
+  if (values.short === true) {
+    flags.preset ??= 'short';
+    flags.aspect ??= '9:16';
+  }
+  // An explicit --aspect 9:16 without a preset means the same thing.
+  if (flags.aspect === '9:16') flags.preset ??= 'short';
+
+  if (typeof values.seconds === 'string') {
+    const seconds = Number(values.seconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      throw new UsageError(`--seconds must be a positive number, got "${values.seconds}"`);
+    }
+    flags.seconds = Math.round(seconds);
   }
   if (typeof values.port === 'string') {
     const port = Number(values.port);
@@ -193,6 +273,21 @@ export function metaFromFlags(flags: Flags): Partial<StoryboardMeta> {
   if (flags.lang) meta.language = flags.lang;
   if (flags.voice) meta.voice = flags.voice;
   return meta;
+}
+
+/** `--lesson <path>`, resolved against the cwd then the repo root. */
+export function lessonFromFlags(
+  ctx: { cwd: string; root: string },
+  flags: Flags,
+): string | undefined {
+  if (!flags.lesson) return undefined;
+  for (const candidate of [
+    path.resolve(ctx.cwd, flags.lesson),
+    path.resolve(ctx.root, flags.lesson),
+  ]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new UsageError(`no such lesson file: ${flags.lesson}`);
 }
 
 export function version(): string {

@@ -174,11 +174,7 @@ export function DropdownMenuSubContent({
 }: WithClass<MenuPrimitive.Positioner.Props>) {
   return (
     <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner
-        sideOffset={sideOffset}
-        className="z-50"
-        {...props}
-      >
+      <MenuPrimitive.Positioner sideOffset={sideOffset} className="z-50" {...props}>
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-sub-content"
           className={cn(popupClasses, className)}
