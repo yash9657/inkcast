@@ -50,6 +50,7 @@ export {
   shapePaths,
   type DrawContext,
   type EmphasisKind,
+  type InkMode,
   type InkPath,
   type ShapeKind,
   type StrokeWeight,

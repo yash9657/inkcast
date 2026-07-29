@@ -6,15 +6,20 @@
  * could caption an idea but never show it, which is exactly why the MVP turned
  * every topic into text in rectangles.
  *
- * Three things here are load-bearing and worth reading before changing anything:
+ * Four things here are load-bearing and worth reading before changing anything:
  *
- * 1. **Curves are sampled, clipped, simplified, smoothed, then roughened — in
- *    that order.** Sampling densely is what makes a parabola look like a
- *    parabola; simplifying afterwards is what makes it look hand-drawn. Roughjs
- *    perturbs every segment it is handed, so feeding it 240 one-unit segments
- *    produces 240 tiny wobbles, which reads as a fuzzy line rather than a
- *    marker. Simplify to a few dozen faithful points and the wobble lands at
- *    human scale.
+ * 1. **Curves are sampled, clipped, simplified, smoothed, then inked — in that
+ *    order.** Sampling densely is what makes a parabola look like a parabola;
+ *    simplifying afterwards is what makes it look hand-drawn. Roughjs perturbs
+ *    every segment it is handed, so feeding it 240 one-unit segments produces 240
+ *    tiny wobbles, which reads as a fuzzy line rather than a marker. Simplify to a
+ *    few dozen faithful points and the wobble lands at human scale.
+ *
+ *    A plot draws **`crisp`** (see 4), and that whole argument is an accommodation
+ *    of a wobble it does not have — so crisp keeps every sample. The tolerance was
+ *    never about output precision; it was the scale the perturbation would smear
+ *    anyway, and paying up to a stroke-width of deviation from the real function
+ *    buys nothing once nothing is smearing it.
  *
  * 2. **The tangent's slope is computed from the curve, never assumed.** It is
  *    the overlay that carries the whole intuition behind a gradient: slope up to
@@ -28,6 +33,14 @@
  *    reveals strokes in order, and overlays land on the words that introduce
  *    them, so `PlotLayout.parts` maps contiguous draw-sequence indices to the
  *    fraction of the scene at which they should appear.
+ *
+ * 4. **The plot is crisp, all of it** — `resolvePlot` sets the mode once and every
+ *    context inside it inherits. A curve is the obvious case, but an axis, a tick
+ *    and a marked point are all things a learner reads a coordinate against, and a
+ *    wobbling axis under an exact curve is worse than either choice made
+ *    consistently. The handwriting is untouched: labels come from the text lane,
+ *    which is a real font either way, so a crisp plot still sits on a hand-drawn
+ *    board rather than turning that board into a chart. See `DrawContext.ink`.
  */
 import type { Curve, PlotElement, PlotOverlay } from '@inkcast/core';
 import { logger } from '@inkcast/core';
@@ -901,7 +914,7 @@ function dot(ctx: DrawContext, bump: number, at: Pt, radius: number, colour: str
 /**
  * Roughen a canvas-space polyline as hand-drawn strokes.
  *
- * Simplify → split at corners → dash → spline → roughen. See the module header
+ * Simplify → split at corners → dash → spline → ink. See the module header
  * for why simplification comes before roughening, `splitAtCorners` for why a
  * corner must not be smoothed, and `dashPolyline` for why a dash is geometry
  * rather than a `stroke-dasharray`.
@@ -914,7 +927,11 @@ function strokePolyline(
 ): InkPath[] {
   if (pts.length < 2) return [];
   const width = opts.strokeWidth ?? strokeWidthFor(ctx.style, ctx.weight ?? 'normal');
-  const eps = Math.max(1.1, ctx.style.strokeWidth * 0.35);
+  // Crisp keeps every sample: the tolerance is the wobble's scale, not the
+  // output's, so there is nothing to trade fidelity for. `simplifyPolyline`
+  // reads a non-positive epsilon as "dedupe only", which is the one step of it
+  // the spline still needs.
+  const eps = ctx.ink === 'crisp' ? 0 : Math.max(1.1, ctx.style.strokeWidth * 0.35);
   const simple = simplifyPolyline(pts, eps);
   const pieces = splitAtCorners(simple.length >= 2 ? simple : pts);
   const runs = opts.dashed
@@ -1022,9 +1039,14 @@ export type ResolvePlotOptions = {
  */
 export function resolvePlot(
   el: PlotElement,
-  ctx: DrawContext,
+  incoming: DrawContext,
   opts: ResolvePlotOptions,
 ): ResolvedPlot {
+  // Header note 4: the whole plot is crisp, decided here rather than at the two
+  // call sites so that neither can forget and no derived context has to opt in —
+  // every `grouped()` below spreads this one. An explicit mode from the caller
+  // still wins, which is the seam `AssetRef.ink` will arrive through.
+  const ctx: DrawContext = { ...incoming, ink: incoming.ink ?? 'crisp' };
   const { style, font, canvasHeight, baseAt } = opts;
   const cap = opts.typeSizes?.caption ?? roleFontSize('caption', canvasHeight);
   const lab = opts.typeSizes?.label ?? roleFontSize('label', canvasHeight);

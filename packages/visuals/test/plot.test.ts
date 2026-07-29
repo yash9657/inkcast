@@ -15,7 +15,15 @@ import {
   type CurveFnName,
 } from '../src/plot.js';
 import { inkStyleFor } from '../src/style.js';
-import { containsBox, padBox, parsePath, pathBBox, pathLength, unionBox } from '../src/svg.js';
+import {
+  containsBox,
+  padBox,
+  parsePath,
+  pathBBox,
+  pathLength,
+  samplePath,
+  unionBox,
+} from '../src/svg.js';
 
 const style = inkStyleFor({ style: 'marker', palette: 'color' });
 const font = builtinMetrics(style.fontFamily);
@@ -627,6 +635,71 @@ test('a shade overlay produces a filled region with measurable geometry', () => 
     if (item.kind !== 'path') continue;
     assert.ok(pathLength(item.path.d) > 0);
   }
+});
+
+/* ---- crisp ink ---------------------------------------------------------- */
+
+test('a plot draws crisp without being asked, and every part of it does', () => {
+  // The mode is set inside `resolvePlot`, so a caller passing a plain context —
+  // which is what both real call sites do — must still get exact geometry.
+  const el = plot({
+    grid: true,
+    xLabel: 'x',
+    yLabel: 'loss',
+    overlays: [
+      { kind: 'tangent', curveId: 'L', x: 1.5, span: 1, at: 0.3 },
+      { kind: 'point', curveId: 'L', x: -1, at: 0.4 },
+      { kind: 'dropline', curveId: 'L', x: 2, to: 'both', at: 0.5 },
+      { kind: 'steps', curveId: 'L', xs: [-2.5, -1.5, -0.5], at: 0.6 },
+    ],
+  });
+  // Crisp geometry carries no randomness, so the seed cannot reach the bytes. Any
+  // stroke that slipped through in sketch mode would differ between these two.
+  const one = resolvePlot(el, ctxFor(style, seedFrom('a')), {
+    style,
+    font,
+    canvasHeight: 1080,
+    baseAt: el.enter.at,
+  });
+  const two = resolvePlot(el, ctxFor(style, seedFrom('completely-different')), {
+    style,
+    font,
+    canvasHeight: 1080,
+    baseAt: el.enter.at,
+  });
+  const ds = (r: typeof one): string[] =>
+    r.items.flatMap((i) => (i.kind === 'path' ? [i.path.d] : []));
+  assert.ok(ds(one).length > 20, 'this plot should be a lot of strokes');
+  assert.deepEqual(ds(two), ds(one), 'a plot stroke still depends on the seed');
+
+  // And the axis a learner reads coordinates against is dead straight.
+  const axis = one.parts.find((p) => p.kind === 'axis' && p.id === 'x');
+  assert.ok(axis);
+  const shaft = axis.items.find((i) => i.kind === 'path');
+  assert.ok(shaft && shaft.kind === 'path');
+  const ys = samplePath(parsePath(shaft.path.d)).map((p) => p.y);
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 1e-6, `the x axis wobbles: ${shaft.path.d}`);
+});
+
+test('a crisp curve keeps every sample rather than simplifying to the wobble', () => {
+  // Simplification exists to land the perturbation at human scale. With no
+  // perturbation it only costs fidelity, so the crisp curve is the denser one.
+  const el = plot();
+  const crisp = resolve(el);
+  const sketch = resolvePlot(
+    el,
+    { ...ctxFor(style, SEED), ink: 'sketch' },
+    { style, font, canvasHeight: 1080, baseAt: el.enter.at },
+  );
+  const segs = (r: typeof crisp): number => {
+    const part = r.parts.find((p) => p.kind === 'curve');
+    assert.ok(part);
+    return part.items.reduce((n, i) => n + (i.kind === 'path' ? parsePath(i.path.d).length : 0), 0);
+  };
+  assert.ok(
+    segs(crisp) > segs(sketch) * 2,
+    `crisp curve should be far denser: ${segs(crisp)} vs ${segs(sketch)} segments`,
+  );
 });
 
 test('the resolved plot reports one bounding area that contains all its ink', () => {

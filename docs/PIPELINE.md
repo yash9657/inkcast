@@ -277,6 +277,20 @@ difference is the path, never the motion.
 The rule that keeps this coherent: **anything a learner might read a number or a
 symbol off is `crisp`; anything they read a feeling off is `sketch`.**
 
+**As built** (step 2): the mode is `DrawContext.ink` on the visuals geometry contract,
+defaulting to `sketch`, and it is applied in exactly one place — `baseOptions` in
+`geometry.ts`, which zeroes roughjs's perturbation and pins its seed. So every lane
+that draws through that contract is crisp-capable without knowing the mode exists, and
+`gen.path(d)` at zero roughness returns `d` verbatim, which is what makes "the path is
+used verbatim" literally true rather than approximately.
+
+Two things are deliberately still open. `resolvePlot` decides the mode for plots
+itself, because `AssetRef` is a stage-1 sketch and nothing constructs one yet — the
+caller-supplied mode wins where given, which is the seam the field will arrive
+through. And the renderer's own freehand lane (`sketchAlong`, for `path` elements and
+frames) is untouched and therefore implicitly `sketch`; it has no crisp form and does
+not want one, since nothing quantitative is drawn through it.
+
 ## The asset library
 
 Curated primitives live in the repo and are reviewed like code. Generated variants are
@@ -349,9 +363,15 @@ typechecks" is not evidence.
 solver. _Done when:_ the test suite passes and a benchmark render is no worse
 frame-for-frame. _Unblocks:_ everything below.
 
-**2. Two ink modes.** `ink: 'crisp' | 'sketch'` on the geometry contract; plots become
-crisp. _Done when:_ a crisp plot's `d` contains no perturbation and a sketch path is
-byte-identical to today.
+**2. Two ink modes.** ✅ **DONE.** `ink: 'crisp' | 'sketch'` on the geometry contract;
+plots become crisp. _Done when:_ a crisp plot's `d` contains no perturbation and a
+sketch path is byte-identical to today. Both verified by resolving the visuals lane over
+`projects/final-169` and `projects/handwritten` either side of a stash and hashing each
+element's path data: all 8 plots moved, and all 45 non-plot elements — 19 paths, 16
+texts, 3 arrows, 2 diagrams, 2 assets, 2 emphasis marks, 1 shape — came back
+byte-identical. "No perturbation" is pinned in tests as _exactness_ (a crisp axis is dead
+straight, a crisp path returns verbatim) plus _seed-independence_, which is the property
+a wobble cannot fake.
 
 **3. The equation lane.** New `equation` element; KaTeX -> SVG -> glyph path extraction
 -> crisp stroke reveal. _Done when:_ `w \leftarrow 3 - 0.1 \times 4 = 2.6` renders as

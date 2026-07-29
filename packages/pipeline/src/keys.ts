@@ -50,14 +50,20 @@ export const PIPELINE_VERSION = 2;
  * - render 3: plot geometry comes from the visuals stage rather than a second
  *   implementation inside the renderer, so every plot's gutters, ticks, sampling and
  *   label placement change.
+ * - visuals 4 / render 4: plots draw in the `crisp` ink mode, so every stroke in
+ *   every plot — axes, ticks, curves, overlays — has different path data. Both
+ *   stages move together because both resolve plot geometry: the sidecar the visuals
+ *   stage writes and the geometry the renderer asks `resolvePlot` for are the same
+ *   drawing, and a project holding one at v3 and the other at v4 would be
+ *   inconsistent about which it believed.
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
   lesson: 2,
   storyboard: 2,
   voice: 2,
-  visuals: 3,
-  render: 3,
+  visuals: 4,
+  render: 4,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */
