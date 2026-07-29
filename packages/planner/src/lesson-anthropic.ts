@@ -53,7 +53,22 @@ WHAT MAKES THIS TEACHING AND NOT SUMMARISING
 - ONE NEW IDEA PER BEAT. If a beat introduces two things, split it. A beat that needs a comma-spliced "and also" is two beats.
 - JUSTIFY, DO NOT ASSERT. \`because\` is where the teaching lives: say why this must be true, from what the learner already accepts. "The minus sign is there because the slope points uphill, and we want to go down" is teaching. "The update uses the negative gradient" is a definition wearing a lab coat. The reason must also be SPOKEN: \`because\` is not a private note to the compiler, it is the thing that beat's narration has to actually say out loud.
 - EARN JARGON. Put every term you would rather not need in \`jargonBudget\`. Introduce such a term only in a beat *after* the idea it names has been shown, and name it as a label for something the learner has already seen. Never in the hook.
-- NOTHING FORWARD-REFERENCES. Order \`steps\` so each one is answerable with only what came before.
+- NOTHING FORWARD-REFERENCES. Order \`steps\` so each one is answerable with only what came before. \`derivedFrom\` makes this checkable, so it is checked: a beat may only name beats that come earlier.
+- SERVE ONE INSIGHT. \`coreInsight\` is the single sentence the whole video exists to install — the thing that, once seen, makes the rest follow. Not the topic restated, not a summary. Write it first and keep it in view: a beat that does not serve it is a beat to cut, and a lesson whose beats each serve something different is the disconnected result this stage exists to prevent.
+
+SAY WHERE EACH CLAIM COMES FROM
+\`from\` records how each beat earns its idea, and it is validated rather than taken on trust.
+- \`given\` — it rests on what the learner already accepts: everyday experience, or the anchor.
+- \`derived\` — it follows from earlier beats, which you must list in \`derivedFrom\` using their ids: \`hook\`, \`anchor\`, \`step1\`, \`step2\` … numbered in the order you write \`steps\`, then \`worked\`, \`misconception\`, \`recap\`.
+- \`asserted\` — stated without being earned. When \`strategy\` is \`first-principles\` this is rejected outright, on every beat. If you cannot derive it, you have not finished thinking, or the step before it is missing.
+
+CHOOSE THE KIND AND THE STRATEGY DELIBERATELY
+\`kind\` is what you are teaching: \`stem\`, \`process\`, \`historical\`, \`narrative\` or \`abstract\`. \`strategy\` is how: \`first-principles\`, \`analogy\` or \`story-driven\`.
+- A STEM topic must reason from first principles *before* you reach for an analogy. Derive the thing, then find the picture for it — not the reverse.
+- A narrative or historical topic is character- and scene-driven. Do not force a derivation onto the Odyssey; carry it with who wanted what and what it cost them.
+- If \`strategy\` is \`analogy\` you must fill in \`analogy\`, and \`maps\` must list what corresponds to what — \`from\` the concrete side the anchor established, \`to\` the abstraction it stands for. Write the \`to\` side in the plain words your narration will actually use, not the jargon you are avoiding.
+
+\`analogy.maps\` is not decoration and it is not for the viewer: the compiler reads it to decide where the abstraction *arrives on the board*, growing the plot out of the drawing the anchor already made rather than putting a second picture beside it. An analogy whose parts do not each map onto something is an analogy that will not land, so it is rejected. Map every part you rely on, and no parts you do not.
 - OPEN WITH A QUESTION OR A SURPRISE. The hook is a concrete situation the learner can picture in five seconds and wants resolved: "You are on a foggy hillside and want to reach the valley. You cannot see it. What do you do?" Never "in this video", never "today we will", never a definition, never a plan of the video.
 - END BY RETRACING THE CHAIN. The recap walks the argument back in one breath, against the finished board, so the learner hears the whole shape once they have all the parts. It adds nothing new.
 
@@ -225,6 +240,13 @@ How to read them:
 - "opens with a preamble" — replace the hook with a concrete question or surprise.
 - "appears in the hook before being earned" — move that term later, and describe the thing instead of naming it.
 - "exceeds the target" — cut a step, do not compress every beat into fragments.
+- "is asserted, and a first-principles lesson has to derive every claim" — either derive it and set \`from\` to \`derived\` with the beats it follows from, or add the missing step before it that makes it derivable. Do not fix this by relabelling the beat \`given\`.
+- "says it is derived but names nothing it derives from" — list the earlier beat ids in \`derivedFrom\`.
+- "derives from … which comes later" — the order is wrong, not the reference. Move the beat it depends on before it.
+- "derives from … which is not a beat in this lesson" — use the real ids: \`hook\`, \`anchor\`, \`step1\`…, \`worked\`, \`misconception\`, \`recap\`.
+- "does not name the one insight it exists to install" — write \`coreInsight\` as one sentence, and check every beat serves it.
+- "names no correspondences" — fill in \`analogy.maps\`: each \`from\` a concrete part of the anchor, each \`to\` what it stands for.
+- "says it teaches by analogy but does not record one" — either record the analogy, or change \`strategy\` to what you actually did.
 
 Call ${TOOL} again with the complete corrected lesson. Keep every beat that was already good, word for word.`;
 }

@@ -69,6 +69,131 @@ test('the shipped lesson has the shape the benchmark asks for', () => {
   }
 });
 
+/* ------------------------------------------------ the pedagogy is on the record */
+
+test('the shipped lesson records how it teaches, and every derivation resolves', () => {
+  assert.equal(shipped.kind, 'stem');
+  assert.equal(shipped.strategy, 'analogy');
+  assert.ok(shipped.coreInsight.length > 40, 'the core insight is a sentence, not a label');
+
+  // Every part of the hill the lesson leans on maps to something, in the plain words
+  // the narration actually uses rather than the jargon it is avoiding.
+  const maps = shipped.analogy?.maps ?? [];
+  assert.ok(maps.length >= 3, 'the analogy carries its correspondences');
+  for (const m of maps) {
+    assert.ok(m.from.trim() && m.to.trim(), 'a correspondence with an empty side maps nothing');
+    for (const term of shipped.jargonBudget) {
+      assert.ok(
+        !m.to.toLowerCase().includes(term.toLowerCase()),
+        `the mapping leans on unearned jargon: "${term}"`,
+      );
+    }
+  }
+
+  // `derivedFrom` names real, earlier beats — the property the validator enforces,
+  // asserted here against the lesson we ship as proof.
+  const beats = lessonBeats(shipped);
+  const seen = new Set<string>();
+  for (const { step, id, role } of beats) {
+    if (step.from === 'derived') {
+      assert.ok(step.derivedFrom.length > 0, `${role} is derived from nothing`);
+      for (const ref of step.derivedFrom) {
+        assert.ok(seen.has(ref), `${role} derives from "${ref}", which is not an earlier beat`);
+      }
+    }
+    seen.add(id);
+  }
+  // The first step earns its place on the anchor, which is what makes it the bridge.
+  assert.deepEqual(shipped.steps[0]!.derivedFrom, ['anchor']);
+});
+
+test('critiqueLesson rejects what the new fields exist to catch', () => {
+  // A first-principles lesson that asserts is not one, and no budget or beat count
+  // makes it acceptable. This is the rule `from` exists for.
+  const asserted = {
+    ...shipped,
+    strategy: 'first-principles' as const,
+    analogy: undefined,
+    steps: [
+      { ...shipped.steps[0]!, from: 'asserted' as const, derivedFrom: [] },
+      ...shipped.steps.slice(1),
+    ],
+  };
+  assert.ok(
+    critiqueLesson(asserted).some((p) => /is asserted, and a first-principles lesson/.test(p)),
+    'an asserted step in a first-principles lesson must be rejected',
+  );
+  // ...and the same lesson taught by analogy is allowed to assert, so the rule is
+  // the strategy's and not a blanket one.
+  assert.equal(
+    critiqueLesson({ ...asserted, strategy: 'analogy', analogy: shipped.analogy }).some((p) =>
+      /is asserted/.test(p),
+    ),
+    false,
+  );
+
+  // A forward reference is an ordering bug, and it reads differently from a typo.
+  const forward = {
+    ...shipped,
+    steps: [
+      { ...shipped.steps[0]!, from: 'derived' as const, derivedFrom: ['step4'] },
+      ...shipped.steps.slice(1),
+    ],
+  };
+  assert.ok(critiqueLesson(forward).some((p) => /which comes later/.test(p)));
+  const unknown = {
+    ...shipped,
+    steps: [
+      { ...shipped.steps[0]!, from: 'derived' as const, derivedFrom: ['step9'] },
+      ...shipped.steps.slice(1),
+    ],
+  };
+  assert.ok(critiqueLesson(unknown).some((p) => /is not a beat in this lesson/.test(p)));
+  const nothing = {
+    ...shipped,
+    steps: [
+      { ...shipped.steps[0]!, from: 'derived' as const, derivedFrom: [] },
+      ...shipped.steps.slice(1),
+    ],
+  };
+  assert.ok(critiqueLesson(nothing).some((p) => /names nothing it derives from/.test(p)));
+
+  // An analogy is its correspondences; without them the learner is told two things
+  // are alike and left to guess in what respect.
+  assert.ok(
+    critiqueLesson({ ...shipped, analogy: { concrete: 'a hill', maps: [] } }).some((p) =>
+      /names no correspondences/.test(p),
+    ),
+  );
+  assert.ok(
+    critiqueLesson({ ...shipped, analogy: undefined }).some((p) =>
+      /teaches by analogy but does not record one/.test(p),
+    ),
+  );
+  assert.ok(
+    critiqueLesson({ ...shipped, coreInsight: '  ' }).some((p) =>
+      /does not name the one insight/.test(p),
+    ),
+  );
+});
+
+test('a lesson written before these fields existed still parses', () => {
+  // `parseLesson` reads saved projects. If the new fields were required without
+  // defaults, every lesson.json on disk would start failing to load.
+  const old = JSON.parse(JSON.stringify(shipped)) as Record<string, unknown>;
+  for (const k of ['kind', 'strategy', 'coreInsight', 'analogy']) delete old[k];
+  for (const beat of ['hook', 'anchor', 'recap']) {
+    const step = old[beat] as Record<string, unknown>;
+    delete step.from;
+    delete step.derivedFrom;
+  }
+  const parsed = Lesson.parse(old);
+  assert.equal(parsed.kind, 'stem');
+  assert.equal(parsed.strategy, 'first-principles');
+  assert.equal(parsed.hook.from, 'given');
+  assert.deepEqual(parsed.hook.derivedFrom, []);
+});
+
 test('the shipped lesson runs at teaching pace, around ninety seconds', () => {
   const seconds = lessonSeconds(shipped, 2.5);
   assert.ok(seconds > 80 && seconds < 115, `${seconds}s`);
@@ -108,6 +233,52 @@ test('the short preset is a different lesson, not a crop', () => {
   assert.match(short.worked!.narration, /two point six/i);
   // Trimming never cuts mid-sentence.
   for (const { step } of lessonBeats(short)) assert.match(step.narration.trim(), /[.!?]$/);
+});
+
+test('dropping a beat does not leave a derivation pointing at the wrong one', () => {
+  // Beat ids are positional, so dropping a step renumbers the survivors. Left alone
+  // that does not merely dangle, it lies: before this was handled, the shipped lesson
+  // at the `short` preset had its surviving third step renumbered to `step1` and its
+  // reference to the old `step1` therefore pointed at itself.
+  for (const name of ['standard', 'short'] as const) {
+    const shaped = adaptLesson(shipped, PRESETS[name]);
+    const beats = lessonBeats(shaped);
+    const seen = new Set<string>();
+    for (const { step, id, role } of beats) {
+      assert.ok(!step.derivedFrom.includes(id), `${name}: ${id} (${role}) derives from itself`);
+      for (const ref of step.derivedFrom) {
+        assert.ok(
+          seen.has(ref),
+          `${name}: ${id} (${role}) derives from "${ref}", not an earlier beat`,
+        );
+      }
+      // A beat whose antecedents were all cut is no longer a derived beat.
+      if (step.from === 'derived') assert.ok(step.derivedFrom.length > 0, `${name}: ${id}`);
+      seen.add(id);
+    }
+    // And the adapted lesson still passes the validator that checks exactly this.
+    assert.deepEqual(critiqueLesson(shaped, { maxSeconds: PRESETS[name].maxSeconds }), []);
+  }
+});
+
+test('a dropped beat is spliced out of the chain, not forgotten', () => {
+  // If B follows from A and A is cut, B follows from whatever A followed from. The
+  // chain stays honest at whatever length the budget allows.
+  const four = {
+    ...shipped,
+    steps: [
+      { ...shipped.steps[0]!, from: 'given' as const, derivedFrom: [] },
+      { ...shipped.steps[1]!, from: 'derived' as const, derivedFrom: ['step1'] },
+      { ...shipped.steps[2]!, from: 'derived' as const, derivedFrom: ['step2'] },
+      { ...shipped.steps[3]!, from: 'derived' as const, derivedFrom: ['step3'] },
+    ],
+  };
+  const short = adaptLesson(four, PRESETS.short);
+  const kept = short.steps.length;
+  assert.ok(kept < 4, 'the vertical preset drops steps, or this proves nothing');
+  // Whatever survived, the last surviving step still traces back to the first one.
+  const last = short.steps[kept - 1]!;
+  if (kept > 1) assert.deepEqual(last.derivedFrom, [`step${kept - 1}`]);
 });
 
 test('an explicit aspect overrides the preset it implies', () => {
@@ -180,10 +351,18 @@ test('the Lesson tool schema makes the shape of a lesson non-optional', async ()
     assert.deepEqual(Object.keys(schema.properties[beat]!.properties ?? {}), [
       'idea',
       'because',
+      'from',
+      'derivedFrom',
       'narration',
       'visuals',
       'hold',
     ]);
+  }
+  // The pedagogy fields have to reach the model, or it cannot be asked to choose
+  // them — and the mapping table is what the storyboard compiler reads to decide
+  // where the abstraction arrives on the board.
+  for (const field of ['kind', 'strategy', 'coreInsight', 'analogy']) {
+    assert.ok(schema.properties[field], `${field} must be offered to the model`);
   }
 });
 

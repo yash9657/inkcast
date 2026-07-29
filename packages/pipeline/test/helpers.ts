@@ -30,6 +30,11 @@ export async function withProjects(): Promise<Sandbox> {
  * Deliberately complete: hook, everyday anchor, one idea per step with a reason,
  * a worked example with real numbers, the misconception, and a recap. It is also
  * the fixture that proves a lesson renders with no planner and no key.
+ *
+ * Complete now includes the mapping table. Before it existed this fixture morphed the
+ * hill into the plot only because step 1's narration happened to say "the hillside
+ * becomes a curve", which a regex over the prose picked up; the morph is now derived
+ * from `analogy.maps`, so a fixture without one would quietly stop exercising it.
  */
 export function sampleLesson(): unknown {
   return {
@@ -37,6 +42,18 @@ export function sampleLesson(): unknown {
     topic: 'Gradient descent',
     audience: 'someone who has never seen calculus',
     objective: 'explain why the parameter update has a minus sign in front of the slope',
+    kind: 'stem',
+    strategy: 'analogy',
+    coreInsight:
+      'The ground under your feet is enough to find the valley, because the slope tells you which way is down.',
+    analogy: {
+      concrete: 'walking downhill in fog',
+      maps: [
+        { from: 'the height of the hill', to: 'how wrong you are' },
+        { from: 'where you stand', to: 'the setting on the dial' },
+        { from: 'the slope underfoot', to: 'which way to turn the dial' },
+      ],
+    },
     jargonBudget: ['gradient', 'derivative', 'loss function'],
     hook: {
       idea: 'You can reach the valley without ever seeing it',

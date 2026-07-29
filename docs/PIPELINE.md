@@ -51,7 +51,7 @@ nowhere to land today: anything it produced would be ignored.
 
 Everything else in this document is blocked on fixing it, which is why it is PR 1.
 
-## Root cause 2 — the abstraction is asserted, not mapped
+## Root cause 2 — the abstraction is asserted, not mapped ✅ FIXED (step 6)
 
 The lesson schema records an `anchor` — a concrete everyday situation — as prose. What
 it does not record is _what maps onto what_: that the hill's height is the loss, the
@@ -62,6 +62,15 @@ it currently guesses with a regex over the narration.
 That guess works on the shipped lesson and is fragile everywhere else. An explicit
 mapping makes the same moment derivable instead of detected, and makes it checkable:
 an analogy whose parts do not each map to something is an analogy that will not land.
+
+**Done.** `analogy.maps` is in the schema, `BECOMES_A_PLOT` is deleted, and the
+storyboard for the shipped lesson is byte-identical either side of the change — same
+morph, `b2_v0 <- b0_v0`, in both aspects. One consequence to know about: the no-key
+author does not emit an analogy, because inferring a mapping table from prose is the
+guessing that was just removed, so **a keyed run morphs and a no-key run does not.**
+That divergence is deliberate and deterministic. It replaces the old behaviour, where
+the no-key path morphed whenever a document happened to put a becoming-verb near the
+word "curve" — luck dressed as pedagogy.
 
 ## Root cause 3 — nothing compounds
 
@@ -78,31 +87,46 @@ are additive to what exists; field names in `code` already exist unless marked N
 
 ### 1. Lesson (pedagogy)
 
+**Shipped.** This is the schema as it exists in `packages/core/src/lesson.ts`; the
+zod there is the source of truth, and `jargonBudget`, `hold` and `VisualIntent.cue`
+are real fields this sketch still omits.
+
 ```ts
 type Lesson = {
+  version: 1; // unchanged by schema v2: every new field is defaulted, so saved
+  // lesson.json files still parse. The cache invalidates via
+  // STAGE_CODE_VERSION instead.
   topic: string;
   audience?: string;
   objective?: string;
 
-  /** NEW. Chooses the whole downstream strategy, so it is decided once, explicitly. */
+  /** Chooses the whole downstream strategy, so it is decided once, explicitly. */
   kind: 'stem' | 'process' | 'narrative' | 'historical' | 'abstract';
-  /** NEW. For `stem`, `first-principles` is required — see the rule below. */
-  strategy: 'first-principles' | 'analogy' | 'story';
-  /** NEW. The one sentence the video exists to land. Everything serves this. */
+  /** For `stem`, reason from first principles before reaching for an analogy. */
+  strategy: 'first-principles' | 'analogy' | 'story-driven';
+  /** The one sentence the video exists to land. Everything serves this. */
   coreInsight: string;
 
   /**
-   * NEW. The analogy as a *mapping*, not a description.
+   * The analogy as a *mapping*, not a description.
    *
-   * This is what makes the abstraction's arrival derivable rather than guessed: the
-   * beat that introduces `abstract` for the first time is the beat where the concrete
-   * thing becomes it, and the compiler can morph one into the other without reading
-   * the narration. It is also the check that the analogy is sound — a part with no
-   * counterpart is a part the learner will not be able to carry across.
+   * This is what makes the abstraction's arrival derivable rather than guessed, and it
+   * is also the check that the analogy is sound — a part with no counterpart is a part
+   * the learner will not be able to carry across.
+   *
+   * How the compiler actually reads it (`findReuse`, planner/src/compile.ts): a lesson
+   * that declares `maps` has said structurally that the concrete thing stands for the
+   * abstract one, so the first `step` drawing a `plot` after the anchor drew something
+   * is where the abstraction arrives, and it grows out of that drawing. Deliberately
+   * **no text matching, including against the map's own terms** — the benchmark keeps
+   * `loss`, `gradient` and `parameter` in its `jargonBudget` and never says them at
+   * that beat, so matching `to` terms against the narration finds nothing.
    */
   analogy?: {
-    concrete: string; // "a foggy hillside"
-    maps: { from: string; to: string }[]; // height->loss, position->parameter, slope->gradient
+    concrete: string; // "walking downhill in thick fog"
+    // The `to` side is written in the plain words the narration uses, not the jargon
+    // being avoided: "the height of the hill" -> "how wrong the machine is right now".
+    maps: { from: string; to: string }[];
   };
 
   /** NEW. Narrative and historical topics. Resolved once into a character sheet. */
@@ -118,21 +142,35 @@ type Lesson = {
 
 type LessonStep = {
   idea: string;
-  why: string;
+  /** The justification. Named `because`, not `why` — earlier drafts of this document
+   *  said `why`, which never existed in the code. */
+  because: string;
   narration: string;
   visuals: VisualIntent[];
   hold: number;
 
   /**
-   * NEW. Where this step's claim comes from.
+   * Where this step's claim comes from.
    *
    * The rule that makes "reason from first principles" checkable rather than
-   * aspirational: when `strategy` is `first-principles`, no step may be `asserted`,
-   * and a `derived` step must name the steps it follows from. A validator can fail
-   * that; a style instruction in a prompt cannot.
+   * aspirational: when `strategy` is `first-principles`, no beat may be `asserted`,
+   * and a `derived` beat must name the beats it follows from. A validator can fail
+   * that; a style instruction in a prompt cannot. `critiqueLesson` enforces it, and
+   * the repair prompt feeds each failure back with how to fix it.
    */
   from: 'given' | 'derived' | 'asserted';
-  derivedFrom?: string[];
+  /**
+   * Ids of the beats this one follows from, and they must come *earlier* — a forward
+   * reference is reported as an ordering bug rather than a bad id.
+   *
+   * Ids are positional, not authored: `hook`, `anchor`, `step1`…`stepN` in the order
+   * `steps` is written, then `worked`, `misconception`, `recap`. `LessonStep` has no id
+   * field, so nothing has to mint one or keep it unique, and an old lesson gains ids
+   * without being rewritten. `lessonBeats()` is where they come from. The trade: ids
+   * are only stable for a given lesson, because `adaptLesson` drops steps to fit a
+   * budget and therefore renumbers them.
+   */
+  derivedFrom: string[];
 };
 ```
 
@@ -328,11 +366,12 @@ version with no network.
 similarity gate. _Done when:_ the same character across three beats is pixel-identical
 where composed and above threshold where generated.
 
-**6. Lesson schema v2.** `kind`, `strategy`, `coreInsight`, `analogy.maps`,
-`from`/`derivedFrom` with the no-`asserted` validator for first-principles. Derive the
-morph from `analogy.maps` and **delete the `BECOMES_A_PLOT` regex** in
-`planner/src/compile.ts`, which is a deliberate stopgap. _Done when:_ the shipped lesson
-still morphs, and a lesson with the same mapping but different wording also morphs.
+**6. Lesson schema v2.** ✅ **DONE.** `kind`, `strategy`, `coreInsight`, `analogy.maps`,
+`from`/`derivedFrom` with the no-`asserted` validator for first-principles. The morph is
+derived from `analogy.maps` and `BECOMES_A_PLOT` is deleted. _Done when:_ the shipped
+lesson still morphs — verified byte-identical storyboards, both aspects — and a lesson
+with the same mapping but different wording also morphs, which is
+`the same mapping in different words still morphs` in `planner/test/compile.test.ts`.
 
 **7. The script stage.** Split from `lesson`; `cadence` drives both TTS rate and `hold`;
 `emphasis` drives voice and board weight. _Done when:_ a punchy beat is measurably

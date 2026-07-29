@@ -26,6 +26,21 @@ import type { LessonOptions, SourceDoc } from './types.js';
 
 const log = logger('planner:lesson:derive');
 
+/**
+ * The grounding every heuristic beat gets, and why it is the same one every time.
+ *
+ * `given` rather than `derived`, because this author has no model of how one beat
+ * follows from another: it lifts the document's own justifying sentence into `because`
+ * and stops there, so it cannot honestly name the earlier beats a claim rests on.
+ * `given` rather than `asserted`, because that sentence is a real reason the learner
+ * can check, not a bare statement.
+ *
+ * A function rather than a shared constant so no two beats alias one `derivedFrom`.
+ */
+function grounded(): Pick<LessonStep, 'from' | 'derivedFrom'> {
+  return { from: 'given', derivedFrom: [] };
+}
+
 /* -------------------------------------------------------------- doc reading */
 
 const ANALOGY = /\b(?:like|similar to|think of|imagine|as if|analogous to|much as|just as)\b/i;
@@ -217,6 +232,7 @@ function stepFrom(
   return {
     idea: capitalize(idea),
     because,
+    ...grounded(),
     narration,
     visuals: visualFor(beat, doc),
     hold: 0.4,
@@ -284,6 +300,7 @@ export function deriveLesson(
     steps.push({
       idea: capitalize(shorten(opening, 12)),
       because: speakify(all[1] ?? opening),
+      ...grounded(),
       narration: clampNarration(
         writeNarration(doc.text || doc.title, { maxWords: preset.maxWordsPerBeat }),
         preset.maxWordsPerBeat,
@@ -303,6 +320,7 @@ export function deriveLesson(
     // The hook is the one beat `critiqueLesson` does not require a reason for:
     // a question does not need justifying, it needs answering.
     because: '',
+    ...grounded(),
     narration: clampNarration(
       `${hookQuestion(doc.title)} ${speakify(opening)}`,
       preset.maxWordsPerBeat + 6,
@@ -323,6 +341,7 @@ export function deriveLesson(
     because:
       reasonNear(doc.text, anchorSource) ??
       speakify(all.find((s) => s !== anchorSource && wordCount(s) >= 8) ?? anchorSource),
+    ...grounded(),
     narration: clampNarration(speakify(anchorSource), preset.maxWordsPerBeat),
     visuals: analogy
       ? [
@@ -347,6 +366,22 @@ export function deriveLesson(
     objective:
       opts.objective ??
       `explain in your own words how ${subject(doc.title)} works, and why each step of it is needed`,
+    // What this author can and cannot honestly claim about its own pedagogy.
+    //
+    // `kind` and `strategy` stay at the strictest reading rather than guessing: it has
+    // no way to tell a proof from a story, and `first-principles` with every beat
+    // `given` is the one combination it can actually satisfy.
+    //
+    // `analogy` is deliberately absent. A mapping table is a set of claims about what
+    // stands for what, and inferring those from prose is precisely the guessing this
+    // stage replaced — so the abstraction does not morph out of the anchor on this
+    // path. It used to, whenever a document happened to put a becoming-verb near the
+    // word "curve", which was luck dressed as pedagogy.
+    kind: 'stem',
+    strategy: 'first-principles',
+    // The document's strongest opening claim. Not an insight it worked out, just the
+    // most load-bearing sentence the author already wrote.
+    coreInsight: speakify(opening),
     jargonBudget: [],
     hook,
     anchor,
@@ -354,6 +389,7 @@ export function deriveLesson(
     recap: {
       idea: 'The chain, end to end',
       because: '',
+      ...grounded(),
       narration: clampNarration(
         composeItems(
           [anchor.idea, ...steps.map((s) => s.idea)].map((s) => shorten(s, 6).replace(/…$/, '')),
@@ -390,6 +426,7 @@ export function deriveLesson(
     lesson.misconception = {
       idea: capitalize(shorten(wrong, 10)),
       because: speakify(wrong),
+      ...grounded(),
       narration: clampNarration(speakify(wrong), preset.maxWordsPerBeat),
       visuals: [
         {

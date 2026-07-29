@@ -25,6 +25,7 @@
  * something a repair pass hopes to achieve.
  */
 import type {
+  Analogy,
   Asset,
   DiagramElement,
   Element,
@@ -111,10 +112,11 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
 
   // The abstraction has to arrive *out of* the concrete drawing, which means the
   // beat that plots it gives up its own cell and takes the drawing's place.
-  const reuse = findReuse(beats);
+  const reuse = findReuse(beats, shaped.analogy);
   if (reuse.bridge) {
     log.info(
       `beat ${reuse.bridge.beat} turns beat ${reuse.bridge.host}'s drawing into a plot — morphing in place`,
+      `${shaped.analogy?.maps.length ?? 0} mapped correspondences say they are the same thing`,
     );
   }
   // Every beat that builds on an earlier drawing shares that drawing's cell — words
@@ -216,21 +218,6 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
 /* --------------------------------------------------- the abstraction's arrival */
 
 /**
- * The beat that claims the concrete thing *is* the abstract one.
- *
- * "The hillside is a graph of how wrong you are." "Plot every setting against its
- * number and the hillside becomes a curve." This is the sentence on which the whole
- * lesson turns, and the brief is explicit that it has to be *shown*: the anchor
- * morphing into the plot, in place, rather than a second picture appearing elsewhere
- * while the narrator asserts they are the same thing.
- *
- * Matched as a becoming-verb followed by the vocabulary of a plot, in one clause, so
- * an ordinary mention of a curve somewhere else in the lesson does not qualify.
- */
-const BECOMES_A_PLOT =
-  /\b(?:is|are|becomes?|become|turns? into|turn into|is really|really is|same as|is just)\b[^.!?]{0,60}?\b(?:graph|curve|plot|axes|axis|function)\b/i;
-
-/**
  * Which beats build on an earlier beat's freeform drawing rather than making one of
  * their own.
  *
@@ -243,10 +230,10 @@ const BECOMES_A_PLOT =
  *    drawing but *replacing* it — the hill becoming the plot has to happen where the
  *    hill is.
  *
- * Deliberately conservative. At most one bridge per lesson; it must be a `step` that
- * actually asks for a `plot`, it must say the concrete thing *is* the abstract one,
- * and there must be a drawing before it to grow out of. Anything less certain draws
- * normally, which is what every lesson did before this existed.
+ * At most one bridge per lesson; it must be a `step` that actually asks for a `plot`,
+ * there must be a drawing before it to grow out of, and the lesson must have declared
+ * an analogy with at least one correspondence. Anything less certain draws normally,
+ * which is what every lesson did before this existed.
  */
 export type BoardReuse = {
   /** `beat -> host beat` for every beat that draws onto an earlier drawing. */
@@ -255,11 +242,38 @@ export type BoardReuse = {
   bridge: { beat: number; host: number } | null;
 };
 
-export function findReuse(beats: { step: LessonStep; role: BeatRole }[]): BoardReuse {
+/**
+ * Where the abstraction arrives, derived from the lesson's own analogy rather than
+ * detected in its prose.
+ *
+ * This used to be a regex over `idea` and `narration` looking for a becoming-verb near
+ * the vocabulary of a plot — "the hill *is really a graph*". It worked on the shipped
+ * lesson and was luck everywhere else: it fired on any passing mention of a curve and
+ * missed every lesson that made the same move in different words, so whether the
+ * abstraction was *shown* or merely asserted came down to phrasing.
+ *
+ * The mapping table replaces the guess. A lesson that declares `analogy.maps` has said,
+ * structurally, that this concrete thing stands for that abstract one; so the first
+ * `step` that draws a plot after the concrete thing was drawn *is* the moment the
+ * abstraction arrives, and it arrives by growing out of the drawing already there.
+ *
+ * Deliberately no text matching of any kind, not even against the mapping's own terms.
+ * That was tried and it is wrong here: the benchmark lesson keeps `loss`, `parameter`
+ * and `gradient` in its `jargonBudget` and never says them at the bridge, so matching
+ * `to` terms against the narration finds nothing and the shipped lesson stops morphing.
+ * Wording is the thing being removed from this decision, and that has to include the
+ * wording of the map.
+ */
+export function findReuse(
+  beats: { step: LessonStep; role: BeatRole }[],
+  analogy?: Analogy,
+): BoardReuse {
   const annotates = new Map<number, number>();
   /** The beat that owns the setup's drawing — the first one to make it, not the last. */
   let owner: number | null = null;
   let bridge: { beat: number; host: number } | null = null;
+  /** No declared correspondences, no claim that the two things are the same thing. */
+  const mapped = (analogy?.maps.length ?? 0) > 0;
 
   for (let i = 0; i < beats.length; i++) {
     const { step, role } = beats[i]!;
@@ -271,9 +285,8 @@ export function findReuse(beats: { step: LessonStep; role: BeatRole }[]): BoardR
       else annotates.set(i, owner);
       continue;
     }
-    if (bridge || role !== 'step' || owner === null) continue;
+    if (bridge || !mapped || role !== 'step' || owner === null) continue;
     if (!step.visuals.some((v) => v.kind === 'plot')) continue;
-    if (!BECOMES_A_PLOT.test(`${step.idea} ${step.narration}`)) continue;
     bridge = { beat: i, host: owner };
     annotates.set(i, owner);
   }

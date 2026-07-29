@@ -262,7 +262,59 @@ export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
       shaped.steps = lesson.steps.map((s) => trimStep(s, preset)).filter((_, k) => !doomed.has(k));
     }
   }
+  // Ids are positional, so anything dropped above renumbered the survivors.
+  remapDerivations(shaped, lesson, doomed);
   return shaped;
+}
+
+/**
+ * Rewrite `derivedFrom` after beats have been dropped.
+ *
+ * Beat ids are positional (`step1`…`stepN`, see `lessonBeats`), so dropping a step
+ * renumbers every step after it. Left alone that does not merely dangle — it silently
+ * *lies*: on the shipped lesson at the `short` preset, the surviving `step3` becomes
+ * `step1` and its reference to the old `step1` now points at itself. "step1 derives
+ * from step1" reads as a logic bug rather than the renumbering artefact it is.
+ *
+ * A dropped beat is spliced out rather than forgotten: if B follows from A and A is
+ * cut, B now follows from whatever A followed from. That keeps the chain honest at
+ * whatever length the budget allows, which is the whole point of dropping by pedagogy
+ * rather than by position.
+ */
+function remapDerivations(shaped: Lesson, original: Lesson, doomed: Set<number>): void {
+  /** Antecedents of every beat in the *original* lesson, by its original id. */
+  const antecedents = new Map<string, string[]>();
+  for (const { step, id } of lessonBeats(original)) antecedents.set(id, step.derivedFrom);
+
+  const rename = new Map<string, string>();
+  for (const id of ['hook', 'anchor', 'worked', 'recap']) rename.set(id, id);
+  if (shaped.misconception) rename.set('misconception', 'misconception');
+  let next = 1;
+  original.steps.forEach((_, k) => {
+    if (!doomed.has(k)) rename.set(`step${k + 1}`, `step${next++}`);
+  });
+
+  /** Surviving ids a reference resolves to, following dropped beats through. */
+  const resolve = (id: string, seen: Set<string>): string[] => {
+    const kept = rename.get(id);
+    if (kept) return [kept];
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return (antecedents.get(id) ?? []).flatMap((ref) => resolve(ref, seen));
+  };
+
+  for (const { step, id } of lessonBeats(shaped)) {
+    if (!step.derivedFrom.length) continue;
+    const mapped = new Set<string>();
+    for (const ref of step.derivedFrom) {
+      for (const r of resolve(ref, new Set())) if (r !== id) mapped.add(r);
+    }
+    step.derivedFrom = [...mapped];
+    // A beat left deriving from nothing is no longer deriving. Saying so keeps the
+    // record true rather than leaving a `derived` beat with an empty antecedent list,
+    // which `critiqueLesson` would rightly reject.
+    if (!step.derivedFrom.length && step.from === 'derived') step.from = 'given';
+  }
 }
 
 /** Structural problems with a lesson, measured against a preset's runtime. */

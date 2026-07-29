@@ -70,7 +70,7 @@ test('no two beats sharing a region overlap, and nothing leaves its region', () 
       PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'],
     );
     const beats = lessonBeats(shaped);
-    const reuse = findReuse(beats);
+    const reuse = findReuse(beats, shaped.analogy);
     const plan = planBoard(
       beats.map((b) => b.role),
       {
@@ -450,6 +450,8 @@ test('updateLine computes the arithmetic rather than copying it', () => {
     {
       idea: 'x',
       because: 'y',
+      from: 'given',
+      derivedFrom: [],
       narration: 'anything',
       hold: 0,
       visuals: [{ describe: 'w = 5, slope = -2, learning rate 0.5', kind: 'plot' }],
@@ -458,7 +460,18 @@ test('updateLine computes the arithmetic rather than copying it', () => {
   );
   assert.equal(line, 'w ← 5 + 0.5 × 2 = 6');
   assert.equal(
-    updateLine({ idea: '', because: '', narration: '', hold: 0, visuals: [] }, 'step'),
+    updateLine(
+      {
+        idea: '',
+        because: '',
+        from: 'given',
+        derivedFrom: [],
+        narration: '',
+        hold: 0,
+        visuals: [],
+      },
+      'step',
+    ),
     undefined,
   );
 });
@@ -563,9 +576,10 @@ test("the anchor annotates the hook's hill instead of drawing a second one", () 
   );
 });
 
-test('the beat that calls the hill a graph morphs out of it, in place', () => {
-  const beats = lessonBeats(adaptLesson(lesson, PRESETS.standard));
-  const { bridge } = findReuse(beats);
+test('the beat where the abstraction arrives morphs out of the hill, in place', () => {
+  const shaped = adaptLesson(lesson, PRESETS.standard);
+  const beats = lessonBeats(shaped);
+  const { bridge } = findReuse(beats, shaped.analogy);
   assert.ok(bridge, 'the shipped lesson has a beat that turns the hill into a plot');
 
   const hostScene = sb.scenes[bridge.host]!;
@@ -602,9 +616,52 @@ test('a lesson with no concrete drawing has nothing to morph', () => {
     anchor: { ...lesson.anchor, visuals: [{ kind: 'text' as const, describe: 'a situation' }] },
   };
   const beats = lessonBeats(adaptLesson(wordy, PRESETS.standard));
-  assert.equal(findReuse(beats).bridge, null);
+  assert.equal(findReuse(beats, wordy.analogy).bridge, null);
   const board = compileLesson(wordy, {});
   for (const scene of board.scenes) {
+    for (const el of scene.elements) assert.equal(el.morph, undefined);
+  }
+});
+
+/* ------------------------------------- the morph comes from the mapping, not prose */
+
+test('the same mapping in different words still morphs', () => {
+  // The point of step 6. The old regex looked for a becoming-verb near the vocabulary
+  // of a plot, so this lesson — same analogy, same structure, every sentence reworded
+  // to avoid saying the hill "is" a graph — did not morph, and the abstraction arrived
+  // as a second picture beside the hill instead of growing out of it.
+  const reworded = {
+    ...lesson,
+    steps: [
+      {
+        ...lesson.steps[0]!,
+        idea: 'Redraw the landscape with two rulers',
+        narration:
+          'Put one ruler along the ground and one straight up. Now every spot on that slope has two readings, and the slope shows up as a line on paper.',
+        visuals: [{ ...lesson.steps[0]!.visuals[0]! }],
+      },
+      ...lesson.steps.slice(1),
+    ],
+  };
+  const shaped = adaptLesson(reworded, PRESETS.standard);
+  const { bridge } = findReuse(lessonBeats(shaped), shaped.analogy);
+  assert.ok(bridge, 'the reworded lesson maps the same things, so it must still morph');
+  assert.equal(bridge.beat, 2, 'the first step that draws a plot is where it arrives');
+
+  const board = compileLesson(reworded, {});
+  const morphs = board.scenes.flatMap((s) => s.elements.filter((el) => el.morph));
+  assert.equal(morphs.length, 1, 'exactly one element grows out of the hill');
+});
+
+test('an analogy with no correspondences does not morph', () => {
+  // A declared analogy is a set of claims about what stands for what. Without them
+  // there is no basis for saying the hill and the curve are the same thing, so the
+  // plot is drawn in its own cell — the pre-morph behaviour, reached deliberately
+  // rather than by a phrase failing to match.
+  const unmapped = { ...lesson, strategy: 'first-principles' as const, analogy: undefined };
+  const shaped = adaptLesson(unmapped, PRESETS.standard);
+  assert.equal(findReuse(lessonBeats(shaped), shaped.analogy).bridge, null);
+  for (const scene of compileLesson(unmapped, {}).scenes) {
     for (const el of scene.elements) assert.equal(el.morph, undefined);
   }
 });

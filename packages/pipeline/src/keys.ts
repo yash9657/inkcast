@@ -39,8 +39,10 @@ export const PIPELINE_VERSION = 2;
  * Per-stage code version. Bump the one stage you changed.
  *
  * - ingest 1: original.
- * - lesson 1: new stage.
- * - storyboard 1: new stage (compiled from a Lesson rather than a document).
+ * - lesson 2: schema v2 — `kind`, `strategy`, `coreInsight`, `analogy.maps` and
+ *   per-beat `from`/`derivedFrom`, so the same topic yields a different lesson.
+ * - storyboard 2: where the abstraction arrives is derived from `analogy.maps` rather
+ *   than matched in the narration, so the same lesson can compile to a different board.
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.
  * - visuals 3: a descent is recorded as one sub-part per hop, labels are charged for
  *   the ink they would lie across, and a curve named after its own axis is no longer
@@ -51,8 +53,8 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 1,
-  storyboard: 1,
+  lesson: 2,
+  storyboard: 2,
   voice: 2,
   visuals: 3,
   render: 3,
