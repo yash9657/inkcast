@@ -76,6 +76,7 @@ export {
   type PlotPart,
   type PlotPartKind,
   type PlotPartRecord,
+  type PlotTypeSizes,
   type ResolvedPlot,
   type ResolvePlotOptions,
 } from './plot.js';

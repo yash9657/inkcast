@@ -47,9 +47,26 @@ export {
 } from './camera.js';
 export type { FrameSize, Insets, ResolvedCamera, SceneFraming } from './camera.js';
 
-/* Plot geometry, including the named functions `Curve.fn` accepts. */
-export { curveAt, curvePolylines, curveSlope, evalCurveFn, plotMap, plotPhases } from './plot.js';
-export type { PlotContext, PlotMap, PlotPhase } from './plot.js';
+/* Plot timing and packaging.
+ *
+ * The geometry itself — the frame, the gutters, the sampling, the label solver and
+ * the named functions `Curve.fn` accepts — belongs to `@inkcast/visuals`, which is
+ * authoritative for it. The renderer reads that geometry through `openVisuals`; the
+ * curve maths is re-exported so a consumer still has one place to reach for it. */
+export { curveTrace, plotArea, plotPhases } from './plot.js';
+export type { PlotContext, PlotPhase } from './plot.js';
+export { openVisuals } from './visuals.js';
+export type { PlotSource, VisualsBridge } from './visuals.js';
+export {
+  CURVE_FUNCTIONS,
+  curveEval,
+  describeCurveFunctions,
+  niceStep,
+  plotFrame,
+  resolvePlot,
+  tickValues,
+} from '@inkcast/visuals';
+export type { CurveEval, CurveFnName, PlotFrame, PlotLayout, ResolvedPlot } from '@inkcast/visuals';
 
 /* Arc-length geometry: motion paths, dashes, and SVG path measurement. */
 export {

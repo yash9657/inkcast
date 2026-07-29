@@ -95,6 +95,15 @@ import {
 
 const log = logger('pipeline');
 
+/**
+ * The visuals stage's own output file, as a cache artefact.
+ *
+ * Spelled out rather than imported as `MANIFEST_PATH` from `@inkcast/visuals`: this
+ * module loads that package lazily so a run that never reaches the visuals stage does
+ * not pay for roughjs, dagre and a 2000-icon set, and a value import would undo that.
+ */
+const VISUALS_MANIFEST = 'assets/visuals.json';
+
 export type CastInput = {
   /** Raw text or markdown to teach from. */
   text?: string;
@@ -635,10 +644,14 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       (await isFresh(run.dir, cacheSlot('visuals', a.id), assetKeyFor(a)));
     if (!fresh) staleAssets.add(a.id);
   }
+  // The manifest is named as an *artefact*, not merely hashed. Without it a deleted
+  // or truncated `assets/visuals.json` still reads as fresh, the stage is skipped,
+  // and the renderer — which now takes its plot geometry from that file — has to
+  // resolve every plot in-process to make up for a cache entry that was lying.
   const visualsFresh =
     !run.force &&
     staleAssets.size === 0 &&
-    (await isFresh(run.dir, cacheSlot('visuals'), boardVisualsKey));
+    (await isFresh(run.dir, cacheSlot('visuals'), boardVisualsKey, [VISUALS_MANIFEST]));
 
   const assetsBefore = new Set(sb.assets.filter((a) => a.svg).map((a) => a.id));
   if (visualsFresh) {

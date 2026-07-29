@@ -2,37 +2,41 @@
  * `plot` — a cartesian frame drawn by hand, and the single most important element
  * for teaching anything quantitative.
  *
- * The build order is the pedagogy: **axes first**, so the learner knows what the
- * two directions mean before anything moves; then each **curve revealed along its
- * own direction** (left to right for a function of x), so they watch the shape
- * happen instead of finding it already there; then **overlays at their own `at`
- * fractions**, so the dot, the tangent and the descent land on the words that
- * name them.
+ * **This module derives no geometry.** Every point, gutter, tick, curve sample and
+ * label position comes from `@inkcast/visuals` via `./visuals.js`; what happens here
+ * is timing and packaging — turning one plot's ink into the independently timed
+ * phases the plan needs. It used to own a second implementation of all of it, which
+ * meant every fix had to be made twice and the richer of the two solvers was the one
+ * nothing ran (`docs/PIPELINE.md`, root cause 1).
  *
- * Everything below is geometry only. Each returned phase becomes its own plan
- * item with its own start time, which is what lets a tangent swing in eight
- * seconds after the curve it belongs to, and a stepping sequence appear one step
- * at a time.
+ * The build order is still the pedagogy, and it is now expressed as part *kinds*
+ * rather than rebuilt here: **the frame first**, so the learner knows what the two
+ * directions mean before anything moves; then each **curve revealed along its own
+ * direction**, so they watch the shape happen instead of finding it already there;
+ * then **overlays at their own `at` fractions**, so the dot, the tangent and the
+ * descent land on the words that name them.
+ *
+ * Each returned phase becomes its own plan item with its own start time, which is
+ * what lets a tangent swing in eight seconds after the curve it belongs to, and a
+ * stepping sequence appear one hop at a time.
  */
-import type { Curve, PlotElement, PlotOverlay } from '@inkcast/core';
-import { clipSegment, dashAlong, flattenPathData } from './geom.js';
-import type { Pt } from './geom.js';
-import { clampBox, dotPrim, geom, geoms, labelAt, textPrim } from './prims.js';
+import type { PlotElement } from '@inkcast/core';
+import type { PlotPartKind, PlotPartRecord } from '@inkcast/visuals';
 import type { Palette } from './palette.js';
-import { TYPE_SCALE } from './palette.js';
-import { Rng, hachurePolygon, seedOf, sketchAlong, sketchArrowHead, sketchLine } from './sketch.js';
-import type { SketchStyle } from './sketch.js';
+import { geom, textPrim } from './prims.js';
 import type { PlanPrim, Rect } from './types.js';
+import type { PlotSource } from './visuals.js';
 
+/**
+ * What packaging a plot needs from the board.
+ *
+ * Deliberately smaller than it was: the roughening style and the scales used to be
+ * threaded through here because this module *drew* the plot. It no longer does, so what
+ * is left is the palette to re-ink with and the style's static opacity. The type scale
+ * now goes the other way — into the resolver, before the geometry exists.
+ */
 export type PlotContext = {
   pal: Palette;
-  st: SketchStyle;
-  /** Base stroke width, in canvas units. */
-  sw: number;
-  /** Canvas units per output pixel, for geometry. */
-  scale: number;
-  /** Canvas units per output pixel, for type. */
-  type: number;
   /** Static opacity for styles that do not lay down solid ink. */
   alpha: number | undefined;
 };
@@ -69,444 +73,274 @@ export type PlotPhase = {
   sweep?: { cx: number; cy: number; deg: number };
 };
 
-/* ------------------------------------------------------------- named curves */
+/* --------------------------------------------------------------- part kinds */
 
 /**
- * The named functions `Curve.fn` can ask for.
+ * Which phase a part belongs to.
  *
- * Named rather than expressions on purpose: no evaluator, no injection surface,
- * identical output in Node and in the browser, and a planner can ask for "a bowl"
- * without emitting a hundred coordinates.
- *
- * | name       | formula                                | params (defaults)          |
- * | ---------- | -------------------------------------- | -------------------------- |
- * | parabola   | a(x − b)² + c                          | a=1, b=0, c=0              |
- * | line       | ax + b                                 | a=1, b=0                   |
- * | sigmoid    | c / (1 + e^(−a(x − b)))                | a=1, b=0, c=1              |
- * | gaussian   | c·e^(−(x − b)² / 2a²)                  | a=1, b=0, c=1              |
- * | sine       | a·sin(bx + c)                          | a=1, b=1, c=0              |
- * | exp        | a·e^(bx)                               | a=1, b=1                   |
- * | log        | a·ln(bx), undefined for bx ≤ 0         | a=1, b=1                   |
- * | doubleWell | a(x² − b)² + dx + c                    | a=1, b=1, c=0, d=0         |
- * | step       | c + a·floor(x / b)                     | a=1, b=1, c=0              |
+ * The frame's six possible parts (grid, both axes, ticks, both axis labels) collapse
+ * into one phase: they are one gesture — "here are the two directions" — and giving
+ * each its own slot would spend six sequential reveals on scaffolding before the
+ * first curve appeared.
  */
-export function evalCurveFn(
-  name: NonNullable<Curve['fn']>['name'],
-  params: readonly number[],
-  x: number,
-): number | null {
-  const p = (i: number, dflt: number): number => {
-    const v = params[i];
-    return typeof v === 'number' && Number.isFinite(v) ? v : dflt;
-  };
-  switch (name) {
-    case 'parabola': {
-      const dx = x - p(1, 0);
-      return p(0, 1) * dx * dx + p(2, 0);
-    }
-    case 'line':
-      return p(0, 1) * x + p(1, 0);
-    case 'sigmoid':
-      return p(2, 1) / (1 + Math.exp(-p(0, 1) * (x - p(1, 0))));
-    case 'gaussian': {
-      const s = p(0, 1) || 1;
-      const dx = x - p(1, 0);
-      return p(2, 1) * Math.exp(-(dx * dx) / (2 * s * s));
-    }
-    case 'sine':
-      return p(0, 1) * Math.sin(p(1, 1) * x + p(2, 0));
-    case 'exp':
-      return p(0, 1) * Math.exp(p(1, 1) * x);
-    case 'log': {
-      const v = p(1, 1) * x;
-      return v > 0 ? p(0, 1) * Math.log(v) : null;
-    }
-    case 'doubleWell': {
-      const q = x * x - p(1, 1);
-      return p(0, 1) * q * q + p(3, 0) * x + p(2, 0);
-    }
-    case 'step': {
-      const b = p(1, 1) || 1;
-      return p(2, 0) + p(0, 1) * Math.floor(x / b);
-    }
-    default:
-      return null;
-  }
-}
+const FRAME_KINDS: ReadonlySet<PlotPartKind> = new Set<PlotPartKind>([
+  'axis',
+  'grid',
+  'ticks',
+  'axis-label',
+]);
 
-/** A curve as a function of x, whether it was authored as samples or as a name. */
-export function curveAt(c: Curve, x: number): number | null {
-  if (c.points && c.points.length > 0) {
-    const pts = c.points;
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    if (!first || !last) return null;
-    if (x <= first.x) return first.y;
-    if (x >= last.x) return last.y;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1];
-      const b = pts[i];
-      if (!a || !b) continue;
-      if (x >= a.x && x <= b.x) {
-        const span = b.x - a.x;
-        return span === 0 ? a.y : a.y + ((x - a.x) * (b.y - a.y)) / span;
-      }
-    }
-    return last.y;
-  }
-  if (c.fn) return evalCurveFn(c.fn.name, c.fn.params, x);
-  return null;
-}
-
-/** Slope by central difference — the number a tangent is drawn from. */
-export function curveSlope(c: Curve, x: number, h: number): number {
-  const a = curveAt(c, x - h);
-  const b = curveAt(c, x + h);
-  if (a === null || b === null) {
-    const here = curveAt(c, x);
-    const other = curveAt(c, x + h);
-    if (here === null || other === null) return 0;
-    return (other - here) / h;
-  }
-  return (b - a) / (2 * h);
-}
-
-/** Data-space samples of a curve, in drawing order. */
-function sampleCurve(
-  c: Curve,
-  xDomain: [number, number],
-  steps: number,
-): { pts: Pt[]; smooth: boolean } {
-  if (c.points && c.points.length >= 2) {
-    return { pts: c.points.map((p) => [p.x, p.y] as Pt), smooth: true };
-  }
-  if (!c.fn) return { pts: [], smooth: true };
-  const [x0, x1] = xDomain;
-  if (c.fn.name === 'step') {
-    // A staircase is drawn as a staircase: corners, not a smoothed ramp.
-    const b = c.fn.params[1] && c.fn.params[1] !== 0 ? c.fn.params[1] : 1;
-    const pts: Pt[] = [];
-    const from = Math.floor(Math.min(x0, x1) / b) * b;
-    for (let x = from; x <= Math.max(x0, x1) + b; x += b) {
-      const y = evalCurveFn('step', c.fn.params, x + b * 0.001);
-      if (y === null) continue;
-      const left = Math.max(Math.min(x0, x1), x);
-      const right = Math.min(Math.max(x0, x1), x + b);
-      if (right <= left) continue;
-      pts.push([left, y], [right, y]);
-    }
-    return { pts, smooth: false };
-  }
-  const pts: Pt[] = [];
-  const n = Math.max(8, steps);
-  for (let i = 0; i <= n; i++) {
-    const x = x0 + ((x1 - x0) * i) / n;
-    const y = evalCurveFn(c.fn.name, c.fn.params, x);
-    if (y === null) continue;
-    pts.push([x, y]);
-  }
-  return { pts, smooth: true };
-}
-
-/* ------------------------------------------------------------------ mapping */
-
-export type PlotMap = {
-  /** The plotting area, inside the element box and clear of the axis labels. */
-  area: Rect;
-  x(v: number): number;
-  y(v: number): number;
-  /** Data-space x of the y axis, and data-space y of the x axis. */
-  originX: number;
-  originY: number;
+/**
+ * Relative draw time per phase.
+ *
+ * A curve gets the longest slot because it is the thing being explained; overlays
+ * are quick marks on top of it, and a single hop of a descent is quicker still.
+ */
+const WEIGHTS: Record<PlotPartKind, number> = {
+  axis: 1,
+  grid: 1,
+  ticks: 1,
+  'axis-label': 1,
+  curve: 1.5,
+  'curve-label': 1.5,
+  point: 0.4,
+  tangent: 0.8,
+  dropline: 0.5,
+  shade: 0.8,
+  annotate: 0.7,
+  steps: 0.45,
 };
 
-export function plotMap(el: PlotElement, ctx: PlotContext): PlotMap {
-  const size = TYPE_SCALE.label * ctx.type;
-  const wantsY = Boolean(el.yLabel) || el.ticks;
-  const wantsX = Boolean(el.xLabel) || el.ticks;
-  const left = wantsY ? size * 1.5 : size * 0.5;
-  const bottom = wantsX ? size * 1.9 : size * 0.6;
-  const top = el.yLabel ? size * 1.7 : size * 0.6;
-  // The last tick label is centred on the end of the axis, so it needs half its own
-  // width of room past it — as does the axis arrowhead.
-  const right = el.ticks ? size * 1.6 : size * 0.9;
-  const area: Rect = {
-    x: el.at.x + left,
-    y: el.at.y + top,
-    w: Math.max(size, el.at.w - left - right),
-    h: Math.max(size, el.at.h - top - bottom),
-  };
-  const [x0, x1] = el.xDomain;
-  const [y0, y1] = el.yDomain;
-  const sx = x1 === x0 ? 0 : area.w / (x1 - x0);
-  const sy = y1 === y0 ? 0 : area.h / (y1 - y0);
-  return {
-    area,
-    x: (v) => area.x + (v - x0) * sx,
-    y: (v) => area.y + area.h - (v - y0) * sy,
-    originX: x0 <= 0 && x1 >= 0 ? 0 : x0,
-    originY: y0 <= 0 && y1 >= 0 ? 0 : y0,
-  };
+/** True for a sub-part that continues an earlier one rather than starting it. */
+function continuation(key: string): boolean {
+  const m = /s(\d+)$/.exec(key);
+  return m !== null && Number(m[1]) > 0;
 }
 
-/** Split a canvas-space polyline where it leaves the plotting area vertically. */
-function clipToBand(pts: readonly Pt[], yMin: number, yMax: number): Pt[][] {
-  const out: Pt[][] = [];
-  let run: Pt[] = [];
-  const inside = (p: Pt): boolean => p[1] >= yMin - 1e-9 && p[1] <= yMax + 1e-9;
-  const cross = (a: Pt, b: Pt, y: number): Pt => {
-    const t = (y - a[1]) / (b[1] - a[1]);
-    return [a[0] + (b[0] - a[0]) * t, y];
-  };
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1] as Pt;
-    const b = pts[i] as Pt;
-    const ai = inside(a);
-    const bi = inside(b);
-    if (ai && bi) {
-      if (run.length === 0) run.push(a);
-      run.push(b);
-      continue;
+/** The phase a part belongs to, as the suffix that makes its plan item id. */
+function phaseKeyFor(record: PlotPartRecord): string {
+  if (FRAME_KINDS.has(record.kind)) return 'axes';
+  if (record.kind === 'curve' || record.kind === 'curve-label') return `curve-${record.id}`;
+  // `overlay:2` -> `ov2`, `overlay:2:0` -> `ov2s0`. The suffixed form is a sub-part:
+  // one hop of a descent, which is timed and revealed on its own.
+  const m = /^overlay:(\d+)(?::(\d+))?$/.exec(record.id);
+  if (!m) return record.id.replace(/[^A-Za-z0-9_-]+/g, '-');
+  return m[2] === undefined ? `ov${m[1]}` : `ov${m[1]}s${m[2]}`;
+}
+
+/* ------------------------------------------------------------------ colour */
+
+/**
+ * Ink for each part of a plot, from the *board's* palette.
+ *
+ * Geometry comes from the visuals stage; colour does not, and the distinction is
+ * deliberate. The two packages keep different palettes — visuals' accent is a red
+ * (`#d7263d`), the renderer's is a blue (`#2f6fed`), and even their blacks differ by
+ * a shade — because visuals draws standalone SVGs and the renderer draws one
+ * coherent board. Adopting the manifest's literal colours would make the plot the
+ * one element on screen using a different set of pens.
+ *
+ * So the manifest's *roles* are mapped onto the palette the rest of the film is
+ * drawn with. Weight, opacity and every coordinate still come from the stage.
+ *
+ * One accent for the whole film is a hard rule (see `palette.ts`), so a curve's
+ * `accent` index selects between the three inks the palette actually has rather than
+ * inventing a hue per curve. That is enough to tell "what happens" from "what would
+ * have happened", which is all a curve index is ever used for.
+ */
+function inkFor(
+  kind: PlotPartKind,
+  pal: Palette,
+  accent: number,
+): { stroke: string; text: string } {
+  switch (kind) {
+    case 'axis':
+      return { stroke: pal.ink, text: pal.ink };
+    case 'grid':
+    case 'ticks':
+    case 'axis-label':
+    case 'dropline':
+      return { stroke: pal.inkSoft, text: pal.inkSoft };
+    case 'curve':
+    case 'curve-label': {
+      const ring = [pal.ink, pal.accent, pal.inkSoft];
+      const ink = ring[accent % ring.length] as string;
+      return { stroke: ink, text: ink };
     }
-    if (ai && !bi) {
-      if (run.length === 0) run.push(a);
-      run.push(cross(a, b, b[1] > yMax ? yMax : yMin));
-      out.push(run);
-      run = [];
-      continue;
-    }
-    if (!ai && bi) {
-      run = [cross(a, b, a[1] > yMax ? yMax : yMin), b];
-      continue;
-    }
-    // Both ends outside: the segment may still pass through the band.
-    if ((a[1] < yMin && b[1] > yMax) || (a[1] > yMax && b[1] < yMin)) {
-      const p1 = cross(a, b, a[1] < yMin ? yMin : yMax);
-      const p2 = cross(a, b, a[1] < yMin ? yMax : yMin);
-      out.push([p1, p2]);
-    }
+    case 'point':
+      // The dot is the accent; its label is body ink, because the label is a name
+      // rather than a mark.
+      return { stroke: pal.accent, text: pal.ink };
+    case 'annotate':
+      return { stroke: pal.inkSoft, text: pal.ink };
+    case 'tangent':
+    case 'shade':
+    case 'steps':
+      return { stroke: pal.accent, text: pal.accent };
+    default:
+      return { stroke: pal.ink, text: pal.ink };
   }
-  if (run.length >= 2) out.push(run);
-  return out.filter((r) => r.length >= 2);
 }
 
-/** Canvas-space polylines for a curve, clipped to the plot area. */
-export function curvePolylines(
-  c: Curve,
-  el: PlotElement,
-  m: PlotMap,
-): { runs: Pt[][]; smooth: boolean } {
-  const { pts, smooth } = sampleCurve(c, el.xDomain, 120);
-  const mapped = pts.map((p) => [m.x(p[0]), m.y(p[1])] as Pt);
-  const runs = clipToBand(mapped, m.area.y, m.area.y + m.area.h).map((run) =>
-    run.filter((p) => p[0] >= m.area.x - 1 && p[0] <= m.area.x + m.area.w + 1),
-  );
-  return { runs: runs.filter((r) => r.length >= 2), smooth };
+/* ------------------------------------------------------------------ prims */
+
+/**
+ * A resolved stroke, in the board's ink.
+ *
+ * Geometry and weight are taken exactly as the visuals stage resolved them — it was
+ * given this board's type scale, so its numbers are already in the renderer's units.
+ * Only the colour is remapped.
+ */
+function strokePrim(
+  stroke: PlotSource['strokes'][number],
+  colour: string,
+  soft: boolean,
+  alpha: number | undefined,
+): PlanPrim {
+  const filled = stroke.fill !== 'none';
+  // The part's own opacity — a hairline grid, a shaded region — times the style's, so
+  // a chalk plot is as translucent as the chalk board around it.
+  const opacity = stroke.opacity * (alpha ?? 1);
+  return geom(stroke.d, colour, stroke.strokeWidth, {
+    fill: filled ? colour : 'none',
+    ...(opacity < 1 ? { opacity } : {}),
+    // Two things must not dash-reveal. A shape with no stroke — a hachure fill, a
+    // solid dot — has no length to reveal along. And scaffolding must not be *drawn*:
+    // a gridline that draws itself stroke by stroke reads as content the learner is
+    // meant to follow, when it is only there to be measured against.
+    ...(stroke.stroke === 'none' || soft ? { noDash: true } : {}),
+  });
 }
 
 /**
- * Ink for a curve.
+ * A solved label, in the renderer's units and the board's ink.
  *
- * One accent for the whole film is a hard rule (see `palette.ts`), so `accent`
- * selects between the three inks the palette actually has rather than inventing a
- * hue per curve. That is enough to tell "what happens" from "what would have
- * happened", which is all a curve index is ever used for.
+ * The placement and the size are both visuals' — measured against real font metrics
+ * and stepped clear of the ink and of every other label — so the box is taken as given
+ * and shrink-to-fit is off. Re-measuring here would move the text out of the gutter
+ * that was reserved for it.
  */
-function curveInk(accent: number, pal: Palette): string {
-  const ring = [pal.ink, pal.accent, pal.inkSoft];
-  return ring[accent % ring.length] as string;
+function textPrimFor(layout: PlotSource['texts'][number], colour: string): PlanPrim {
+  return textPrim(
+    layout.text,
+    layout.bounds,
+    layout.fontSize,
+    colour,
+    layout.align,
+    'middle',
+    false,
+  );
 }
 
-/* ------------------------------------------------------------------- phases */
+/* ----------------------------------------------------------------- phases */
 
-function axisPhase(el: PlotElement, m: PlotMap, ctx: PlotContext, rng: Rng): PlotPhase {
-  const { pal, st, sw } = ctx;
-  const size = TYPE_SCALE.label * ctx.type;
-  const prims: PlanPrim[] = [];
-  const area = m.area;
-  const axisY = Math.min(area.y + area.h, Math.max(area.y, m.y(m.originY)));
-  const axisX = Math.min(area.x + area.w, Math.max(area.x, m.x(m.originX)));
-  const [x0, x1] = el.xDomain;
-  const [y0, y1] = el.yDomain;
-  const ticks = 4;
+/**
+ * The whole plot, as an ordered list of independently timed phases.
+ *
+ * Parts arrive in draw order already — the visuals resolver emits the frame, then
+ * curves in declaration order, then overlays sorted by `at` — so this walks them once
+ * and groups consecutive parts that share a phase.
+ */
+export function plotPhases(el: PlotElement, src: PlotSource, ctx: PlotContext): PlotPhase[] {
+  const byKey = new Map<string, { record: PlotPartRecord; prims: PlanPrim[] }>();
+  const order: string[] = [];
 
-  if (el.grid) {
-    for (let i = 1; i <= ticks; i++) {
-      const gx = area.x + (area.w * i) / (ticks + 1);
-      const gy = area.y + (area.h * i) / (ticks + 1);
-      prims.push(
-        geom(
-          `M${gx.toFixed(2)} ${area.y} L${gx.toFixed(2)} ${(area.y + area.h).toFixed(2)}`,
-          pal.inkSoft,
-          sw * 0.3,
-          {
-            opacity: 0.22,
-            noDash: true,
-          },
-        ),
-        geom(
-          `M${area.x.toFixed(2)} ${gy.toFixed(2)} L${(area.x + area.w).toFixed(2)} ${gy.toFixed(2)}`,
-          pal.inkSoft,
-          sw * 0.3,
-          {
-            opacity: 0.22,
-            noDash: true,
-          },
-        ),
-      );
+  for (const record of src.layout.parts) {
+    const key = phaseKeyFor(record);
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = { record, prims: [] };
+      byKey.set(key, bucket);
+      order.push(key);
+    }
+    // Only a curve reads its accent index; every overlay is the one accent.
+    const accent = el.curves.find((c) => c.id === record.id)?.accent ?? 0;
+    const ink = inkFor(record.kind, ctx.pal, accent);
+    const soft = record.kind === 'grid';
+    for (const stroke of src.strokes) {
+      if (stroke.order >= record.from && stroke.order <= record.to) {
+        bucket.prims.push(strokePrim(stroke, ink.stroke, soft, ctx.alpha));
+      }
+    }
+    for (const layout of src.texts) {
+      if (layout.order >= record.from && layout.order <= record.to) {
+        bucket.prims.push(textPrimFor(layout, ink.text));
+      }
     }
   }
 
-  const drawX = el.axes === 'both' || el.axes === 'x';
-  const drawY = el.axes === 'both' || el.axes === 'y';
-  const head = Math.max(9 * ctx.scale, sw * 2.4);
-  if (drawY) {
-    // Drawn upwards: a hand starts at the origin and pulls the axis up.
-    prims.push(
-      ...geoms(
-        sketchLine(rng, st, [axisX, area.y + area.h], [axisX, area.y - head * 0.6], 1),
-        pal.ink,
-        sw * 0.8,
-        ctx.alpha,
-      ),
-    );
-    prims.push(
-      ...geoms(
-        sketchArrowHead(rng, st, [axisX, area.y - head * 0.6], -Math.PI / 2, head),
-        pal.ink,
-        sw * 0.8,
-        ctx.alpha,
-      ),
-    );
+  const phases: PlotPhase[] = [];
+  for (const key of order) {
+    const bucket = byKey.get(key);
+    if (!bucket || bucket.prims.length === 0) continue;
+    const { record, prims } = bucket;
+    const frame = FRAME_KINDS.has(record.kind);
+    const curve = record.kind === 'curve' || record.kind === 'curve-label';
+    phases.push({
+      key,
+      prims,
+      // The frame and the curves are sequenced from the element's own entry; an
+      // overlay is pinned to the fraction of the narration that introduces it. Only
+      // the *first* sub-part of a multi-part overlay takes that pin — the later hops
+      // of a descent follow their predecessor, which is what makes it a sequence
+      // rather than four things landing on one word.
+      at: frame || curve || continuation(key) ? null : record.at > 0 ? record.at : null,
+      weight: WEIGHTS[record.kind] ?? 0.6,
+      center: centreOf(prims, src, record),
+      ...(frame || curve ? { sig: sigFor(el, record) } : {}),
+      ...sweepFor(src, record),
+    });
   }
-  if (drawX) {
-    prims.push(
-      ...geoms(
-        sketchLine(rng, st, [area.x - head * 0.4, axisY], [area.x + area.w + head * 0.6, axisY], 1),
-        pal.ink,
-        sw * 0.8,
-        ctx.alpha,
-      ),
-    );
-    prims.push(
-      ...geoms(
-        sketchArrowHead(rng, st, [area.x + area.w + head * 0.6, axisY], 0, head),
-        pal.ink,
-        sw * 0.8,
-        ctx.alpha,
-      ),
-    );
-  }
+  return phases;
+}
 
-  if (el.ticks) {
-    const fmt = (v: number): string => {
-      const r = Math.round(v * 100) / 100;
-      return Object.is(r, -0) ? '0' : String(r);
-    };
-    for (let i = 0; i <= ticks; i++) {
-      const vx = x0 + ((x1 - x0) * i) / ticks;
-      const px = m.x(vx);
-      prims.push(
-        ...geoms(
-          sketchLine(rng, st, [px, axisY - sw * 1.1], [px, axisY + sw * 1.1], 1),
-          pal.inkSoft,
-          sw * 0.5,
-          ctx.alpha,
-        ),
-      );
-      prims.push(
-        textPrim(
-          fmt(vx),
-          clampBox(
-            { x: px - size * 1.4, y: axisY + sw * 1.4, w: size * 2.8, h: size * 1.2 },
-            el.at,
-          ),
-          size * 0.72,
-          pal.inkSoft,
-          'center',
-          'top',
-          false,
-        ),
-      );
-      const vy = y0 + ((y1 - y0) * i) / ticks;
-      const py = m.y(vy);
-      prims.push(
-        ...geoms(
-          sketchLine(rng, st, [axisX - sw * 1.1, py], [axisX + sw * 1.1, py], 1),
-          pal.inkSoft,
-          sw * 0.5,
-          ctx.alpha,
-        ),
-      );
-      prims.push(
-        textPrim(
-          fmt(vy),
-          clampBox(
-            { x: axisX - size * 3.1, y: py - size * 0.6, w: size * 2.7, h: size * 1.2 },
-            el.at,
-          ),
-          size * 0.72,
-          pal.inkSoft,
-          'right',
-          'middle',
-          false,
-        ),
-      );
-    }
+/** Transform origin: the marked point where there is one, else the ink's own middle. */
+function centreOf(
+  prims: readonly PlanPrim[],
+  src: PlotSource,
+  record: PlotPartRecord,
+): [number, number] {
+  const mark = src.layout.marks.find((m) => m.id === record.id || m.id.startsWith(`${record.id}:`));
+  if (mark) return [mark.point.x, mark.point.y];
+  if (FRAME_KINDS.has(record.kind)) {
+    const a = src.layout.area;
+    return [a.x + a.w / 2, a.y + a.h / 2];
   }
+  if (record.kind === 'curve' || record.kind === 'curve-label') {
+    const trace = src.layout.curves.find((c) => c.id === record.id);
+    const first = trace?.points[0];
+    const last = trace?.points[trace.points.length - 1];
+    if (first && last) return [(first.x + last.x) / 2, (first.y + last.y) / 2];
+  }
+  return boundsCentre(prims);
+}
 
-  if (el.xLabel) {
-    prims.push(
-      textPrim(
-        el.xLabel,
-        clampBox(
-          {
-            x: area.x + area.w * 0.35,
-            y: axisY + (el.ticks ? size * 2.0 : size * 0.7),
-            w: area.w * 0.65,
-            h: size * 1.4,
-          },
-          el.at,
-        ),
-        size,
-        pal.inkSoft,
-        'right',
-        'middle',
-        false,
-      ),
-    );
+function boundsCentre(prims: readonly PlanPrim[]): [number, number] {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const prim of prims) {
+    if (prim.kind !== 'text') continue;
+    x0 = Math.min(x0, prim.box.x);
+    y0 = Math.min(y0, prim.box.y);
+    x1 = Math.max(x1, prim.box.x + prim.box.w);
+    y1 = Math.max(y1, prim.box.y + prim.box.h);
   }
-  if (el.yLabel) {
-    // Written above the axis rather than rotated along it: rotated handwriting is
-    // hard to read at phone size, and every teacher writes the label at the top.
-    prims.push(
-      textPrim(
-        el.yLabel,
-        clampBox(
-          {
-            x: area.x - size * 0.6,
-            y: el.at.y,
-            w: Math.max(area.w * 0.6, size * 5),
-            h: size * 1.4,
-          },
-          el.at,
-        ),
-        size,
-        pal.inkSoft,
-        'left',
-        'middle',
-        false,
-      ),
-    );
-  }
+  if (!Number.isFinite(x0)) return [0, 0];
+  return [(x0 + x1) / 2, (y0 + y1) / 2];
+}
 
-  return {
-    key: 'axes',
-    prims,
-    at: null,
-    weight: 1,
-    center: [area.x + area.w / 2, area.y + area.h / 2],
-    sig: JSON.stringify([
+/**
+ * Identity for ink that a later beat may re-declare.
+ *
+ * Built from the *element's own* definition rather than from the drawn geometry: two
+ * beats that declare the same frame and curve must produce the same signature even
+ * though they are separate elements with separate seeds.
+ */
+function sigFor(el: PlotElement, record: PlotPartRecord): string {
+  if (FRAME_KINDS.has(record.kind)) {
+    return JSON.stringify([
       'axes',
       el.at,
       el.xDomain,
@@ -516,411 +350,60 @@ function axisPhase(el: PlotElement, m: PlotMap, ctx: PlotContext, rng: Rng): Plo
       el.ticks,
       el.xLabel ?? '',
       el.yLabel ?? '',
-    ]),
+    ]);
+  }
+  const curve = el.curves.find((c) => c.id === record.id);
+  return JSON.stringify(['curve', el.at, el.xDomain, el.yDomain, curve ?? record.id]);
+}
+
+/**
+ * A tangent starts level and swings into the slope it is measuring — the motion is
+ * the explanation, so it must not simply appear at its final angle.
+ *
+ * The angle comes from the mark's data-space slope converted through the frame's own
+ * scales, which is the same number the drawn line has.
+ */
+function sweepFor(
+  src: PlotSource,
+  record: PlotPartRecord,
+): { sweep?: { cx: number; cy: number; deg: number } } {
+  if (record.kind !== 'tangent') return {};
+  const mark = src.layout.marks.find((m) => m.id === record.id && m.kind === 'tangent');
+  if (!mark || typeof mark.slope !== 'number') return {};
+  const { area, xDomain, yDomain } = src.layout;
+  const spanOf = (d: readonly [number, number]): number => {
+    const v = d[1] - d[0];
+    return Math.abs(v) < 1e-12 ? 1 : v;
   };
+  const sx = area.w / spanOf(xDomain);
+  const sy = area.h / spanOf(yDomain);
+  const deg = (Math.atan2(mark.slope * sy, sx) * 180) / Math.PI;
+  return { sweep: { cx: mark.point.x, cy: mark.point.y, deg: Math.max(-70, Math.min(70, deg)) } };
 }
 
-function curvePhase(
-  c: Curve,
-  el: PlotElement,
-  m: PlotMap,
-  ctx: PlotContext,
-  rng: Rng,
-): PlotPhase | null {
-  const { runs, smooth } = curvePolylines(c, el, m);
-  if (runs.length === 0) return null;
-  const ink = curveInk(c.accent, ctx.pal);
-  const prims: PlanPrim[] = [];
-  for (const run of runs) {
-    if (c.dashed) {
-      const dash = Math.max(ctx.sw * 2.4, 16 * ctx.scale);
-      for (const seg of dashAlong(run, dash, dash * 0.85)) {
-        prims.push(
-          geom(
-            sketchAlong(rng, ctx.st, seg, { amp: 0.5, spacing: dash }),
-            ink,
-            ctx.sw * 0.95,
-            ctx.alpha === undefined ? undefined : { opacity: ctx.alpha },
-          ),
-        );
-      }
-    } else {
-      const d = sketchAlong(rng, ctx.st, run, { amp: 0.8, smooth });
-      if (d)
-        prims.push(
-          geom(d, ink, ctx.sw, ctx.alpha === undefined ? undefined : { opacity: ctx.alpha }),
-        );
-    }
-  }
-  // A curve named the same as the axis it is plotted against is the axis label
-  // written twice. Four of the benchmark's plots printed "loss" beside the y-axis
-  // *and* beside the trace, and a learner reading two identical captions goes
-  // looking for the distinction between them.
-  //
-  // The same applies when the two names merely *differ*, so long as there is only
-  // one curve: then both are names for the vertical axis, and two different words
-  // for one quantity is worse than two identical ones — the benchmark labelled the
-  // axis "height" and the trace "loss" and left the learner to guess whether those
-  // were the same measurement. With several curves the labels are doing real work,
-  // telling the traces apart, and the axis names the quantity they share.
-  const sole = el.curves.length === 1 && Boolean(el.yLabel);
-  const redundant =
-    c.label !== undefined &&
-    (sole || c.label.trim().toLowerCase() === el.yLabel?.trim().toLowerCase());
-  if (c.label && !redundant) {
-    const last = runs[runs.length - 1] as Pt[];
-    const tip = last[last.length - 1] as Pt;
-    prims.push(
-      labelAt(c.label, [tip[0], tip[1]], TYPE_SCALE.label * ctx.type, ink, el.at, 'above-left'),
-    );
-  }
-  const first = (runs[0] as Pt[])[0] as Pt;
-  const last = runs[runs.length - 1] as Pt[];
-  const tail = last[last.length - 1] as Pt;
-  return {
-    key: `curve-${c.id}`,
-    prims,
-    at: null,
-    weight: 1.5,
-    center: [(first[0] + tail[0]) / 2, (first[1] + tail[1]) / 2],
-    sig: JSON.stringify(['curve', el.at, el.xDomain, el.yDomain, c]),
-  };
-}
+/* -------------------------------------------------------------- geometry read */
 
-function curveById(el: PlotElement, id: string): Curve | null {
-  return el.curves.find((c) => c.id === id) ?? el.curves[0] ?? null;
-}
-
-/** Where a curve sits on the board at data-space x, clamped into the plot area. */
-function pointOn(c: Curve, x: number, m: PlotMap): Pt | null {
-  const y = curveAt(c, x);
-  if (y === null) return null;
-  const px = m.x(x);
-  const py = m.y(y);
-  if (px < m.area.x - 1 || px > m.area.x + m.area.w + 1) return null;
-  return [px, Math.max(m.area.y, Math.min(m.area.y + m.area.h, py))];
-}
-
-function overlayPhases(
-  ov: PlotOverlay,
-  index: number,
-  el: PlotElement,
-  m: PlotMap,
-  ctx: PlotContext,
-  rng: Rng,
-): PlotPhase[] {
-  const { pal, st, sw } = ctx;
-  const size = TYPE_SCALE.label * ctx.type;
-  const at = ov.at > 0 ? ov.at : null;
-  const key = `ov${index}`;
-  const dotR = Math.max(sw * 1.05, 6 * ctx.scale);
-
-  const [dx0, dx1] = el.xDomain;
-  const step = Math.max(1e-6, Math.abs(dx1 - dx0) / 400);
-  /**
-   * Which side of a point on a curve is empty board.
-   *
-   * A label directly above a point on a steep curve is printed on the curve, because
-   * that is exactly where the curve goes. The clear side is the one the curve is
-   * climbing away from: above-right of a descending curve, above-left of a rising
-   * one — which for a bowl puts every label inside the bowl, where there is room.
-   */
-  const clearSide = (c: Curve, x: number): 'above-left' | 'above-right' =>
-    curveSlope(c, x, step) < 0 ? 'above-right' : 'above-left';
-
-  if (ov.kind === 'annotate') {
-    const anchor: Pt = [m.x(ov.x), m.y(ov.y)];
-    const prims: PlanPrim[] = [];
-    if (ov.leaderTo) {
-      const to: Pt = [m.x(ov.leaderTo.x), m.y(ov.leaderTo.y)];
-      const run = clipSegment(anchor, to, m.area);
-      if (run)
-        prims.push(
-          ...geoms(sketchLine(rng, st, run[0], run[1], 1), pal.inkSoft, sw * 0.55, ctx.alpha),
-        );
-    }
-    prims.push(labelAt(ov.text, anchor, size, pal.ink, el.at, 'above'));
-    return [{ key, prims, at, weight: 0.7, center: anchor }];
-  }
-
-  const curve = curveById(el, ov.curveId);
-  if (!curve) return [];
-
-  if (ov.kind === 'point') {
-    const p = pointOn(curve, ov.x, m);
-    if (!p) return [];
-    const prims: PlanPrim[] = [dotPrim(p[0], p[1], dotR, pal.accent, sw * 0.4)];
-    if (ov.label) {
-      prims.push(
-        labelAt(ov.label, [p[0], p[1] - dotR], size, pal.ink, el.at, clearSide(curve, ov.x)),
-      );
-    }
-    return [{ key, prims, at, weight: 0.4, center: p }];
-  }
-
-  if (ov.kind === 'tangent') {
-    const p = pointOn(curve, ov.x, m);
-    if (!p) return [];
-    const slope = curveSlope(curve, ov.x, step);
-    const yAt = curveAt(curve, ov.x) ?? 0;
-    // A slope plus a span in data units says nothing about where the frame ends, so
-    // the drawn line is clipped to the plot area. The angle is taken before the clip
-    // and so is exactly the slope being measured.
-    const far: Pt = [m.x(ov.x - ov.span), m.y(yAt - slope * ov.span)];
-    const near: Pt = [m.x(ov.x + ov.span), m.y(yAt + slope * ov.span)];
-    const run = clipSegment(far, near, m.area);
-    if (!run) return [];
-    const [left, right] = run;
-    const prims: PlanPrim[] = [
-      ...geoms(sketchLine(rng, st, left, right, 1), pal.accent, sw * 0.85, ctx.alpha),
-      dotPrim(p[0], p[1], dotR, pal.accent, sw * 0.4),
-    ];
-    if (ov.label) {
-      // Below the downhill end. A tangent to a convex curve lies underneath it
-      // everywhere except where they touch, so that corner is always clear board.
-      const low = left[1] > right[1] ? left : right;
-      prims.push(labelAt(ov.label, [low[0], low[1]], size, pal.accent, el.at, 'below'));
-    }
-    // The tangent starts level and swings into the slope it is measuring — the
-    // motion is the explanation, so it must not simply appear at its final angle.
-    const deg = -(Math.atan2(near[1] - far[1], near[0] - far[0]) * 180) / Math.PI;
-    return [
-      {
-        key,
-        prims,
-        at,
-        weight: 0.8,
-        center: p,
-        sweep: { cx: p[0], cy: p[1], deg: Math.max(-70, Math.min(70, deg)) },
-      },
-    ];
-  }
-
-  if (ov.kind === 'dropline') {
-    const p = pointOn(curve, ov.x, m);
-    if (!p) return [];
-    const axisY = Math.min(m.area.y + m.area.h, Math.max(m.area.y, m.y(m.originY)));
-    const axisX = Math.min(m.area.x + m.area.w, Math.max(m.area.x, m.x(m.originX)));
-    const dash = Math.max(12 * ctx.scale, sw * 2);
-    const prims: PlanPrim[] = [];
-    const runs: Pt[][] = [];
-    if (ov.to === 'x' || ov.to === 'both') runs.push([p, [p[0], axisY]]);
-    if (ov.to === 'y' || ov.to === 'both') runs.push([p, [axisX, p[1]]]);
-    for (const run of runs) {
-      for (const seg of dashAlong(run, dash, dash * 0.8)) {
-        prims.push(
-          ...geoms(
-            [sketchAlong(rng, st, seg, { amp: 0.35, spacing: dash })],
-            pal.inkSoft,
-            sw * 0.5,
-            ctx.alpha,
-          ),
-        );
-      }
-    }
-    return [{ key, prims, at, weight: 0.5, center: p }];
-  }
-
-  if (ov.kind === 'shade') {
-    const other = ov.toCurveId ? curveById(el, ov.toCurveId) : null;
-    const lo = Math.min(ov.fromX, ov.toX);
-    const hi = Math.max(ov.fromX, ov.toX);
-    if (!(hi > lo)) return [];
-    const steps = 26;
-    const top: Pt[] = [];
-    const bottom: Pt[] = [];
-    const axisY = Math.min(m.area.y + m.area.h, Math.max(m.area.y, m.y(m.originY)));
-    for (let i = 0; i <= steps; i++) {
-      const x = lo + ((hi - lo) * i) / steps;
-      const a = curveAt(curve, x);
-      if (a === null) continue;
-      top.push([m.x(x), Math.max(m.area.y, Math.min(m.area.y + m.area.h, m.y(a)))]);
-      const b = other ? curveAt(other, x) : null;
-      bottom.push([
-        m.x(x),
-        b === null ? axisY : Math.max(m.area.y, Math.min(m.area.y + m.area.h, m.y(b))),
-      ]);
-    }
-    if (top.length < 2) return [];
-    const poly = [...top, ...bottom.reverse()];
-    const gap = Math.max(sw * 3.2, 18 * ctx.scale);
-    const prims = hachurePolygon(rng, st, poly, gap).map((d) =>
-      geom(d, pal.accent, sw * 0.45, { opacity: 0.3, noDash: true }),
-    );
-    const mid = top[Math.floor(top.length / 2)] as Pt;
-    return [{ key, prims, at, weight: 0.8, center: mid }];
-  }
-
-  // steps — the descent itself, one move at a time so the learner can count them.
-  const xs = ov.xs;
-  const phases: PlotPhase[] = [];
-  for (let i = 0; i + 1 < xs.length; i++) {
-    const a = pointOn(curve, xs[i] as number, m);
-    const b = pointOn(curve, xs[i + 1] as number, m);
-    if (!a || !b) continue;
-    const prims: PlanPrim[] = [dotPrim(a[0], a[1], dotR * 0.85, pal.accent, sw * 0.35)];
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const len = Math.hypot(dx, dy) || 1;
-    const head = Math.max(9 * ctx.scale, Math.min(len * 0.3, 24 * ctx.scale));
-    const shaft: Pt = [b[0] - (dx / len) * head * 0.5, b[1] - (dy / len) * head * 0.5];
-    prims.push(...geoms(sketchLine(rng, st, a, shaft, 1), pal.accent, sw * 0.7, ctx.alpha));
-    prims.push(
-      ...geoms(
-        sketchArrowHead(rng, st, [b[0], b[1]], Math.atan2(dy, dx), head),
-        pal.accent,
-        sw * 0.7,
-        ctx.alpha,
-      ),
-    );
-    if (i === xs.length - 2) prims.push(dotPrim(b[0], b[1], dotR, pal.accent, sw * 0.4));
-    if (ov.label && i === 0) {
-      prims.push(labelAt(ov.label, [a[0], a[1] - dotR * 2], size, pal.accent, el.at, 'above'));
-    }
-    phases.push({
-      key: `${key}s${i}`,
-      prims,
-      at: i === 0 ? at : null,
-      weight: 0.45,
-      center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
-    });
-  }
-  return phases;
+/**
+ * The plotting area — the box inside the gutters that hold the ticks and names.
+ *
+ * The IR says a plot occupies its `at` box and nothing about gutters, so anything
+ * authored *inside* a plot needs this to be rebased onto the ink. It is read from the
+ * layout rather than recomputed: the gutters are visuals' decision.
+ */
+export function plotArea(src: PlotSource): Rect {
+  return { ...src.layout.area };
 }
 
 /**
- * The whole plot, as an ordered list of independently timed phases.
+ * The canvas-space trace of a curve, for something to ride or morph into.
  *
- * Order is fixed: axes, then curves in declaration order, then overlays in
- * declaration order. An overlay with `at > 0` is pinned to that fraction of the
- * narration; one left at the default is sequenced after whatever precedes it.
+ * Already resampled to even arc length by the visuals stage, which is what makes a
+ * ball descend at one speed and a morph bend the short way instead of sliding.
  */
-export function plotPhases(el: PlotElement, ctx: PlotContext): PlotPhase[] {
-  const m = plotMap(el, ctx);
-  const rng = new Rng(seedOf(el.id, 'plot'));
-  const phases: PlotPhase[] = [axisPhase(el, m, ctx, rng)];
-  for (const c of el.curves) {
-    const phase = curvePhase(c, el, m, ctx, rng);
-    if (phase) phases.push(phase);
-  }
-  el.overlays.forEach((ov, i) => {
-    phases.push(...overlayPhases(ov, i, el, m, ctx, rng));
-  });
-  const kept = phases.filter((p) => p.prims.length > 0);
-  deconflictLabels(kept, el, m);
-  return kept;
-}
-
-/* ------------------------------------------------------- label deconfliction */
-
-/** A `TextPrim` narrowed to the one field this pass rewrites. */
-type LabelPrim = { kind: 'text'; box: Rect };
-
-/**
- * Move labels off each other and off the ink they name.
- *
- * Every label site in this file is chosen from local geometry — "above the dot",
- * "below the downhill end of the tangent", "inside the bowl" — and each choice is
- * right in isolation. Together they are not: a plot is built by independent
- * phases that never see one another, so a point label, an annotation and a curve
- * name all converge on whatever corner is empty *for them*. The benchmark render
- * printed "the bottom" through the y-axis, "how wrong we are here" across the
- * curve, "uphill is right, so step left" over "downhill", and "too small" /
- * "too large" through each other in the learning-rate comparison. Overlapping
- * handwriting is not a blemish; it is the point of the beat becoming unreadable.
- *
- * One deterministic pass over the finished phases in draw order, so earlier ink
- * wins and later labels dodge. Candidates are tried nearest-first and clamped
- * inside the element, so a nudge can never push a label out of frame; if nothing
- * clears, the least-bad candidate is taken rather than leaving a collision.
- *
- * (The `@inkcast/visuals` plot resolver has a richer version of this. It cannot
- * help here: nothing reads its output — see `docs/STATUS.md`.)
- */
-function deconflictLabels(phases: readonly PlotPhase[], el: PlotElement, m: PlotMap): void {
-  const labels: Array<{ prim: LabelPrim; box: Rect }> = [];
-  const ink: Array<[number, number]> = [];
-
-  for (const phase of phases) {
-    for (const prim of phase.prims) {
-      if (prim.kind === 'text') {
-        labels.push({ prim: prim as LabelPrim, box: { ...prim.box } });
-      } else if (prim.kind === 'geom') {
-        // Ink is an obstacle at the resolution of its own segments: a curve's
-        // bounding box is the whole plot, which would leave nowhere legal.
-        for (const sub of flattenPathData(prim.d, 8)) for (const p of sub) ink.push(p);
-      }
-    }
-  }
-  if (labels.length < 1) return;
-
-  const placed: Rect[] = [];
-  const pad = Math.max(2, m.area.h * 0.012);
-
-  for (const slot of labels) {
-    const gap = slot.box.h * 0.55;
-    const stepX = slot.box.w * 0.6 + gap;
-    const stepY = slot.box.h + gap;
-    // Nearest-first: stay put, then step off in the four directions, then the
-    // diagonals, then a full label further. Vertical before horizontal, because a
-    // label that keeps its x still points at the thing it names.
-    const offsets: Array<[number, number]> = [
-      [0, 0],
-      [0, -stepY],
-      [0, stepY],
-      [-stepX, 0],
-      [stepX, 0],
-      [-stepX, -stepY],
-      [stepX, -stepY],
-      [-stepX, stepY],
-      [stepX, stepY],
-      [0, -2 * stepY],
-      [0, 2 * stepY],
-    ];
-    let best: { box: Rect; cost: number } | undefined;
-    for (const [dx, dy] of offsets) {
-      const box = clampBox(
-        { x: slot.box.x + dx, y: slot.box.y + dy, w: slot.box.w, h: slot.box.h },
-        el.at,
-      );
-      const cost = collisionCost(box, placed, ink, pad);
-      if (cost === 0) {
-        best = { box, cost };
-        break;
-      }
-      if (!best || cost < best.cost) best = { box, cost };
-    }
-    const box = best ? best.box : slot.box;
-    slot.prim.box = box;
-    placed.push(box);
-  }
-}
-
-/**
- * How badly a candidate box collides: overlap area against labels already placed,
- * plus a charge per stroke sample underneath it.
- *
- * Label-on-label is weighted far above label-on-ink, because two runs of
- * handwriting on top of each other are illegible whereas a word crossing one
- * stroke is merely untidy — and on a full plot some contact with ink is often
- * unavoidable.
- */
-function collisionCost(
-  box: Rect,
-  placed: readonly Rect[],
-  ink: readonly [number, number][],
-  pad: number,
-): number {
-  const grown = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
-  let cost = 0;
-  for (const other of placed) {
-    const ox = Math.min(grown.x + grown.w, other.x + other.w) - Math.max(grown.x, other.x);
-    const oy = Math.min(grown.y + grown.h, other.y + other.h) - Math.max(grown.y, other.y);
-    if (ox > 0 && oy > 0) cost += 40 * ox * oy;
-  }
-  const perHit = Math.max(1, box.w * box.h) * 0.02;
-  for (const [x, y] of ink) {
-    if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) cost += perHit;
-  }
-  return cost;
+export function curveTrace(src: PlotSource, curveId?: string): [number, number][] | null {
+  const trace = curveId
+    ? (src.layout.curves.find((c) => c.id === curveId) ?? src.layout.curves[0])
+    : src.layout.curves[0];
+  if (!trace || trace.points.length < 2) return null;
+  return trace.points.map((p) => [p.x, p.y] as [number, number]);
 }

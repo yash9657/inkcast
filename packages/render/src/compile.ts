@@ -44,7 +44,7 @@ import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
-import { curvePolylines, plotMap, plotPhases } from './plot.js';
+import { curveTrace, plotArea, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
 import { dotPrim, geom, geoms, textPrim } from './prims.js';
 import {
@@ -72,6 +72,8 @@ import type {
   Rect,
   RenderPlan,
 } from './types.js';
+import { openVisuals } from './visuals.js';
+import type { PlotSource, VisualsBridge } from './visuals.js';
 
 const log = logger('render:compile');
 
@@ -80,6 +82,11 @@ export type CompileOptions = {
   grid?: boolean;
   /** CSS font-family list for on-canvas text. */
   fontFamily?: string;
+  /**
+   * Explicit handwriting font file. Only used when plot geometry has to be resolved
+   * in-process, where it must match the font the visuals stage measured against.
+   */
+  fontPath?: string;
 };
 
 /** Words-per-second used only when the voice stage has not measured a scene. */
@@ -264,10 +271,31 @@ type Ctx = {
    * than the scene being compiled.
    */
   elements: Map<string, Element>;
+  /** Owning scene id per element, which the visuals seed is derived from. */
+  sceneOf: Map<string, string>;
   alpha: number | undefined;
   /** Plot frames and curves already on the board, so they are not re-inked. */
   drawn: Set<string>;
+  /** Plot geometry from the visuals stage. */
+  visuals: VisualsBridge;
+  /** Resolved once per element: on the computed path this is real work. */
+  plots: Map<string, PlotSource | undefined>;
 };
+
+/**
+ * The visuals stage's geometry for one plot, memoised.
+ *
+ * A plot is asked for up to three times while compiling one scene — its own phases,
+ * the area an element riding it is rebased onto, and the trace a morph bends into —
+ * and when the manifest is absent each of those would otherwise re-resolve it.
+ */
+function plotSourceOf(el: PlotElement, ctx: Ctx): PlotSource | undefined {
+  const cached = ctx.plots.get(el.id);
+  if (cached !== undefined || ctx.plots.has(el.id)) return cached;
+  const src = ctx.visuals.plotFor(el, ctx.sceneOf.get(el.id) ?? '');
+  ctx.plots.set(el.id, src);
+  return src;
+}
 
 type SceneTiming = {
   index: number;
@@ -347,13 +375,27 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     assets: new Map(sb.assets.map((a) => [a.id, a.svg])),
     boxes: new Map(),
     elements: new Map(),
+    sceneOf: new Map(),
     alpha: ink.opacity < 1 ? ink.opacity : undefined,
     drawn: new Set<string>(),
+    // The plot lane measures its own layout in these two sizes, so they are an input
+    // to resolving the geometry rather than a finish applied to it. Quoted in output
+    // pixels through the camera, exactly like every other piece of type on the board.
+    visuals: openVisuals(sb, dir, {
+      strokeWidth: sw,
+      typeSizes: {
+        caption: TYPE_SCALE.caption * scale * gain,
+        label: TYPE_SCALE.label * scale * gain,
+      },
+      ...(opts.fontPath ? { fontPath: opts.fontPath } : {}),
+    }),
+    plots: new Map(),
   };
   for (const scene of timed.scenes) {
     for (const el of scene.elements) {
       ctx.boxes.set(el.id, el.at);
       ctx.elements.set(el.id, el);
+      ctx.sceneOf.set(el.id, scene.id);
     }
   }
 
@@ -522,24 +564,12 @@ function morphGeometry(el: Element, ctx: Ctx): GPt[] | null {
     // comparisons drawn against it and have nothing to morph out of.
     const curve = el.curves[0];
     if (!curve) return null;
-    const m = plotMap(el, {
-      pal: ctx.pal,
-      st: ctx.st,
-      sw: ctx.sw,
-      scale: ctx.scale,
-      type: ctx.type,
-      alpha: ctx.alpha,
-    });
-    const { runs } = curvePolylines(curve, el, m);
-    // Longest run: a curve clipped by the plot band can arrive in pieces, and the
-    // main body is the one the hillside should become.
-    let best: GPt[] | null = null;
-    for (const run of runs) {
-      if (run.length >= 2 && (best === null || run.length > best.length)) {
-        best = run.map((p) => [p[0], p[1]] as GPt);
-      }
-    }
-    return best;
+    const src = plotSourceOf(el, ctx);
+    if (!src) return null;
+    // The visuals stage already resampled the curve's longest visible run to even
+    // arc length — a curve clipped by the plot band arrives in pieces, and that is
+    // the piece the hillside should become.
+    return curveTrace(src, curve.id);
   }
   return null;
 }
@@ -645,14 +675,12 @@ function bakeMorph(el: Element, timing: SceneTiming, ctx: Ctx, fps: number): Mor
  * compressed to fit rather than being cut off mid-curve.
  */
 function plotItems(el: PlotElement, start: number, timing: SceneTiming, ctx: Ctx): PlanItem[] {
-  const all: PlotPhase[] = plotPhases(el, {
-    pal: ctx.pal,
-    st: ctx.st,
-    sw: ctx.sw,
-    scale: ctx.scale,
-    type: ctx.type,
-    alpha: ctx.alpha,
-  });
+  const src = plotSourceOf(el, ctx);
+  if (!src) {
+    log.warn(`plot "${el.id}" has no geometry from the visuals stage — it will not be drawn`);
+    return [];
+  }
+  const all: PlotPhase[] = plotPhases(el, src, { pal: ctx.pal, alpha: ctx.alpha });
   // A later beat annotating this plot re-declares its frame and curves, because an
   // overlay needs the curve definition to know where a tangent goes. Draw that ink
   // once: the board accumulates, so it is still there to be annotated.
@@ -714,9 +742,9 @@ function plotItems(el: PlotElement, start: number, timing: SceneTiming, ctx: Ctx
  * The IR says a plot occupies its `at` box, and that is the only information an
  * author — the lesson compiler, an LLM, or a person writing JSON — has for working
  * out where a point on the curve lands. So they all map data space across the full
- * box. The renderer does not draw it there: `plotMap` insets the box by gutters
- * sized from the type scale, to leave room for the axis names and ticks. Those
- * gutters are a renderer invention that the IR never exposes.
+ * box. The plot is not drawn there: the visuals stage insets the box by gutters sized
+ * from the type scale, to leave room for the axis names and ticks. Those gutters are
+ * a layout decision the IR never exposes.
  *
  * The consequence was visible and silently wrong. The benchmark's descending ball
  * was authored on the curve at w = 3 and rendered *below and left* of it, ending up
@@ -726,9 +754,8 @@ function plotItems(el: PlotElement, start: number, timing: SceneTiming, ctx: Ctx
  * supposed to be checkable.
  *
  * So anything living inside a plot's box gets its box-relative coordinates carried
- * through the same inset the curve got. This is a fix to the *renderer's* private
- * layout leaking into author coordinates, which is why it belongs here rather than
- * in a stage that would have to guess a font size to reproduce it.
+ * through the same inset the curve got — read from the plot's resolved layout, so
+ * there is one answer to "where is the plotting area" rather than two.
  */
 function rebaseOntoPlot(el: Element, hosts: readonly Element[], ctx: Ctx): Element {
   if (el.type === 'plot' || hosts.length === 0) return el;
@@ -736,7 +763,9 @@ function rebaseOntoPlot(el: Element, hosts: readonly Element[], ctx: Ctx): Eleme
     (h) => h.type === 'plot' && h.id !== el.id && rectContains(h.at, el.at, 1),
   );
   if (!host || host.type !== 'plot') return el;
-  const area = plotMap(host, ctx).area;
+  const src = plotSourceOf(host, ctx);
+  if (!src) return el;
+  const area = plotArea(src);
   const box = host.at;
   if (!(box.w > 0) || !(box.h > 0)) return el;
   const map = (p: { x: number; y: number }): { x: number; y: number } => ({

@@ -482,10 +482,17 @@ test('parts carry their own at fraction and a contiguous draw range', () => {
     assert.equal(r.at, 0.1, `${r.kind} should inherit the element's enter.at`);
   }
   const overlays = records.filter((r) => r.id.startsWith('overlay:'));
+  // Three overlays, but the stepping sequence is one part *per hop* — the descent
+  // has to arrive a move at a time, so each hop owns its own draw range and start.
   assert.deepEqual(
     overlays.map((r) => `${r.kind}@${r.at}`),
-    ['point@0.3', 'tangent@0.6', 'steps@0.9'],
-    'overlays must be drawn in ascending `at` order',
+    ['point@0.3', 'tangent@0.6', 'steps@0.9', 'steps@0.9'],
+    'overlays must be drawn in ascending `at` order, hop by hop for a descent',
+  );
+  assert.deepEqual(
+    overlays.filter((r) => r.kind === 'steps').map((r) => r.id),
+    ['overlay:0:0', 'overlay:0:1'],
+    'each hop after the first is a suffixed sub-part of the same overlay',
   );
   for (const r of records) {
     for (let i = r.from; i <= r.to; i++) {

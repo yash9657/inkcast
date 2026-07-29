@@ -42,16 +42,20 @@ export const PIPELINE_VERSION = 2;
  * - lesson 1: new stage.
  * - storyboard 1: new stage (compiled from a Lesson rather than a document).
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.
- * - visuals 2: plot / path / motion elements resolve to real ink.
- * - render 2: plots, paths and motion in the frame compiler.
+ * - visuals 3: a descent is recorded as one sub-part per hop, labels are charged for
+ *   the ink they would lie across, and a curve named after its own axis is no longer
+ *   captioned twice.
+ * - render 3: plot geometry comes from the visuals stage rather than a second
+ *   implementation inside the renderer, so every plot's gutters, ticks, sampling and
+ *   label placement change.
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
   lesson: 1,
   storyboard: 1,
   voice: 2,
-  visuals: 2,
-  render: 2,
+  visuals: 3,
+  render: 3,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */

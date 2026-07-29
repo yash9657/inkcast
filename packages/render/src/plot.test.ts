@@ -14,8 +14,8 @@ import { compilePlan } from './compile.js';
 import { lessonStoryboard } from './fixture.js';
 import { flattenPathData } from './geom.js';
 import type { Pt } from './geom.js';
-import { curveAt, curveSlope, evalCurveFn, plotMap } from './plot.js';
-import { inkStyle, paletteFor } from './palette.js';
+import { CURVE_FUNCTIONS, curveEval, plotFrame } from '@inkcast/visuals';
+import { paletteFor } from './palette.js';
 import type { GeomPrim, PlanItem, PlanPrim, Rect, TextPrim } from './types.js';
 
 const DIR = '/tmp/inkcast-plot-test';
@@ -89,24 +89,25 @@ function bounds(prims: PlanPrim[]): Rect {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
-test('named functions evaluate as documented, and log is honest about its domain', () => {
-  assert.equal(evalCurveFn('parabola', [2, 1, 3], 3), 2 * 4 + 3);
-  assert.equal(evalCurveFn('line', [2, -1], 3), 5);
-  assert.equal(evalCurveFn('sigmoid', [1, 0, 1], 0), 0.5);
-  assert.equal(evalCurveFn('gaussian', [1, 0, 4], 0), 4);
-  assert.equal(evalCurveFn('sine', [2, 1, 0], Math.PI / 2), 2);
-  assert.ok(Math.abs((evalCurveFn('exp', [1, 1], 1) ?? 0) - Math.E) < 1e-12);
-  assert.equal(evalCurveFn('log', [1, 1], Math.E), 1);
-  assert.equal(evalCurveFn('log', [1, 1], -1), null, 'log of a non-positive number is undefined');
-  assert.equal(evalCurveFn('step', [1, 1, 0], 2.7), 2);
-  // A double well is the picture behind "it finds *a* minimum, not *the* minimum".
-  const wells = [-1, 0, 1].map((x) => evalCurveFn('doubleWell', [1, 1, 0, 0], x) ?? 0);
-  assert.ok(
-    (wells[0] as number) < (wells[1] as number) && (wells[2] as number) < (wells[1] as number),
-  );
+test('the renderer holds no second opinion about curve maths', () => {
+  // The named functions, the sampling and the slopes belong to `@inkcast/visuals`,
+  // which is authoritative for plot geometry; `curveEval` is what the drawn curve is
+  // built from and `CURVE_FUNCTIONS` is the contract the planner writes against.
+  // This asserts the renderer reaches for that one implementation rather than
+  // keeping a copy to drift against — the copy it used to keep disagreed with the
+  // planner about what `step` meant.
+  const bowl = curveEval({
+    id: 'b',
+    fn: { name: 'parabola', params: [1, 0, 0] },
+    dashed: false,
+    accent: 0,
+  });
+  assert.equal(bowl.at(3), 9);
+  assert.ok((bowl.slopeAt(-2) ?? 0) < 0, 'downhill to the right on the left flank');
+  assert.ok((bowl.slopeAt(2) ?? 0) > 0);
 
-  // Explicit samples interpolate, and slope is signed the way the picture reads.
-  const sampled = {
+  // Explicit samples interpolate along the same spline the path lane draws.
+  const sampled = curveEval({
     id: 's',
     points: [
       { x: 0, y: 0 },
@@ -114,17 +115,22 @@ test('named functions evaluate as documented, and log is honest about its domain
     ],
     dashed: false,
     accent: 0,
-  };
-  assert.equal(curveAt(sampled, 5), 10);
-  assert.equal(curveAt(sampled, -4), 0, 'clamped outside the samples');
-  const bowl = {
-    id: 'b',
-    fn: { name: 'parabola' as const, params: [1, 0, 0] },
+  });
+  // Inverted by bisection against the drawn spline, so exact to float precision
+  // rather than exactly representable.
+  assert.ok(Math.abs((sampled.at(5) ?? 0) - 10) < 1e-9);
+
+  // `step` is a single jump, which is what the planner's params mean by it.
+  const jump = curveEval({
+    id: 'j',
+    fn: { name: 'step', params: [3, 0, 1] },
     dashed: false,
     accent: 0,
-  };
-  assert.ok(curveSlope(bowl, -2, 0.01) < 0, 'downhill to the right on the left flank');
-  assert.ok(curveSlope(bowl, 2, 0.01) > 0);
+  });
+  assert.equal(jump.at(2.9), 0);
+  assert.equal(jump.at(3.1), 1);
+
+  assert.ok(CURVE_FUNCTIONS.parabola.params.length > 0, 'the catalogue is documented as data');
 });
 
 test('axes are drawn first, then the curve, then the overlays', () => {
@@ -284,24 +290,27 @@ test('plot ink stays inside the element box and uses only the board palette', ()
 });
 
 test('the plotting area leaves room for the labels it was given', () => {
-  const ctx = {
-    pal: paletteFor('color'),
-    st: { ...inkStyle('marker'), scale: 1 },
-    sw: 6,
-    scale: 1,
-    type: 1,
-    alpha: undefined,
-  };
+  // The gutters are the visuals stage's decision, sized from the real type scale.
+  // The renderer reads the solved area rather than insetting the box a second time.
   const sb = plotBoard({ xLabel: 'weight', yLabel: 'loss', ticks: true });
   const bare = plotBoard({ axes: 'both' });
-  const withLabels = plotMap(sb.scenes[0]?.elements[0] as PlotElement, ctx);
-  const without = plotMap(bare.scenes[0]?.elements[0] as PlotElement, ctx);
+  const withLabels = plotFrame(sb.scenes[0]?.elements[0] as PlotElement, { canvasHeight: 1080 });
+  const without = plotFrame(bare.scenes[0]?.elements[0] as PlotElement, { canvasHeight: 1080 });
   assert.ok(withLabels.area.x > without.area.x, 'a y label and ticks buy a left gutter');
   assert.ok(withLabels.area.h < without.area.h, 'and an x label a bottom one');
   assert.ok(withLabels.area.w > 0 && withLabels.area.h > 0);
-  // Origin lands on zero when zero is in range, otherwise on the domain edge.
-  assert.equal(withLabels.originY, 0);
-  assert.equal(withLabels.originX, 0);
+  // The axis lines sit on zero when zero is in range, otherwise on the domain edge.
+  assert.equal(withLabels.anchor.y, 0);
+  assert.equal(withLabels.anchor.x, 0);
+
+  // And what the renderer draws agrees with it: the frame phase's ink lands inside
+  // the solved area, not the raw element box.
+  const frame = items(sb)[0];
+  const ink = bounds(geomsOf(frame));
+  assert.ok(
+    ink.x >= withLabels.area.x - withLabels.area.w * 0.1,
+    'the frame is drawn in the inset area the layout solved',
+  );
 });
 
 test('a later beat annotating the same plot does not re-ink it', () => {
@@ -435,17 +444,11 @@ test('a ball riding a plot lands on the curve, not beside it', () => {
   assert.ok(ball, 'the ball reached the plan');
   assert.ok(ball.motion, 'the ball still moves');
 
-  // Where the renderer actually draws (3, 4): through the inset plotting area.
-  const ctx = {
-    pal: paletteFor('color'),
-    st: { ...inkStyle('marker'), scale: 1 },
-    sw: 4,
-    scale: 1,
-    type: 1,
-    alpha: undefined,
-  };
-  const m = plotMap(sb.scenes[0]!.elements[0]! as PlotElement, ctx);
-  const truth = { x: m.x(3), y: m.y(4) };
+  // Where the plot actually puts (3, 4): through the inset plotting area, as solved
+  // by the stage that owns the gutters.
+  const truth = plotFrame(sb.scenes[0]!.elements[0]! as PlotElement, {
+    canvasHeight: 1080,
+  }).toCanvas({ x: 3, y: 4 });
 
   // The ball's start is on the curve, and much closer to it than the raw box guess.
   const start = {

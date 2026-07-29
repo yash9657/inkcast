@@ -192,6 +192,9 @@ importers:
       '@inkcast/core':
         specifier: workspace:*
         version: link:../core
+      '@inkcast/visuals':
+        specifier: workspace:*
+        version: link:../visuals
       playwright:
         specifier: ^1.62.0
         version: 1.62.0
