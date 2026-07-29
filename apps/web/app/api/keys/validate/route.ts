@@ -19,9 +19,7 @@ import { z } from 'zod';
 
 import { badRequest, fail, json } from '../../_lib/http';
 import { PROVIDER_IDS, judgeKeyShape, providerInfo } from '@/components/settings/catalog';
-import { scrub } from '../_vault/crypto.js';
-import { effectiveKey } from '../_vault/index.js';
-import { validateKey } from '../_vault/validate.js';
+import { effectiveKey, scrub, validateKey } from '../_store.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,7 +63,7 @@ export async function POST(request: Request) {
 
     /* ---------------------------------------------- which key are we checking */
 
-    let source: 'body' | 'env' | 'vault';
+    let source: 'body' | 'env' | 'vault' | 'keychain';
     if (parsed.data.key !== undefined) {
       key = parsed.data.key.trim();
       const shape = judgeKeyShape(provider, key);
@@ -79,13 +77,14 @@ export async function POST(request: Request) {
             status: 'unknown' as const,
             message:
               found.reason === 'unreadable'
-                ? `A ${info.label} key is saved but can no longer be decrypted, so there is nothing to check. Paste it again.`
+                ? `A ${info.label} key is stored but cannot be unsealed, so there is nothing to check. Settings says whether that needs a passphrase or a fresh paste.`
                 : `No ${info.label} key is configured, so there is nothing to check.`,
           },
         });
       }
       key = found.key;
-      source = found.source === 'env' ? 'env' : 'vault';
+      // `none` is unreachable: `effectiveKey` only succeeds with a real source.
+      source = found.source === 'none' ? 'vault' : found.source;
     }
 
     const result = await validateKey(provider, key);

@@ -372,6 +372,36 @@ export async function vaultGet(
   return plaintext;
 }
 
+/** Why a stored entry could not be opened. */
+export type VaultEntryVerdict = 'ok' | 'missing' | 'locked' | 'tampered';
+
+/**
+ * Check that `provider`'s entry opens, without yielding the key.
+ *
+ * A status listing has to know whether a stored key is actually *usable*:
+ * reporting one as configured when nothing can decrypt it is a lie the pipeline
+ * exposes a minute later. Returning a verdict instead of the plaintext is what
+ * lets that listing stay honest while never holding key material — the secret
+ * exists only inside this function, only long enough to authenticate, and is
+ * never returned, tracked or logged.
+ */
+export async function vaultVerify(
+  file: string,
+  provider: Provider,
+  passphrase: string,
+): Promise<VaultEntryVerdict> {
+  let opened: { vault: VaultFile; key: Buffer };
+  try {
+    opened = await unlock(file, passphrase);
+  } catch (err) {
+    if (err instanceof KeyvaultError && err.code === 'bad-passphrase') return 'locked';
+    throw err;
+  }
+  const entry = opened.vault.entries[provider];
+  if (!entry) return 'missing';
+  return open(opened.key, entry, entryAad(provider, entry)) === undefined ? 'tampered' : 'ok';
+}
+
 /** Remove an entry. Returns false when there was nothing stored. */
 export async function vaultDelete(
   file: string,
@@ -405,6 +435,31 @@ export function vaultList(file: string): VaultEntryInfo[] {
 /** True when a vault file exists at `file`. */
 export function vaultExists(file: string): boolean {
   return existsSync(file);
+}
+
+/** The scrypt parameters a given vault was sealed with, for provenance display. */
+export type VaultKdfInfo = { name: 'scrypt'; N: number; r: number; p: number; keyLen: number };
+
+/**
+ * The KDF parameters of the vault at `file`, or the defaults a new one would use.
+ *
+ * Read from the file rather than assumed, because the parameters are stored per
+ * vault precisely so they can be raised later: a settings screen that printed the
+ * current defaults would misreport an older vault. Returns `undefined` only when
+ * the file exists but cannot be parsed — the caller then has nothing honest to
+ * show.
+ */
+export function vaultKdf(file: string): VaultKdfInfo | undefined {
+  if (!existsSync(file)) {
+    const { name, N, r, p, keyLen } = KDF_DEFAULTS;
+    return { name, N, r, p, keyLen };
+  }
+  try {
+    const { kdf } = parse(readFileSync(file, 'utf8'), file);
+    return { name: kdf.name, N: kdf.N, r: kdf.r, p: kdf.p, keyLen: kdf.keyLen };
+  } catch {
+    return undefined;
+  }
 }
 
 /**

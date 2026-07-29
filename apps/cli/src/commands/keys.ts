@@ -101,14 +101,24 @@ async function listKeys(ctx: CliContext, kv: Keyvault): Promise<number> {
     [c.dim('PROVIDER'), c.dim('KEY'), c.dim('SOURCE'), c.dim('CHECKED')],
   ];
   for (const s of statuses) {
-    const key = s.configured ? (s.masked ?? 'set') : '—';
-    const source = s.source ?? '—';
+    // A stored-but-unusable key still has a preview, and showing it matters: "—"
+    // would read as "you never set one", which is the opposite of the truth and
+    // invites the user to overwrite a key that is perfectly good.
+    const stuck = s.availability === 'locked' || s.availability === 'unreadable';
+    const key = s.configured || stuck ? (s.masked ?? 'set') : '—';
+    const source = s.source ?? (stuck ? s.availability : '—');
     const checked = s.lastValidated ? s.lastValidated.slice(0, 10) : 'never';
     rows.push([s.provider, key, source, checked]);
     painted.push([
       c.bold(s.provider),
       s.configured ? key : c.dim(key),
-      s.source ? (s.source === 'env' ? c.yellow(source) : source) : c.dim(source),
+      s.source
+        ? s.source === 'env'
+          ? c.yellow(source)
+          : source
+        : stuck
+          ? c.yellow(source)
+          : c.dim(source),
       s.lastValidated ? checked : c.dim(checked),
     ]);
   }
@@ -123,8 +133,25 @@ async function listKeys(ctx: CliContext, kv: Keyvault): Promise<number> {
   if (shadowed.length > 0) {
     out += `  ${c.dim('note:')} ${shadowed.map((s) => s.provider).join(', ')} ${shadowed.length === 1 ? 'comes' : 'come'} from the environment and take precedence over anything stored.\n`;
   }
+  // Named separately from the general env note, because this one says a key you
+  // deliberately stored is doing nothing — the state nobody can otherwise explain.
+  const inert = statuses.filter((s) => s.shadowedByEnv);
+  if (inert.length > 0) {
+    out += `  ${c.yellow('note:')} ${inert.map((s) => s.provider).join(', ')} also ${inert.length === 1 ? 'has a stored key that is' : 'have stored keys that are'} being ignored because of that. Unset the variable to use the stored one.\n`;
+  }
 
-  const missing = statuses.filter((s) => !s.configured);
+  const locked = statuses.filter((s) => s.availability === 'locked');
+  if (locked.length > 0) {
+    out += `  ${c.yellow('note:')} ${locked.map((s) => s.provider).join(', ')} ${locked.length === 1 ? 'is' : 'are'} stored but cannot be unsealed — no vault passphrase is available. Set INKCAST_VAULT_PASSPHRASE; the ${locked.length === 1 ? 'key' : 'keys'} ${locked.length === 1 ? 'is' : 'are'} intact.\n`;
+  }
+  const damaged = statuses.filter((s) => s.availability === 'unreadable');
+  if (damaged.length > 0) {
+    out += `  ${c.yellow('note:')} ${damaged.map((s) => s.provider).join(', ')} ${damaged.length === 1 ? 'is' : 'are'} stored but ${damaged.length === 1 ? 'fails' : 'fail'} authentication — the vault was modified. Re-add with ${c.cyan(`inkcast keys set ${damaged[0]!.provider}`)}.\n`;
+  }
+
+  // Only genuinely-absent providers get the upgrade pitch. Telling someone to
+  // `keys set` a provider whose key is merely locked would have them overwrite it.
+  const missing = statuses.filter((s) => s.availability === 'absent');
   if (missing.length > 0) {
     out += `\n${c.dim('what a key would change')}\n`;
     for (const s of missing) {

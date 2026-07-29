@@ -18,12 +18,30 @@ import type { ProviderId } from './catalog';
 
 export type { KeyState };
 
-/** How the vault on this machine is sealed. Shown so it can be reasoned about. */
+/**
+ * Where keys are kept on this machine and what protects them. Shown so it can be
+ * reasoned about rather than trusted.
+ *
+ * `backend` is the load-bearing field: on macOS keys go to the OS keychain and
+ * there is no Inkcast file at all, so `path`, `cipher` and `kdf` are null and the
+ * page must not describe an encrypted file that does not exist.
+ */
 export type VaultInfo = {
-  /** Repo-relative when it sits inside the checkout. */
-  path: string;
-  kdf: 'file' | 'passphrase';
-  cipher: string;
+  backend: 'keychain' | 'vault';
+  /** True when the backend can actually hold a key right now. */
+  ready: boolean;
+  /** One sentence: the backend, and what it still needs. */
+  why: string;
+  /** The vault file. Null on the keychain backend. */
+  path: string | null;
+  /** The AEAD sealing the vault, or null on the keychain backend. */
+  cipher: string | null;
+  /** scrypt parameters read from the vault itself, or null on the keychain. */
+  kdf: { name: string; N: number; r: number; p: number } | null;
+  /** The non-secret sidecar: previews, lengths and validation timestamps. */
+  metaPath: string;
+  /** A pre-`@inkcast/keyvault` studio vault still on disk, whose keys are stranded. */
+  legacyPath: string | null;
 };
 
 export type KeysSnapshot = {
@@ -38,8 +56,8 @@ export type Validation = {
   message: string;
   detail?: string;
   httpStatus?: number;
-  /** Which key was checked: the pasted one, the vault's, or the environment's. */
-  checked?: 'body' | 'env' | 'vault';
+  /** Which key was checked: the pasted one, the stored one, or the environment's. */
+  checked?: 'body' | 'env' | 'vault' | 'keychain';
 };
 
 export type SaveOutcome = {
@@ -95,14 +113,34 @@ function parseKey(raw: unknown): KeyState | undefined {
   };
 }
 
+function num(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function parseKdf(raw: unknown): VaultInfo['kdf'] {
+  const rec = asRecord(raw);
+  const name = str(rec.name);
+  const N = num(rec.N);
+  const r = num(rec.r);
+  const p = num(rec.p);
+  if (!name || N === undefined || r === undefined || p === undefined) return null;
+  return { name, N, r, p };
+}
+
 function parseVault(raw: unknown): VaultInfo | undefined {
   const rec = asRecord(raw);
-  const filePath = str(rec.path);
-  if (!filePath) return undefined;
+  const backend =
+    rec.backend === 'keychain' ? 'keychain' : rec.backend === 'vault' ? 'vault' : undefined;
+  if (backend === undefined) return undefined;
   return {
-    path: filePath,
-    kdf: rec.kdf === 'passphrase' ? 'passphrase' : 'file',
-    cipher: str(rec.cipher) ?? 'aes-256-gcm',
+    backend,
+    ready: rec.ready !== false,
+    why: str(rec.why) ?? '',
+    path: str(rec.path) ?? null,
+    cipher: str(rec.cipher) ?? null,
+    kdf: parseKdf(rec.kdf),
+    metaPath: str(rec.metaPath) ?? '',
+    legacyPath: str(rec.legacyPath) ?? null,
   };
 }
 
@@ -117,7 +155,10 @@ function parseValidation(raw: unknown): Validation {
       ? result.httpStatus
       : undefined;
   const checked =
-    out.checked === 'body' || out.checked === 'env' || out.checked === 'vault'
+    out.checked === 'body' ||
+    out.checked === 'env' ||
+    out.checked === 'vault' ||
+    out.checked === 'keychain'
       ? out.checked
       : undefined;
   return {

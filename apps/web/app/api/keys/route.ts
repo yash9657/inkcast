@@ -29,8 +29,7 @@ import { z } from 'zod';
 
 import { badRequest, fail, json } from '../_lib/http';
 import { PROVIDER_IDS, judgeKeyShape, providerInfo } from '@/components/settings/catalog';
-import { scrub } from './_vault/crypto.js';
-import { deleteKey, keyStatuses, saveKey, vaultInfo } from './_vault/index.js';
+import { deleteKey, keyStatuses, saveKey, scrub, vaultInfo } from './_store.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,8 +61,8 @@ const DeleteQuery = z.object({ provider: ProviderParam }).strict();
 /** The four providers, their status, and where the vault lives. Masks only. */
 export async function GET() {
   try {
-    const [keys, vault] = await Promise.all([keyStatuses(), vaultInfo()]);
-    return json({ keys, vault });
+    const keys = await keyStatuses();
+    return json({ keys, vault: vaultInfo() });
   } catch (err) {
     return oops('list', err);
   }

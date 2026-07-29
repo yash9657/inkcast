@@ -25,18 +25,37 @@
  * drops the key when the request settles. The two deliberate exceptions are
  * documented where they live — the scrypt-derived key cache in `vault.ts` and the
  * tracked-value table in `redact.ts`, both cleared by `lock()`.
+ *
+ * `listProviders()` reports whether a stored key is *readable*, not merely
+ * present, because "configured" for an entry nothing can decrypt is a lie the
+ * pipeline exposes a minute later. It gets that without holding a secret:
+ * `vaultVerify()` opens the entry and returns a verdict rather than the key. The
+ * one path that still touches plaintext is a keychain entry with no sidecar, where
+ * the preview has to be built from a single read; that value is tracked for
+ * redaction and dropped immediately.
  */
 import { logger } from '@inkcast/core';
 import { KeyvaultError } from './errors.js';
 import * as keychain from './keychain.js';
 import { mask } from './mask.js';
-import { clearMeta, metaFor, writeMeta } from './meta.js';
+import { clearMeta, metaFor, writeMeta, type ProviderMeta } from './meta.js';
 import { metaPath as defaultMetaPath, vaultPath as defaultVaultPath } from './paths.js';
 import { passphraseAvailable, resolvePassphrase } from './passphrase.js';
-import { assertProvider, envKey, PROVIDERS, type Provider } from './providers.js';
+import { assertProvider, envKey, PROVIDERS, PROVIDER_SPECS, type Provider } from './providers.js';
 import { forgetSecrets, trackSecret } from './redact.js';
 import { probeKey, type ValidationResult } from './validate.js';
-import { lockVault, vaultDelete, vaultExists, vaultGet, vaultList, vaultSet } from './vault.js';
+import {
+  lockVault,
+  vaultDelete,
+  vaultExists,
+  vaultGet,
+  vaultKdf,
+  vaultList,
+  vaultSet,
+  vaultVerify,
+  type VaultEntryInfo,
+  type VaultKdfInfo,
+} from './vault.js';
 
 const log = logger('keyvault');
 
@@ -46,16 +65,63 @@ export type KeySource = 'env' | 'keychain' | 'vault';
 /** Which storage backend an instance is bound to. */
 export type Backend = 'keychain' | 'vault';
 
+/**
+ * Whether a key is actually usable, and when it is not, why not.
+ *
+ * `configured` on its own cannot carry this. A vault entry sealed under a
+ * passphrase this process does not have is present on disk and useless to the
+ * pipeline; an entry that fails authentication is present and unrecoverable. Both
+ * would be "not configured" — but one is fixed by setting a variable and the other
+ * by pasting the key again, so a UI that cannot tell them apart cannot give the
+ * right instruction. Every value here names a distinct remedy.
+ */
+export type KeyAvailability =
+  /** The environment supplies it, which beats anything stored. */
+  | 'env'
+  /** Stored and proven readable: `getKey()` will return it. */
+  | 'stored'
+  /** Stored, but no passphrase is available to open the vault. Set one. */
+  | 'locked'
+  /** Stored, but it failed authentication — the vault was modified. Re-add it. */
+  | 'unreadable'
+  /** Nothing anywhere. That stage runs on this machine, for nothing. */
+  | 'absent';
+
 export type ProviderStatus = {
   provider: Provider;
-  /** True when `getKey()` would return something. */
+  /** True when `getKey()` would return something — `availability` is env or stored. */
   configured: boolean;
-  /** Display-safe preview, or null when not configured. Never a raw key. */
+  /** The usable/not-usable verdict, with the reason when it is not. */
+  availability: KeyAvailability;
+  /** Display-safe preview, or null when nothing is stored or set. Never a raw key. */
   masked: string | null;
+  /**
+   * Character count, or null when it was never recorded.
+   *
+   * Worth surfacing because a truncated paste masks identically to a whole key, so
+   * the length is the only cheap way for a user to spot the commonest mistake.
+   */
+  length: number | null;
+  /**
+   * The environment variable in play: the one that actually supplied the key when
+   * `availability` is `env` — which for `fal` may be the legacy `FAL_API_KEY` —
+   * and otherwise the canonical name a stored key is injected under.
+   */
+  envVar: string;
+  /** ISO timestamp of the last set or rotate through this package, or null. */
+  updatedAt: string | null;
   /** ISO timestamp of the last definitive `validateKey()`, or null. */
   lastValidated: string | null;
+  /** Whether that last validation passed. Null when it has never run. */
+  lastValidatedOk: boolean | null;
   /** Where the key would come from, or null when not configured. */
   source: KeySource | null;
+  /**
+   * A key is stored *and* set in the environment. The environment wins, so the
+   * stored one is inert — worth saying out loud, because otherwise editing the
+   * stored entry appears to do nothing at all.
+   */
+  shadowedByEnv: boolean;
 };
 
 export type KeyvaultOptions = {
@@ -162,11 +228,113 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
       prompt: 'Inkcast vault passphrase: ',
     });
 
+  /**
+   * The passphrase, but never by asking.
+   *
+   * Status paths must not block: a settings screen that prompted for a password
+   * before it could render "anthropic is configured" would be a login screen.
+   */
+  const quietPassphrase = () =>
+    resolvePassphrase({ passphrase: opts.passphrase, env, interactive: false });
+
   /** Read from storage only — no env. */
   async function readStored(provider: Provider): Promise<string | undefined> {
     if (backend === 'keychain') return keychain.read(provider, service);
     if (!vaultExists(vaultFile)) return undefined;
     return vaultGet(vaultFile, provider, await passphrase());
+  }
+
+  /** What storage holds for one provider, with no env and no prompting. */
+  type StoredState = {
+    availability: Exclude<KeyAvailability, 'env'>;
+    masked: string | null;
+    length: number | null;
+    createdAt: string | null;
+  };
+
+  const ABSENT: StoredState = {
+    availability: 'absent',
+    masked: null,
+    length: null,
+    createdAt: null,
+  };
+
+  /**
+   * Inspect storage for `provider` without reading a secret it does not have to.
+   *
+   * The keychain answers presence directly, so nothing is ever decrypted on this
+   * path. The vault's per-entry metadata answers presence too — but not
+   * *readability*, and that is the distinction worth paying for: an entry sealed
+   * under a passphrase we do not have, and one that has been edited, are both
+   * present and both unusable, with different fixes. `vaultVerify()` separates them
+   * and returns a verdict rather than the key, so this stays a metadata path.
+   */
+  async function storedState(
+    provider: Provider,
+    vaultEntries: readonly VaultEntryInfo[],
+    meta: ProviderMeta,
+  ): Promise<StoredState> {
+    if (backend === 'keychain') {
+      let present = false;
+      try {
+        present = await keychain.has(provider, service);
+      } catch (err) {
+        log.debug(`could not probe the keychain for ${provider}`, err as Error);
+        return ABSENT;
+      }
+      if (!present) return ABSENT;
+
+      // Prefer the preview and length recorded at write time so the key stays in
+      // the keychain. Only a missing sidecar — a fresh machine, or a key added
+      // with `security` by hand — costs one read.
+      let masked = meta.masked ?? null;
+      let length = meta.length ?? null;
+      if (masked === null || length === null) {
+        try {
+          const key = await keychain.read(provider, service);
+          if (key) {
+            masked = mask(key);
+            length = key.length;
+            remember(key);
+            writeMeta(metaFile, provider, { masked, length });
+          }
+        } catch (err) {
+          log.debug(`could not read ${provider} to build a preview`, err as Error);
+        }
+      }
+      return { availability: 'stored', masked, length, createdAt: null };
+    }
+
+    const entry = vaultEntries.find((e) => e.provider === provider);
+    if (!entry) return ABSENT;
+    const found = {
+      masked: entry.masked,
+      length: meta.length ?? null,
+      createdAt: entry.createdAt,
+    };
+
+    let verdict: Awaited<ReturnType<typeof vaultVerify>>;
+    try {
+      verdict = await vaultVerify(vaultFile, provider, await quietPassphrase());
+    } catch (err) {
+      if (err instanceof KeyvaultError && err.code === 'passphrase-required') {
+        return { ...found, availability: 'locked' };
+      }
+      // A corrupt or unreadable file is reported, not thrown: one bad entry must
+      // not stop a status listing describing the other three providers.
+      log.debug(`could not open the stored ${provider} key`, err as Error);
+      return { ...found, availability: 'unreadable' };
+    }
+    switch (verdict) {
+      case 'ok':
+        return { ...found, availability: 'stored' };
+      case 'locked':
+        return { ...found, availability: 'locked' };
+      case 'tampered':
+        return { ...found, availability: 'unreadable' };
+      case 'missing':
+        return ABSENT;
+    }
   }
 
   return {
@@ -196,6 +364,7 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
 
       writeMeta(metaFile, provider, {
         masked: mask(key),
+        length: key.length,
         updatedAt: new Date().toISOString(),
         // A rotated key has not been validated yet; clear any stale verdict so
         // the UI cannot show a green tick for a key that no longer exists.
@@ -239,71 +408,55 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
     },
 
     async listProviders() {
-      // The vault's metadata is readable without a passphrase by design, so this
-      // never prompts and never touches key material for stored entries.
+      // Per-entry vault metadata is readable without a passphrase by design, so
+      // presence never prompts. Read once for all four providers rather than
+      // re-parsing the file per provider.
       const vaultEntries = backend === 'vault' ? vaultList(vaultFile) : [];
 
       const out: ProviderStatus[] = [];
       for (const provider of PROVIDERS) {
         const meta = metaFor(metaFile, provider);
         const lastValidated = meta.lastValidated ?? null;
+        const lastValidatedOk = meta.lastValidatedOk ?? null;
         const fromEnv = envKey(provider, env);
+
+        // Storage is inspected even when the environment wins, because "you have
+        // saved a key that is being ignored" is exactly the state a user cannot
+        // otherwise explain — see `shadowedByEnv`.
+        const stored = await storedState(provider, vaultEntries, meta);
 
         if (fromEnv) {
           out.push({
             provider,
             configured: true,
+            availability: 'env',
             masked: mask(fromEnv.value),
+            length: fromEnv.value.length,
+            envVar: fromEnv.name,
+            // `updatedAt` describes the *stored* entry, which is not the key in
+            // use here, so reporting it would attach a date to the wrong key.
+            updatedAt: null,
             lastValidated,
+            lastValidatedOk,
             source: 'env',
+            shadowedByEnv: stored.availability !== 'absent',
           });
           continue;
         }
 
-        if (backend === 'vault') {
-          const entry = vaultEntries.find((e) => e.provider === provider);
-          out.push({
-            provider,
-            configured: Boolean(entry),
-            masked: entry ? entry.masked : null,
-            lastValidated,
-            source: entry ? 'vault' : null,
-          });
-          continue;
-        }
-
-        // Keychain: probe for existence without reading the secret, and prefer
-        // the preview recorded at write time so the key stays in the keychain.
-        let present = false;
-        try {
-          present = await keychain.has(provider, service);
-        } catch (err) {
-          log.debug(`could not probe the keychain for ${provider}`, err as Error);
-        }
-        let masked: string | null = null;
-        if (present) {
-          masked = meta.masked ?? null;
-          if (!masked) {
-            // No sidecar (fresh machine, or a key added with `security` by hand):
-            // read once, mask, and record it so this stays a metadata-only path.
-            try {
-              const key = await keychain.read(provider, service);
-              if (key) {
-                masked = mask(key);
-                remember(key);
-                writeMeta(metaFile, provider, { masked });
-              }
-            } catch (err) {
-              log.debug(`could not read ${provider} to build a preview`, err as Error);
-            }
-          }
-        }
+        const configured = stored.availability === 'stored';
         out.push({
           provider,
-          configured: present,
-          masked,
+          configured,
+          availability: stored.availability,
+          masked: stored.masked,
+          length: stored.length,
+          envVar: PROVIDER_SPECS[provider].envVars[0]!,
+          updatedAt: meta.updatedAt ?? stored.createdAt,
           lastValidated,
-          source: present ? 'keychain' : null,
+          lastValidatedOk,
+          source: configured ? backend : null,
+          shadowedByEnv: false,
         });
       }
       return out;
@@ -426,7 +579,13 @@ export function backendStatus(env: NodeJS.ProcessEnv = process.env): {
   ready: boolean;
   why: string;
 } {
-  const backend = chooseBackend({}, env);
+  return describeBackend(chooseBackend({}, env), env);
+}
+
+function describeBackend(
+  backend: Backend,
+  env: NodeJS.ProcessEnv,
+): { backend: Backend; ready: boolean; why: string } {
   if (backend === 'keychain') {
     return {
       backend,
@@ -448,5 +607,59 @@ export function backendStatus(env: NodeJS.ProcessEnv = process.env): {
     backend,
     ready: false,
     why: 'encrypted vault file, but no passphrase is available — set INKCAST_VAULT_PASSPHRASE',
+  };
+}
+
+/**
+ * Where keys are kept on this machine and what protects them.
+ *
+ * This is the honest version of a "where these live" panel. A settings screen that
+ * hard-codes that prose goes stale the moment the backend differs from whatever
+ * the author was running, and the difference is not cosmetic: on the keychain
+ * backend there is no Inkcast file to point at and no passphrase to explain, so a
+ * page promising an encrypted file beside the checkout would be describing
+ * something that does not exist. Every field is either read from the backend in
+ * use or explicitly null.
+ */
+export type StorageInfo = {
+  backend: Backend;
+  /** True when the backend can hold a key right now. */
+  ready: boolean;
+  /** One sentence: the backend, and what it still needs. */
+  why: string;
+  /** The vault file. Null on the keychain backend — nothing is written there. */
+  path: string | null;
+  /** The AEAD sealing the vault, or null on the keychain backend. */
+  cipher: 'aes-256-gcm' | null;
+  /**
+   * How the vault key is derived, read from the vault itself so an older file is
+   * described by its own parameters rather than today's defaults. Null on the
+   * keychain backend, and when the file exists but cannot be parsed.
+   */
+  kdf: VaultKdfInfo | null;
+  /**
+   * The non-secret sidecar: masked previews, lengths and validation timestamps.
+   * Never key material, on either backend.
+   */
+  metaPath: string;
+};
+
+/** Describe this machine's key storage. Reads no secret and creates nothing. */
+export function storageInfo(opts: KeyvaultOptions = {}): StorageInfo {
+  const env = opts.env ?? process.env;
+  const backend = chooseBackend(opts, env);
+  const described = describeBackend(backend, env);
+  const metaFile = opts.metaPath ?? defaultMetaPath(env);
+
+  if (backend === 'keychain') {
+    return { ...described, path: null, cipher: null, kdf: null, metaPath: metaFile };
+  }
+  const vaultFile = opts.vaultPath ?? defaultVaultPath(env);
+  return {
+    ...described,
+    path: vaultFile,
+    cipher: 'aes-256-gcm',
+    kdf: vaultKdf(vaultFile) ?? null,
+    metaPath: metaFile,
   };
 }

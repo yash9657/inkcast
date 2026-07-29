@@ -375,32 +375,46 @@ function VaultNote({ vault }: { vault: VaultInfo | undefined }) {
           <LockIcon className="size-4 text-muted-foreground" aria-hidden />
           Where these are kept
         </h2>
+        {vault?.backend === 'vault' ? (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            A saved key is sealed with {vault.cipher ?? 'AES-256-GCM'} and written to{' '}
+            <span className="font-mono text-foreground">{vault.path}</span>, owner-readable only, in
+            a directory git already ignores. The sealing key is derived from{' '}
+            <span className="font-mono">INKCAST_VAULT_PASSPHRASE</span>
+            {vault.kdf
+              ? ` with ${vault.kdf.name} (N=${vault.kdf.N}, r=${vault.kdf.r}, p=${vault.kdf.p})`
+              : ''}
+            , so the file on disk is useless without that passphrase.{' '}
+            {vault.ready
+              ? null
+              : 'No passphrase is available right now, so a stored key cannot be unsealed and every stage is running locally.'}
+          </p>
+        ) : (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            A saved key goes into your{' '}
+            <span className="font-mono text-foreground">macOS login keychain</span> — no Inkcast
+            file on disk contains it, so there is nothing here for a backup, a synced folder or a
+            stray <span className="font-mono">grep</span> to pick up. It does not protect a key from
+            a program already running as you; that is the same trust boundary{' '}
+            <span className="font-mono">.env</span> has.
+          </p>
+        )}
         <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          A saved key is sealed with {vault?.cipher ?? 'AES-256-GCM'} and written to{' '}
-          <span className="font-mono text-foreground">{vault?.path ?? '.inkcast/keys.json'}</span>,
-          owner-readable only, in a directory git already ignores.{' '}
-          {vault?.kdf === 'passphrase' ? (
-            <>
-              It is unsealed with a key derived from{' '}
-              <span className="font-mono">INKCAST_VAULT_SECRET</span>, so the file on disk is
-              useless without that passphrase.
-            </>
-          ) : (
-            <>
-              It is unsealed with <span className="font-mono">.inkcast/vault.key</span>, which sits
-              beside it — so this protects a key from a backup, a synced folder or a stray{' '}
-              <span className="font-mono">grep</span>, not from a program already running as you.
-              Set <span className="font-mono">INKCAST_VAULT_SECRET</span> to require a passphrase
-              instead.
-            </>
-          )}
+          This is the same store <span className="font-mono">inkcast keys</span> uses on the command
+          line, so a key set either way works in both. A key set in the environment always wins over
+          a saved one, so <span className="font-mono">.env</span> and your shell keep working
+          exactly as they did. Keys are never sent anywhere but the provider they belong to, and
+          never returned to this page — everything above is a preview of the leading and trailing
+          characters.
         </p>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          A key set in the environment always wins over a saved one, so{' '}
-          <span className="font-mono">.env</span> and your shell keep working exactly as they did.
-          Keys are never sent anywhere but the provider they belong to, and never returned to this
-          page — everything above is a preview of the first six and last four characters.
-        </p>
+        {vault?.legacyPath ? (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            An older studio vault is still at{' '}
+            <span className="font-mono text-foreground">{vault.legacyPath}</span>. Nothing reads it
+            any more — it was sealed with different material — so any key saved only there needs
+            pasting again above. Delete the file once you have.
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           <Link
             href="/studio"

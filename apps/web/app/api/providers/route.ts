@@ -20,15 +20,15 @@
  *
  * Hydrating the vault here is load-bearing, not incidental: this is the endpoint
  * the create form calls before any render, so it is the point at which a key
- * saved on the settings page becomes visible to the stages. See
- * `app/api/keys/_vault/index.ts`.
+ * saved on the settings page — or by `inkcast keys set`, since both now use the
+ * same vault — becomes visible to the stages. See `app/api/keys/_store.ts`.
  */
 
 import { json, unexpected } from '../_lib/http';
 import { META_KEYS } from '../_lib/schemas';
 import { loadPipeline } from '@/lib/store';
 import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
-import { hydrateEnv, keyStatuses, type KeyStatus } from '../keys/_vault/index.js';
+import { hydrateEnv, keyStatuses, type KeyStatus } from '../keys/_store.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -95,8 +95,13 @@ function warningsFor(keys: readonly KeyStatus[]): string[] {
   for (const key of keys) {
     if (key.unreadable) {
       const label = PROVIDERS.find((p) => p.id === key.id)?.label ?? key.id;
+      // Two different faults with two different fixes, so they get two different
+      // sentences. Telling someone to re-paste a key when the real problem is an
+      // unset passphrase makes them destroy a perfectly good entry.
       out.push(
-        `The saved ${label} key can no longer be decrypted — INKCAST_VAULT_SECRET or .inkcast/vault.key changed. Paste it again in settings.`,
+        key.locked
+          ? `The stored ${label} key cannot be unsealed — no vault passphrase is available, so that stage is running locally. Set INKCAST_VAULT_PASSPHRASE and restart the studio; the key itself is intact.`
+          : `The stored ${label} key can no longer be decrypted, so that stage is running locally. Paste it again in settings.`,
       );
     }
     if (key.shadowedByEnv) {

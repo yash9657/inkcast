@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test app/api/keys/_vault/*.test.ts"
+    "test": "node --import tsx --test app/api/keys/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

@@ -37,12 +37,15 @@ export {
   listProviders,
   lock,
   setKey,
+  storageInfo,
   validateKey,
   type Backend,
+  type KeyAvailability,
   type KeySource,
   type Keyvault,
   type KeyvaultOptions,
   type ProviderStatus,
+  type StorageInfo,
 } from './store.js';
 
 export { dehydrate, hydrateEnv, hydratedProviders, type HydrateResult } from './hydrate.js';
@@ -84,4 +87,12 @@ export { GITIGNORE_RULES, gitRoot, metaPath, stateDir, vaultPath } from './paths
 
 export { keychainAvailable, keychainService } from './keychain.js';
 
-export { secretEquals, vaultExists, type VaultEntryInfo } from './vault.js';
+export {
+  secretEquals,
+  vaultExists,
+  vaultKdf,
+  vaultVerify,
+  type VaultEntryInfo,
+  type VaultEntryVerdict,
+  type VaultKdfInfo,
+} from './vault.js';

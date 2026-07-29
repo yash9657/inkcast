@@ -200,11 +200,25 @@ export function ProviderCard({
               </span>
             </div>
 
+            {/* Two faults, two remedies. Telling someone to re-paste a key when
+                the real problem is an unset passphrase makes them destroy a
+                perfectly good entry, so these must not share a sentence. */}
             {state?.unreadable ? (
               <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
                 <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                This key can no longer be decrypted, so it is not being used — the vault secret or
-                key file changed since it was saved. Paste it again below.
+                {state.locked ? (
+                  <>
+                    This key is stored but cannot be unsealed, so it is not being used — no vault
+                    passphrase is available. Set{' '}
+                    <span className="font-mono">INKCAST_VAULT_PASSPHRASE</span> and restart the
+                    studio; the key itself is intact.
+                  </>
+                ) : (
+                  <>
+                    This key can no longer be decrypted, so it is not being used — the vault was
+                    modified since it was saved. Paste it again below.
+                  </>
+                )}
               </p>
             ) : null}
 
@@ -351,7 +365,7 @@ function StatusPill({ state }: { state: KeyState | undefined }) {
     return (
       <Badge variant="warning">
         <StatusDot tone="warning" />
-        Cannot be read
+        {state.locked ? 'Needs a passphrase' : 'Cannot be read'}
       </Badge>
     );
   }

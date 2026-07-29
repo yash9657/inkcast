@@ -301,16 +301,15 @@ export type KeyState = {
   id: 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
   envVar: string;
   configured: boolean;
-  /**
-   * `keychain` appears once the studio delegates to `@inkcast/keyvault`, which
-   * stores keys in the OS keychain on macOS. Handled now so that swap needs no
-   * change here.
-   */
+  /** `keychain` on macOS, where `@inkcast/keyvault` uses the OS keychain. */
   source: 'env' | 'vault' | 'keychain' | 'none';
   mask?: string;
   length?: number;
   updatedAt?: string;
+  /** Stored but unusable — see `locked` for which of the two reasons. */
   unreadable?: boolean;
+  /** Unusable because no passphrase is available, not because it is damaged. */
+  locked?: boolean;
   shadowedByEnv?: boolean;
 };
 
@@ -360,6 +359,7 @@ function parseKeyState(raw: unknown): KeyState | undefined {
     ...(length === undefined ? {} : { length }),
     ...(updatedAt === undefined ? {} : { updatedAt }),
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
+    ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
   };
 }
