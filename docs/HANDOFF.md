@@ -1,13 +1,14 @@
-# Handoff — 2026-07-29 · next: let the pedagogy address the library
+# Handoff — 2026-07-29 · the remaining sequence, starting with step 1 of it
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
 things stand, what to do next, and which traps are waiting.
 
-Delete or rewrite this once the next piece lands. It goes stale by design.
+Delete or rewrite this once the first item lands. It goes stale by design.
 
-**Your job is described in "The next piece" below, and it needs no API key.** Read "Where
-things stand" first, then that section. Everything after is reference.
+**Read "Where things stand", then "The sequence".** Item 1 is specified in full under "The
+next piece" and needs no API key; the rest of the sequence is one paragraph each. Everything
+after "How to verify a visual change cheaply" is reference.
 
 ## Where things stand
 
@@ -43,7 +44,48 @@ geometry hashes are byte-identical across both of the last two steps.
 figures in the second, pipeline figures in either of the last two — they agree. The 07-28
 body is a historical record and deliberately unedited.
 
-## The next piece — one asset router, and a pedagogy that can ask for a pose
+## The sequence
+
+`PIPELINE.md`'s "Order of work" is a dependency order and says so; after step 1 it asks to be
+ordered **by leverage**. This is that ordering re-done now that steps 4 and 5 have changed the
+picture, with the evidence each position rests on. Numbered steps keep their `PIPELINE.md`
+numbers; unnumbered work is marked.
+
+| #   | Work                                                   | Key? | Why here                                                                                               |
+| --- | ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------ |
+| 1   | **Planner addressability** (unnumbered)                | no   | Unlocks steps 4 and 5 entirely, and fixes a shippable defect. Specified in full below.                 |
+| 2   | **Step 7 — the script stage**                          | no   | The only remaining numbered step that attacks the live quality complaint. Self-contained.              |
+| 3   | **Close root cause 1** (unnumbered)                    | no   | Architectural debt whose cost has now bitten twice. Promote to 2 if you prefer architecture to polish. |
+| 4   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, and a wrong drawing today.                                                           |
+| 5   | **Step 8 — `entersAtWord`**                            | no   | **Demoted on evidence** — see below. Insurance, not a fix.                                             |
+| 6   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                                  |
+| 7   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                     |
+
+**2 — step 7.** `cadence` drives both the TTS rate and the trailing `hold`; `emphasis` drives
+voice and board weight. It is here because `STATUS.md`'s standing verdict names pacing among
+the live quality failures ("every region change opens on a caption in a void") and this is the
+step that owns pacing. _Done when:_ a punchy beat is measurably faster and holds shorter than a
+`slow_deliberate` one. No key, and it touches nothing item 1 touches, so the two are safe to
+do in either order.
+
+**3 — close root cause 1.** `visuals.json` is read for equations only; plots still go through
+`resolvePlot` in-process and every other element type is re-derived by the renderer's own
+`primsFor`. It needs `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable
+somewhere the visuals stage can reach, probably `@inkcast/core`. It sits at 3 rather than 2
+only because its payoff is invisible in a frame — but note that **this exact bug class has now
+cost two steps of work**: the dead plot solver (step 1) and the planner pre-empting the asset
+router (item 1). A third instance is likely while the pattern is still available.
+
+**5 — step 8, and why it moved down.** The rationale in `PIPELINE.md` is sound: a phrase has
+to be found again by the aligner and can fail to match or match twice, where an index cannot.
+But **measured on the shipped lesson, 67 of 67 cues locate cleanly in their own narration by
+text alone** (both formats; the probe is four lines over `findCueSpan` and `matchTokens`). So
+it is fixing a fragility that does not currently fire. It would matter more for an
+LLM-authored lesson, where the cue is written separately from the narration and can drift —
+and that is exactly the case nobody can measure here, because it needs an Anthropic key. Do it
+when you have one, or when a cue warning actually appears.
+
+## The next piece (item 1) — one asset router, and a pedagogy that can ask for a pose
 
 Steps 4 and 5 built a library and a rig that **the pedagogy cannot address**. That is the
 highest-leverage thing left, it needs no key, and the case for it is measured rather than
@@ -134,13 +176,8 @@ Two cheaper checks worth writing on the way: `Odysseus tied to the mast` must no
 
 ### If you would rather not touch the planner
 
-**Step 7 (the script stage)** is the next numbered step that is fully doable offline: split
-from `lesson`, `cadence` driving both TTS rate and `hold`, `emphasis` driving voice and board
-weight. _Done when:_ a punchy beat is measurably faster and holds shorter than a
-`slow_deliberate` one. It is self-contained and does not depend on any of the above.
-
-**Finishing step 5 needs an API key** and cannot be verified without one — see "Where step 5
-stopped" below before deciding.
+Take item 2 (step 7) instead — it is self-contained, needs no key, and shares no code with
+this. See "The sequence" above for the rest.
 
 ## Where step 5 stopped
 
@@ -283,6 +320,14 @@ then runs against an _unstashed_ tree, producing a "baseline" identical to the n
 looks like proof when nothing was compared. After any stash, run `git status --short` and
 confirm the tree is actually clean before trusting a measurement.
 
+**`--json` suppresses every log line, so a clean log is not a clean run.** A `cast --json`
+render writes the report to stdout and leaves stderr **completely empty** — zero bytes, not
+"warnings only". Grepping that file for `cue`, `warn` or `fill` returns nothing whatever
+happened, which reads exactly like "no problems found". This nearly produced a false finding
+about cue resolution in this very session; the honest measurement came from calling
+`findCueSpan` over the storyboard instead. Drop `--json` when you want to see what a stage
+said, and check `wc -c` on a log before concluding anything from its silence.
+
 **`pnpm -r test | tail` will lie to you.** Piping through `tail` truncates per-package
 output and the totals. Redirect the whole log to a file and sum with
 `awk '/# pass [0-9]+$/ {p+=$NF} …'` — note the `$NF`, because the lines are prefixed with
@@ -386,7 +431,13 @@ this **more** visible, not less: a dot off an exact curve no longer hides in a w
 first time, but plots still go through `resolvePlot` in-process and every other element type
 is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
-stage can reach, probably `@inkcast/core` — the remaining part of root cause 1.
+stage can reach, probably `@inkcast/core` — the remaining part of root cause 1, and item 3 in
+"The sequence".
+
+**Cue resolution is not currently failing, which is worth knowing before you fix it.** 67 of
+67 cues on the shipped lesson locate in their own narration by text alone, both formats.
+`enter.cue` fragility is real in principle and step 8 removes it properly, but on this lesson
+it never fires — so treat a cue warning as news rather than as the expected state.
 
 **The planner draws a rocket for Odysseus.** `buildAsset` matches lucide _before_ the visuals
 stage gets a say, and mints the asset with the lucide slug as its id and lucide's prompt as its
