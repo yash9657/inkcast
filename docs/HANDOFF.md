@@ -461,6 +461,16 @@ adds 0.18s after it. Word-level stress needs the aligner's output fed back into 
 which is step 8's machinery. The numbers are small on purpose — a heavy hand at this
 granularity drags a sentence rather than stressing a word.
 
+**Nothing writes on the board what the narrator says.** Measured on a photosynthesis
+render: 11 of 14 technical terms are spoken and never drawn — ATP, NADPH and G3P three
+times each, plus chlorophyll, thylakoid, chloroplast, rubisco, glucose, enzyme, membrane
+and carbon dioxide. 203 words spoken against 51 drawn, and those 51 are beat headings,
+three of them the identical string "The Calvin cycle". A whiteboard explainer writes the
+term as it says it; this one never does. **The cue machinery to place a written term on
+the exact spoken word already exists and already works word-exactly — nothing points it
+at vocabulary.** No key and no new drawing ability required, which makes this the
+cheapest large win available. Item 1 in "The sequence" once region grouping lands.
+
 **Cue resolution is not failing for the reason step 8 addresses.** 67 of 67 cues on the
 benchmark locate by text alone. The narrative lesson produced six warnings of a _different_
 kind — the cue lands late in its own narration and the element is the beat's main picture, so

@@ -146,6 +146,186 @@ export function expandAbbreviations(input: string): string {
   return s;
 }
 
+/* ------------------------------------------------------------- initialisms */
+
+/**
+ * How each letter is said aloud.
+ *
+ * Spelled phonetically rather than handed to the engine as spaced capitals
+ * ("A T P"), because what an engine does with a bare capital is its own business
+ * and varies by voice: Kokoro is a phoneme model, so the reliable way to get
+ * "ay tee pee" is to write the sounds. This is what makes the fix engine-independent
+ * instead of tuned to one provider's letter handling.
+ */
+const LETTER_SOUNDS: Record<string, string> = {
+  a: 'ay',
+  b: 'bee',
+  c: 'see',
+  d: 'dee',
+  e: 'ee',
+  f: 'eff',
+  g: 'gee',
+  h: 'aitch',
+  i: 'eye',
+  j: 'jay',
+  k: 'kay',
+  l: 'ell',
+  m: 'em',
+  n: 'en',
+  o: 'oh',
+  p: 'pee',
+  q: 'cue',
+  r: 'are',
+  s: 'ess',
+  t: 'tee',
+  u: 'you',
+  v: 'vee',
+  w: 'double you',
+  x: 'ex',
+  y: 'why',
+  z: 'zee',
+};
+
+const DIGIT_SOUNDS = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+];
+
+/**
+ * Capitalised runs that are said as *words*, not spelled out.
+ *
+ * Two kinds, and both have to be here or the rule below does real damage.
+ *
+ * **Acronyms pronounced as words.** NASA is "nassa", not "en ay ess ay". There is no
+ * way to derive this — English simply decided — so it is a list, and it is meant to be
+ * extended when a topic needs it.
+ *
+ * **Words a writer might capitalise for emphasis.** "This is NOT the minimum" must not
+ * become "en oh tee". This is the false positive that matters, because narration is
+ * written by a model that may well shout. It is a smaller risk than it looks — the
+ * lesson schema has a real `emphasis` field now, so shouting is not the sanctioned way
+ * to stress a word — but it costs nothing to guard.
+ */
+const SAID_AS_WORDS = new Set([
+  // pronounced as words
+  'NASA',
+  'LASER',
+  'RADAR',
+  'SONAR',
+  'SCUBA',
+  'NATO',
+  'UNESCO',
+  'UNICEF',
+  'OPEC',
+  'AIDS',
+  'RAM',
+  'ROM',
+  'PIN',
+  'GIF',
+  'JPEG',
+  'PNG',
+  'WYSIWYG',
+  'MODEM',
+  'COVID',
+  // capitalised for emphasis
+  'NOT',
+  'ALL',
+  'ONE',
+  'TWO',
+  'NOW',
+  'NEW',
+  'YES',
+  'NO',
+  'BUT',
+  'AND',
+  'THE',
+  'YOU',
+  'WE',
+  'IT',
+  'IS',
+  'ARE',
+  'WAS',
+  'ANY',
+  'EVERY',
+  'NEVER',
+  'ALWAYS',
+  'ONLY',
+  'MUST',
+  'THIS',
+  'THAT',
+  'WHY',
+  'HOW',
+  'WHAT',
+  'SAME',
+  'REAL',
+  'BEST',
+  'WORST',
+  'OK',
+  // roman numerals a title might carry ("World War II")
+  'II',
+  'III',
+  'IV',
+  'VI',
+  'VII',
+  'VIII',
+  'IX',
+  'XI',
+  'XII',
+]);
+
+/**
+ * An initialism, in two shapes: a lowercase letter followed by capitals (`mRNA`,
+ * `pH`), or two or more capitals with optional digits (`ATP`, `CO2`). The second
+ * shape needs two capitals or every ordinary capitalised word would match; the first
+ * needs only one, because the lowercase lead is itself the signal.
+ */
+const INITIALISM = /\b(?:([a-z])([A-Z][A-Z0-9]{0,7})|()([A-Z][A-Z0-9]{1,7}))\b/g;
+
+/**
+ * Say initialisms as letters rather than as words.
+ *
+ * The bug this fixes was audible and specific: the narrator said "ATP" as a syllable,
+ * and a listener who cannot see the letters written anywhere — the board never writes
+ * them — has no way to recover what was meant. Technical narration is full of these
+ * (ATP, NADPH, G3P, mRNA, pH, DNA), and every one of them is unintelligible spoken as
+ * a blob.
+ *
+ * The default is to **spell**, with an explicit list of exceptions, rather than the
+ * other way around. That is deliberate: this stage exists for explanatory narration,
+ * where an unknown capitalised run is far more likely to be a technical initialism
+ * than an acronym-word, and being wrong by spelling out "NASA" is a smaller failure
+ * than being wrong by mumbling "NADPH".
+ *
+ * Case is meaningful and is preserved: `mRNA` is "em are en ay", not "MRNA" — which is
+ * what `tidy` used to turn it into at the start of a sentence, destroying the one
+ * signal that said how to read it.
+ */
+export function speakInitialisms(input: string): string {
+  return input.replace(INITIALISM, (whole, l1: string, b1: string, l2: string, b2: string) => {
+    const lead = l1 ?? l2 ?? '';
+    const body = b1 ?? b2;
+    if (!lead && SAID_AS_WORDS.has(body)) return whole;
+    const letters = `${lead}${body}`
+      .split('')
+      .map((ch) => {
+        const lower = ch.toLowerCase();
+        if (LETTER_SOUNDS[lower]) return LETTER_SOUNDS[lower];
+        const digit = Number.parseInt(ch, 10);
+        return Number.isNaN(digit) ? ch : DIGIT_SOUNDS[digit];
+      })
+      .join(' ');
+    return letters;
+  });
+}
+
 /* ---------------------------------------------------------------- sentences */
 
 /**
@@ -646,7 +826,7 @@ export type NormalizeResult = {
 
 /** Full pipeline, returning both the joined text and its sentences. */
 export function normalizeNarrationDetailed(input: string): NormalizeResult {
-  const expanded = expandAbbreviations(stripMarkdown(input));
+  const expanded = speakInitialisms(expandAbbreviations(stripMarkdown(input)));
   const sentences = splitSentences(expanded)
     .map((sentence) => tidy(speakNumbers(speakSymbols(sentence))))
     .filter(hasSpeakableContent);

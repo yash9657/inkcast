@@ -26,6 +26,7 @@ import {
 } from './wav.js';
 import {
   normalizeNarration,
+  speakInitialisms,
   numberToWords,
   ordinalToWords,
   splitSentences,
@@ -1117,4 +1118,58 @@ test('an emphasised phrase is given more room than the same words unemphasised',
     // rather than stressing a word.
     assert.ok(stressed - plain < 0.6, `emphasis added ${(stressed - plain).toFixed(2)}s`);
   });
+});
+
+/* ------------------------------------------------------------- initialisms */
+
+test('an initialism is spoken as letters, not mumbled as a word', () => {
+  // The bug this fixes was audible: the narrator said "ATP" as a syllable, and since
+  // the board never writes the letters either, a listener had no way to recover what
+  // was meant. Technical narration is full of these and every one is unintelligible
+  // spoken as a blob.
+  assert.equal(normalizeNarration('Stored in ATP.'), 'Stored in ay tee pee.');
+  assert.equal(normalizeNarration('And NADPH.'), 'And en ay dee pee aitch.');
+  // Digits inside an initialism are said, not spelled as letters.
+  assert.equal(normalizeNarration('It makes G3P.'), 'It makes gee three pee.');
+  assert.equal(normalizeNarration('Plants absorb CO2.'), 'Plants absorb see oh two.');
+});
+
+test('case carries meaning, and survives the sentence-caser', () => {
+  // `tidy` capitalises the first letter of every sentence, which used to turn `mRNA`
+  // into `MRNA` — destroying the one signal that says how to read it. Expansion has to
+  // happen before that, and a single lowercase lead is enough to mark an initialism.
+  assert.equal(normalizeNarration('mRNA is not DNA.'), 'Em are en ay is not dee en ay.');
+  assert.equal(normalizeNarration('Measure the pH.'), 'Measure the pee aitch.');
+  assert.match(normalizeNarration('mRNA carries it.'), /^Em are en ay/);
+});
+
+test('acronyms said as words, and shouted words, are left alone', () => {
+  // Spelling is the default because unknown capitals are far more likely to be
+  // technical initialisms in explanatory narration. These are the exceptions, and the
+  // second group is the false positive that would actually hurt: a model that writes
+  // "this is NOT the minimum" must not have it read out as "en oh tee".
+  assert.equal(normalizeNarration('NASA used radar.'), 'NASA used radar.');
+  assert.equal(normalizeNarration('This is NOT the minimum.'), 'This is NOT the minimum.');
+  assert.equal(speakInitialisms('World War II ended.'), 'World War II ended.');
+  // An ordinary capitalised word is never an initialism: it takes two capitals.
+  assert.equal(speakInitialisms('The Calvin cycle turns.'), 'The Calvin cycle turns.');
+});
+
+test('a cue containing an initialism still finds its words', () => {
+  // Both sides of cue matching run through the same normalisation, so expanding the
+  // narration cannot silently orphan a cue that quotes it. This is the regression the
+  // change could plausibly have caused.
+  const narration = 'The energy is stored in ATP and NADPH, made in the light stage.';
+  const spoken = matchTokens(normalizeNarration(narration));
+  const span = findCueSpan(spoken, 'stored in ATP');
+  assert.ok(span, 'the cue no longer locates in its own narration');
+  assert.equal(span.score, 1, 'it should still be an exact match, not a salvaged prefix');
+  // And the expansion is what it matched against, not the raw letters.
+  assert.deepEqual(spoken.slice(span.index, span.index + span.length), [
+    'stored',
+    'in',
+    'ay',
+    'tee',
+    'pee',
+  ]);
 });

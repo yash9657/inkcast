@@ -44,6 +44,10 @@ export const PIPELINE_VERSION = 2;
  * - storyboard 2: where the abstraction arrives is derived from `analogy.maps` rather
  *   than matched in the narration, so the same lesson can compile to a different board.
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.
+ * - voice 3: initialisms are spoken as letters ("ay tee pee", not "ATP"), so any
+ *   narration containing one is a different clip. Heard rather than deduced: the
+ *   narrator mumbled ATP as a syllable and, because the board never writes the letters
+ *   either, a listener had no way to recover the word.
  * - visuals 3: a descent is recorded as one sub-part per hop, labels are charged for
  *   the ink they would lie across, and a curve named after its own axis is no longer
  *   captioned twice.
@@ -99,7 +103,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // cadence rather than only by a global 3s cap. Most holds are unchanged; the ones
   // that move are beats whose cadence forbids the silence they used to get.
   storyboard: 5,
-  voice: 2,
+  voice: 3,
   visuals: 7,
   render: 5,
 };
