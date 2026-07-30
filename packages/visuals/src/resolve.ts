@@ -22,6 +22,7 @@ import {
   markFresh,
   report,
   type Asset,
+  type AssetRef,
   type Element,
   type StageOptions,
   type Storyboard,
@@ -41,6 +42,7 @@ import {
 } from './geometry.js';
 import { iconPaths, iconsAvailable, matchAsset } from './icons.js';
 import { detectImageProvider, illustrationPaths } from './image.js';
+import { libraryFingerprint, libraryPaths, matchLibrary } from './library.js';
 import type { AssetVisual, ElementVisual, VisualManifest } from './manifest.js';
 import {
   MANIFEST_PATH,
@@ -141,15 +143,18 @@ export async function resolveVisuals(
     const rel = `assets/${sanitiseId(asset.id)}.svg`;
     const key = `visuals:asset:${asset.id}`;
     const inputHash = hash(
-      // v2: the illustration lane now caches its raster by id + prompt hash and
-      // the icon matcher resolves the id before the prompt, so v1 keys describe
-      // geometry this build would no longer produce.
-      'asset/v2',
+      // v3: the library lane resolves ahead of illustration and icon, so an asset
+      // whose id or prompt now matches a curated drawing has different geometry for
+      // identical storyboard inputs.
+      'asset/v3',
       asset.id,
       asset.kind,
       asset.prompt ?? '',
       asset.seed ?? '',
       asset.svg && asset.svg.includes('<svg') ? asset.svg : '',
+      // Covers a version the reference did not pin and an alias table that moved;
+      // empty for every asset the library does not answer.
+      libraryFingerprint(asset),
       styleFP,
       fontFP,
       provider,
@@ -161,6 +166,15 @@ export async function resolveVisuals(
       assetVisuals[asset.id] = cached;
       asset.svg = cached.svg;
       if (!asset.seed) asset.seed = cached.seed;
+      // As on the resolve path below: the pin belongs to the asset, not only to the
+      // sidecar, and a re-planned storyboard arrives here without one.
+      if (cached.library && !asset.ref?.version) {
+        asset.ref = {
+          ...asset.ref,
+          path: cached.library.path,
+          version: cached.library.version,
+        };
+      }
       tick(`asset ${asset.id} (cached)`);
       continue;
     }
@@ -179,11 +193,24 @@ export async function resolveVisuals(
     asset.svg = visual.svg;
     asset.seed = visual.seed;
     asset.source =
-      visual.lane === 'illustration'
-        ? 'generated'
-        : visual.lane === 'inline'
-          ? (asset.source ?? 'user-upload')
-          : 'builtin';
+      visual.lane === 'library'
+        ? 'library'
+        : visual.lane === 'illustration'
+          ? 'generated'
+          : visual.lane === 'inline'
+            ? (asset.source ?? 'user-upload')
+            : 'builtin';
+    // Pin what was drawn. A reference that arrived without a version leaves with
+    // one, and an entity matched by alias leaves carrying the path outright — so the
+    // next run resolves by path instead of finding its way back through a match
+    // table that may since have been retuned.
+    if (visual.library) {
+      asset.ref = {
+        ...asset.ref,
+        path: visual.library.path,
+        version: visual.library.version,
+      };
+    }
     await markFresh(dir, key, inputHash);
     tick(`asset ${asset.id} (${visual.lane}${visual.icon ? `:${visual.icon.slug}` : ''})`);
   }
@@ -320,13 +347,34 @@ async function resolveAsset(args: {
   const term = asset.prompt?.trim() || humanise(asset.id);
   let items: InkItem[] | undefined;
   let lane: AssetVisual['lane'] = 'letter';
+  let library: AssetVisual['library'] | undefined;
   let icon: { slug: string; how: string } | undefined;
   let raster: string | undefined;
 
-  // 1. the illustration lane: text-to-image → vectorise → roughen, generated at
+  // 1. the library: drawings we chose, by path and version. First because it is the
+  //    only lane whose output improves — everything below re-derives the same
+  //    quality forever, so anything the library can answer, it should.
+  //
+  //    An entity with no `ref` still gets a look-up, on its id and then its prompt.
+  //    That is what closes the no-key character gap: a planner minting `hiker` has
+  //    no idea the library exists, and matching here means it does not need to.
+  const curated = asset.ref
+    ? { path: asset.ref.path, how: 'path' as const }
+    : matchLibrary({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+  if (curated) {
+    const ref: AssetRef = asset.ref ?? { path: curated.path };
+    const drawn = libraryPaths({ ref, box, ctx });
+    if (drawn) {
+      items = pathItems(drawn.paths);
+      lane = 'library';
+      library = { path: drawn.path, version: drawn.version, ink: drawn.ink, how: curated.how };
+    }
+  }
+
+  // 2. the illustration lane: text-to-image → vectorise → roughen, generated at
   //    most once per asset id and cached on disk by id + prompt hash. A missing
   //    key is a downgrade to the icon lane, never an error.
-  if (asset.kind === 'illustration' || asset.kind === 'image') {
+  if (!items && (asset.kind === 'illustration' || asset.kind === 'image')) {
     if (args.provider === 'none') {
       if (!illustrationFallbackWarned) {
         illustrationFallbackWarned = true;
@@ -354,7 +402,8 @@ async function resolveAsset(args: {
     }
   }
 
-  // 2. the offline default: a roughened lucide icon, matched on the id first
+  // 3. the offline fallback provider: a roughened lucide icon, matched on the id
+  //    first. The library is the things we chose; this is the things we settle for.
   if (!items) {
     const match = matchAsset({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
     const found = iconPaths(term, box, ctx, match ? { slug: match.slug } : {});
@@ -365,7 +414,7 @@ async function resolveAsset(args: {
     }
   }
 
-  // 3. last resort: a labelled card, still hand-drawn and still on-brand
+  // 4. last resort: a labelled card, still hand-drawn and still on-brand
   if (!items) {
     items = letterCardItems(term, box, ctx, font, args.canvasHeight);
     lane = 'letter';
@@ -393,6 +442,7 @@ async function resolveAsset(args: {
     totalLength: totalStrokeLength(written.strokes),
     seed,
     ...(asset.prompt ? { prompt: asset.prompt } : {}),
+    ...(library ? { library } : {}),
     ...(icon ? { icon } : {}),
     ...(raster ? { raster } : {}),
   };

@@ -18,11 +18,16 @@
  *    flat black strokes on white vectorise into a few dozen closed outlines that
  *    roughen into something that belongs on a whiteboard. The aesthetic
  *    constraint and the technical one point the same way, which is lucky.
- * 2. **One generation per asset id, ever.** The raster is cached on disk under
- *    `assets/illustrations/<id>-<promptHash>.png` and in a per-process map keyed
- *    the same way. Generating "the rover" a second time is exactly what makes
- *    competing tools render a different rover in every scene, and it also costs
- *    money per scene instead of per film.
+ * 2. **One generation per asset id, ever — and per machine, not per project.** The
+ *    raster is cached in three places, checked in that order: the project's own
+ *    `assets/illustrations/<id>-<promptHash>.png`, the machine-wide
+ *    `~/.inkcast/cache/illustrations/`, and a per-process map. Generating "the rover"
+ *    a second time is exactly what makes competing tools render a different rover in
+ *    every scene, and it also costs money per scene instead of per film. The
+ *    machine-wide tier is what extends that from *per film* to *per subject*: the
+ *    second video about the rover pays nothing and, more importantly, draws the same
+ *    rover. The project copy stays because a project directory has to remain
+ *    portable on its own.
  *
  * Request shapes were checked against the live provider schemas (Replicate's
  * OpenAPI for `black-forest-labs/flux-schnell`, fal's OpenAPI for
@@ -31,7 +36,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { hash, logger } from '@inkcast/core';
+import { cacheDir, hash, logger } from '@inkcast/core';
 import type { DrawContext, InkPath } from './geometry.js';
 import { roughenPathData } from './geometry.js';
 import type { Box } from './svg.js';
@@ -280,6 +285,8 @@ export type IllustrationRaster = {
   rel: string;
   /** True when this run did not call the provider. */
   cached: boolean;
+  /** Which tier answered — `project`, the machine-wide `cache`, or a `provider` call. */
+  from: 'project' | 'cache' | 'provider';
   provider: ImageProvider;
 };
 
@@ -297,13 +304,29 @@ export function resetIllustrationCache(): void {
   inflight.clear();
 }
 
+/** Read a PNG, treating an empty or unreadable file as a cache miss. */
+async function readCachedPng(file: string): Promise<Buffer | undefined> {
+  if (!existsSync(file)) return undefined;
+  try {
+    const png = await readFile(file);
+    return png.length > 0 ? png : undefined;
+  } catch (err) {
+    log.warn(`could not read the cached illustration ${file}`, err);
+    return undefined;
+  }
+}
+
 /**
  * The raster for one asset id — generated at most once per id and prompt, ever.
  *
- * On-disk cache first (so a re-run costs nothing and a project directory stays
- * reproducible), then the in-process memo, then the provider. Returns
- * `undefined` when no key is configured or the provider failed; the caller then
- * uses the icon lane.
+ * The order is project cache, machine cache, in-process memo, provider. Project
+ * first even though the machine cache is the more valuable tier, because a project
+ * directory is meant to be self-describing: if someone hands you a project, the
+ * rasters in it are the ones it was rendered from, and a machine cache entry under
+ * the same key must not be allowed to disagree.
+ *
+ * Returns `undefined` when no key is configured or the provider failed; the caller
+ * then falls through to the icon lane.
  */
 export async function illustrationRaster(args: {
   id: string;
@@ -315,36 +338,48 @@ export async function illustrationRaster(args: {
   const key = illustrationKey(args.id, args.prompt);
   const rel = `${ILLUSTRATION_DIR}/${key}.png`;
   const abs = path.resolve(args.dir, rel);
+  const shared = path.join(cacheDir('illustrations'), `${key}.png`);
   const memoKey = `${path.resolve(args.dir)}::${key}`;
 
   const existing = inflight.get(memoKey);
   if (existing) return existing;
 
-  const task = (async (): Promise<IllustrationRaster | undefined> => {
-    if (existsSync(abs)) {
-      try {
-        const png = await readFile(abs);
-        if (png.length > 0) {
-          log.debug(`illustration ${args.id} served from cache`, rel);
-          return { png, rel, cached: true, provider: detectImageProvider() };
-        }
-      } catch (err) {
-        log.warn(`could not read the cached illustration ${rel}`, err);
-      }
+  /** Keep a copy where the caller expects one, without failing the resolve over it. */
+  const stash = async (file: string, png: Buffer, what: string): Promise<void> => {
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, png);
+    } catch (err) {
+      log.warn(`could not cache the illustration in the ${what} (${file})`, err);
     }
+  };
+
+  const task = (async (): Promise<IllustrationRaster | undefined> => {
+    const own = await readCachedPng(abs);
+    if (own) {
+      log.debug(`illustration ${args.id} served from the project`, rel);
+      return { png: own, rel, cached: true, from: 'project', provider: detectImageProvider() };
+    }
+
+    // The tier that makes the tenth video cheaper than the first: this subject may
+    // have been drawn for a different project entirely, and reusing it is both free
+    // and the only way two videos agree about what the subject looks like.
+    const machine = await readCachedPng(shared);
+    if (machine) {
+      log.debug(`illustration ${args.id} served from the machine cache`, shared);
+      await stash(abs, machine, 'project');
+      return { png: machine, rel, cached: true, from: 'cache', provider: detectImageProvider() };
+    }
+
     const provider = detectImageProvider();
     if (provider === 'none') return undefined;
     const png = await generateIllustration(args.prompt, {
       ...(args.seed !== undefined ? { seed: args.seed } : {}),
     });
     if (!png || png.length === 0) return undefined;
-    try {
-      await mkdir(path.dirname(abs), { recursive: true });
-      await writeFile(abs, png);
-    } catch (err) {
-      log.warn(`could not cache the illustration ${rel}`, err);
-    }
-    return { png, rel, cached: false, provider };
+    await stash(abs, png, 'project');
+    await stash(shared, png, 'machine cache');
+    return { png, rel, cached: false, from: 'provider', provider };
   })();
 
   inflight.set(memoKey, task);

@@ -64,13 +64,18 @@ export const PIPELINE_VERSION = 2;
  *   segment — which changes every crisp plot's path data as well as adding equations.
  *   Together they are the first geometry the renderer reads from the sidecar rather
  *   than recomputing, so again the two stages have to move as one.
+ * - visuals 6: the curated asset library resolves ahead of the illustration and icon
+ *   lanes, so an entity whose id or prompt matches a library path is a different
+ *   drawing than it was — a figure instead of a lucide glyph or a lettered card.
+ *   Render is *not* bumped with it: the renderer inlines an asset's SVG file rather
+ *   than re-deriving its geometry, so nothing in `render/` changed behaviour.
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
   lesson: 2,
   storyboard: 3,
   voice: 2,
-  visuals: 5,
+  visuals: 6,
   render: 5,
 };
 
@@ -106,9 +111,23 @@ export function voiceFingerprint(
   return cacheKey('voice', scene.narration, scene.hold, meta.voice, meta.language, provider);
 }
 
-/** What one asset's artwork depends on. */
+/**
+ * What one asset's artwork depends on.
+ *
+ * `ref` is in here because it *chooses the lane*: a reference resolves to a curated
+ * drawing and its absence resolves to a generated or matched one, so two assets
+ * identical in every other field are different pictures. The pinned version matters
+ * for the same reason in reverse — re-pointing a storyboard from v1 to v2 changes
+ * nothing else about it, and if that did not invalidate, the improvement would never
+ * appear.
+ */
 export function assetFingerprint(
-  asset: { kind: string; prompt?: string; seed?: number },
+  asset: {
+    kind: string;
+    prompt?: string;
+    seed?: number;
+    ref?: { path: string; version?: number; variant?: string; ink?: string };
+  },
   meta: { style: string; palette: string },
   provider: string,
 ): string {
@@ -117,6 +136,7 @@ export function assetFingerprint(
     asset.kind,
     asset.prompt ?? '',
     asset.seed ?? 0,
+    asset.ref ?? '',
     meta.style,
     meta.palette,
     provider,
@@ -149,7 +169,9 @@ export function visualsFingerprint(sb: Storyboard): string {
   return cacheKey(
     'visuals',
     sb.scenes.map((s) => s.elements.map(elementFingerprint)),
-    sb.assets.map((a) => [a.id, a.kind, a.prompt ?? '', a.seed ?? 0]),
+    // `ref` for the reason `assetFingerprint` explains: it decides which lane draws
+    // the entity, and which version of the curated drawing that lane uses.
+    sb.assets.map((a) => [a.id, a.kind, a.prompt ?? '', a.seed ?? 0, a.ref ?? '']),
     sb.meta.style,
     sb.meta.palette,
     sb.meta.aspect,

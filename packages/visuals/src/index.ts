@@ -127,7 +127,24 @@ export {
   type MotionSample,
 } from './motion.js';
 
-/* ---- icon lane ---------------------------------------------------------- */
+/* ---- the asset library (first stop; the things we chose) ---------------- */
+export {
+  LIBRARY_MANIFEST,
+  defaultLibraryDirs,
+  libraryAvailable,
+  libraryFile,
+  libraryFingerprint,
+  libraryPaths,
+  loadLibrary,
+  matchLibrary,
+  resetLibraryCache,
+  type Library,
+  type LibraryEntry,
+  type LibraryMatch,
+  type LibraryResult,
+} from './library.js';
+
+/* ---- icon lane (the fallback provider; the things we settle for) -------- */
 export {
   FALLBACK_ICON,
   ICON_KEYWORDS,
@@ -221,7 +238,9 @@ export {
   segsBBox,
   segsLength,
   serialiseSvg,
+  svgChildren,
   svgDocument,
+  svgViewBox,
   SVG_NS,
   transformPath,
   transformSegs,
@@ -232,6 +251,7 @@ export {
   type Matrix,
   type Pt,
   type Seg,
+  type SvgChild,
   type SvgNode,
 } from './svg.js';
 

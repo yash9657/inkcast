@@ -1,6 +1,7 @@
 # Inkcast status
 
-> **Partly superseded — see the re-verification appended at the end (2026-07-29).**
+> **Partly superseded — see the two sections appended at the end: the re-verification
+> (2026-07-29) and the asset library (2026-07-29, later).**
 > The 07-28 report below is left unedited on purpose: it is a dated record of what was
 > measured, not a live checklist. Six of its claims no longer hold. Read the appendix
 > before acting on anything here.
@@ -320,3 +321,85 @@ notation rather than an approximation of notation.
 What it named that is still true: half the frame is often empty, every region change opens
 on a caption in a void, and the narrator is a robot without a key. Those remain quality
 failures rather than capability failures.
+
+# The asset library, 2026-07-29 (later)
+
+`PIPELINE.md` step 4. Appended rather than folded into the appendix above, because it is a
+separate measurement on a later tree and the two should stay distinguishable.
+
+**The benchmark is unchanged, and that is the expected result.** It contains **zero
+assets**, so it cannot exercise the library at all; it was re-rendered to confirm the
+`visuals@6` bump and the new lane broke nothing on the way past.
+
+| Benchmark, both formats | 16:9                    | 9:16                    | vs the appendix above |
+| ----------------------- | ----------------------- | ----------------------- | --------------------- |
+| ffprobe duration        | 104.667 s               | 61.500 s                | identical             |
+| video frames            | 3140                    | —                       | identical             |
+| scenes                  | 9                       | 6                       | identical             |
+| mean content fill       | 52.2% (min 32, max 100) | 55.9% (min 37, max 100) | identical             |
+| visuals stage           | 0.26 s                  | 0.27 s                  | ~same                 |
+| render stage            | 38.8 s                  | 23.4 s                  | 41.2 s / 30.1 s       |
+| cost                    | `$0.00`                 | `$0.00`                 | identical             |
+
+Read the two render-stage figures as **machine variance, not a speed-up**: nothing in this
+change touches the renderer, and a single unrepeated run either side cannot tell those
+apart. Content fill was computed with the new `render/src/fillcheck.mts` rather than copied
+forward — the number happens to be identical to two significant figures, which is what an
+unchanged storyboard should produce.
+
+## Which earlier claims no longer hold
+
+| Claim                                                      | Now                                                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **`illustration` never resolves without a key** (07-29)    | Half fixed. A **character** resolves without a key, from the curated cast. An arbitrary object still degrades to a lucide icon. |
+| **Characters are stick figures or lettered cards**         | Fixed for the four archetypes: standing, walking, pointing, sitting, hand-authored and reviewed like code.                      |
+| **No shared library, no versioning, no cross-video reuse** | Fixed. Assets resolve by path and pinned version, and the generated-raster cache is machine-wide rather than per project.       |
+| **`LESSON-ENGINE.md` §3 "a dead end for characters"**      | Addressed, and that section is rewritten to say which of its three options was taken.                                           |
+| **528 pass**                                               | **539 pass, 0 fail, 3 skipped.**                                                                                                |
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **539 pass, 0 fail** across all eight test-bearing packages.
+
+**Control, and it is the load-bearing evidence here.** `projects/handwritten` is the only
+project with `asset` elements, and its two — `cpu` and `ram` — must stay on the icon lane.
+Per-element geometry hashes are **byte-identical** either side of the change
+(`visuals/src/geomhash.mts` across a `git stash -u`), so inserting a lane ahead of the icon
+lane moved nothing that was already being drawn. That is the assertion that matters, because
+an over-reaching alias list is this change's most likely way to do damage and it would do it
+silently.
+
+## What the frames show
+
+Rendered with `visuals/src/libsheet.mts` and one frame at t=18 s. No keys, images forced
+off.
+
+**All six read as drawings rather than as glyphs**, at the same weight and with the same
+construction, which is what makes them a set. The figures are `sketch` and the two symbols
+are `crisp`, side by side in one frame — the clearest demonstration so far that the two ink
+modes coexist as PIPELINE claims rather than being a build switch.
+
+**Two defects were found this way and only this way.** The first cast rendered with
+**diamond heads**: a `<circle>` converts to two half arcs, which gives the sketch pass four
+control points to displace, and at marker roughness that reads as a rhombus. The heads are
+now four cubics anchored at the compass points. The second was worse — a **ringed head with
+nothing inside it**, because a fill was being set on sketch output after the fact, and
+roughjs returns the wobbly _stroke_ it drew rather than the authored contour, so the fill
+was filling the outline of a pen line. Sketch fills now go into the rough options so roughjs
+hachures the region itself. Neither was visible in the SVG, in the types, or in a test that
+only counted paths.
+
+**`figures/sitting` was reworked after looking at it.** The stool line crossed the thigh and
+read as a strike-through, and two arms in profile merged into a blob against the torso. It
+is now one arm, one leg, and a seat that sits below the thigh rather than across it.
+
+## What is deliberately not done
+
+- **No `characters/`.** A rig is step 5, and the distinction is the point: four poses are
+  not a cast, because nothing yet draws _the same person_ standing and then walking.
+- **The planner never emits an `AssetRef`.** Nothing upstream knows the library exists;
+  entities reach it through the alias table or not at all. That is why the alias lists are
+  narrow and why `Asset.ref` is written _back_ after resolution.
+- **`symbols/` is two files.** `circuit/` and `math/` are step 9, and the two physics
+  symbols exist to prove the path namespace nests, not to be a symbol set.

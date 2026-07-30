@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 200" width="120" height="200">
+  <!--
+    Draw order is reveal order: head, torso, arms, legs, feet.
+
+    The head is four cubics rather than a <circle> on purpose. A circle converts to
+    two half arcs, which gives the sketch pass four control points to displace and
+    reads as a diamond at marker roughness; anchored at the compass points it comes
+    out as a wobbly circle, which is what was wanted.
+  -->
+  <path d="M38 36 C38 23.9 47.9 14 60 14 C72.1 14 82 23.9 82 36 C82 48.1 72.1 58 60 58 C47.9 58 38 48.1 38 36 Z" fill="currentColor"/>
+  <path d="M42 62 C39 80 41 100 45 120 L75 120 C79 100 81 80 78 62 Z"/>
+  <path d="M42 68 C30 82 26 98 29 116"/>
+  <path d="M78 68 C90 82 94 98 91 116"/>
+  <path d="M50 120 C48 140 48 160 50 180"/>
+  <path d="M70 120 C72 140 72 160 70 180"/>
+  <path d="M50 180 L38 185"/>
+  <path d="M70 180 L82 185"/>
+</svg>

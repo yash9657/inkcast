@@ -79,8 +79,11 @@ versioning and no cross-video reuse, so the tenth video is drawn by the same mac
 as the first with none of the benefit. There is also no character rig, so the cast of
 every narrative topic is stick figures.
 
-_Equation typesetting was the third item here and is now done — see step 3. The library
-and the rigs are steps 4 and 5._
+_Equation typesetting was the third item here and is done — see step 3. **The library is
+now done too — see step 4:** curated assets resolve by path and pinned version, and the
+generated-raster cache is machine-wide rather than per project. What remains of this root
+cause is the rigs (step 5): the cast is four hand-authored poses, so a character can stand
+or walk but cannot be *the same character* standing and walking._
 
 ## The stage contracts
 
@@ -228,22 +231,36 @@ type BeatVisual = {
 
 ### 4. Asset reference
 
+**Shipped** (step 4). `packages/core/src/storyboard.ts` is the source of truth; two fields
+ended up optional for reasons the zod there explains at length.
+
 ```ts
 type AssetRef = {
-  /** Library path, e.g. 'characters/odysseus' or 'symbols/physics/force-vector'. */
+  /** Library path, e.g. 'figures/walking' or 'symbols/physics/force-vector'. */
   path: string;
-  /** Pinned, so improving an asset never silently changes a finished video. */
-  version: number;
-  /** Pose for a character, state for a symbol. */
+  /**
+   * Optional in, pinned out: absent resolves to the newest version the library has,
+   * and the visuals stage writes back the number it used. So improving an asset
+   * never silently changes a finished video, without every author having to know
+   * which version they are on.
+   */
+  version?: number;
+  /** Pose for a character, state for a symbol. Step 5 reads it. */
   variant?: string;
   /**
-   * Which ink mode draws it. The hybrid decision, made per asset rather than
-   * globally: an equation is exact because a wobbled integral sign is a different
-   * integral sign, and a hillside is roughened because that is the whole look.
+   * Which ink mode draws it, overriding the library's own declaration. Normally
+   * absent, because the asset knows its nature better than the caller: an equation
+   * is exact because a wobbled integral sign is a different integral sign, and a
+   * hillside is roughened because that is the whole look. `library.json` states it
+   * per asset; this field is for drawing the same symbol the other way.
    */
-  ink: 'crisp' | 'sketch';
+  ink?: 'crisp' | 'sketch';
 };
 ```
+
+An `Asset` carries one as `Asset.ref`. The elements still reference an entity by
+`assetId` rather than embedding a `source`, so "resolve once, reuse by id" is unchanged —
+the reference says _which curated drawing this entity is_.
 
 ## Which stages are models, and which are code
 
@@ -295,37 +312,53 @@ precision round-trip instead, which preserves subpaths and closes. Crisp plot cu
 shorter as a side effect — one subpath of 240 segments where there were 240 subpaths of
 one.
 
-Two things are deliberately still open. `resolvePlot` decides the mode for plots
-itself, because `AssetRef` is a stage-1 sketch and nothing constructs one yet — the
-caller-supplied mode wins where given, which is the seam the field will arrive
-through. And the renderer's own freehand lane (`sketchAlong`, for `path` elements and
-frames) is untouched and therefore implicitly `sketch`; it has no crisp form and does
-not want one, since nothing quantitative is drawn through it.
+**Wired in step 4:** `AssetRef.ink` is now real and threads through to `DrawContext.ink`,
+with `library.json` supplying the default per asset. The shipped cast exercises both in one
+frame — the figures are `sketch`, `symbols/physics/*` are `crisp`.
+
+Two things are deliberately still open. `resolvePlot` decides the mode for plots itself:
+a plot is not a library asset, so there is no reference to read it from, and the
+caller-supplied mode still wins where given. And the renderer's own freehand lane
+(`sketchAlong`, for `path` elements and frames) is untouched and therefore implicitly
+`sketch`; it has no crisp form and does not want one, since nothing quantitative is drawn
+through it.
 
 ## The asset library
 
 Curated primitives live in the repo and are reviewed like code. Generated variants are
 cached per machine and never committed.
 
+**A version is a filename**, `<path>.v<N>.svg`, and `library.json` registers only which
+one is newest. A pinned version that is not on disk is not a pin, so the files are the
+truth; the manifest carries what the geometry cannot say about itself. `✅` marks what
+step 4 shipped.
+
 ```
 assets/library/
-  library.json                    # manifest: path -> { version, ink, license, provenance }
-  characters/
+  library.json                    # register: path -> { version, ink, license, provenance, match }  ✅
+  README.md                       # the authoring rules, in the directory they apply to  ✅
+  figures/                        # the no-key cast  ✅
+    standing.v1.svg  walking.v1.svg  pointing.v1.svg  sitting.v1.svg
+  symbols/
+    physics/  force-vector.v1.svg  mass.v1.svg  ✅   ray.v1.svg
+    circuit/  resistor.v1.svg  capacitor.v1.svg  battery.v1.svg
+    math/     brace.v1.svg  axis-arrow.v1.svg
+  characters/                     # step 5, not step 4
     odysseus/
       character.json              # the rig
       base.svg
       poses/
         standing.svg  walking.svg  pointing.svg
-  symbols/
-    physics/  force-vector.svg  ray.svg  mass.svg
-    circuit/  resistor.svg  capacitor.svg  battery.svg
-    math/     brace.svg  axis-arrow.svg
-  figures/                        # the no-key cast: standing, walking, pointing, sitting
   icons/                          # curated overrides only
 ```
 
 `lucide-static` stays where it is — a ~2000-icon _fallback provider_, not the library.
 The library is the things we chose; lucide is the things we settle for.
+
+`packages/visuals/src/library.ts` carries the authoring rules in full. The one with
+teeth: **document order is draw order**, because the writer reveals items in the order it
+receives them, so a figure is authored the way a person draws one. That ordering is most of
+why a curated asset reads better than a traced one, and it is invisible in a static SVG.
 
 ```ts
 /** characters/<id>/character.json */
@@ -405,10 +438,49 @@ reads from `visuals.json`** rather than recomputing: an equation has no camera-d
 unit (unlike a plot, whose caption size is its unit of measurement), and typesetting is
 an async import that `compilePlan` could not perform anyway.
 
-**4. Library skeleton.** `library.json`, `AssetRef`, resolution order
-(library -> cache -> generate -> lucide), and the hand-authored `figures/` cast. Closes
-the no-key character gap as a side effect. _Done when:_ an asset resolves by path and
-version with no network.
+**4. Library skeleton.** ✅ **DONE.** `library.json`, `AssetRef`, the resolution order
+(library -> cache -> generate -> lucide), and the hand-authored `figures/` cast —
+standing, walking, pointing, sitting, plus `symbols/physics/{force-vector,mass}` to prove
+the path namespace goes deeper than one folder. _Done when:_ an asset resolves by path and
+version with no network — `an asset resolves by path and version with no network` in
+`visuals/test/library.test.ts`, which forces `images: 'off'` and asserts the _library_
+lane won rather than that something was drawn.
+
+Three decisions inside it are worth knowing before extending it.
+
+**A version is a filename, not a manifest field.** `figures/standing.v1.svg`, and
+`library.json` records only which version is newest. The point of `AssetRef.version` is
+that improving an asset cannot change a finished video, and a version that is not on disk
+cannot be pinned — so the files are the truth and the manifest is a _register_ (ink mode,
+licence, provenance, and the nouns that should resolve to each path). This deviates from
+the directory sketch above, which showed unversioned filenames; the sketch was written
+before the pinning requirement had anywhere to live.
+
+**A reference arrives unpinned and leaves pinned.** `AssetRef.version` is optional going
+in: absent, it resolves to the newest the library has, and the visuals stage writes back
+the number it used. So authoring stays easy while a resolved storyboard is exact, and
+re-resolving to a newer asset becomes a deliberate act rather than a side effect of the
+library moving on. `AssetRef.ink` is optional for the same kind of reason — the asset
+knows its own nature (a force vector is `crisp`, a figure is `sketch`), so the manifest
+states it once and a reference only says so to override.
+
+**The no-key character gap closes through _matching_, not through references.** The
+planner mints `hiker` with a prompt and no idea the library exists, so an unreferenced
+entity is looked up by id and then by whole prompt tokens against each entry's `match`
+list. Narrow lists on purpose: an over-reaching alias hijacks an entity that had a better
+lane, and a confidently wrong figure is worse than the generic icon it replaced — which is
+why `the library does not hijack entities the icon lane draws better` pins `cpu`, `ram`,
+`database`, `brain` and friends to lucide.
+
+Two smaller things fell out. The illustration lane's raster cache became machine-wide
+(`~/.inkcast/cache/illustrations/`, checked after the project's own copy), which is what
+turns "one generation per film" into "one per subject" and is the half of _nothing
+compounds_ that the library alone does not fix. And the sketch and crisp modes take a fill
+by different routes: crisp output _is_ the authored contour so a fill can be set on it
+afterwards, while roughjs returns the wobbly stroke it drew, so it has to be asked for the
+fill up front and hachure the region itself. Setting a fill on sketch output post hoc fills
+the outline of a pen line — the first render of the cast came out with ringed heads and
+nothing inside them.
 
 **5. Character rigs.** `character.json`, composed poses, generated-variant cache,
 similarity gate. _Done when:_ the same character across three beats is pixel-identical

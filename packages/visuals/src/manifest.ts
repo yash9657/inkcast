@@ -35,7 +35,7 @@ export type AssetVisual = {
   id: string;
   kind: Asset['kind'];
   /** How this asset was actually resolved, whatever `kind` claimed. */
-  lane: 'icon' | 'illustration' | 'diagram' | 'letter' | 'inline';
+  lane: 'library' | 'icon' | 'illustration' | 'diagram' | 'letter' | 'inline';
   /** Project-relative path to the SVG. */
   svg: string;
   space: VisualSpace;
@@ -44,6 +44,15 @@ export type AssetVisual = {
   totalLength: number;
   seed: number;
   prompt?: string;
+  /**
+   * The curated asset drawn, when the library lane won.
+   *
+   * `version` is the number resolved, not the number asked for — a reference that
+   * pinned nothing records what it actually got, which is what lets a re-resolve be
+   * a deliberate act rather than a side effect of the library moving on. `how` says
+   * whether a path was pinned or a registered noun matched.
+   */
+  library?: { path: string; version: number; ink: string; how: 'path' | 'alias' };
   icon?: { slug: string; how: string };
   /** Project-relative cached raster, when this came through the illustration lane. */
   raster?: string;

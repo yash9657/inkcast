@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 200" width="130" height="200">
+  <!--
+    In profile, with the far arm and far leg omitted: two nearly parallel limbs read
+    as mud at this size, one reads as a person. The stool comes last and light — it is
+    context, and without something under the hips the figure only looks like it is
+    falling over. It sits *below* the thigh rather than across it, because a seat line
+    crossing the leg reads as a strike-through instead of as furniture.
+  -->
+  <!-- Four cubics, not a <circle> — see the note in standing.v1.svg. -->
+  <path d="M30 44 C30 31.9 39.9 22 52 22 C64.1 22 74 31.9 74 44 C74 56.1 64.1 66 52 66 C39.9 66 30 56.1 30 44 Z" fill="currentColor"/>
+  <path d="M36 66 C33 86 36 106 40 124 L70 124 C72 106 75 86 72 66 Z"/>
+  <path d="M72 74 C84 88 86 102 80 116"/>
+  <path d="M44 124 L98 118"/>
+  <path d="M98 118 L102 170"/>
+  <path d="M102 170 L116 174"/>
+  <path d="M14 128 L76 128" data-weight="light"/>
+  <path d="M22 128 L18 178" data-weight="light"/>
+  <path d="M68 128 L72 178" data-weight="light"/>
+</svg>

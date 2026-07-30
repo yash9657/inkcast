@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 200" width="130" height="200">
+  <!-- The raised arm is drawn before the resting one so the gesture arrives first. -->
+  <!-- Four cubics, not a <circle> — see the note in standing.v1.svg. -->
+  <path d="M32 36 C32 23.9 41.9 14 54 14 C66.1 14 76 23.9 76 36 C76 48.1 66.1 58 54 58 C41.9 58 32 48.1 32 36 Z" fill="currentColor"/>
+  <path d="M36 62 C33 80 35 100 39 120 L69 120 C73 100 75 80 72 62 Z"/>
+  <path d="M72 70 C86 64 98 56 110 48"/>
+  <path d="M109 45 C109 42.2 111.2 40 114 40 C116.8 40 119 42.2 119 45 C119 47.8 116.8 50 114 50 C111.2 50 109 47.8 109 45 Z" fill="currentColor"/>
+  <path d="M36 68 C26 82 23 98 26 116"/>
+  <path d="M44 120 C42 140 42 160 44 180"/>
+  <path d="M64 120 C66 140 66 160 64 180"/>
+  <path d="M44 180 L32 185"/>
+  <path d="M64 180 L76 185"/>
+</svg>

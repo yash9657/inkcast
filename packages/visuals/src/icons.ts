@@ -26,6 +26,7 @@ import {
   pathToString,
   samplePath,
   pointsBBox,
+  svgChildren,
   transformSegs,
 } from './svg.js';
 
@@ -1483,111 +1484,16 @@ export function readIconSvg(slug: string): string | undefined {
   }
 }
 
-const CHILD_RE = /<(path|circle|ellipse|rect|line|polyline|polygon)\b([^>]*)>/g;
-const ATTR_RE = /([a-zA-Z][a-zA-Z0-9:-]*)\s*=\s*"([^"]*)"/g;
-
-function attrs(chunk: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  ATTR_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = ATTR_RE.exec(chunk)) !== null) out[m[1] as string] = m[2] as string;
-  return out;
-}
-
-function num(a: Record<string, string>, k: string, dflt = 0): number {
-  const v = Number(a[k]);
-  return Number.isFinite(v) ? v : dflt;
-}
-
-function pointsToPath(raw: string, close: boolean): string {
-  const nums = (raw.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g) ?? []).map(Number);
-  const parts: string[] = [];
-  for (let i = 0; i + 1 < nums.length; i += 2) {
-    parts.push(`${i === 0 ? 'M' : 'L'}${nums[i]} ${nums[i + 1]}`);
-  }
-  if (parts.length === 0) return '';
-  return close ? `${parts.join(' ')} Z` : parts.join(' ');
-}
-
 /**
  * Every drawable child of a lucide SVG as path data, in document order.
  *
- * `<circle>`/`<rect>`/`<line>`/`<polyline>` are converted rather than skipped —
- * a good third of the set uses them, and dropping them would silently lose
- * pupils, dots and frames.
+ * The conversion itself is `svgChildren` in `svg.ts`, shared with the library
+ * lane — both read flat lists of SVG primitives and there is no reason for two
+ * readers. This lane discards the attributes because lucide's are uniform:
+ * stroke-only, no fills, no transforms.
  */
 export function iconPathData(svgText: string): string[] {
-  const out: string[] = [];
-  CHILD_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CHILD_RE.exec(svgText)) !== null) {
-    const tag = m[1] as string;
-    const a = attrs(m[2] as string);
-    switch (tag) {
-      case 'path': {
-        const d = a.d;
-        if (d) out.push(d);
-        break;
-      }
-      case 'circle': {
-        const cx = num(a, 'cx');
-        const cy = num(a, 'cy');
-        const r = num(a, 'r');
-        if (r > 0)
-          out.push(
-            `M${cx - r} ${cy}A${r} ${r} 0 1 0 ${cx + r} ${cy}A${r} ${r} 0 1 0 ${cx - r} ${cy}Z`,
-          );
-        break;
-      }
-      case 'ellipse': {
-        const cx = num(a, 'cx');
-        const cy = num(a, 'cy');
-        const rx = num(a, 'rx');
-        const ry = num(a, 'ry');
-        if (rx > 0 && ry > 0)
-          out.push(
-            `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`,
-          );
-        break;
-      }
-      case 'rect': {
-        const x = num(a, 'x');
-        const y = num(a, 'y');
-        const w = num(a, 'width');
-        const h = num(a, 'height');
-        const rx = Math.min(num(a, 'rx', num(a, 'ry')), Math.min(w, h) / 2);
-        if (w <= 0 || h <= 0) break;
-        if (rx > 0) {
-          out.push(
-            `M${x + rx} ${y}H${x + w - rx}A${rx} ${rx} 0 0 1 ${x + w} ${y + rx}` +
-              `V${y + h - rx}A${rx} ${rx} 0 0 1 ${x + w - rx} ${y + h}` +
-              `H${x + rx}A${rx} ${rx} 0 0 1 ${x} ${y + h - rx}` +
-              `V${y + rx}A${rx} ${rx} 0 0 1 ${x + rx} ${y}Z`,
-          );
-        } else {
-          out.push(`M${x} ${y}H${x + w}V${y + h}H${x}Z`);
-        }
-        break;
-      }
-      case 'line': {
-        out.push(`M${num(a, 'x1')} ${num(a, 'y1')}L${num(a, 'x2')} ${num(a, 'y2')}`);
-        break;
-      }
-      case 'polyline': {
-        const d = pointsToPath(a.points ?? '', false);
-        if (d) out.push(d);
-        break;
-      }
-      case 'polygon': {
-        const d = pointsToPath(a.points ?? '', true);
-        if (d) out.push(d);
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  return out;
+  return svgChildren(svgText).map((c) => c.d);
 }
 
 export type IconResult = {

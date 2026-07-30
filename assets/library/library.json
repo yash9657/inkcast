@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "assets": {
+    "figures/standing": {
+      "version": 1,
+      "ink": "sketch",
+      "kind": "illustration",
+      "title": "Standing figure",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": [
+        "person",
+        "figure",
+        "human",
+        "someone",
+        "somebody",
+        "student",
+        "learner",
+        "observer",
+        "individual",
+        "character"
+      ]
+    },
+    "figures/walking": {
+      "version": 1,
+      "ink": "sketch",
+      "kind": "illustration",
+      "title": "Walking figure",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": [
+        "walking",
+        "walker",
+        "walks",
+        "hiker",
+        "hiking",
+        "traveller",
+        "traveler",
+        "pedestrian",
+        "climber",
+        "wanderer"
+      ]
+    },
+    "figures/pointing": {
+      "version": 1,
+      "ink": "sketch",
+      "kind": "illustration",
+      "title": "Pointing figure",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": ["pointing", "points", "teacher", "instructor", "presenter", "lecturer", "explainer"]
+    },
+    "figures/sitting": {
+      "version": 1,
+      "ink": "sketch",
+      "kind": "illustration",
+      "title": "Seated figure",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": ["sitting", "sits", "seated", "thinker"]
+    },
+    "symbols/physics/force-vector": {
+      "version": 1,
+      "ink": "crisp",
+      "kind": "icon",
+      "title": "Force vector",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": ["force", "thrust", "newton"]
+    },
+    "symbols/physics/mass": {
+      "version": 1,
+      "ink": "crisp",
+      "kind": "icon",
+      "title": "Mass on hatched ground",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": ["mass"]
+    }
+  }
+}

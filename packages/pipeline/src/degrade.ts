@@ -87,8 +87,9 @@ export function degradations(
       stage: 'visuals',
       missing: 'no image model key',
       effect:
-        'plots, paths and diagrams are unaffected, but illustrated objects and characters fall ' +
-        'back to the built-in icon set — there is no icon for a Greek hero.',
+        'plots, paths, diagrams and anything in the curated library are unaffected, and a ' +
+        'character comes from the hand-drawn cast rather than an icon. Objects outside the ' +
+        'library fall back to the built-in icon set — there is no icon for a trebuchet.',
       fix: 'inkcast keys set replicate',
       severity: 'minor',
     });

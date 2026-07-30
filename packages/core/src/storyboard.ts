@@ -27,6 +27,42 @@ export const Box = z.object({
 /* ------------------------------------------------------------------ assets */
 
 /**
+ * A pointer into the curated asset library (`assets/library/`).
+ *
+ * The library is how quality compounds: a drawing we chose is reviewed like code
+ * and reused across videos, rather than re-synthesised per project and different
+ * every time. This type is what a storyboard carries instead of a bare slug.
+ */
+export const AssetRef = z.object({
+  /** Library path, e.g. `figures/standing` or `symbols/physics/force-vector`. */
+  path: z.string(),
+  /**
+   * Which version of that asset to draw.
+   *
+   * Optional on the way *in* and pinned on the way *out*: a reference with no
+   * version resolves to the newest one the library has, and the visuals stage
+   * writes back the number it actually used. So authoring stays easy while a
+   * finished storyboard is exact — improving `figures/standing` to v2 leaves every
+   * storyboard that already resolved v1 rendering v1, which is the whole point.
+   * Versions are files, not manifest entries (`<path>.v<N>.svg`), because a version
+   * that is not on disk cannot be pinned.
+   */
+  version: z.number().int().positive().optional(),
+  /** Pose for a character, state for a symbol. Step 5 (`CharacterRig`) reads it. */
+  variant: z.string().optional(),
+  /**
+   * Which ink mode draws it, overriding the library's own declaration.
+   *
+   * Normally absent: the asset knows its nature better than the caller does — a
+   * force vector is `crisp` because an arrow read for direction should not wobble,
+   * a figure is `sketch` because that is the whole look — so the manifest states it
+   * once and every reference inherits it. This field exists for the case where a
+   * board wants the same symbol drawn the other way.
+   */
+  ink: z.enum(['crisp', 'sketch']).optional(),
+});
+
+/**
  * An entity drawn once and reused everywhere it appears.
  *
  * This is deliberately a top-level library rather than an inline property of
@@ -38,12 +74,22 @@ export const Asset = z.object({
   kind: z.enum(['illustration', 'icon', 'diagram', 'image']),
   /** Prompt used to synthesise the asset when it has no `svg` yet. */
   prompt: z.string().optional(),
+  /**
+   * The curated drawing this entity *is*, when there is one.
+   *
+   * Takes precedence over `prompt`: a reference names a thing we already drew, so
+   * there is nothing to synthesise and nothing to match. The visuals stage also
+   * fills this in when it recognises an unreferenced entity as a library asset, so
+   * a second run resolves by path instead of guessing its way back to the same
+   * drawing.
+   */
+  ref: AssetRef.optional(),
   /** Resolved hand-drawn vector content, filled in by the visuals stage. */
   svg: z.string().optional(),
   /** Locked so regeneration stays visually identical. */
   seed: z.number().int().optional(),
   /** Provenance, for cache invalidation and attribution. */
-  source: z.enum(['generated', 'builtin', 'user-upload', 'diagram']).optional(),
+  source: z.enum(['generated', 'builtin', 'user-upload', 'diagram', 'library']).optional(),
 });
 
 /* ---------------------------------------------------------------- elements */
@@ -471,6 +517,7 @@ export type Storyboard = z.infer<typeof Storyboard>;
 export type Scene = z.infer<typeof Scene>;
 export type Element = z.infer<typeof Element>;
 export type Asset = z.infer<typeof Asset>;
+export type AssetRef = z.infer<typeof AssetRef>;
 export type Camera = z.infer<typeof Camera>;
 export type StoryboardMeta = z.infer<typeof StoryboardMeta>;
 export type TextElement = z.infer<typeof TextElement>;

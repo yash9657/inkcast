@@ -612,6 +612,144 @@ export function clipToBox(box: Box, towards: Pt): Pt {
   return { x: c.x + dx * t, y: c.y + dy * t };
 }
 
+/* ------------------------------------------------------------------- reader */
+
+/** One drawable child of an SVG, as path data plus the attributes it carried. */
+export type SvgChild = {
+  /** The element expressed as path data, whatever tag it was authored as. */
+  d: string;
+  /** Verbatim attributes, so a caller can honour `fill`, `transform`, `data-*`. */
+  attrs: Record<string, string>;
+};
+
+const CHILD_RE = /<(path|circle|ellipse|rect|line|polyline|polygon)\b([^>]*)>/g;
+const ATTR_RE = /([a-zA-Z][a-zA-Z0-9:-]*)\s*=\s*"([^"]*)"/g;
+
+function attrsOf(chunk: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  ATTR_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ATTR_RE.exec(chunk)) !== null) out[m[1] as string] = m[2] as string;
+  return out;
+}
+
+function num(a: Record<string, string>, k: string, dflt = 0): number {
+  const v = Number(a[k]);
+  return Number.isFinite(v) ? v : dflt;
+}
+
+function pointsToPath(raw: string, close: boolean): string {
+  const nums = (raw.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g) ?? []).map(Number);
+  const parts: string[] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    parts.push(`${i === 0 ? 'M' : 'L'}${nums[i]} ${nums[i + 1]}`);
+  }
+  if (parts.length === 0) return '';
+  return close ? `${parts.join(' ')} Z` : parts.join(' ');
+}
+
+/**
+ * Every drawable child of an SVG as path data, in document order.
+ *
+ * `<circle>`/`<rect>`/`<line>`/`<polyline>` are converted rather than skipped — a
+ * good third of lucide uses them, and dropping them would silently lose pupils,
+ * dots and frames.
+ *
+ * Deliberately a regex pass and not a parser. The inputs are lucide's generated
+ * files and our own hand-authored library, both flat lists of primitives; the cost
+ * of that assumption is that a `transform` is *reported* (in `attrs`) rather than
+ * applied, so a caller that cares has to say so. `libraryPaths` warns about one.
+ */
+export function svgChildren(svgText: string): SvgChild[] {
+  const out: SvgChild[] = [];
+  CHILD_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CHILD_RE.exec(svgText)) !== null) {
+    const tag = m[1] as string;
+    const a = attrsOf(m[2] as string);
+    const push = (d: string): void => {
+      if (d) out.push({ d, attrs: a });
+    };
+    switch (tag) {
+      case 'path': {
+        push(a.d ?? '');
+        break;
+      }
+      case 'circle': {
+        const cx = num(a, 'cx');
+        const cy = num(a, 'cy');
+        const r = num(a, 'r');
+        if (r > 0)
+          push(`M${cx - r} ${cy}A${r} ${r} 0 1 0 ${cx + r} ${cy}A${r} ${r} 0 1 0 ${cx - r} ${cy}Z`);
+        break;
+      }
+      case 'ellipse': {
+        const cx = num(a, 'cx');
+        const cy = num(a, 'cy');
+        const rx = num(a, 'rx');
+        const ry = num(a, 'ry');
+        if (rx > 0 && ry > 0)
+          push(
+            `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`,
+          );
+        break;
+      }
+      case 'rect': {
+        const x = num(a, 'x');
+        const y = num(a, 'y');
+        const w = num(a, 'width');
+        const h = num(a, 'height');
+        const rx = Math.min(num(a, 'rx', num(a, 'ry')), Math.min(w, h) / 2);
+        if (w <= 0 || h <= 0) break;
+        if (rx > 0) {
+          push(
+            `M${x + rx} ${y}H${x + w - rx}A${rx} ${rx} 0 0 1 ${x + w} ${y + rx}` +
+              `V${y + h - rx}A${rx} ${rx} 0 0 1 ${x + w - rx} ${y + h}` +
+              `H${x + rx}A${rx} ${rx} 0 0 1 ${x} ${y + h - rx}` +
+              `V${y + rx}A${rx} ${rx} 0 0 1 ${x + rx} ${y}Z`,
+          );
+        } else {
+          push(`M${x} ${y}H${x + w}V${y + h}H${x}Z`);
+        }
+        break;
+      }
+      case 'line': {
+        push(`M${num(a, 'x1')} ${num(a, 'y1')}L${num(a, 'x2')} ${num(a, 'y2')}`);
+        break;
+      }
+      case 'polyline': {
+        push(pointsToPath(a.points ?? '', false));
+        break;
+      }
+      case 'polygon': {
+        push(pointsToPath(a.points ?? '', true));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+/** The root `<svg>`'s viewBox, when it declares a usable one. */
+export function svgViewBox(svgText: string): Box | undefined {
+  const open = /<svg\b([^>]*)>/.exec(svgText);
+  if (!open) return undefined;
+  const a = attrsOf(open[1] as string);
+  const vb = a.viewBox ?? a.viewbox;
+  if (vb) {
+    const p = (vb.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g) ?? []).map(Number);
+    if (p.length === 4) {
+      const [x, y, w, h] = p as [number, number, number, number];
+      if (w > 0 && h > 0) return { x, y, w, h };
+    }
+  }
+  const w = num(a, 'width');
+  const h = num(a, 'height');
+  return w > 0 && h > 0 ? { x: 0, y: 0, w, h } : undefined;
+}
+
 /* --------------------------------------------------------------- serialiser */
 
 export type Attrs = Record<string, string | number | undefined | null | false>;

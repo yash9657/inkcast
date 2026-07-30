@@ -4,14 +4,46 @@
  * Every stage is resumable: it hashes its inputs, and if the artefact on disk
  * was produced by the same hash it skips the work. That is what makes an edit
  * to scene 7 cheap instead of a full regeneration.
+ *
+ * There are two caches here and the difference matters. The per-project one
+ * (`isFresh`/`markFresh`) makes *re-running one video* cheap. The machine-wide one
+ * (`cacheDir`) makes the *tenth video* cheaper than the first, because an
+ * expensively generated asset is keyed by what it is rather than by which project
+ * happened to ask for it first.
  */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Storyboard } from './storyboard.js';
 
 export const PROJECTS_ROOT = process.env.INKCAST_PROJECTS ?? 'projects';
+
+/* -------------------------------------------------------- machine-wide state */
+
+/**
+ * The Inkcast state directory — machine-wide, never inside a project.
+ *
+ * One definition, because two would be one too many: `@inkcast/keyvault` puts the
+ * vault here and this module puts the shared cache here, and a build where those
+ * disagreed about `INKCAST_HOME` would scatter state across two roots.
+ */
+export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.INKCAST_HOME ? path.resolve(env.INKCAST_HOME) : path.join(homedir(), '.inkcast');
+}
+
+/**
+ * A path inside the machine-wide cache, e.g. `cacheDir('illustrations')`.
+ *
+ * Everything under here is *reproducible* — derived from inputs recorded
+ * elsewhere — so deleting it costs time and never work. That is the contract that
+ * makes it safe to cache across projects: a stale or absent entry degrades to
+ * regenerating, never to a wrong drawing, because the key covers the inputs.
+ */
+export function cacheDir(...parts: string[]): string {
+  return path.join(stateDir(), 'cache', ...parts);
+}
 
 export type Project = {
   id: string;

@@ -1,17 +1,17 @@
-# Handoff — 2026-07-29 · start on step 4 (the library skeleton)
+# Handoff — 2026-07-29 · start on step 5 (character rigs)
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
 things stand, what to do next, and which traps are waiting.
 
-Delete or rewrite this once step 4 lands. It goes stale by design.
+Delete or rewrite this once step 5 lands. It goes stale by design.
 
-**Your job: step 4.** The baseline under you is verified — read "Where things stand", then
-go to "Step 4" and start. Everything after that is reference.
+**Your job: step 5.** The baseline under you is verified — read "Where things stand", then
+go to "Step 5" and start. Everything after that is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, nine commits on top of `e95258b`. Everything is local;
+Branch **`visuals-morph-density`**, ten commits on top of `e95258b`. Everything is local;
 there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty. In
 order, by subject:
 
@@ -24,108 +24,93 @@ order, by subject:
     Two ink modes, and plots draw crisp                                  <- step 2
     The equation lane: real typeset mathematics                          <- step 3
     Consolidate: a real render, a re-verified STATUS, one cache gate
+    docs: rewrite the handoff to start on step 4
+    The asset library: drawings we chose, pinned by version             <- step 4
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2 and 3 of `PIPELINE.md` are done and marked ✅ there.
+diff it belongs to. Steps 1, 6, 2, 3 and 4 of `PIPELINE.md` are done and marked ✅ there.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
-errors across 9 projects, `pnpm -r test` **528 pass / 0 fail** across all eight
+errors across 9 projects, `pnpm -r test` **539 pass / 0 fail** across all eight
 test-bearing packages. The benchmark renders end to end in both formats from the shipped
 hand-authored lesson with no keys: 104.667 s / 3140 frames at 1920x1080, 61.500 s at
 1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%.
 
-**Take figures from `STATUS.md`'s 2026-07-29 appendix, not from its body.** That document
-is a dated record rather than a checklist, so the 07-28 body is deliberately unedited and
-the appendix names the six claims that have moved.
+**`STATUS.md` now has two appendices**, both dated 07-29. Take library figures from the
+second one ("The asset library"), pipeline figures from either — they agree — and treat
+the 07-28 body as a historical record that is deliberately unedited.
 
-## Step 4 — the library skeleton
+## Step 5 — character rigs
 
 **The goal**, verbatim from `PIPELINE.md`:
 
-> **4. Library skeleton.** `library.json`, `AssetRef`, resolution order
-> (library -> cache -> generate -> lucide), and the hand-authored `figures/` cast. Closes
-> the no-key character gap as a side effect. _Done when:_ an asset resolves by path and
-> version with no network.
+> **5. Character rigs.** `character.json`, composed poses, generated-variant cache,
+> similarity gate. _Done when:_ the same character across three beats is pixel-identical
+> where composed and above threshold where generated.
 
-`PIPELINE.md` has the intended directory layout under "The asset library" and the
-`AssetRef` shape under "Asset reference". Read both before designing anything — and note
-that `CharacterRig` in the same section belongs to **step 5**, not this one. Step 4 is the
-skeleton the rigs will hang from.
+`PIPELINE.md`'s "The asset library" section has the `CharacterRig` shape and the
+identity-across-poses gate. Read both. Note the acceptance bar is about **identity**, not
+about drawing quality: three poses of one character that are recognisably the same person.
 
-### What exists today, concretely
+### What step 4 built for you
 
-Asset resolution lives in **`resolveAsset()`, `packages/visuals/src/resolve.ts:285`**, and
-its lane order is currently:
+The library skeleton is done and the rigs hang off it. Concretely:
 
-1. **inline** — `Asset.svg` already holding `<svg…`, written out untouched and authoritative.
-2. **illustration** — `illustrationPaths()` (`image.ts`), text-to-image → vectorise →
-   roughen. Needs `REPLICATE_API_TOKEN` or `FAL_KEY`; a missing key downgrades, never errors.
-3. **icon** — `matchAsset()` + `iconPaths()` (`icons.ts`), a roughened `lucide-static` glyph
-   matched on the asset id first and the prompt second.
-4. **letter card** — `letterCardItems()`, a hand-drawn rect with the entity's name in it.
+- **`packages/visuals/src/library.ts`** is the lane. It loads `assets/library/library.json`,
+  resolves `<path>.v<N>.svg`, converts children to `InkPath`s honouring the entry's ink
+  mode, and matches unreferenced entities by id then prompt. Its header carries the
+  authoring rules; `assets/library/README.md` is the short version for whoever adds an asset.
+- **`AssetRef`** is real: `packages/core/src/storyboard.ts`, reachable as `Asset.ref`.
+  `variant` is **already in the type and read by nothing** — that is step 5's field, and it
+  is the seam a pose arrives through.
+- **`assets/library/figures/`** holds the four archetypes as v1. They are _poses_, not a
+  character: four separate files with no shared identity, which is exactly the gap.
+- **`AssetVisual.lane`** gained `'library'`, and `AssetVisual.library` records
+  `{ path, version, ink, how }`. Assert on those rather than on "something was drawn".
+- **`~/.inkcast/cache/`** is the machine-wide cache root (`cacheDir()` in
+  `@inkcast/core`). The illustration lane already uses `cacheDir('illustrations')`; PIPELINE
+  wants generated _variants_ under `~/.inkcast/cache/<id>/<pose>-<seed>.svg`, so the root and
+  the convention are both there.
 
-Step 4 inserts the library as the new first stop after inline, and turns lane 2 into
-"cache, then generate". `lucide` stays exactly where it is — `PIPELINE.md` is explicit that
-it is a ~2000-icon _fallback provider_, not the library: "the library is the things we
-chose; lucide is the things we settle for."
+### The two traps waiting specifically for you
 
-Other ground truth you will want:
+**A sketch fill must go into roughjs, not onto its output.** This cost a render to find.
+Crisp output _is_ the authored contour, so setting `fill` on the returned `InkPath` works —
+the equation lane does it. Sketch output is not: roughjs returns the wobbly _stroke_ it
+drew, so a post-hoc fill fills the outline of a pen line, and the whole cast rendered with
+ringed heads and hollow faces. `libraryPaths` now branches on the mode; a rig composing
+limbs will hit exactly the same fork.
 
-- **`Asset`** is `packages/core/src/storyboard.ts:36` — `{ id, kind, prompt?, svg?, seed?,
-source? }`, where `kind` is `illustration | icon | diagram | image`. `AssetRef`
-  (`path`, `version`, `variant?`, `ink`) is a **new** type; nothing constructs one yet.
-- **`AssetElement`** references an asset by `assetId` string, and the planner's `registry()`
-  (`planner/src/compile.ts`) mints those ids from slugs. That is the seam where a
-  library path would replace a bare slug.
-- **Generated illustrations already cache**, but per project: `ILLUSTRATION_DIR =
-'assets/illustrations'` (`visuals/src/image.ts:61`), keyed by id + prompt hash.
-  `PIPELINE.md` wants the machine-wide cache at `~/.inkcast/cache/<id>/…` instead.
-- **`assets/` in the repo currently holds only fonts** (`assets/fonts/hand`, `.../ui`).
-  `assets/library/` does not exist. There is no `figures/` cast, which is why a character
-  falls through to a lucide icon or a lettered card today.
-- **`resolveVisuals`' `case 'asset'`** already fits a resolved entity's strokes from the
-  sidecar into the element box with `fitMatrix` + `placeStrokes` — that is most of the
-  machinery "resolve by path and version" needs on the drawing side.
-
-### What steps 2 and 3 left open for you
-
-**`AssetRef.ink` is the field the ink mode was built for.** `DrawContext.ink` exists and
-defaults to `sketch`; `resolvePlot` and `resolveEquation` each set their own mode, and both
-let a caller-supplied mode win. So threading `AssetRef.ink` through is wiring, not design.
-
-**A library symbol is a filled crisp path, and that path used to break.** Step 3 found that
-roughjs at zero roughness re-emits one subpath per segment and drops the closing `Z` —
-invisible on a stroked line, fatal on a filled outline, which rendered every glyph hollow.
-`roughenPathData` now bypasses roughjs entirely when the mode is crisp. Treat that as
-load-bearing for step 4 rather than incidental: a hand-authored symbol with a filled
-counter is exactly the case that regressed.
-
-**`visuals.json` is now read, for equations.** If a library asset needs geometry the
-renderer cannot recompute, the sidecar is the established route — see the "Equations _are_
-read from `visuals.json`" note in `render/src/visuals.ts`, which explains what makes a lane
-eligible (no camera-dependent unit in its geometry).
+**A `<circle>` becomes a diamond under the sketch pass.** `svgChildren` converts a circle
+to two half arcs, which leaves four control points for roughjs to displace, and at marker
+roughness that reads as a rhombus. Every head in the cast is four cubics anchored at the
+compass points instead. If a rig generates or composes round parts, author them the same way
+— and do **not** "fix" this in `svgChildren`, because lucide shares that reader and every
+icon's geometry would move.
 
 ### Acceptance
 
-"An asset resolves by path and version with no network" is the bar, so the test to write is
-a resolution that runs with the image provider disabled and asserts the _library_ lane was
-taken — not merely that something was drawn, which the icon and letter lanes already
-guarantee. `AssetVisual.lane` is the field that records which lane won; add the new one to
-that union and assert on it. Pin the version too: the point of `AssetRef.version` is that
-improving an asset leaves existing videos rendering the old one, so a test that resolves v1
-while v2 exists is the one that proves it.
+"Pixel-identical where composed" is a geometry assertion, so make it one: compose the same
+part at the same pivot twice and compare `d` strings, not images. The seed discipline is
+already load-bearing here — `seedFrom` is deterministic and `baseOptions` pins the crisp
+seed — so identical composition input must give identical output or something upstream is
+non-deterministic.
+
+The generated half needs a key and cannot be asserted offline. Structure it so the
+similarity gate is testable with a stub: the _decision_ (accept, retry once, fall back to a
+composed pose) is code and should be pinned; the embedding call is the part that needs a
+provider.
 
 ## How to verify a visual change cheaply
 
-Three tools, cheapest first. **Use the first one that can see your change.**
+Four tools, cheapest first. **Use the first one that can see your change.**
 
 **1. Per-element geometry hashing across a stash — seconds, and it sees what a frame grab
-cannot.** `packages/visuals/src/geomhash.mts` (sibling of `frames.mts`, not wired into any
-script):
+cannot.** `packages/visuals/src/geomhash.mts`:
 
-    npx tsx packages/visuals/src/geomhash.mts final-169 handwritten > /tmp/after.txt
+    npx tsx packages/visuals/src/geomhash.mts handwritten > /tmp/after.txt
     git stash push -u && git status --short          # confirm the tree is CLEAN
-    npx tsx packages/visuals/src/geomhash.mts final-169 handwritten > /tmp/before.txt
+    npx tsx packages/visuals/src/geomhash.mts handwritten > /tmp/before.txt
     git stash pop
     diff /tmp/before.txt /tmp/after.txt
 
@@ -134,15 +119,27 @@ neither read nor written, and hashes each element's stroke `d` values only. Bein
 _committed_ is what makes the stash step work: `git stash -u` takes untracked files with it
 and leaves tracked ones alone.
 
-For step 4, **`projects/handwritten` is the project that matters** — it is the one with
-`asset` elements (2), plus shapes and emphasis. `projects/final-169` is the benchmark (8
-plots, 19 paths, a diagram) and has **zero** assets, so it will tell you nothing about the
-library lane while making a useful control that you have not disturbed anything else.
+**`projects/handwritten` is the project with `asset` elements** (2: `cpu` and `ram`, both on
+the icon lane). It is the control that proves you have not disturbed what was already drawn —
+step 4's most useful single measurement was this diff coming out byte-identical.
+`projects/final-169` is the benchmark (8 plots, 19 paths, a diagram) and has **zero**
+assets, so it will tell you nothing about the library or a rig.
 
 One gotcha reading the output: the stage logs to **stdout** too, so filter on the tab
 separator rather than trusting redirection.
 
-**2. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
+**2. A contact sheet of the library — about ten seconds, and it is how you look at a
+drawing.** `packages/visuals/src/libsheet.mts`:
+
+    npx tsx packages/visuals/src/libsheet.mts /tmp/sheet
+    npx tsx packages/render/src/frames.mts /tmp/sheet /tmp/sheet-frames 18
+
+Every library asset in a grid with its path under it, rendered with the cloud lane off. A
+static SVG cannot show you what matters — the sketch pass rewrites the geometry, fills are
+hachured, and document order becomes reveal order — so **render a new asset before
+committing it.** Both of step 4's real defects were invisible until this frame existed.
+
+**3. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
 
     npx tsx packages/render/src/frames.mts <projectDir> <outDir> [seconds...]
 
@@ -150,28 +147,25 @@ With no timestamps it takes eight evenly spaced frames. It compiles the plan its
 picks up live geometry changes **without re-running the pipeline** — except for equations,
 which come from the sidecar and so need the visuals stage to have run.
 
-**To see a planner change in a frame without paying for voice**, compile the lesson and run
-visuals into a temp dir, then point `frames.mts` at it — about ten seconds against four
-minutes. `Lesson.parse` (there is no `parseLesson` export) → `compileLesson` →
-`resolveVisuals`, write `storyboard.json` back, then grab frames. Scene windows are
-estimated from the narration when voice has not run, so compute the offsets yourself:
-`max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. Such a script has to live in
-`packages/pipeline` — it is the only package that depends on both the planner and the
-renderer.
+Scene windows are estimated from the narration when voice has not run, so compute offsets
+yourself: `max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. A script that needs
+both the planner and the renderer has to live in `packages/pipeline` — it is the only
+package that depends on both.
 
-**3. A full render**, only when you need audio or the encode:
+**4. A full render**, only when you need audio or the encode:
 
     INKCAST_PROJECTS=/tmp/verify node apps/cli/bin/inkcast.mjs \
       cast examples/lessons/gradient-descent.lesson.json \
       --project bench --force --json
 
-Add `--short` for the 9:16 pass. ~4 minutes each including a local Kokoro voice pass;
-render stage alone is 41.2 s / 30.1 s. The last full render's numbers are in `STATUS.md`'s
-appendix, so you have a baseline to compare against rather than a vibe.
+Add `--short` for the 9:16 pass. ~100 s each including a local Kokoro voice pass; render
+stage alone is 38.8 s / 23.4 s. Afterwards, `npx tsx packages/render/src/fillcheck.mts
+/tmp/verify/bench/storyboard.json` gives the content-fill number `STATUS.md` quotes, in a
+second, instead of digging it out of a debug log.
 
 There is still **no golden-image or frame-diff harness**; the only pixel assertion anywhere
 is a same-run self-consistency check in `page.test.ts`. And **for anything that only changes
-the storyboard, skip all three** — compile the lesson and hash the JSON either side of a
+the storyboard, skip all four** — compile the lesson and hash the JSON either side of a
 stash.
 
 ## Traps
@@ -199,11 +193,18 @@ output and the totals. Redirect the whole log to a file and sum with
 `awk '/# pass [0-9]+$/ {p+=$NF} …'` — note the `$NF`, because the lines are prefixed with
 the package name and `$3` silently sums nothing. Check that all **eight** test-bearing
 packages appear (`core` has no tests). `keyvault` reports 58 tests but 55 passes — three
-keychain tests are opt-in, so 528/531 is the expected shape, not a failure.
+keychain tests are opt-in, so 539/542 is the expected shape, not a failure.
 
 **`pnpm lint` is `prettier --check .`,** so formatting is a hard gate, not advice. Run
 `npx prettier --write` on what you touched before claiming green — and re-run it after late
 edits to a doc, which is how an unformatted `HANDOFF.md` got committed once already.
+
+**A library asset's cache key is not just the storyboard.** An unpinned `AssetRef` resolves
+to whatever the manifest calls newest, and an aliased entity depends on a match table that
+lives outside the storyboard entirely — so `libraryFingerprint()` feeds both into the asset
+key, and `assetFingerprint`/`visualsFingerprint` in `pipeline/src/keys.ts` carry `ref`. A rig
+adds a third such input (the pose, and whatever the rig file says), and forgetting it means
+your improvement is invisible until someone deletes the project.
 
 **`teach <topic> --lesson <file>` silently ignores the file.** Passing both a topic and
 `--lesson` derives a lesson from the topic instead, and with no Anthropic key that produces
@@ -216,9 +217,9 @@ honour `--lesson` or refuse.
 `providers: planner heuristic` — the pedagogy is `lesson-derive.ts`, not a model. It only
 holds together because the lesson is hand-authored; a topic-only run with no key
 degenerates, and does not morph. Set an Anthropic key before concluding anything about
-whether a concept lands. **This matters unusually much for step 4:** the no-key path is
-exactly where the character gap shows, so test the `figures/` cast without a key on
-purpose.
+whether a concept lands. **For step 5 this cuts both ways:** the composed half of a rig must
+be judged with no key at all (that is the point of it), and the generated half cannot be
+judged without one.
 
 **`seed: 0` means "no seed" in roughjs.** `Random.next()` tests `if (this.seed)` and falls
 through to `Math.random()` when it is falsy, so zero is the single seed value that is _not_
@@ -226,9 +227,9 @@ reproducible. `baseOptions` nudges it to 1; do not remove that.
 
 **Bump the stage version when output changes.** `packages/pipeline/src/keys.ts` carries
 `STAGE_CODE_VERSION` and the reasoning; current state is
-`storyboard@3, visuals@5, render@5`. A library asset changing how something is drawn is a
-`visuals` bump, and the file's header explains why forgetting costs you an afternoon of
-suspecting the wrong thing.
+`storyboard@3, visuals@6, render@5`. A rig changing how a character is drawn is a `visuals`
+bump; `render` stays where it is as long as the renderer keeps inlining an asset's SVG
+rather than re-deriving it.
 
 ## Deliberate stopgaps
 
@@ -262,6 +263,11 @@ of each other, but the marker sprite is a renderer-side decoration it knows noth
 so a label can still be struck through by the pen. Visible at `t=64` of the benchmark —
 "downhill" struck through, "too small" under the marker.
 
+**A library asset is fitted to its element box, so it can be stretched.** `libraryPaths`
+uses `fitMatrix`, which preserves aspect, but the box comes from the planner — a figure in a
+wide box is centred with slack rather than distorted, and a figure in a box the wrong shape
+is small. Nothing sizes an element box to the asset it will hold.
+
 ## Known defects, not fixed
 
 **The planner and visuals disagree about `doubleWell`.** Two catalogues of the named curve
@@ -282,9 +288,15 @@ is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
 stage can reach, probably `@inkcast/core` — the remaining part of root cause 1.
 
-**`illustration` never resolves without a key**, and characters are stick figures or
-lettered cards. **This is the gap step 4 is meant to close**, so it is listed here as the
-starting condition rather than as a complaint.
+**Nothing upstream constructs an `AssetRef`.** The planner mints slugs and prompts; every
+library resolution in a real run happens through the alias table, and the reference is
+written _back_. So the library is reachable but not yet _addressable_ by the pedagogy — a
+lesson cannot ask for `figures/pointing` by name. `VisualIntent` is where that would go.
+
+**`illustration` still needs a key for anything that is not a person.** Step 4 closed the
+character half of this. An arbitrary object — a trebuchet, a rover — is a lucide icon or a
+lettered card without a provider, and the degradation notice in `pipeline/src/degrade.ts`
+now says exactly that.
 
 **Open elsewhere in the plan:** no multi-line/`align` equations (one `equation` is one
 line); the planner only ever emits one equation, the worked example's update line, with no

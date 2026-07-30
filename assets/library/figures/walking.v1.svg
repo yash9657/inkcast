@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 200" width="140" height="200">
+  <!-- In profile, mid-stride: the arms and legs oppose, which is what reads as motion. -->
+  <!-- Four cubics, not a <circle> — see the note in standing.v1.svg. -->
+  <path d="M44 36 C44 23.9 53.9 14 66 14 C78.1 14 88 23.9 88 36 C88 48.1 78.1 58 66 58 C53.9 58 44 48.1 44 36 Z" fill="currentColor"/>
+  <path d="M48 62 C45 80 47 100 51 120 L81 120 C85 100 87 80 84 62 Z"/>
+  <path d="M48 68 C36 78 32 92 36 106"/>
+  <path d="M82 68 C94 76 100 86 104 98"/>
+  <path d="M72 120 C82 138 90 148 98 158"/>
+  <path d="M54 120 C48 140 40 152 30 162"/>
+  <path d="M98 158 L110 164"/>
+  <path d="M30 162 L18 166"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 130" width="160" height="130">
+  <!--
+    A block on hatched ground. The hatching belongs to the *ground*, not the block —
+    in mechanics notation it means "fixed", so hatching the block would say the mass
+    cannot move, which is the opposite of what it is usually drawn for.
+  -->
+  <path d="M34 30 H126 V98 H34 Z"/>
+  <path d="M12 104 L148 104"/>
+  <path d="M26 104 L14 120"/>
+  <path d="M56 104 L44 120"/>
+  <path d="M86 104 L74 120"/>
+  <path d="M116 104 L104 120"/>
+  <path d="M144 104 L132 120"/>
+</svg>
