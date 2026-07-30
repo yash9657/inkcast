@@ -10,8 +10,13 @@
  * Not exported from the package's public API — these are test fixtures, not
  * content.
  */
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
+import { resolveVisuals } from '@inkcast/visuals';
+import { compilePlan } from './compile.js';
 
 const RING_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
@@ -429,4 +434,43 @@ export function verticalStoryboard(overrides: { fps?: number } = {}): Storyboard
       },
     ],
   });
+}
+
+/* --------------------------------------------------------------- the sidecar */
+
+/**
+ * Resolve a storyboard's visuals into a scratch directory, and hand back the path.
+ *
+ * Needed because the renderer no longer derives plot geometry — it reads what the
+ * visuals stage recorded (see `visuals.ts`). A test that compiles a plan against an
+ * empty directory therefore gets a labelled placeholder frame where a plot should be,
+ * which is the *correct* degradation and useless for testing plots.
+ *
+ * That this helper has to exist is the point rather than an inconvenience: it makes
+ * the stage dependency real in the tests instead of letting the renderer quietly
+ * reconstruct what it should be consuming. The one test that genuinely wants the
+ * degradation asserts on it directly.
+ *
+ * `images: 'off'` because no test may reach the network, and each call gets its own
+ * directory so a cached sidecar can never make a later assertion pass.
+ */
+export async function withVisuals(sb: Storyboard): Promise<{ dir: string; sb: Storyboard }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-render-test-'));
+  const resolved = await resolveVisuals(sb, dir, { images: 'off', force: true });
+  return { dir, sb: resolved };
+}
+
+/**
+ * Resolve a storyboard's visuals and compile its plan, in one call.
+ *
+ * The shape most tests want: they are asserting on drawn geometry, and drawn geometry
+ * now comes from the sidecar. Returns the plan only — a test that also needs the
+ * enriched storyboard or the directory should use `withVisuals` directly.
+ */
+export async function planWithVisuals(
+  sb: Storyboard,
+  opts: Parameters<typeof compilePlan>[2] = {},
+): Promise<ReturnType<typeof compilePlan>> {
+  const resolved = await withVisuals(sb);
+  return compilePlan(resolved.sb, resolved.dir, opts);
 }

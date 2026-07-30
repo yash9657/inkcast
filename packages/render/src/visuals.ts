@@ -1,52 +1,44 @@
 /**
  * The renderer's window onto the visuals stage.
  *
- * `@inkcast/visuals` is authoritative for plot geometry: it owns the frame, the
- * gutters, the sampling, the label solver and the ink. This module is how the renderer
- * obtains that geometry instead of deriving a second copy of it, which is what it used
- * to do — two implementations of the same arithmetic that had to agree by hand, where
- * the better one was the dead one (see `docs/PIPELINE.md`, root cause 1).
+ * `@inkcast/visuals` is authoritative for geometry: it owns the frame, the gutters, the
+ * sampling, the label solver and the ink. This module is how the renderer obtains that
+ * geometry instead of deriving a second copy of it — the thing root cause 1 named.
  *
- * ## Why this calls the resolver rather than reading `visuals.json`
+ * ## `visuals.json` is now read, not recomputed
  *
- * The sidecar records the geometry the stage drew its SVGs from, and the stage has no
- * camera: it sizes type as a fraction of the *whole canvas*. The renderer frames a
- * region, so it quotes type in output pixels through the camera — on the benchmark
- * board that is 13.3 canvas units where the stage assumed 69.8, a factor of five.
+ * This module used to call `resolvePlot()` itself, and the reason was real: the visuals
+ * stage had **no camera**. It sized type as a fraction of the whole canvas while the
+ * renderer frames a region and quotes type in output pixels — on the benchmark board
+ * 13.3 canvas units where the stage assumed 69.8, a factor of five. That is not a
+ * cosmetic difference, because in the plot lane the caption size *is* the unit of
+ * measurement: gutters are `caption * 2.1`, a tick `caption * 0.26`, an arrowhead
+ * `caption * 0.42`, a marked point's radius `caption * 0.2`. Consuming the recorded
+ * geometry on a zoomed board did not merely mis-size labels, it put a dot on the curve
+ * four times too wide, and no rescaling afterwards could undo numbers already baked
+ * into path data. So the renderer resolved every plot a second time.
  *
- * That would be a cosmetic difference if type were only type. It is not: in the plot
- * lane the caption size *is* the unit of measurement. Gutters are `caption * 2.1`, a
- * tick is `caption * 0.26`, an arrowhead `caption * 0.42`, a marked point's radius
- * `caption * 0.2`. Consuming the recorded geometry on a zoomed board therefore does
- * not merely mis-size the labels; it puts a dot on the curve four times too wide and
- * gutters five times too deep, and no amount of rescaling afterwards can undo it
- * because the numbers are baked into the path data.
+ * `boardMetrics()` in `@inkcast/core` closed that. Both stages now derive the camera,
+ * the scale, the pen weight and the type sizes from one function, so the stage resolves
+ * plots at the size they will actually be drawn and this module simply reads them. One
+ * implementation, invoked once, recorded once.
  *
- * So the renderer calls the same `resolvePlot()` the stage calls, passing the type
- * sizes it will actually draw at. There is still exactly one implementation of plot
- * geometry, which is the point of the exercise; what there is not, yet, is a single
- * type scale the two stages agree on. Unifying that — deriving the camera in a place
- * the visuals stage can reach, so the file itself becomes consumable — is the
- * follow-up, and it is what would let this module read the sidecar instead.
+ * The ink is numbered by `writeElementSvg`, and `PlotPartRecord.from`/`to` index into
+ * *that* numbering — which is precisely why reading the sidecar is safe now and copying
+ * the numbering by hand never was.
  *
- * The ink is numbered by `writeElementSvg`, because `PlotPartRecord.from`/`to` index
- * into *that* numbering. Reproducing the numbering by hand here would be a third copy
- * of an invariant that has already cost this codebase one dead subsystem.
+ * ## What happens when the sidecar is missing
  *
- * ## Equations *are* read from `visuals.json` — the first geometry that is
+ * `plotFor` returns `undefined`, and the caller draws the plot's box as an honest
+ * labelled frame rather than a wrong picture. That is a real degradation and it is
+ * meant to be visible: a project whose visuals stage has not run has no geometry, and
+ * inventing some here would put the second implementation straight back.
  *
- * The argument above is specific to plots, and equations escape it on both counts.
+ * ## Equations, unchanged
  *
- * They have no camera-dependent unit: an equation is typeset to fit its element's box
- * in canvas units, so zooming the board simply makes the whole thing bigger, uniformly
- * and correctly. Nothing in it is measured in multiples of a caption size. Even the
- * glyph stroke weight is a fraction of the em it was set at, which is what it should be
- * at any zoom — a letter's outline scales with the letter, not with the board's pen.
- *
- * And they *cannot* be recomputed here even if we wanted to: typesetting is an async
- * import of a large module, and `compilePlan` is synchronous. So the sidecar is not a
- * convenience for this lane, it is the mechanism — which makes `visuals.json` a file
- * that is finally read as well as written.
+ * Read from the sidecar since step 3, and for an additional reason that still holds:
+ * typesetting is an async import of a large module and `compilePlan` is synchronous, so
+ * for equations the sidecar was never a convenience but the only mechanism.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -102,8 +94,14 @@ export type EquationSource = {
 };
 
 export type VisualsBridge = {
-  /** Resolved geometry for one plot element. */
-  plotFor(el: PlotElement, sceneId: string): PlotSource;
+  /**
+   * Recorded geometry for one plot element, or `undefined` when the sidecar has none.
+   *
+   * The caller draws an honest labelled frame in that case. It used to be impossible
+   * for this to fail, because the renderer resolved the plot itself — which is exactly
+   * the second implementation this stopped being.
+   */
+  plotFor(el: PlotElement): PlotSource | undefined;
   /**
    * Typeset geometry for one equation element, or `undefined` when the sidecar has
    * none — a project whose visuals stage has not run, or an equation that would not
@@ -139,46 +137,38 @@ function readManifest(dir: string): VisualManifest | undefined {
  * only thing that differs from what the stage would have written is the type scale the
  * caller asks for — and that difference is the reason this exists.
  */
-export function openVisuals(
-  sb: Storyboard,
-  dir: string,
-  opts: { fontPath?: string; typeSizes: PlotTypeSizes; strokeWidth: number },
-): VisualsBridge {
+/**
+ * Open the visuals lane for a project.
+ *
+ * No style, no font, no type sizes: this reads recorded geometry and resolves nothing,
+ * so the font parsing and ink-style plumbing that used to live here — solely to feed a
+ * second `resolvePlot()` — is gone with it.
+ */
+export function openVisuals(sb: Storyboard, dir: string): VisualsBridge {
   const manifest = readManifest(dir);
-  const meta: StoryboardMeta = sb.meta;
-  const canvasHeight = sb.canvas.h;
-
-  // Built on first use: a storyboard with no plots should not pay for font parsing.
-  let style: InkStyle | undefined;
-  let font: FontMetrics | undefined;
-  const ensure = (): { style: InkStyle; font: FontMetrics } => {
-    // The style's own `strokeWidth` is a fixed canvas number, chosen for a standalone
-    // SVG that fills its viewBox. It is not only the pen weight: a marked point's
-    // radius is `strokeWidth * 1.45` and an axis arrowhead `strokeWidth * 2.6`, so
-    // leaving it alone puts a dot on the curve half again too wide on a framed board.
-    // Substituting the board's own base weight rescales the pen and everything
-    // measured off it together.
-    if (!style) style = { ...inkStyleFor(meta), strokeWidth: opts.strokeWidth };
-    if (!font) {
-      font = loadFontMetrics({
-        style: style.name,
-        preferred: style.fontFiles,
-        fontFamily: style.fontFamily,
-        ...(opts.fontPath ? { fontPath: opts.fontPath } : {}),
-      });
-    }
-    return { style, font };
-  };
-
   if (!manifest) {
     log.debug(`no readable ${MANIFEST_PATH} in ${dir} — the visuals stage may not have run`);
   }
 
+  let warnedPlots = 0;
+
   return {
     hasManifest: manifest !== undefined,
 
-    plotFor(el: PlotElement, sceneId: string): PlotSource {
-      return computePlot(el, sceneId, canvasHeight, opts.typeSizes, ensure());
+    plotFor(el: PlotElement): PlotSource | undefined {
+      const visual = manifest?.elements[el.id];
+      if (!visual?.plot || visual.strokes.length === 0) {
+        // Once per plot, because a project with no sidecar has one per plot and the
+        // useful signal is "run the visuals stage", not eight copies of it.
+        if (warnedPlots++ === 0) {
+          log.warn(
+            `plot "${el.id}" has no recorded geometry — drawing a labelled frame. ` +
+              `Run the visuals stage; the renderer no longer resolves plots itself.`,
+          );
+        }
+        return undefined;
+      }
+      return { layout: visual.plot, strokes: visual.strokes, texts: visual.texts ?? [] };
     },
 
     equationFor(el: EquationElement): EquationSource | undefined {
@@ -187,37 +177,4 @@ export function openVisuals(
       return { layout: visual.equation, strokes: visual.strokes };
     },
   };
-}
-
-/**
- * Resolve a plot with the visuals stage's own resolver.
- *
- * The seed matches `resolveVisuals`' (`seedFrom('element', id, sceneId)`) so the
- * hand this draws with is the hand the stage would have drawn with.
- */
-function computePlot(
-  el: PlotElement,
-  sceneId: string,
-  canvasHeight: number,
-  typeSizes: PlotTypeSizes,
-  deps: { style: InkStyle; font: FontMetrics },
-): PlotSource {
-  const { style, font } = deps;
-  const resolved = resolvePlot(el, ctxFor(style, seedFrom('element', el.id, sceneId)), {
-    style,
-    font,
-    canvasHeight,
-    typeSizes,
-    baseAt: el.enter.at,
-  });
-  // Numbered by the same writer the visuals stage numbers with, so `parts[].from`/`to`
-  // mean here exactly what they mean in the sidecar. The SVG string is discarded.
-  const written = writeElementSvg({
-    id: el.id,
-    items: resolved.items,
-    box: el.at,
-    style,
-    space: 'canvas',
-  });
-  return { layout: resolved.layout, strokes: written.strokes, texts: written.texts };
 }

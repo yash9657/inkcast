@@ -1,4 +1,4 @@
-# Handoff — 2026-07-30 · step 7 landed, so the sequence starts at root cause 1
+# Handoff — 2026-07-30 · root cause 1 is mostly closed; next is what the frames show
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
@@ -12,7 +12,7 @@ after "How to verify a visual change cheaply" is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, fourteen commits on top of `e95258b`. Everything is
+Branch **`visuals-morph-density`**, fifteen commits on top of `e95258b`. Everything is
 local; there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty.
 In order, by subject:
 
@@ -31,97 +31,89 @@ In order, by subject:
     docs: sequence the remaining work, and demote step 8 on evidence
     One asset router, and a pedagogy that can ask for a pose             <- step 5b
     Pacing is one decision, and it is cadence                            <- step 7
+    The camera moves to core, and plots are read not re-derived          <- root cause 1
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2, 3, 4, 5b and 7 are ✅ in `PIPELINE.md`; step 5 is 🟡
-with the split spelled out there.
+diff it belongs to. Steps 1, 6, 2, 3, 4, 5b and 7 are ✅ in `PIPELINE.md`; step 5 and
+root cause 1 are 🟡, with what remains of each spelled out there.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
-errors across 9 projects, `pnpm -r test` **578 pass / 0 fail** across all eight
+errors across 9 projects, `pnpm -r test` **582 pass / 0 fail** across all eight
 test-bearing packages. Two lessons now render end to end with no keys: the benchmark
 (104.667 s / 3140 frames at 1920x1080, 61.500 s at 1080x1920, mean fill 52.2% / 55.9%)
 and the new narrative one (2:11, 8 scenes, 4 assets, mean fill 23%). Both `cost $0.00`.
 
-**`STATUS.md` has five appendices**, the last dated 2026-07-30, newest last. The 07-28 body is a
+**`STATUS.md` has six appendices**, the last two dated 2026-07-30, newest last. The 07-28 body is a
 historical record and deliberately unedited.
 
 ## What just landed, in one paragraph
 
-Pacing was two decisions that could not see each other: an author set `hold` per beat,
-and the voice stage spoke the whole video at one global rate. So a beat written as a
-quick aside could be followed by two seconds of silence and nothing could notice. Step 7
-makes `cadence` the single source — it sets the speech rate _and_ supplies the baseline
-and the **ceiling** for the silence, so a `punchy` beat asking for three seconds gets
-0.8. Measured on real Kokoro audio over identical words: 160.7 / 151.7 / 142.0 wpm, all
-inside the 140–160 teaching band. Cadence is _derived_ when absent (a question is slow
-because the pause is the point; a hook is punchy), so the no-key path exercises it too.
-`emphasis` is the other half: a phrase carrying weight is slowed and given a beat after
-it — emphasis is time, not volume, because no local voice takes SSML — and drawn one step
-heavier where those words appear on the board. Built as fields on the lesson beat rather
-than a seventh pipeline stage; `PIPELINE.md` step 7 explains why.
+Root cause 1's remaining half. Step 1 had already made `resolvePlot` the only plot
+solver, but the renderer still had to _call_ it, because the visuals stage had **no
+camera**: it sized type against the whole canvas while the renderer frames a region, a
+factor of five on the benchmark, and in the plot lane the caption size _is_ the unit of
+measurement. So the recorded geometry had wrong numbers baked into its path data.
+`boardMetrics()` in `packages/core/src/camera.ts` fixes that — the camera, the unit
+scale, the type scale and the pen weight now live where **both** stages reach them. The
+stage resolves plots at the size they are drawn; the renderer reads them; `openVisuals`
+resolves nothing. Proof is byte-identical: all 109 plan items unchanged across both
+projects, while exactly the 8 plots moved in the sidecar. Two real bugs fell out —
+`renderFingerprint` did not cover the sidecar it had just started depending on, and a
+plot with no sidecar drew nothing at all. Both fixed. What is **not** done is the sketch
+duplication; see item 1 below.
 
 ## The sequence
 
-Re-ordered by leverage now that step 7 is done. Numbered steps keep their `PIPELINE.md`
-numbers; unnumbered work is marked.
+Re-ordered by leverage. Numbered steps keep their `PIPELINE.md` numbers; unnumbered work
+is marked.
 
-| #   | Work                                                   | Key? | Why here                                                                                          |
-| --- | ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------- |
-| 1   | **Close root cause 1** (unnumbered)                    | no   | The last architectural debt, and its cost has now bitten **four** times. Specified below.         |
-| 2   | **Region grouping for single-figure beats**            | no   | The live quality complaint with the most evidence: 23% frame fill against the benchmark's 52%.    |
-| 3   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, a wrong drawing today — and the canonical instance of the root-cause-1 pattern. |
-| 4   | **The lucide confidence threshold** (known defect)     | no   | Odysseus draws `presentation`. Better than `rocket`, still wrong.                                 |
-| 5   | **Step 8 — `entersAtWord`**                            | no   | **Still demoted on evidence.** See below — and note step 7 took the wind out of it further.       |
-| 6   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                             |
-| 7   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                |
+| #   | Work                                                   | Key? | Why here                                                                                           |
+| --- | ------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------- |
+| 1   | **Region grouping for single-figure beats**            | no   | The live quality complaint with the most measured evidence: 23% frame fill against 52%. Below.     |
+| 2   | **Step 10 — one hand, not two** (rest of root cause 1) | no   | The last duplication. A _visual_ decision, not a refactor — read `PIPELINE.md` step 10 first.      |
+| 3   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, a wrong drawing today, and now the last two-catalogue instance in the plot path. |
+| 4   | **The lucide confidence threshold** (known defect)     | no   | Odysseus draws `presentation`. Better than `rocket`, still wrong.                                  |
+| 5   | **Step 8 — `entersAtWord`**                            | no   | **Still demoted on evidence.** Step 7 took the wind out of it further.                             |
+| 6   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                              |
+| 7   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                 |
 
-**2 — region grouping.** The narrative lesson renders at **23% mean content fill** against
-the benchmark's 52%, and the camera warning names the cause exactly: each beat is one figure
-in its own cell, so the camera holds a mostly-empty frame. The benchmark hides this because
-its beats share a drawing. Any lesson whose beats each have their own picture looks like
-this, which is most narrative lessons.
+**2 — the rest of root cause 1, and why it is not item 1.** `render/src/sketch.ts` is a
+hand-rolled mulberry32 sketch engine; the visuals stage draws the same element types with
+roughjs. Two genuinely different implementations for `path`, `shape`, `arrow`, `diagram`,
+`emphasis` and `text`, and for those types the stage's SVGs are written and never read.
 
-**4 — the lucide threshold.** With the description preserved (step 5b), an unmatched subject
-falls to a _generic_ wrong icon rather than a confidently wrong one: `odysseus-tied-the-mast`
-matches `presentation` on a token. The id and prompt survive, so a key fixes it properly —
-but a lettered card carrying the real description would be more honest than a presentation
-icon. Tightening `matchAsset` touches every existing project, so it wants its own control run.
+The plumbing is the move plots just made and is not the hard part. The hard part is that
+**whichever hand wins, about half of every board is redrawn** — 21 of 39 elements in
+`final-169`, 6 of 14 in `handwritten`. Adopting roughjs changes the video; moving the
+renderer's engine into the visuals stage preserves the video and changes the library
+assets and character rigs instead. Do not start this without frames in front of you, and
+do not treat a byte-identical control as achievable — it is not, and expecting one will
+send you looking for a bug that is the feature.
 
-**5 — step 8, and why it stays down.** The rationale in `PIPELINE.md` is sound in principle: a
-phrase has to be found again by the aligner and can fail to match or match twice, where an
-index cannot. But measured, it does not fire — 67 of 67 cues on the benchmark locate by text
-alone. The narrative lesson's six warnings were a _different_ thing entirely (cues placed too
-late in their own narration), fixed by re-cueing, and step 7 is now the stage that owns that
-class of problem. One warning remains anywhere: `b7_chain`, the compiler's own recap element,
-which no lesson can control.
+**3 — `doubleWell`.** Worth doing soon now that the plot path is otherwise single-sourced:
+it is the last place two catalogues of one fact remain in that lane, and the drawn curve
+and the simulated descent can disagree enough to put the step dots off the curve.
 
-## The next piece (item 1) — close root cause 1
+## The next piece (item 1) — region grouping for single-figure beats
 
-`visuals.json` is read for **equations only**. Plots still go through `resolvePlot` in-process
-and every other element type is re-derived by the renderer's own `primsFor`. So there are two
-implementations of most geometry that must agree by hand, and the better one is dead.
+The complaint with the most evidence behind it and no key required. The narrative lesson
+renders at **23% mean content fill** against the benchmark's 52%, and the camera warning
+names the cause outright: each beat is one figure in its own cell, so the camera holds a
+mostly-empty frame. The benchmark hides this because its beats share a drawing. Any lesson
+whose beats each have their own picture looks like this — which is most narrative lessons.
 
-It sits first now because everything with a visible payoff ahead of it is done, and because
-**this bug class has now cost four pieces of work**: the dead plot solver (step 1), the
-planner pre-empting the asset router (step 5b), the two curve catalogues (`doubleWell`, still
-open below), and the `silence` provider applying the speech rate twice (found by step 7). A
-fifth instance is likely while the pattern is still available.
+_Where it lives:_ `planBoard`/`groupIntoRegions` in `planner/src/regions.ts` decide which
+beats share a region, and `resolveFraming` in `core/src/camera.ts` frames the union. The
+question is whether consecutive single-figure beats should share a region the way
+annotating beats already do.
 
-_What it needs:_ `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere
-the visuals stage can reach, probably `@inkcast/core`. That is the actual blocker — a plot's
-caption size is its unit of measurement, so plot geometry is camera-dependent in a way an
-equation's is not, which is exactly why equations went first.
+_Done when:_ `examples/lessons/longitude.lesson.json` renders above roughly 40% mean fill
+without the benchmark regressing. Both numbers come from
+`npx tsx packages/render/src/fillcheck.mts <project>/storyboard.json`.
 
-_Done when:_ the renderer stops calling `resolvePlot` and reads plot geometry from the
-sidecar, with `projects/final-169` geometry hashes explaining every stroke that moves.
-
-**Verify it with `geomhash.mts`, not `sbhash.mts`** — this is a visuals/render change and the
-benchmark is the project with eight plots. See "How to verify a visual change cheaply".
-
-### If you would rather work on something visible
-
-Take item 2 (region grouping). It needs no key, it is the complaint with the most measured
-evidence behind it, and it shares no code with root cause 1.
+**Verify it with `planhash.mts` and frames** — it is a storyboard _and_ a framing change,
+so `sbhash.mts` sees the region assignment move and `planhash.mts` sees what that did to
+the drawing.
 
 ## Where step 5 stopped
 
@@ -176,7 +168,9 @@ this. It cost a render to find the first time.
 
 ## How to verify a visual change cheaply
 
-Five tools, cheapest first. **Use the first one that can see your change.**
+Six tools, cheapest first. **Use the first one that can see your change.** They form a
+chain — storyboard, then visuals geometry, then the render plan, then pixels — and the
+right one is whichever sits at the stage you touched.
 
 **1. Storyboard hashing — sub-second, and the only one that can see the planner.**
 `packages/pipeline/src/sbhash.mts`:
@@ -212,7 +206,27 @@ assets, so it will tell you nothing about the library or a rig.
 One gotcha reading the output of either tool: the stage logs to **stdout** too, so filter on
 the tab separator rather than trusting redirection.
 
-**3. A contact sheet of the library — about ten seconds, and it is how you look at a
+**3. Render-plan hashing — a second or two, and the proof that a refactor changed
+nothing.** `packages/render/src/planhash.mts`:
+
+    npx tsx packages/render/src/planhash.mts final-169 handwritten > /tmp/after.txt
+    git stash push -u && git status --short          # confirm the tree is CLEAN
+    npx tsx packages/render/src/planhash.mts final-169 handwritten > /tmp/before.txt
+    git stash pop
+    diff /tmp/before.txt /tmp/after.txt
+
+Compiles the plan and hashes each item's prims — path data, text, colours, weights —
+excluding timing, because `enter.at` is rewritten on every re-narration and a tool that
+diffed on it would be useless for the geometry questions it exists to answer. A bare name
+resolves under `projects/`; anything with a slash is a path, which is what lets you
+measure a _scratch_ copy after re-running the visuals stage into it.
+
+This is what `geomhash.mts` cannot tell you. `geomhash` measures what the visuals stage
+resolves; `planhash` measures what the renderer will actually draw. Closing root cause 1
+needed both at once: the plan had to come out byte-identical while the sidecar changed in
+exactly eight places.
+
+**4. A contact sheet of the library — about ten seconds, and it is how you look at a
 drawing.** `packages/visuals/src/libsheet.mts`:
 
     npx tsx packages/visuals/src/libsheet.mts /tmp/sheet
@@ -224,13 +238,19 @@ A static SVG cannot show you what matters — the sketch pass rewrites the geome
 hachured, and document order becomes reveal order — so **render a new asset before
 committing it.**
 
-**4. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
+**5. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
 
     npx tsx packages/render/src/frames.mts <projectDir> <outDir> [seconds...]
 
 With no timestamps it takes eight evenly spaced frames. It compiles the plan itself, so it
 picks up live geometry changes **without re-running the pipeline** — except for equations,
 which come from the sidecar and so need the visuals stage to have run.
+
+**A project it can read needs the visuals stage to have run.** Plot geometry is no longer
+derivable by the renderer — it reads `assets/visuals.json` — so a project without one draws
+a labelled placeholder frame where each plot should be, and says so in the log. That is the
+correct degradation, not a bug, and it is why the render tests resolve visuals through the
+`planWithVisuals` helper in `render/src/fixture.ts`.
 
 **A project dir it can read needs the storyboard the visuals stage returned, not the one you
 compiled.** `resolveVisuals` returns a _clone_ carrying each asset's `svg` path and pinned
@@ -242,7 +262,7 @@ yourself: `max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. A script 
 both the planner and the renderer has to live in `packages/pipeline` — it is the only
 package that depends on both.
 
-**5. A full render**, only when you need audio or the encode:
+**6. A full render**, only when you need audio or the encode:
 
     INKCAST_PROJECTS=/tmp/verify node apps/cli/bin/inkcast.mjs \
       cast examples/lessons/gradient-descent.lesson.json \
@@ -264,6 +284,15 @@ with their working directory set to the sibling `finito` checkout. If the first 
 see is a Next.js finance app, you are in the wrong repo. There is no git remote, so check
 `git log` against the commit list above to confirm where you are. Shell `cd` does not
 persist between commands; use absolute paths.
+
+**A stage that starts _reading_ another stage's output has just gained a cache input.**
+`renderFingerprint` hashed only the storyboard, which was correct for as long as the
+renderer re-derived plot geometry. The moment it began reading `assets/visuals.json`, the
+sidecar became a real input living outside the key — so a visuals change that left the
+storyboard untouched would have kept serving the old video, which is the exact failure
+`keys.ts`'s header is a cautionary tale about. Fixed by folding `visualsFingerprint` into
+`renderFingerprint`. Whenever you make one stage consume another's artefact, ask what its
+key now has to carry.
 
 **A constant that is only ever one value hides every bug in the code that reads it.**
 The `silence` provider sized its clip from `req.targetWpm` _and_ divided by `req.speed` —
@@ -345,14 +374,18 @@ reproducible. `baseOptions` nudges it to 1; do not remove that.
 
 **Bump the stage version when output changes — and know when not to.**
 `packages/pipeline/src/keys.ts` carries `STAGE_CODE_VERSION` and the reasoning; current state
-is `storyboard@5, visuals@6, render@5`. The test is whether the stage produces a different
+is `storyboard@5, visuals@7, render@5`. The test is whether the stage produces a different
 artefact _for identical inputs_. Step 5b bumped `storyboard` because every asset id moved from
 a lucide slug to a description slug — note honestly that the benchmark's own hash did _not_
 move, since it has no assets, so the bump is conservative for that lesson and correct in
 general. Step 7 bumped it again for `cadence`/`emphasis` on every scene. Step 5 bumped nothing
 on purpose, and **step 7 deliberately did not bump `voice`**: a storyboard with no cadence
 produces byte-identical audio, and a scene that has one invalidates itself precisely, because
-the per-scene wpm and the emphasis list are both in the voice cache key. **Editing a shipped rig in place is the case that
+the per-scene wpm and the emphasis list are both in the voice cache key. Root cause 1
+bumped `visuals` to 7 (every plot's recorded path data moved to board scale) and again
+left `render` alone, this time on a byte-identical measurement of all 109 plan items —
+and because `renderFingerprint` now folds in `visualsFingerprint`, so the visuals bump
+propagates to the render on its own. **Editing a shipped rig in place is the case that
 does need one** — every project that resolved it keeps its old drawing otherwise, which is
 also the argument for adding `explorer.v2.json` instead.
 
@@ -401,10 +434,11 @@ So the drawn curve and the simulated descent can disagree and the dots can leave
 Reachable through the `local-minima` recipe; the benchmark does not use it. Crisp plots make
 this **more** visible, not less.
 
-**`visuals.json` is read for equations only.** Step 3 made the sidecar a real input for the
-first time, but plots still go through `resolvePlot` in-process and every other element type
-is re-derived by the renderer's own `primsFor`. The remaining part of root cause 1, and item
-2 in "The sequence".
+**The renderer draws with a different hand than the visuals stage.** `render/src/sketch.ts`
+is a hand-rolled mulberry32 engine; the stage uses roughjs. Two implementations for `path`,
+`shape`, `arrow`, `diagram`, `emphasis` and `text` — and for those types the stage's SVGs
+are written and never read. This is the remaining half of root cause 1 and item 2 in "The
+sequence". Plots and equations are closed: the renderer reads both from the sidecar.
 
 **A single-figure beat fills about a quarter of the frame.** Measured at 23% mean content
 fill on the narrative lesson against 52% on the benchmark, with the camera warning naming the

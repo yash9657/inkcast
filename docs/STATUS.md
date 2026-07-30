@@ -683,3 +683,96 @@ which is step 8's machinery, not this one's. The numbers are small on purpose (0
 deliberate silence is a teaching decision belonging to the lesson compiler, and holds nothing.
 A document beat has no delivery to speak of, so those scenes carry no cadence and the voice
 stage uses its global rate — exactly as before.
+
+# Root cause 1, mostly closed, 2026-07-30 (later)
+
+The last architectural piece, and the one whose cost this document has been counting.
+Scoped deliberately: the camera moves to `@inkcast/core` and the plot lane starts reading
+the sidecar. The sketch duplication is left, sized, and written down rather than
+half-done.
+
+## What was actually blocking it
+
+Step 1 already made `resolvePlot` the only plot solver. What remained was that the
+renderer had to **call** it rather than read what the stage recorded — because the visuals
+stage had no camera. It sized type as a fraction of the whole canvas; the renderer frames
+a region and quotes type in output pixels. On the benchmark that is 13.3 canvas units
+against the stage's 69.8.
+
+That would be cosmetic if type were only type. In the plot lane the caption size _is_ the
+unit of measurement — gutters `caption * 2.1`, a tick `caption * 0.26`, a marked point's
+radius `caption * 0.2` — so the recorded geometry had the wrong numbers baked into its
+path data and no rescaling afterwards could recover it.
+
+## What was done
+
+`resolveFraming`, `unitsPerPixel`, the type scale, the narrow-frame gain and the per-style
+pen weight moved out of `packages/render` into `packages/core/src/camera.ts`, behind one
+call: `boardMetrics(sb)` — _given this storyboard, how big is everything going to be?_
+The visuals stage calls it and resolves plots at that scale; the renderer calls it and
+draws at that scale; `openVisuals` resolves nothing and now only reads.
+
+The rect and path-flattening arithmetic the camera needs moved with it
+(`packages/core/src/rect.ts`), re-exported from the renderer's `geom.ts` so there is
+visibly one implementation rather than a quiet second one.
+
+## Verification
+
+**The render is byte-identical, and that is the whole proof.** A new committed tool,
+`packages/render/src/planhash.mts`, hashes the compiled plan's prims — the path data, the
+text, the colours and weights, excluding timing. Across the change:
+
+    projects/final-169    109 plan items    IDENTICAL
+    projects/handwritten   (as above)       IDENTICAL
+
+Meanwhile `geomhash.mts` shows the visuals sidecar moving in exactly one place:
+
+    8 elements changed, all of type `plot`   — nothing else in either project moved
+
+That is the signature of a correct fix: the drawing did not change, the file that records
+it became true. The benchmark also renders end to end at `cost $0.00`, voice 54.3s /
+render 39.7s, with the plots reading correctly in a frame grab.
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **582 pass, 0 fail** across all eight test-bearing packages (578 → 582).
+
+## Two real problems this surfaced
+
+**The renderer's cache key did not cover the sidecar.** `renderFingerprint` hashed only
+the storyboard. That was safe while the renderer re-derived plot geometry; the moment it
+started _reading_ `visuals.json`, the sidecar became a real input living outside the key —
+so a visuals change that left the storyboard untouched would have kept serving the old
+video. Exactly the failure `keys.ts`'s own header is a cautionary tale about. Fixed by
+folding `visualsFingerprint` into `renderFingerprint`, which also makes "bump the stage
+you changed" remain sufficient advice.
+
+**A plot with no sidecar drew nothing at all.** The renderer could always previously
+reconstruct one, so this failure mode did not exist before. A missing plot leaves a
+caption in a void — the thing this pipeline is least willing to ship — so it now draws the
+same honest labelled frame an unresolved asset gets, and says so in the log.
+
+## What this cost elsewhere
+
+Twenty render tests compiled plots against an empty directory and relied on the renderer
+resolving them in-process. They now resolve the visuals stage first, through a
+`withVisuals`/`planWithVisuals` helper in the render fixtures. That the helper has to
+exist is the point rather than an inconvenience: it makes the stage dependency real in the
+tests instead of letting the renderer quietly reconstruct what it should be consuming. The
+one test that wants the degradation asserts on it directly.
+
+## What is deliberately left
+
+**`render/src/sketch.ts` is still a second implementation.** A hand-rolled mulberry32
+sketch engine against the visuals stage's roughjs geometry, for `path`, `shape`, `arrow`,
+`diagram`, `emphasis` and `text`. For those types the stage's SVGs are still written and
+never read.
+
+This is not the same shape as the plot problem and should not be mistaken for it. Plots
+were _one_ implementation invoked twice at different scales, so unifying them was provably
+invisible. These are two different hands, and whichever wins redraws about half of every
+board — 21 of 39 elements in `final-169`, 6 of 14 in `handwritten`. It is a decision about
+what the video looks like, taken with frames in front of you, not a refactor. `PIPELINE.md`
+step 10 states the two options and what each one costs.
+
+**`visuals/src/svg.ts` has its own `parsePath`.** A third path parser, serving a different
+job (segment rewriting rather than flattening to points). Noted, not touched.

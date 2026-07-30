@@ -35,7 +35,12 @@ export type { LaidDiagram, LaidEdge, LaidNode } from './layout.js';
 
 /* Board accumulation and framing — useful to anything that wants to know what a
  * scene will actually look like without rendering it. */
+/* The camera and the board's scale now live in `@inkcast/core`, because the visuals
+ * stage needs them to resolve geometry at the size it will actually be drawn at —
+ * that placement was the last live half of root cause 1. Re-exported here so a
+ * consumer of `@inkcast/render` still finds them where they have always been. */
 export {
+  boardMetrics,
   contentFill,
   elementBounds,
   fitCamera,
@@ -44,8 +49,8 @@ export {
   safeInsets,
   unitsPerPixel,
   viewRect,
-} from './camera.js';
-export type { FrameSize, Insets, ResolvedCamera, SceneFraming } from './camera.js';
+} from '@inkcast/core';
+export type { BoardMetrics, FrameSize, Insets, ResolvedCamera, SceneFraming } from '@inkcast/core';
 
 /* Plot timing and packaging.
  *

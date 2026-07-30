@@ -39,8 +39,8 @@ import type {
 } from '@inkcast/core';
 import { frameSize, sceneLength, sceneOffsets, totalDuration } from '@inkcast/core';
 import { MANIFEST_PATH } from '@inkcast/visuals';
-import { contentFill, reportFill, resolveFraming, safeInsets, unitsPerPixel } from './camera.js';
-import type { SceneFraming } from './camera.js';
+import { boardMetrics, contentFill, reportFill, safeInsets } from '@inkcast/core';
+import type { SceneFraming } from '@inkcast/core';
 import { cumulativeLengths, easeFn, flattenPathData, pointAtLength, rectContains } from './geom.js';
 import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
@@ -84,11 +84,6 @@ export type CompileOptions = {
   grid?: boolean;
   /** CSS font-family list for on-canvas text. */
   fontFamily?: string;
-  /**
-   * Explicit handwriting font file. Only used when plot geometry has to be resolved
-   * in-process, where it must match the font the visuals stage measured against.
-   */
-  fontPath?: string;
 };
 
 /** Words-per-second used only when the voice stage has not measured a scene. */
@@ -129,21 +124,6 @@ function round3(v: number): number {
  */
 function round6(v: number): number {
   return Math.round(v * 1e6) / 1e6;
-}
-
-/**
- * How much bigger type and ink are on a narrow frame.
- *
- * `TYPE_SCALE` is quoted for a 1920-wide frame. A 1080-wide vertical frame is
- * watched on a phone at arm's length, where the same *relative* type is too small
- * to read and the same relative stroke too thin to see — so 9:16 is composed with
- * heavier ink and larger letters rather than being a 16:9 board with the sides cut
- * off. Ink grows less than type: doubling stroke weight muddies detail.
- */
-function frameGain(aspect: StoryboardMeta['aspect']): number {
-  if (aspect === '9:16') return 1.42;
-  if (aspect === '1:1') return 1.18;
-  return 1;
 }
 
 /** Data-URI any relative `<image href>` so the page needs no file access. */
@@ -294,7 +274,7 @@ type Ctx = {
 function plotSourceOf(el: PlotElement, ctx: Ctx): PlotSource | undefined {
   const cached = ctx.plots.get(el.id);
   if (cached !== undefined || ctx.plots.has(el.id)) return cached;
-  const src = ctx.visuals.plotFor(el, ctx.sceneOf.get(el.id) ?? '');
+  const src = ctx.visuals.plotFor(el);
   ctx.plots.set(el.id, src);
   return src;
 }
@@ -326,17 +306,18 @@ function withMeasuredDurations(sb: Storyboard): Storyboard {
 }
 
 export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = {}): RenderPlan {
-  const frame = frameSize(sb.meta.aspect);
   const canvas: Rect = { ...sb.canvas };
   const timed = withMeasuredDurations(sb);
 
-  const framing: SceneFraming[] = resolveFraming(timed, frame);
-  const gain = frameGain(sb.meta.aspect);
-  const scale = unitsPerPixel(
-    canvas,
-    frame,
-    framing.map((f) => f.camera.zoom),
-  );
+  // How big everything on this board is, derived once in `@inkcast/core` so the
+  // visuals stage can ask the same question and get the same answer. The renderer
+  // used to own this arithmetic, which is why the visuals stage had no camera and its
+  // recorded geometry was unusable — see `core/src/camera.ts` and root cause 1.
+  const board = boardMetrics(timed);
+  const frame = board.frame;
+  const framing: SceneFraming[] = board.framing;
+  const gain = board.gain;
+  const scale = board.scale;
   const pal = paletteFor(sb.meta.palette);
   const ink = inkStyle(sb.meta.style);
   const st: SketchStyle = {
@@ -345,8 +326,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     passes: ink.passes,
     scale,
   };
-  const inkGain = 1 + (gain - 1) * 0.6;
-  const sw = 6 * ink.width * scale * inkGain;
+  const sw = board.strokeWidth;
 
   const offsets = sceneOffsets(timed);
   const scenes: PlanScene[] = timed.scenes.map((scene, i) => {
@@ -380,17 +360,10 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     sceneOf: new Map(),
     alpha: ink.opacity < 1 ? ink.opacity : undefined,
     drawn: new Set<string>(),
-    // The plot lane measures its own layout in these two sizes, so they are an input
-    // to resolving the geometry rather than a finish applied to it. Quoted in output
-    // pixels through the camera, exactly like every other piece of type on the board.
-    visuals: openVisuals(sb, dir, {
-      strokeWidth: sw,
-      typeSizes: {
-        caption: TYPE_SCALE.caption * scale * gain,
-        label: TYPE_SCALE.label * scale * gain,
-      },
-      ...(opts.fontPath ? { fontPath: opts.fontPath } : {}),
-    }),
+    // Recorded geometry only. The stage resolved these at `boardMetrics`' scale — the
+    // same numbers this function is drawing at — so there is nothing left to pass and
+    // nothing left to re-derive.
+    visuals: openVisuals(sb, dir),
     plots: new Map(),
   };
   for (const scene of timed.scenes) {
@@ -679,8 +652,30 @@ function bakeMorph(el: Element, timing: SceneTiming, ctx: Ctx, fps: number): Mor
 function plotItems(el: PlotElement, start: number, timing: SceneTiming, ctx: Ctx): PlanItem[] {
   const src = plotSourceOf(el, ctx);
   if (!src) {
-    log.warn(`plot "${el.id}" has no geometry from the visuals stage — it will not be drawn`);
-    return [];
+    // The plot is the centre of its beat, so drawing nothing leaves a caption in a
+    // void — the failure this pipeline is least willing to ship. An honest labelled
+    // frame is the same degradation an unresolved asset gets, and it says on the board
+    // what the log says: the visuals stage has not run.
+    log.warn(
+      `plot "${el.id}" has no geometry from the visuals stage — drawing a labelled ` +
+        `frame. Run the visuals stage.`,
+    );
+    const rng = new Rng(seedOf(el.id, 'plot'));
+    const size = TYPE_SCALE.label * ctx.type;
+    return [
+      baseItem(
+        el.id,
+        el,
+        start,
+        Math.max(0.4, el.enter.duration),
+        timing,
+        [
+          ...geoms(sketchRect(rng, ctx.st, el.at), ctx.pal.inkSoft, ctx.sw * 0.7, 0.75),
+          textPrim(el.id, el.at, size, ctx.pal.inkSoft, 'center'),
+        ],
+        center(el.at),
+      ),
+    ];
   }
   const all: PlotPhase[] = plotPhases(el, src, { pal: ctx.pal, alpha: ctx.alpha });
   // A later beat annotating this plot re-declares its frame and curves, because an

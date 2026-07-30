@@ -16,7 +16,7 @@ import {
   snapshotPage,
 } from './browser.js';
 import { compilePlan } from './compile.js';
-import { fixtureStoryboard, lessonStoryboard } from './fixture.js';
+import { fixtureStoryboard, lessonStoryboard, planWithVisuals } from './fixture.js';
 import { buildPageHtml, buildPreviewHtml } from './html.js';
 
 const SKIP = chromiumAvailable()
@@ -25,12 +25,12 @@ const SKIP = chromiumAvailable()
 
 const DIR = '/tmp/inkcast-page-test';
 const sb = fixtureStoryboard();
-const plan = compilePlan(sb, DIR, { grid: true });
+const plan = await planWithVisuals(sb, { grid: true });
 const html = buildPageHtml(plan, { mode: 'capture', fontCss: '', title: 'determinism' });
 
 /** The lesson-engine board: regions, holds, a plot, a path and a rolling ball. */
 const lesson = lessonStoryboard();
-const lessonPlan = compilePlan(lesson, DIR, { grid: true });
+const lessonPlan = await planWithVisuals(lesson, { grid: true });
 const lessonHtml = buildPageHtml(lessonPlan, {
   mode: 'capture',
   fontCss: '',

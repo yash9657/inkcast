@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { parseStoryboard } from '@inkcast/core';
-import { contentFill, resolveFraming } from './camera.js';
+import { contentFill, resolveFraming } from '@inkcast/core';
 
 const file = process.argv[2];
 if (!file) throw new Error('usage: fillcheck.mts <project>/storyboard.json');

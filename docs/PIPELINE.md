@@ -37,20 +37,47 @@ and the last verification placed 39 of 39 elements word-exactly.
 
 Planning is not the bottleneck. Two other things are.
 
-## Root cause 1 — the visuals stage is inert (blocking, fix first)
+## Root cause 1 — the visuals stage is inert 🟡 MOSTLY FIXED
 
 `packages/visuals` resolves every element to an SVG, measures its reveal geometry and
-writes `assets/visuals.json`. **The renderer reads none of it.**
-`packages/render/src/plot.ts` re-derives all plot geometry from the IR itself, and
+writes `assets/visuals.json`. **The renderer read none of it.**
+`packages/render/src/plot.ts` re-derived all plot geometry from the IR itself, and
 `packages/visuals/src/plot.ts` — which contains the _richer_ label-placement solver of
-the two — never runs in the render path.
+the two — never ran in the render path.
 
-So there are two implementations of the same geometry that must agree by hand, and the
-better one is dead. Every fix has to be made twice or it silently does not apply. This
-is invisible from outside the codebase and it is the reason a "visual asset router" has
-nowhere to land today: anything it produced would be ignored.
+So there were two implementations of the same geometry that had to agree by hand, and
+the better one was dead. Every fix had to be made twice or it silently did not apply.
 
-Everything else in this document is blocked on fixing it, which is why it is PR 1.
+**What was actually blocking it, and what fixed it.** Step 1 made `resolvePlot` the only
+plot solver, but the renderer still had to _call_ it — it could not read the recorded
+geometry, because the visuals stage **had no camera**. The stage sized type as a
+fraction of the whole canvas; the renderer frames a region and quotes type in output
+pixels. On the benchmark board that is 13.3 canvas units where the stage assumed 69.8, a
+factor of five. And in the plot lane the caption size _is_ the unit of measurement —
+gutters are `caption * 2.1`, a tick `caption * 0.26`, a marked point's radius
+`caption * 0.2` — so the recorded geometry was not merely mis-labelled, it was unusable,
+with the wrong numbers baked into the path data.
+
+`boardMetrics()` in `packages/core/src/camera.ts` closes that. The camera derivation,
+the unit scale, the type scale and the pen weight moved out of the renderer and into
+core, where **both stages reach them**. The visuals stage now resolves plots at the size
+they will actually be drawn, and the renderer reads them. `openVisuals` resolves
+nothing.
+
+**Closed for plots and equations.** Verified rather than asserted: the compiled render
+plan for `projects/final-169` is byte-identical across the change, all 39 items, while
+exactly 8 elements moved in the visuals sidecar — the 8 plots, now recorded at board
+scale. That is the shape a correct fix has: the drawing did not change, the file that
+records it became true.
+
+**Still open: the sketch primitives.** `render/src/sketch.ts` is a hand-rolled sketch
+engine (mulberry32) against the visuals stage's roughjs geometry — two genuinely
+different implementations, not one invoked twice, for `path`, `shape`, `arrow`,
+`diagram`, `emphasis` and `text`. For those element types the stage's SVGs are still
+written and never read. Closing it would redraw roughly half of every board (21 of 39
+elements in `final-169`, 6 of 14 in `handwritten`) and is a visual decision as much as
+an architectural one — which of the two hands is the one we ship — so it is its own
+piece rather than a refactor. See "Order of work".
 
 ## Root cause 2 — the abstraction is asserted, not mapped ✅ FIXED (step 6)
 
@@ -457,10 +484,14 @@ Each step names how to tell it worked. That matters more than its size: several 
 these are small diffs whose effect is only visible in a rendered frame, so "it
 typechecks" is not evidence.
 
-**1. `visuals` becomes authoritative for plots.** Renderer consumes plot geometry from
-`visuals.json`; delete the duplicate in `render/src/plot.ts`; keep the richer label
-solver. _Done when:_ the test suite passes and a benchmark render is no worse
-frame-for-frame. _Unblocks:_ everything below.
+**1. `visuals` becomes authoritative for plots.** ✅ **DONE**, in two parts a long way
+apart. The first deleted the renderer's duplicate solver so `resolvePlot` was the only
+implementation; the renderer still _called_ it, because the visuals stage had no camera
+and its recorded geometry was five times the wrong size. The second moved the camera and
+the board's scale into `@inkcast/core` as `boardMetrics()`, so the stage resolves plots
+at the size they are drawn and the renderer reads `visuals.json`. _Done when:_ the
+benchmark render is no worse frame-for-frame — verified stronger than that, byte-identical
+across all 39 plan items, with exactly the 8 plots moving in the sidecar.
 
 **2. Two ink modes.** ✅ **DONE.** `ink: 'crisp' | 'sketch'` on the geometry contract;
 plots become crisp. _Done when:_ a crisp plot's `d` contains no perturbation and a
@@ -717,6 +748,19 @@ every element resolves to a timestamp with no fallback warnings in the render lo
 
 **9. Symbol libraries and process flow.** `symbols/physics`, `symbols/circuit`,
 node-and-edge auto-layout revealed in traversal order.
+
+**10. One hand, not two.** `render/src/sketch.ts` and the visuals stage's roughjs
+geometry are two implementations of hand-drawn ink for `path`, `shape`, `arrow`,
+`diagram`, `emphasis` and `text` — the remaining half of root cause 1. The stage's SVGs
+for those types are written and never read.
+
+The work is not the plumbing, which is the same move plots just made. It is the
+_decision_: whichever hand wins, roughly half of every board is redrawn (21 of 39
+elements in `final-169`, 6 of 14 in `handwritten`). Adopting roughjs changes the video;
+moving the renderer's sketch engine into the visuals stage preserves the video and
+changes the library assets and character rigs instead, and unwinds roughjs-specific
+machinery (`baseOptions`, the `seed: 0` guard). Take it with frames in front of you, not
+as a refactor.
 
 ## Still open
 

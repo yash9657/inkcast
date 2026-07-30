@@ -7,11 +7,14 @@
  * in an array, is a picture of a curve rather than a curve being explained.
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { parseStoryboard } from '@inkcast/core';
 import type { PlotElement, Storyboard } from '@inkcast/core';
 import { compilePlan } from './compile.js';
-import { lessonStoryboard } from './fixture.js';
+import { lessonStoryboard, planWithVisuals, withVisuals } from './fixture.js';
 import { flattenPathData } from './geom.js';
 import type { Pt } from './geom.js';
 import { CURVE_FUNCTIONS, curveEval, plotFrame } from '@inkcast/visuals';
@@ -49,8 +52,8 @@ function plotBoard(el: Record<string, unknown>): Storyboard {
   });
 }
 
-function items(sb: Storyboard): PlanItem[] {
-  return compilePlan(sb, DIR).items;
+async function items(sb: Storyboard): Promise<PlanItem[]> {
+  return (await planWithVisuals(sb)).items;
 }
 
 function geomsOf(item: PlanItem | undefined): GeomPrim[] {
@@ -89,7 +92,7 @@ function bounds(prims: PlanPrim[]): Rect {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
-test('the renderer holds no second opinion about curve maths', () => {
+test('the renderer holds no second opinion about curve maths', async () => {
   // The named functions, the sampling and the slopes belong to `@inkcast/visuals`,
   // which is authoritative for plot geometry; `curveEval` is what the drawn curve is
   // built from and `CURVE_FUNCTIONS` is the contract the planner writes against.
@@ -133,8 +136,8 @@ test('the renderer holds no second opinion about curve maths', () => {
   assert.ok(CURVE_FUNCTIONS.parabola.params.length > 0, 'the catalogue is documented as data');
 });
 
-test('axes are drawn first, then the curve, then the overlays', () => {
-  const built = items(
+test('axes are drawn first, then the curve, then the overlays', async () => {
+  const built = await items(
     plotBoard({
       xLabel: 'weight',
       yLabel: 'loss',
@@ -165,8 +168,8 @@ test('axes are drawn first, then the curve, then the overlays', () => {
   assert.equal(geomsOf(built[1]).length, 1, 'a curve is one stroke, revealed once');
 });
 
-test('a curve is revealed along its own direction, left to right', () => {
-  const built = items(plotBoard({}));
+test('a curve is revealed along its own direction, left to right', async () => {
+  const built = await items(plotBoard({}));
   const curve = built.find((i) => i.id === 'p~curve-bowl');
   const d = geomsOf(curve)[0]?.d ?? '';
   const pts = flattenPathData(d).flat();
@@ -186,12 +189,12 @@ test('a curve is revealed along its own direction, left to right', () => {
   assert.ok(mid[1] > first[1] && mid[1] > last[1], 'y is flipped into screen space');
 });
 
-test('a curve leaving the range is clipped into the plot area, not squashed into it', () => {
+test('a curve leaving the range is clipped into the plot area, not squashed into it', async () => {
   const sb = plotBoard({
     yDomain: [0, 4],
     curves: [{ id: 'bowl', fn: { name: 'parabola', params: [1, 0, 0] } }],
   });
-  const built = items(sb);
+  const built = await items(sb);
   const el = sb.scenes[0]?.elements[0] as PlotElement;
   const ink = geomsOf(built.find((i) => i.id === 'p~curve-bowl'));
   // A bowl that overshoots the top at both ends leaves exactly one visible run.
@@ -204,8 +207,8 @@ test('a curve leaving the range is clipped into the plot area, not squashed into
   assert.ok(box.w > el.at.w * 0.3);
 });
 
-test('an overlay lands on its own fraction of the narration', () => {
-  const built = items(
+test('an overlay lands on its own fraction of the narration', async () => {
+  const built = await items(
     plotBoard({
       overlays: [
         { kind: 'tangent', curveId: 'bowl', x: -2, span: 1, at: 0.6, label: 'slope' },
@@ -231,8 +234,8 @@ test('an overlay lands on its own fraction of the narration', () => {
   assert.ok(right[1] > left[1], 'the drawn tangent points downhill');
 });
 
-test('a stepping sequence appears one step at a time, in order', () => {
-  const built = items(
+test('a stepping sequence appears one step at a time, in order', async () => {
+  const built = await items(
     plotBoard({
       overlays: [{ kind: 'steps', curveId: 'bowl', xs: [-2.4, -1.6, -1, -0.6], label: 'descend' }],
     }),
@@ -250,7 +253,7 @@ test('a stepping sequence appears one step at a time, in order', () => {
   );
 });
 
-test('plot ink stays inside the element box and uses only the board palette', () => {
+test('plot ink stays inside the element box and uses only the board palette', async () => {
   const sb = plotBoard({
     grid: true,
     ticks: true,
@@ -267,7 +270,7 @@ test('plot ink stays inside the element box and uses only the board palette', ()
     ],
   });
   const el = sb.scenes[0]?.elements[0] as PlotElement;
-  const built = items(sb).filter((i) => i.id.startsWith('p'));
+  const built = (await items(sb)).filter((i) => i.id.startsWith('p'));
   assert.ok(built.length >= 5);
 
   const pal = paletteFor('color');
@@ -289,7 +292,7 @@ test('plot ink stays inside the element box and uses only the board palette', ()
   assert.ok(geomsOf(frame).some((g) => g.noDash === true && (g.opacity ?? 1) < 0.5));
 });
 
-test('the plotting area leaves room for the labels it was given', () => {
+test('the plotting area leaves room for the labels it was given', async () => {
   // The gutters are the visuals stage's decision, sized from the real type scale.
   // The renderer reads the solved area rather than insetting the box a second time.
   const sb = plotBoard({ xLabel: 'weight', yLabel: 'loss', ticks: true });
@@ -305,7 +308,7 @@ test('the plotting area leaves room for the labels it was given', () => {
 
   // And what the renderer draws agrees with it: the frame phase's ink lands inside
   // the solved area, not the raw element box.
-  const frame = items(sb)[0];
+  const frame = (await items(sb))[0];
   const ink = bounds(geomsOf(frame));
   assert.ok(
     ink.x >= withLabels.area.x - withLabels.area.w * 0.1,
@@ -313,8 +316,8 @@ test('the plotting area leaves room for the labels it was given', () => {
   );
 });
 
-test('a later beat annotating the same plot does not re-ink it', () => {
-  const built = items(lessonStoryboard());
+test('a later beat annotating the same plot does not re-ink it', async () => {
+  const built = await items(lessonStoryboard());
   const ids = built.map((i) => i.id);
   assert.ok(ids.includes('loss'), 'the first beat draws the frame');
   assert.ok(ids.includes('loss~curve-bowl'), 'and the curve');
@@ -330,7 +333,7 @@ test('a later beat annotating the same plot does not re-ink it', () => {
 
 /* --------------------------------------------------------- label collisions */
 
-test('no two labels on a plot are printed on top of each other', () => {
+test('no two labels on a plot are printed on top of each other', async () => {
   // Every label site in plot.ts is chosen from local geometry and is right in
   // isolation; the phases never see each other. The benchmark render put "the
   // bottom" through the y-axis, "how wrong we are here" across the curve, and
@@ -347,9 +350,7 @@ test('no two labels on a plot are printed on top of each other', () => {
       { kind: 'annotate', x: 1, y: 2.6, text: 'the steps shrink as it flattens', at: 0.5 },
     ],
   });
-  const boxes = items(sb)
-    .flatMap((item) => textsOf(item))
-    .map((t) => t.box);
+  const boxes = (await items(sb)).flatMap((item) => textsOf(item)).map((t) => t.box);
   assert.ok(boxes.length >= 6, `expected the labels and both axis names, got ${boxes.length}`);
 
   for (let i = 0; i < boxes.length; i++) {
@@ -378,7 +379,7 @@ test('no two labels on a plot are printed on top of each other', () => {
   }
 });
 
-test('a ball riding a plot lands on the curve, not beside it', () => {
+test('a ball riding a plot lands on the curve, not beside it', async () => {
   // The IR only tells an author that the plot occupies `at`, so every author maps
   // data space across the whole box. `plotMap` then insets that box for the axis
   // gutters. In the benchmark the descending ball was authored on the curve at
@@ -439,7 +440,7 @@ test('a ball riding a plot lands on the curve, not beside it', () => {
     ],
   });
 
-  const plan = compilePlan(sb, DIR);
+  const plan = await planWithVisuals(sb);
   const ball = plan.items.find((i) => i.id === 'p_ball');
   assert.ok(ball, 'the ball reached the plan');
   assert.ok(ball.motion, 'the ball still moves');
@@ -467,19 +468,19 @@ test('a ball riding a plot lands on the curve, not beside it', () => {
 /* --------------------------------------------------- one name per axis */
 
 /** Every text prim drawn for a plot, so labels can be counted by content. */
-function labelsOf(sb: Storyboard): string[] {
+async function labelsOf(sb: Storyboard): Promise<string[]> {
   const out: string[] = [];
-  for (const item of compilePlan(sb, DIR).items) {
+  for (const item of (await planWithVisuals(sb)).items) {
     for (const prim of item.prims) if (prim.kind === 'text') out.push((prim as TextPrim).text);
   }
   return out;
 }
 
-test('a lone curve does not add a second name to the vertical axis', () => {
+test('a lone curve does not add a second name to the vertical axis', async () => {
   // The benchmark labelled the axis "height" and the trace "loss" and left the
   // learner to work out whether those were the same measurement. With one curve both
   // are names for the vertical axis, so only the axis keeps its name.
-  const labels = labelsOf(
+  const labels = await labelsOf(
     plotBoard({
       xLabel: 'where you stand',
       yLabel: 'height',
@@ -490,9 +491,9 @@ test('a lone curve does not add a second name to the vertical axis', () => {
   assert.ok(!labels.includes('loss'), `the curve label was drawn too: ${JSON.stringify(labels)}`);
 });
 
-test('several curves keep their labels, because those tell the traces apart', () => {
+test('several curves keep their labels, because those tell the traces apart', async () => {
   // Here the labels are doing real work and the axis names the quantity they share.
-  const labels = labelsOf(
+  const labels = await labelsOf(
     plotBoard({
       xLabel: 'where you stand',
       yLabel: 'height',
@@ -505,4 +506,52 @@ test('several curves keep their labels, because those tell the traces apart', ()
   assert.ok(labels.includes('too small'), `lost a distinguishing label: ${JSON.stringify(labels)}`);
   assert.ok(labels.includes('too large'));
   assert.ok(labels.includes('height'), 'the axis still names the quantity');
+});
+
+/* ------------------------------------------------ the sidecar is the source */
+
+test('plot geometry comes from the visuals stage, not from a second implementation', async () => {
+  // Root cause 1's remaining half. The renderer used to call `resolvePlot` itself,
+  // because the visuals stage had no camera and recorded geometry at a fraction of the
+  // whole canvas — a factor of five on a framed board, and unusable rather than merely
+  // mis-sized, since a plot measures its gutters and dot radii in caption widths.
+  //
+  // The assertion is that the drawn path data *is* the recorded path data. Not
+  // "equivalent", not "close": the same strings, because there is now one resolution.
+  const sb = plotBoard({ id: 'p', curves: [{ id: 'bowl', fn: { name: 'parabola' } }] });
+  const { dir, sb: resolved } = await withVisuals(sb);
+  const manifest = JSON.parse(await readFile(path.join(dir, 'assets', 'visuals.json'), 'utf8')) as {
+    elements: Record<string, { strokes: { d: string }[] }>;
+  };
+
+  const recorded = manifest.elements.p?.strokes.map((s) => s.d) ?? [];
+  assert.ok(recorded.length > 0, 'the visuals stage recorded no strokes for the plot');
+
+  const drawn = compilePlan(resolved, dir)
+    .items.filter((i) => i.id === 'p' || i.id.startsWith('p~'))
+    .flatMap((i) => i.prims)
+    .filter((p): p is GeomPrim => p.kind === 'geom')
+    .map((p) => p.d);
+
+  for (const d of drawn) {
+    assert.ok(recorded.includes(d), `the renderer drew a path the sidecar does not hold`);
+  }
+});
+
+test('a plot with no sidecar degrades to a labelled frame, not to nothing', async () => {
+  // The renderer can no longer reconstruct a plot, so this is a real failure mode now
+  // and it has to be visible. A missing plot leaves a caption in a void, which is the
+  // thing this pipeline is least willing to ship; an unresolved asset has always drawn
+  // an honest labelled frame and a plot now does the same.
+  const sb = plotBoard({ id: 'p', curves: [{ id: 'bowl', fn: { name: 'parabola' } }] });
+  const empty = await mkdtemp(path.join(tmpdir(), 'inkcast-no-visuals-'));
+  const items = compilePlan(sb, empty).items.filter((i) => i.id === 'p' || i.id.startsWith('p~'));
+
+  assert.equal(items.length, 1, 'exactly one placeholder item');
+  const texts = items[0]!.prims.filter((p): p is TextPrim => p.kind === 'text');
+  assert.equal(texts[0]?.text, 'p', 'the frame is labelled with the element id');
+  assert.ok(
+    items[0]!.prims.some((p) => p.kind === 'geom'),
+    'the placeholder draws a frame, not just a word',
+  );
 });

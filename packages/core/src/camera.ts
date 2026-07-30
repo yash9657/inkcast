@@ -1,5 +1,5 @@
 /**
- * Board accumulation and the camera that frames it.
+ * Board accumulation, the camera that frames it, and the scale everything is drawn at.
  *
  * This is the file that decides whether the video reads as a whiteboard or as a
  * slideshow. The MVP gave every scene its own patch of canvas and pointed the
@@ -32,9 +32,29 @@
  * A scene with no `region` keeps its authored camera untouched: hand-written
  * storyboards and the older planner compose their own shots, and silently
  * overruling them would be a regression, not a fix.
+ *
+ * ## Why this is in `@inkcast/core` and not in the renderer
+ *
+ * It used to be in `packages/render`, and that placement was the last live piece of
+ * root cause 1. The visuals stage is declared authoritative for geometry, but it had
+ * no camera — so it sized type as a fraction of the whole canvas while the renderer
+ * framed a region and quoted type in output pixels. On the benchmark board that is a
+ * factor of five, and in the plot lane the caption size *is* the unit of measurement:
+ * gutters are `caption * 2.1`, a tick `caption * 0.26`, a marked point's radius
+ * `caption * 0.2`. So the geometry the stage recorded was not merely mis-sized, it was
+ * unusable, and the renderer had to resolve plots a second time to get numbers it
+ * could draw.
+ *
+ * Nothing here is render-specific. Every function below is arithmetic over the
+ * Storyboard IR and an output frame size, which is precisely why it can live at the
+ * bottom of the dependency graph where both stages can reach it. `boardMetrics()` at
+ * the end is the one call either stage makes: *given this storyboard, how big is
+ * everything going to be?*
  */
-import { logger } from '@inkcast/core';
-import type { Element, Scene, Storyboard, StoryboardMeta } from '@inkcast/core';
+
+import { logger } from './log.js';
+import type { Element, Scene, Storyboard, StoryboardMeta } from './storyboard.js';
+import { frameSize } from './storyboard.js';
 import {
   boundsOfPoints,
   flattenPathData,
@@ -42,11 +62,10 @@ import {
   unionAll,
   unionArea,
   unionRects,
-} from './geom.js';
-import type { Pt } from './geom.js';
-import type { Rect } from './types.js';
+} from './rect.js';
+import type { Pt, Rect } from './rect.js';
 
-const log = logger('render:camera');
+const log = logger('core:camera');
 
 export type FrameSize = { w: number; h: number };
 export type ResolvedCamera = { x: number; y: number; zoom: number; transition: number };
@@ -430,4 +449,103 @@ export function reportFill(fills: readonly number[], sb: Storyboard): void {
         `The lesson stage should group consecutive steps onto one board.`,
     );
   }
+}
+
+/* ------------------------------------------------------- the board's scale */
+
+/**
+ * Type scale in canvas units, for a 1920x1080-class canvas.
+ *
+ * Here rather than in the renderer's palette because it is one of the two numbers the
+ * plot lane measures *everything else* against — see the file header. The renderer
+ * still owns colour, the pen sprites and the sketch parameters; what moved is only
+ * what decides how big things are.
+ */
+export const TYPE_SCALE = {
+  title: 96,
+  heading: 62,
+  body: 42,
+  label: 32,
+  caption: 26,
+} as const;
+
+export type TextRole = keyof typeof TYPE_SCALE;
+
+/** Stroke width multiplier against the 6-unit base, per ink personality. */
+const PEN_WIDTH: Record<StoryboardMeta['style'], number> = {
+  marker: 1.0,
+  pencil: 0.55,
+  chalk: 1.15,
+  ink: 0.75,
+};
+
+/**
+ * How much bigger type and ink are on a narrow frame.
+ *
+ * `TYPE_SCALE` is quoted for a 1920-wide frame. A 1080-wide vertical frame is watched
+ * on a phone at arm's length, where the same *relative* type is too small to read and
+ * the same relative stroke too thin to see — so 9:16 is composed with heavier ink and
+ * larger letters rather than being a 16:9 board with the sides cut off. Ink grows less
+ * than type: doubling stroke weight muddies detail.
+ */
+export function frameGain(aspect: StoryboardMeta['aspect']): number {
+  if (aspect === '9:16') return 1.42;
+  if (aspect === '1:1') return 1.18;
+  return 1;
+}
+
+/**
+ * Everything about how big this storyboard draws, derived once.
+ *
+ * The single call that closes root cause 1's remaining half. Both stages need these
+ * numbers and neither may compute its own: the renderer draws at them, and the visuals
+ * stage has to *resolve geometry* at them or it records path data nobody can consume.
+ * Before this existed the visuals stage simply did not know them, which is why its
+ * plot geometry was dead output and the renderer resolved plots a second time.
+ *
+ * Pure and cheap — framing arithmetic over the IR, no I/O, no fonts, no ink — so
+ * calling it from both stages costs nothing and guarantees they agree by construction
+ * rather than by two people keeping two formulas in step.
+ */
+export type BoardMetrics = {
+  /** Output frame size for the storyboard's aspect. */
+  frame: FrameSize;
+  /** One camera per scene, in scene order. */
+  framing: SceneFraming[];
+  /** Canvas units per output pixel, at the camera's median framing. */
+  scale: number;
+  /** The narrow-frame type and ink gain. */
+  gain: number;
+  /** Base pen weight in canvas units — what a `strokeWidth: 1` stroke draws at. */
+  strokeWidth: number;
+  /**
+   * Type sizes in canvas units, by role, with the gain applied.
+   *
+   * The plot lane needs `caption` and `label`; the rest are here because a stage that
+   * lays out text needs the same answer the renderer will use, and offering two of
+   * the five would invite someone to re-derive the others.
+   */
+  type: Record<TextRole, number>;
+};
+
+export function boardMetrics(sb: Storyboard): BoardMetrics {
+  const frame = frameSize(sb.meta.aspect);
+  const framing = resolveFraming(sb, frame);
+  const scale = unitsPerPixel(
+    sb.canvas,
+    frame,
+    framing.map((f) => f.camera.zoom),
+  );
+  const gain = frameGain(sb.meta.aspect);
+  // Ink grows less than type on a narrow frame — the 0.6 is the same damping the
+  // renderer applied when it owned this, and moving it here is the point: there is
+  // now one place where "how heavy is the pen on this board" is answered.
+  const inkGain = 1 + (gain - 1) * 0.6;
+  const strokeWidth = 6 * PEN_WIDTH[sb.meta.style] * scale * inkGain;
+
+  const type = Object.fromEntries(
+    (Object.keys(TYPE_SCALE) as TextRole[]).map((role) => [role, TYPE_SCALE[role] * scale * gain]),
+  ) as Record<TextRole, number>;
+
+  return { frame, framing, scale, gain, strokeWidth, type };
 }

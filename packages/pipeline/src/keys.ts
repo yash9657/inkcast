@@ -69,6 +69,16 @@ export const PIPELINE_VERSION = 2;
  *   drawing than it was — a figure instead of a lucide glyph or a lettered card.
  *   Render is *not* bumped with it: the renderer inlines an asset's SVG file rather
  *   than re-deriving its geometry, so nothing in `render/` changed behaviour.
+ * - visuals 7: plot geometry is resolved at the size the *renderer* draws it — the
+ *   board's pen weight and type sizes from `boardMetrics` — rather than at a fraction
+ *   of the whole canvas. Every plot's recorded path data therefore moved. This is the
+ *   change that let the renderer stop resolving plots a second time, so `render` is
+ *   again not bumped: it produces byte-identical output from a freshly resolved
+ *   sidecar (verified on `projects/final-169`, all 39 items unchanged), and it is
+ *   invalidated anyway because `renderFingerprint` now folds in `visualsFingerprint`.
+ *   That fold is load-bearing rather than belt-and-braces: the sidecar became a real
+ *   input to the render here, and an input outside the key is this file's whole
+ *   cautionary tale.
  *
  * Character rigs (step 5) deliberately did **not** bump anything, and the reasoning is
  * worth keeping because the rule above looks like it demands one. The test is whether the
@@ -90,7 +100,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // that move are beats whose cadence forbids the silence they used to get.
   storyboard: 5,
   voice: 2,
-  visuals: 6,
+  visuals: 7,
   render: 5,
 };
 
@@ -196,5 +206,13 @@ export function visualsFingerprint(sb: Storyboard): string {
 
 /** The render depends on the finished storyboard, timings and all. */
 export function renderFingerprint(sb: Storyboard): string {
-  return cacheKey('render', sb);
+  // The visuals fingerprint is folded in because the renderer now *reads* plot and
+  // equation geometry from `assets/visuals.json` rather than deriving it. That makes
+  // the sidecar a real input to the render, and an input that does not appear in the
+  // key is exactly the failure this file's header is about: a visuals change that
+  // leaves the storyboard untouched would otherwise keep serving the old video.
+  //
+  // It carries the visuals *stage version* too, so bumping that invalidates renders as
+  // well — which is what makes "bump the stage you changed" remain sufficient advice.
+  return cacheKey('render', sb, visualsFingerprint(sb));
 }

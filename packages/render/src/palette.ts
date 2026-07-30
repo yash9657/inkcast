@@ -43,6 +43,12 @@ export function paletteFor(mode: 'mono' | 'color'): Palette {
   return mode === 'mono' ? MONO : COLOR;
 }
 
+/**
+ * How a pen behaves, minus how heavy it is: the stroke *width* multiplier now lives
+ * with the rest of the board's scale in `@inkcast/core`, because `boardMetrics` has
+ * to produce the same pen weight the renderer draws with. What is left here is what
+ * only the sketch engine cares about.
+ */
 export type InkStyle = {
   /** Random-offset amplitude. Higher = shakier hand. */
   roughness: number;
@@ -50,34 +56,30 @@ export type InkStyle = {
   bowing: number;
   /** Strokes per edge. 2 is the classic sketched double stroke. */
   passes: number;
-  /** Stroke width multiplier against the 6-unit base. */
-  width: number;
   cap: 'round' | 'butt' | 'square';
   /** Per-stroke opacity — chalk and pencil do not lay down solid ink. */
   opacity: number;
 };
 
 const INK: Record<StyleName, InkStyle> = {
-  marker: { roughness: 1.1, bowing: 1.0, passes: 2, width: 1.0, cap: 'round', opacity: 1 },
-  pencil: { roughness: 1.7, bowing: 1.5, passes: 2, width: 0.55, cap: 'round', opacity: 0.86 },
-  chalk: { roughness: 1.9, bowing: 1.2, passes: 2, width: 1.15, cap: 'round', opacity: 0.8 },
-  ink: { roughness: 0.75, bowing: 0.8, passes: 1, width: 0.75, cap: 'round', opacity: 1 },
+  marker: { roughness: 1.1, bowing: 1.0, passes: 2, cap: 'round', opacity: 1 },
+  pencil: { roughness: 1.7, bowing: 1.5, passes: 2, cap: 'round', opacity: 0.86 },
+  chalk: { roughness: 1.9, bowing: 1.2, passes: 2, cap: 'round', opacity: 0.8 },
+  ink: { roughness: 0.75, bowing: 0.8, passes: 1, cap: 'round', opacity: 1 },
 };
 
 export function inkStyle(style: StyleName): InkStyle {
   return INK[style];
 }
 
-/** Type scale in canvas units, for a 1920×1080-class canvas. */
-export const TYPE_SCALE = {
-  title: 96,
-  heading: 62,
-  body: 42,
-  label: 32,
-  caption: 26,
-} as const;
-
-export type TextRole = keyof typeof TYPE_SCALE;
+/**
+ * The type scale moved to `@inkcast/core` with the camera: it is one of the two
+ * numbers the plot lane measures everything else against, so the visuals stage has to
+ * be able to read it. Re-exported so this module is still the one place the renderer
+ * asks about type and colour.
+ */
+export { TYPE_SCALE } from '@inkcast/core';
+export type { TextRole } from '@inkcast/core';
 
 /* --------------------------------------------------------------------- pen */
 

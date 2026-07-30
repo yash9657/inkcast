@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseStoryboard } from '@inkcast/core';
 import { compilePlan } from './compile.js';
+import { planWithVisuals } from './fixture.js';
 import { flattenPathData } from './geom.js';
 import type { Pt } from './geom.js';
 import type { MorphTrack, PlanItem } from './types.js';
@@ -73,8 +74,8 @@ const PLOT = {
   morph: { fromId: 'hill', from: 0.1, to: 0.6 },
 } as const;
 
-function planFor(target: Record<string, unknown> = { ...PLOT }): PlanItem[] {
-  return compilePlan(board(target), DIR).items;
+async function planFor(target: Record<string, unknown> = { ...PLOT }): Promise<PlanItem[]> {
+  return (await planWithVisuals(board(target))).items;
 }
 
 function morphOf(items: PlanItem[]): { item: PlanItem; track: MorphTrack } {
@@ -97,26 +98,26 @@ function near(a: number, b: number, tol: number): boolean {
 
 /* ---------------------------------------------------------------- the basics */
 
-test('a plot morphs out of the path it names', () => {
-  const { track } = morphOf(planFor());
+test('a plot morphs out of the path it names', async () => {
+  const { track } = morphOf(await planFor());
   assert.ok(track.frames.length > 1, 'a morph is more than one frame');
   assert.deepEqual(track.retire, ['hill'], 'the hillside is retired as the curve takes over');
   assert.ok(track.end > track.start);
 });
 
-test('the morph attaches to the curve, not the axes', () => {
+test('the morph attaches to the curve, not the axes', async () => {
   // The axes are drawn *around* the reshaping curve, so they must keep their own
   // entry. Hanging the morph on the axes item would reshape the wrong ink and
   // leave the curve to blink on afterwards.
-  const { item } = morphOf(planFor());
+  const { item } = morphOf(await planFor());
   assert.equal(item.id, 'loss~curve-bowl', `morph landed on "${item.id}"`);
-  const axes = planFor().find((i) => i.id === 'loss');
+  const axes = (await planFor()).find((i) => i.id === 'loss');
   assert.ok(axes, 'the plot still has an axes item');
   assert.equal(axes.morph, undefined, 'the axes do not morph');
 });
 
-test('the first frame is the hillside and the last is the curve', () => {
-  const { track } = morphOf(planFor());
+test('the first frame is the hillside and the last is the curve', async () => {
+  const { track } = morphOf(await planFor());
   const first = ends(track.frames[0] as string);
   const last = ends(track.frames[track.frames.length - 1] as string);
 
@@ -139,8 +140,8 @@ test('the first frame is the hillside and the last is the curve', () => {
   );
 });
 
-test('every frame is a drawable path', () => {
-  const { track } = morphOf(planFor());
+test('every frame is a drawable path', async () => {
+  const { track } = morphOf(await planFor());
   for (let i = 0; i < track.frames.length; i++) {
     const d = track.frames[i] as string;
     assert.ok(d.length > 0, `frame ${i} is empty`);
@@ -151,13 +152,13 @@ test('every frame is a drawable path', () => {
 
 /* ------------------------------------------------------------------- motion */
 
-test('points travel the short way, so the shape bends instead of sliding', () => {
+test('points travel the short way, so the shape bends instead of sliding', async () => {
   // This is the arc-length resampling property. Matching source to target by index
   // pairs the dense end of one polyline with the sparse end of the other, and the
   // hill appears to slide sideways as it flattens. Evenly spaced points mean the
   // left end stays left: horizontal drift across the whole morph stays small
   // compared with the vertical reshaping that is the actual point.
-  const { track } = morphOf(planFor());
+  const { track } = morphOf(await planFor());
   const first = ends(track.frames[0] as string);
   const last = ends(track.frames[track.frames.length - 1] as string);
   const driftLeft = Math.abs(last.first[0] - first.first[0]);
@@ -168,11 +169,11 @@ test('points travel the short way, so the shape bends instead of sliding', () =>
   );
 });
 
-test('the hand-drawn wobble is held steady across the morph', () => {
+test('the hand-drawn wobble is held steady across the morph', async () => {
   // One seed for the whole morph. Re-seeding per frame makes the stroke boil, which
   // a viewer reads as noise rather than as one line being bent — so consecutive
   // frames must differ by roughly the interpolation step, not by a fresh wobble.
-  const { track } = morphOf(planFor());
+  const { track } = morphOf(await planFor());
   const n = track.frames.length;
   assert.ok(n >= 6, `too few frames to compare: ${n}`);
   const a = ends(track.frames[2] as string);
@@ -192,8 +193,8 @@ test('the hand-drawn wobble is held steady across the morph', () => {
 
 /* -------------------------------------------------------------- the handoff */
 
-test("the item's own ink takes over by fading where the morph ends", () => {
-  const { item, track } = morphOf(planFor());
+test("the item's own ink takes over by fading where the morph ends", async () => {
+  const { item, track } = morphOf(await planFor());
   // A dash-reveal here would re-draw the curve the viewer just watched bend into
   // place, stroke by stroke.
   assert.equal(item.style, 'fade');
@@ -206,10 +207,10 @@ test("the item's own ink takes over by fading where the morph ends", () => {
 
 /* ------------------------------------------------------------ degrade safely */
 
-test('a morph naming something absent is dropped, not fatal', () => {
+test('a morph naming something absent is dropped, not fatal', async () => {
   // A hand-edited storyboard or an LLM patch can name an element that is not there.
   // Losing the transition is acceptable; failing the render is not.
-  const items = planFor({ ...PLOT, morph: { fromId: 'nope', from: 0.1, to: 0.6 } });
+  const items = await planFor({ ...PLOT, morph: { fromId: 'nope', from: 0.1, to: 0.6 } });
   assert.ok(items.length > 0, 'the plot still renders');
   assert.equal(
     items.find((i) => i.morph !== undefined),
@@ -218,7 +219,7 @@ test('a morph naming something absent is dropped, not fatal', () => {
   );
 });
 
-test('a morph out of something with no geometry is dropped', () => {
+test('a morph out of something with no geometry is dropped', async () => {
   const withText = parseStoryboard({
     version: 1,
     title: 'morph',
@@ -248,7 +249,7 @@ test('a morph out of something with no geometry is dropped', () => {
       },
     ],
   });
-  const items = compilePlan(withText, DIR).items;
+  const items = (await planWithVisuals(withText)).items;
   assert.ok(
     items.some((i) => i.id === 'loss'),
     'the plot still renders',
@@ -259,10 +260,10 @@ test('a morph out of something with no geometry is dropped', () => {
   );
 });
 
-test('a path can morph into another path', () => {
+test('a path can morph into another path', async () => {
   // The plot case is the one the benchmark needs, but the capability is not
   // plot-specific: any two shapes with interpolable geometry can be bent together.
-  const items = planFor({
+  const items = await planFor({
     id: 'bowl',
     type: 'path',
     points: Array.from({ length: 20 }, (_, i) => {
@@ -278,7 +279,7 @@ test('a path can morph into another path', () => {
   assert.ok(track.frames.length > 1);
 });
 
-test('a morph retires the whole drawing, not just the one stroke', () => {
+test('a morph retires the whole drawing, not just the one stroke', async () => {
   // A hillside comes with fog across it and a figure standing on it. Left up, the
   // fog lies over the finished axes and the walker stands in mid-air where the slope
   // used to be — so the morph has to take its companions with it.
@@ -315,7 +316,7 @@ test('a morph retires the whole drawing, not just the one stroke', () => {
       },
     ],
   });
-  const items = compilePlan(withCompanions, DIR).items;
+  const items = (await planWithVisuals(withCompanions)).items;
   const { track } = morphOf(items);
   assert.deepEqual(track.retire, ['hill', 'fog']);
 });

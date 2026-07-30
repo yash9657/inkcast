@@ -16,6 +16,7 @@
 import { mkdir, copyFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  boardMetrics,
   hash,
   isFresh,
   logger,
@@ -23,6 +24,7 @@ import {
   report,
   type Asset,
   type AssetRef,
+  type BoardMetrics,
   type Element,
   type StageOptions,
   type Storyboard,
@@ -36,6 +38,7 @@ import {
   arrowMidpoint,
   arrowPaths,
   createGenerator,
+  ctxFor,
   emphasisPaths,
   seedFrom,
   shapePaths,
@@ -100,6 +103,10 @@ export async function resolveVisuals(
     '|',
   );
   const canvasHeight = out.canvas.h;
+  // The board's own scale, from the same `boardMetrics` the renderer calls. Framing is
+  // a function of elements and regions only — never of measured durations — so it does
+  // not matter that voice may or may not have run before this stage.
+  const board = boardMetrics(out);
 
   const imagesEnabled =
     (opts.images ?? (process.env.INKCAST_IMAGES === 'off' ? 'off' : 'auto')) === 'auto';
@@ -256,6 +263,7 @@ export async function resolveVisuals(
         fontHref,
         assetVisuals,
         targetBox,
+        board,
         ...(opts.maxUpscale !== undefined ? { maxUpscale: opts.maxUpscale } : {}),
       });
       elementVisuals[el.id] = visual;
@@ -498,11 +506,25 @@ async function resolveElement(args: {
   assetVisuals: Record<string, AssetVisual>;
   targetBox?: Box;
   maxUpscale?: number;
+  /** How big everything on this board draws — see `boardMetrics` in `@inkcast/core`. */
+  board: BoardMetrics;
 }): Promise<ElementVisual> {
-  const { el, style, font, canvasHeight } = args;
+  const { el, style, font, canvasHeight, board } = args;
   const seed = seedFrom('element', el.id, args.sceneId);
   const gen = createGenerator(style);
   const base: DrawContext = { style, gen, seed };
+
+  /**
+   * The style this element is actually drawn with.
+   *
+   * A plot is drawn at the *board's* pen weight, because everything in a plot is
+   * measured off it — a marked point's radius is `strokeWidth * 1.45`, an axis
+   * arrowhead `strokeWidth * 2.6`. The style's own `strokeWidth` is chosen for a
+   * standalone SVG that fills its viewBox, which is the right number for every other
+   * element here and the wrong one for geometry the renderer has to consume.
+   */
+  const drawStyle: InkStyle =
+    el.type === 'plot' ? { ...style, strokeWidth: board.strokeWidth } : style;
 
   let items: InkItem[] = [];
   let diagram: ElementVisual['diagram'];
@@ -620,10 +642,23 @@ async function resolveElement(args: {
       break;
     }
     case 'plot': {
-      const resolved = resolvePlot(el, base, {
-        style,
+      // Resolved at the size the renderer will actually draw it, not at a fraction of
+      // the canvas. This is the half of root cause 1 that stayed open: the stage had
+      // no camera, so it sized type against the whole board while the renderer framed
+      // a region — a factor of five on the benchmark. In the plot lane the caption
+      // size *is* the unit of measurement (gutters are `caption * 2.1`, a tick
+      // `caption * 0.26`, a marked point's radius `caption * 0.2`), so geometry
+      // resolved at the wrong caption size is not mis-labelled, it is unusable — which
+      // is exactly why the renderer used to resolve every plot a second time.
+      //
+      // `board` comes from `boardMetrics` in `@inkcast/core`, the same call the
+      // renderer makes, so the two agree by construction rather than by two formulas
+      // being kept in step by hand.
+      const resolved = resolvePlot(el, ctxFor(drawStyle, seed), {
+        style: drawStyle,
         font,
         canvasHeight,
+        typeSizes: { caption: board.type.caption, label: board.type.label },
         baseAt: el.enter.at,
       });
       plot = resolved.layout;
@@ -711,7 +746,7 @@ async function resolveElement(args: {
     id: el.id,
     items,
     box: el.at,
-    style,
+    style: drawStyle,
     space: 'canvas',
     ...(args.fontHref ? { fontHref: args.fontHref, fontFamily: font.familyName } : {}),
     attrs: {

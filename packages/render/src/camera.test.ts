@@ -11,15 +11,21 @@ import test from 'node:test';
 import { frameSize, parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
 import {
+  boardMetrics,
   contentFill,
   elementBounds,
   resolveFraming,
   safeInsets,
   unitsPerPixel,
   viewRect,
-} from './camera.js';
+} from '@inkcast/core';
 import { compilePlan } from './compile.js';
-import { fixtureStoryboard, lessonStoryboard, verticalStoryboard } from './fixture.js';
+import {
+  fixtureStoryboard,
+  lessonStoryboard,
+  planWithVisuals,
+  verticalStoryboard,
+} from './fixture.js';
 import { rectContains } from './geom.js';
 import type { Rect } from './types.js';
 
@@ -394,4 +400,51 @@ test('a recap that cannot be read pulls back only as far as it stays legible', (
       }
     }
   }
+});
+
+/* --------------------------------------------------------- one board, one scale */
+
+test('boardMetrics is the single answer to how big everything draws', async () => {
+  // Root cause 1's blocker was that this arithmetic lived in the renderer, so the
+  // visuals stage could not know it and recorded geometry nobody could consume. It is
+  // in `@inkcast/core` now, and these are the invariants that make it usable from both
+  // ends rather than merely reachable.
+  const sb = lessonStoryboard();
+  const board = boardMetrics(sb);
+
+  // Derived, not guessed: the scale follows the *resolved* cameras, so a storyboard
+  // whose camera tours a canvas larger than one frame does not get canvas-sized type.
+  assert.equal(board.framing.length, sb.scenes.length);
+  assert.ok(
+    Math.abs(
+      board.scale -
+        unitsPerPixel(
+          sb.canvas,
+          frameSize(sb.meta.aspect),
+          board.framing.map((f) => f.camera.zoom),
+        ),
+    ) < 1e-12,
+  );
+
+  // Pure: two calls agree exactly, which is what lets two stages call it separately
+  // and still draw the same board.
+  assert.deepEqual(boardMetrics(sb), board);
+
+  // And what the renderer actually plans with is what it reports.
+  const plan = await planWithVisuals(sb);
+  assert.ok(Math.abs(plan.scale - board.scale) < 1e-12, 'the plan drew at a different scale');
+  assert.ok(Math.abs(plan.typeScale - board.scale * board.gain) < 1e-12);
+});
+
+test('a vertical board is composed heavier, not cropped', () => {
+  // The gain is the reason 9:16 is a composition rather than a crop, and it now has to
+  // be readable by the visuals stage too — a plot resolved without it would be typed
+  // for a desktop frame and drawn on a phone.
+  const wide = boardMetrics(lessonStoryboard());
+  const tall = boardMetrics(verticalStoryboard());
+  assert.equal(wide.gain, 1);
+  assert.ok(tall.gain > 1.3, `vertical gain was ${tall.gain}`);
+  // Ink grows, but less than type: doubling stroke weight muddies detail.
+  assert.ok(tall.strokeWidth / tall.scale > wide.strokeWidth / wide.scale);
+  assert.ok(tall.type.caption / tall.scale > wide.type.caption / wide.scale);
 });
