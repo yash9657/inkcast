@@ -32,6 +32,53 @@ export const VisualIntent = z.object({
     .default('plot'),
   /** Phrase from the narration this visual must land on. */
   cue: z.string().optional(),
+  /**
+   * Which member of the lesson's `cast` this draws, and in which pose.
+   *
+   * This is how the pedagogy addresses the asset library. Without it a lesson can
+   * only *describe* a person and hope the visuals stage matches something apt, which
+   * means every character resolves to its rig's default pose — one explorer standing
+   * in all three beats, which is exactly what `figures/standing` already did. Naming
+   * the member makes it the same person by construction, and naming the pose is the
+   * only thing that makes a rig a rig rather than a drawing.
+   *
+   * The pose is explicit or absent, never inferred from the beat's verb. Guessing it
+   * from the narration is the mistake the lesson schema's v2 mapping removed for the
+   * analogy, and it would fail the same way: the beat that says "she sat with the
+   * problem for a week" is not asking for `sitting`.
+   */
+  character: z
+    .object({
+      /** A `Lesson.cast` id. An id with no cast member is a critique failure. */
+      id: z.string(),
+      /** A pose the rig declares, e.g. `walking`. Absent means the rig's default. */
+      pose: z.string().optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Someone the lesson is about, declared once and referred to by id thereafter.
+ *
+ * The same argument that made `storyboard.assets[]` a top-level library rather than an
+ * inline property of elements: resolve once, reuse by id. A narrative lesson that
+ * re-describes its protagonist per beat gets a different protagonist per beat, which is
+ * the failure competing tools ship. Declaring the cast is what lets three beats be three
+ * poses of one person.
+ */
+export const CastMember = z.object({
+  /** Stable slug, and the id `VisualIntent.character` cites. */
+  id: z.string(),
+  /** What to call them in narration, for the author's benefit. */
+  name: z.string().default(''),
+  /**
+   * How they look, for the day a generator draws them.
+   *
+   * Unused by the composed lane — a rig is already a drawing, so there is nothing to
+   * synthesise — and recorded anyway, because the moment a provider exists this is the
+   * prompt that keeps them the same person across a video.
+   */
+  look: z.string().default(''),
 });
 
 /**
@@ -134,6 +181,16 @@ export const Lesson = z.object({
   coreInsight: z.string().default(''),
   /** Terms deliberately avoided, or introduced only after being earned. */
   jargonBudget: z.array(z.string()).default([]),
+  /**
+   * Who is in this lesson, for a `narrative` one that is carried by people.
+   *
+   * Defaulted to empty so every `lesson.json` written before this field existed still
+   * parses — the same reason `version` stays at 1 and the cache invalidates through the
+   * stage version instead. An empty cast is the normal case: a derivation has no cast,
+   * and a lesson that describes a person without declaring one still resolves through
+   * the library's alias table, just without identity across beats.
+   */
+  cast: z.array(CastMember).default([]),
 
   /** A concrete question or surprise in the first five seconds. Never a definition. */
   hook: LessonStep,
@@ -162,6 +219,7 @@ export const Lesson = z.object({
 export type Lesson = z.infer<typeof Lesson>;
 export type LessonStep = z.infer<typeof LessonStep>;
 export type VisualIntent = z.infer<typeof VisualIntent>;
+export type CastMember = z.infer<typeof CastMember>;
 export type LessonKind = z.infer<typeof LessonKind>;
 export type TeachingStrategy = z.infer<typeof TeachingStrategy>;
 export type AnalogyMap = z.infer<typeof AnalogyMap>;
@@ -213,6 +271,7 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
   const allIds = new Set(beats.map((b) => b.id));
   /** Ids already passed, so a `derivedFrom` cannot point forwards. */
   const earlier = new Set<string>();
+  const castIds = new Set(l.cast.map((c) => c.id));
 
   for (const { step, role, id } of beats) {
     if (!step.because.trim() && role !== 'recap' && role !== 'hook') {
@@ -223,6 +282,16 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     }
     if (!step.visuals.length && role !== 'recap') {
       problems.push(`${role} "${step.idea}" has nothing to look at`);
+    }
+    // A character reference resolves to a library path, so a dangling one draws
+    // nothing rather than drawing the wrong thing. Same class as a `derivedFrom`
+    // naming no beat, and worth catching before it costs a render.
+    for (const v of step.visuals) {
+      if (v.character && !castIds.has(v.character.id)) {
+        problems.push(
+          `${role} "${step.idea}" draws character "${v.character.id}", who is not in the cast`,
+        );
+      }
     }
     // A first-principles lesson that asserts is not one. This is the rule the
     // `from` field exists for, and it is deliberately absolute: there is no
@@ -263,6 +332,12 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
   }
   if (l.strategy === 'analogy' && !l.analogy) {
     problems.push('the lesson says it teaches by analogy but does not record one');
+  }
+  // `kind` was accepted, prompted for, and then read by nothing. This is the first
+  // thing that branches on it, and it is the same rule as the analogy one above: a
+  // lesson that declares itself carried by characters and names none is not one.
+  if (l.kind === 'narrative' && !l.cast.length) {
+    problems.push('the lesson says it is carried by characters but declares no cast');
   }
 
   if (/^\s*(in this video|today we|let'?s (talk|discuss)|welcome)/i.test(l.hook.narration)) {

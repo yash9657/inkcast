@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -422,4 +422,68 @@ test('editLesson says what it cannot do rather than pretending', async () => {
     adapter: 'heuristic',
   });
   assert.deepEqual(nonsense.report.unsupported, ['flurb the bandersnatch']);
+});
+
+/* --------------------------------------------------------------------- cast */
+
+const NARRATIVE = path.resolve(
+  import.meta.dirname,
+  '../../../examples/lessons/longitude.lesson.json',
+);
+const narrative = await readLessonFile(NARRATIVE);
+
+test('the shipped narrative lesson passes critiqueLesson with zero problems', () => {
+  // The second acceptance lesson, and the one that exercises the parts a derivation
+  // never touches: a declared cast, poses named per beat, and `kind: narrative`.
+  assert.deepEqual(critiqueLesson(narrative, { maxSeconds: PRESETS.standard.maxSeconds }), []);
+  assert.equal(narrative.kind, 'narrative');
+});
+
+test('every beat of the narrative lesson survives the standard budget', () => {
+  // A dropped beat is a dropped pose, and the whole point of the lesson is that one
+  // person is drawn four ways. `adaptLesson` trims to fit, so the lesson has to fit.
+  const adapted = adaptLesson(narrative, PRESETS.standard);
+  assert.equal(lessonBeats(adapted).length, lessonBeats(narrative).length);
+});
+
+test('a lesson written before `cast` existed still parses', async () => {
+  // The reason `cast` is defaulted rather than required: every `lesson.json` already
+  // on disk predates it, and the schema stays at version 1 — the cache invalidates
+  // through the stage version instead of through a schema break.
+  const onDisk = JSON.parse(await readFile(SHIPPED, 'utf8'));
+  assert.equal('cast' in onDisk, false, 'the shipped lesson should not have been rewritten');
+  const parsed = Lesson.parse(onDisk);
+  assert.deepEqual(parsed.cast, []);
+  // And an intent written before `character` existed keeps parsing too.
+  assert.equal(parsed.hook.visuals[0]?.character, undefined);
+});
+
+test('a character reference that names nobody in the cast is a critique failure', () => {
+  // Same class as a `derivedFrom` naming no beat: it resolves to no library path, so
+  // it draws nothing rather than drawing the wrong thing. Worth catching before it
+  // costs a render.
+  const l = structuredClone(narrative);
+  l.steps[0]!.visuals[0]!.character = { id: 'nobody' };
+  assert.ok(
+    critiqueLesson(l).some((p) => /character "nobody", who is not in the cast/.test(p)),
+    'a dangling character reference passed critique',
+  );
+});
+
+test('a narrative lesson with no cast is a critique failure', () => {
+  // `kind` was accepted, prompted for, and read by nothing. This is the first rule
+  // that branches on it, and it mirrors the analogy rule: a lesson that declares
+  // itself carried by characters and names none is not one.
+  const l = structuredClone(narrative);
+  l.cast = [];
+  for (const beat of lessonBeats(l)) for (const v of beat.step.visuals) delete v.character;
+  assert.ok(
+    critiqueLesson(l).some((p) => /carried by characters but declares no cast/.test(p)),
+    'a cast-less narrative lesson passed critique',
+  );
+  // And the same lesson called a derivation is fine, so the rule is about `kind`.
+  assert.deepEqual(
+    critiqueLesson({ ...l, kind: 'stem' as const }).filter((p) => /cast/.test(p)),
+    [],
+  );
 });

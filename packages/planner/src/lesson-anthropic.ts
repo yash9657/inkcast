@@ -33,6 +33,20 @@ export const DEFAULT_LESSON_MODEL = 'claude-opus-5';
 const TOOL = 'emit_lesson';
 const MAX_INPUT_CHARS = 60_000;
 
+/**
+ * The poses a lesson may name, told to the model verbatim.
+ *
+ * This mirrors the composable poses of the character rigs in `assets/library/`, and it
+ * is a copy rather than a read because `@inkcast/planner` does not depend on
+ * `@inkcast/visuals` and should not start. Two catalogues of one fact is the shape
+ * that already went wrong once for `doubleWell`, so the copy is pinned:
+ * `pipeline/test/cast.test.ts` fails if this list and the shipped rigs disagree.
+ *
+ * A generated pose is deliberately absent — it needs a provider, and a model that
+ * cannot be told whether one is configured should not be offered it.
+ */
+export const CAST_POSES = ['standing', 'walking', 'pointing', 'sitting'] as const;
+
 export function lessonModel(opts?: { model?: string }): string {
   return opts?.model ?? process.env.INKCAST_LESSON_MODEL ?? DEFAULT_LESSON_MODEL;
 }
@@ -96,6 +110,13 @@ The compiler recognises these, and the words in **bold** are what select them, s
 - **icon** — one simple concrete object.
 - **text** — an equation or a phrase that must be written out verbatim. Use sparingly; the picture should carry the idea.
 Use one visual per beat, two at most. A beat with three competing pictures teaches nothing.
+
+A STORY NEEDS A CAST, AND A CAST IS DECLARED ONCE
+When \`kind\` is \`narrative\`, fill in \`cast\`: who is in this, one entry each, with a stable \`id\`, the \`name\` your narration uses, and \`look\` in a few words. Then draw them by setting \`character\` on the visual — \`{"id": "<a cast id>", "pose": "<a pose>"}\` — instead of describing them again. Describing the same person per beat gets you a different person per beat; naming them makes it the same drawing, and naming the pose is what makes them move.
+- The poses available are: ${CAST_POSES.join(', ')}. Use one of those exact words or leave \`pose\` out. A pose that is not on that list falls back to a generic figure and the character is lost.
+- Choose the pose from what the person is DOING in that beat, and only when it is clear. A beat about sitting with a problem for a week is not \`sitting\`.
+- \`character\` settles what gets drawn, so \`kind\` is ignored on that visual. Still write \`describe\` — it says what is around them.
+- Every \`character.id\` must be in \`cast\`, and a narrative lesson with no cast is rejected.
 
 \`cue\` is a phrase copied VERBATIM from that same beat's narration — three or four words, the ones the drawing must land on. Copy it character for character or leave it out.
 

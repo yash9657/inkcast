@@ -383,6 +383,9 @@ export function deriveLesson(
     // most load-bearing sentence the author already wrote.
     coreInsight: speakify(opening),
     jargonBudget: [],
+    // No cast: this author derives from a document and has no way to know who, if
+    // anyone, the topic is about. A narrative lesson comes from a model, not here.
+    cast: [],
     hook,
     anchor,
     steps,

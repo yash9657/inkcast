@@ -29,7 +29,8 @@ hook, anchor, `steps[]` each carrying idea + why + visual, worked, misconception
 recap), an LLM path (`lesson-anthropic.ts`) and a heuristic fallback
 (`lesson-derive.ts`). `storyboard` classifies every beat into a visual primitive
 already — `VisualIntent{kind: plot | path | diagram | icon | illustration | motion |
-text}` — and ties each element to the narration with `Enter.cue`. Word-level sync is
+text}`, plus `character` for a member of the lesson's `cast` — and ties each element to
+the narration with `Enter.cue`. Word-level sync is
 not a gap either: `packages/voice/src/align.ts` runs forced alignment against a local
 ONNX Whisper with cross-attention DTW, offline, no Python, 0.45 s for a 9.4 s clip,
 and the last verification placed 39 of 39 elements word-exactly.
@@ -84,7 +85,9 @@ done — see step 4:** curated assets resolve by path and pinned version, and th
 generated-raster cache is machine-wide rather than per project. **Rigs are half done — see
 step 5:** `characters/explorer` holds identity across four poses with no key, so a character
 can now be *the same character* standing and walking. What remains is the pose composition
-cannot describe, which needs a provider and the identity check that goes with it._
+cannot describe, which needs a provider and the identity check that goes with it. **And the
+pedagogy can now reach both — see step 5b:** a lesson declares a `cast` and names a pose per
+beat, so the library is addressable rather than merely reachable through an alias table._
 
 ## The stage contracts
 
@@ -135,8 +138,15 @@ type Lesson = {
     maps: { from: string; to: string }[];
   };
 
-  /** NEW. Narrative and historical topics. Resolved once into a character sheet. */
-  cast?: { id: string; name: string; look: string }[];
+  /**
+   * Narrative and historical topics. Resolved once into a character sheet. ✅ SHIPPED.
+   *
+   * Defaulted to `[]` rather than required, so every `lesson.json` written before it
+   * existed still parses and the schema stays at version 1. `critiqueLesson` rejects a
+   * `narrative` lesson that declares no cast, and a `VisualIntent.character` naming an
+   * id that is not here — which is the first rule anywhere that branches on `kind`.
+   */
+  cast: { id: string; name: string; look: string }[];
 
   hook: LessonStep;
   anchor: LessonStep;
@@ -585,6 +595,60 @@ generated — a pose that falls back to `standing` and says so in the manifest.
 
 So the honest state: **a character can hold identity across poses today, with no key, and
 cannot yet be posed in a way composition cannot describe.**
+
+### 5b. The pedagogy can address the library ✅ **DONE**
+
+Steps 4 and 5 built a library and a rig that nothing upstream could ask for. Three findings,
+each measured against the compiler rather than argued:
+
+**The planner held a second, earlier copy of the asset router, and it won.** `buildAsset`
+called `matchIcons` and minted the asset with the **lucide slug as its id and lucide's prompt
+as its prompt**, throwing away what the beat described. The visuals stage's lane order then ran
+against evidence already destroyed. Measured, before the fix:
+
+    describe                                    planner minted    library then saw
+    "a hiker walking downhill in thick fog"     (description)     figures/walking
+    "a lone explorer crossing a desert"         (description)     characters/explorer
+    "a person standing at the edge of a cliff"  icon: id=user     figures/standing  (by luck)
+    "Odysseus tied to the mast of his ship"     icon: id=rocket   NOTHING
+
+The last row shipped as **Odysseus draws a rocket**. The `user` row only worked because
+lucide's substitute prompt happened to contain the word "person". After the fix all four keep
+their description; the first three route to the right drawing on the library lane by real
+match, and Odysseus reaches the generator with its own prompt intact.
+
+**The fix is to delete the pre-resolution, not to patch the matcher.** `resolveAsset` is a
+superset of what was here — its lane 3 runs the same lucide match on the id and the prompt — so
+nothing that used to resolve stopped resolving; it just stops jumping the queue in front of the
+library. Same shape as step 1's dead plot solver, and the third instance of root cause 1's
+pattern. `heuristic.ts` still calls `matchIcons` and should: it decorates a _document_ beat
+where there is no described subject to preserve, and lucide picking something apt is the whole
+intent.
+
+**No pose could be requested, so step 5 bought nothing in a real run.** `VisualIntent` gained
+`character?: { id, pose? }`, `Lesson` gained `cast`, and the compiler mints
+`ref: { path: 'characters/<id>', variant: pose }` — unpinned, because resolution pins on the
+way out. The pose is explicit or absent, never inferred from the beat's verb: that is the guess
+step 6 removed for the analogy and it fails the same way.
+
+**`kind: 'narrative'` was accepted, prompted for, and read by nothing.** It now has two
+consequences in `critiqueLesson`: a narrative lesson with no cast is rejected, and a
+`character.id` that names nobody in the cast is rejected — the same class as a `derivedFrom`
+naming no beat.
+
+_Done when:_ a narrative lesson renders one character across three beats in three different
+poses, with no key. `examples/lessons/longitude.lesson.json` is that lesson; it draws the
+explorer standing, walking, pointing and sitting, all four `how: 'composed'`, and renders end
+to end through `cast` at `cost $0.00`. Pinned by `pipeline/test/cast.test.ts`, which asserts on
+what the board would draw rather than on a unit — including that the four poses are _different
+geometry_, since the failure mode being fixed was four identical `standing` figures that looked
+entirely deliberate.
+
+**One duplication was introduced deliberately, and pinned.** The model has to be told which
+poses exist, and `@inkcast/planner` cannot read the library — it does not depend on
+`@inkcast/visuals` and should not start. So `CAST_POSES` in `lesson-anthropic.ts` is a copy of
+what the rigs declare. Two catalogues of one fact is the shape that already went wrong for
+`doubleWell`, so a test in `pipeline` — the package that sees both — fails if they disagree.
 
 **6. Lesson schema v2.** ✅ **DONE.** `kind`, `strategy`, `coreInsight`, `analogy.maps`,
 `from`/`derivedFrom` with the no-`asserted` validator for first-principles. The morph is

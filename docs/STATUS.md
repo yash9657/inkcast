@@ -492,3 +492,100 @@ previous section and nothing since could have moved them. The planner still neve
 `AssetRef` or a variant, so **nothing upstream can ask for a pose yet**: a rig is reachable by
 hand and by alias, and not by pedagogy. That is the largest remaining gap in this area and it
 is a planner change, not a rig one.
+
+# The pedagogy can address the library, 2026-07-29 (later again)
+
+`PIPELINE.md` step 5b — the unnumbered piece the previous handoff put first. Steps 4 and 5
+built a library and a rig that **nothing upstream could ask for**, and this closes that. It
+needed no key, and every claim below is measured rather than argued.
+
+## The defect that shipped, reproduced before it was fixed
+
+`buildAsset` matched lucide _before_ the visuals stage got a say and minted the asset with the
+lucide slug as its id and lucide's prompt as its prompt. Probing the compiler directly, with
+the five descriptions from the previous handoff:
+
+    describe                                    before                     after
+    "a hiker walking downhill in thick fog"     hiker-walking-…            unchanged
+    "a teacher pointing at a chalkboard"        teacher-pointing-…         unchanged
+    "a lone explorer crossing a desert"         lone-explorer-…            unchanged
+    "a person standing at the edge of a cliff"  id=user,   "a single …"    person-standing-the-edge
+    "Odysseus tied to the mast of his ship"     id=rocket, "a rocket …"    odysseus-tied-the-mast
+
+**Odysseus drew a rocket, and does not any more.** Routing the surviving descriptions through
+`matchLibrary` shows what the library now sees, which is the half the earlier probe could not
+reach because the evidence was already gone:
+
+    hiker-walking-downhill-thick     -> figures/walking      (alias)
+    teacher-pointing-chalkboard      -> figures/pointing     (alias)
+    lone-explorer-crossing-desert    -> characters/explorer  (alias)
+    person-standing-the-edge         -> figures/standing     (alias)
+    odysseus-tied-the-mast           -> no library match, and reaches the generator with its
+                                        own prompt instead of "a rocket taking off"
+
+The `person` row is the one worth noting: it resolved correctly _before_ as well, but only
+because lucide's substitute prompt happened to contain the word "person". It now resolves by
+real match.
+
+## The acceptance bar, precisely
+
+> _Done when:_ a narrative lesson renders one character across three beats in three different
+> poses, with no key.
+
+**Met, through the product rather than through a unit.** `examples/lessons/longitude.lesson.json`
+is a new hand-authored narrative lesson — a `cast` of one, a pose named per beat. It compiles
+to four assets, all carrying `ref: { path: 'characters/explorer', variant: <pose> }`, and the
+visuals stage resolves all four on the **library** lane with `how: 'composed'` and
+`requested === name` — no fallbacks. Four poses rather than the three the bar asks for, and
+`standing` is correctly _shared_ by two beats rather than minted twice.
+
+Rendered end to end through the real CLI with no key at all:
+
+    ✔ How a Clock Solved Longitude · 2:11 · 8 scenes, 4 assets
+      providers  lesson supplied · voice kokoro · art builtin
+      cost       $0.00 — nothing left this machine
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **569 pass, 0 fail** across all eight test-bearing packages (557 → 569; 12 new
+tests — 3 on the router, 5 on `cast` and critique, 4 end to end in `pipeline`).
+
+**Two controls, both byte-identical.** The benchmark's compiled storyboard is unchanged in
+both presets (it has zero assets, so the router cannot touch it), and `projects/handwritten`
+geometry hashes are unchanged — this piece moved nothing that was already being drawn.
+
+`STAGE_CODE_VERSION.storyboard` went 3 → 4. Note honestly that the benchmark's storyboard hash
+did _not_ move, so the bump is conservative for that lesson; it is correct in general, because
+any lesson with assets now has different asset ids.
+
+## A verification gap, closed
+
+The previous handoff observed that **none of the four verification tools can see a planner
+change** — `geomhash.mts` resolves the visuals stage against a storyboard already on disk, so
+`projects/handwritten` stays byte-identical whatever `buildAsset` does. That gap is now a
+committed tool: `packages/pipeline/src/sbhash.mts`, sibling to `geomhash.mts` and `frames.mts`,
+sub-second, hashing the compiled storyboard plus the asset table for both presets.
+
+It is committed rather than kept in scratch for the reason `geomhash.mts`'s own header gives,
+and the reason cost a measurement in this session: `git stash -u` takes untracked files **with
+it**, so a throwaway version of the tool vanishes at the moment it is needed and the "before"
+run silently measures nothing.
+
+## What is deliberately not done
+
+**The lucide lane still picks a poor icon for an unmatched subject.** With the description
+preserved, `odysseus-tied-the-mast` now falls to `presentation` rather than `rocket` — better,
+in that the id and prompt survive so the generator lane fixes it the moment a key exists, but
+still a confidently wrong drawing where a lettered card would be honest. Tightening that
+threshold touches every existing project and is its own piece of work.
+
+**Content fill on the narrative lesson is 23%,** against 52% on the benchmark. Each beat is one
+figure in its own cell, so the camera holds a mostly-empty frame — the standing complaint that
+`PIPELINE.md`'s region grouping exists to answer, showing up more sharply on a lesson whose
+beats do not share a drawing. Not caused by this piece, and not hidden by it.
+
+**`CAST_POSES` duplicates what the rigs declare.** `@inkcast/planner` cannot read the library
+and should not start depending on `@inkcast/visuals` to. The copy is pinned by a test in
+`pipeline`, which is the package that can see both — add a pose to a rig and it fails until the
+model is told.

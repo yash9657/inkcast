@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "topic": "How a Clock Solved Longitude",
+  "audience": "someone who likes a story and has never thought about navigation",
+  "objective": "explain why knowing the time at two places at once tells a ship how far east or west it is, and why that made a clock the answer",
+  "kind": "narrative",
+  "strategy": "story-driven",
+  "coreInsight": "Longitude is a difference of clocks: the sky tells you the hour where you are, so a clock still keeping the hour of home tells you how far around the world you have come.",
+  "jargonBudget": ["longitude", "meridian", "chronometer"],
+  "cast": [
+    {
+      "id": "explorer",
+      "name": "Harrison",
+      "look": "a lean carpenter in a long coat, hand-drawn line art, marker on whiteboard"
+    }
+  ],
+  "hook": {
+    "idea": "Two thousand sailors, lost within sight of home",
+    "because": "",
+    "narration": "In 1707 a British fleet ran onto the rocks of the Scilly Isles. Two thousand men drowned. Their navigators knew how far north they were. Not one knew how far west.",
+    "visuals": [
+      {
+        "describe": "a ship's outline heading toward jagged rocks, a question mark where its position should be",
+        "kind": "path",
+        "cue": "In 1707 a British fleet"
+      }
+    ],
+    "hold": 1.4,
+    "from": "given",
+    "derivedFrom": []
+  },
+  "anchor": {
+    "idea": "The sky gives you latitude for free, and says nothing about longitude",
+    "because": "The sun's height at noon depends on how far north you are, and the earth's spin carries every east-west position under the same sun in turn.",
+    "narration": "Measuring north is easy. The sun climbs higher the further south you sail, so its noon height is a ruler. But the earth turns, and every point on your line of latitude gets the same noon.",
+    "visuals": [
+      {
+        "describe": "Harrison standing on a deck, sextant raised to a sun overhead",
+        "character": {
+          "id": "explorer",
+          "pose": "standing"
+        },
+        "cue": "Measuring north is easy"
+      }
+    ],
+    "hold": 0.8,
+    "from": "given",
+    "derivedFrom": []
+  },
+  "steps": [
+    {
+      "idea": "Longitude is a difference between two clocks",
+      "because": "The earth turns a full circle in a day, so an hour of difference between local noon and noon at home is exactly one twenty-fourth of the way around the world.",
+      "narration": "So wait for noon where you are, and ask what time it is in London. If London says three, you are three hours behind. The earth turns fifteen degrees an hour. You are forty-five degrees west.",
+      "visuals": [
+        {
+          "describe": "Harrison walking the deck between a ship's sun-dial and a cabin clock",
+          "character": {
+            "id": "explorer",
+            "pose": "walking"
+          },
+          "cue": "So wait for noon"
+        }
+      ],
+      "hold": 0.9,
+      "from": "given",
+      "derivedFrom": ["anchor"]
+    },
+    {
+      "idea": "So the problem was never astronomy — it was carrying the time",
+      "because": "The sky already supplies local noon anywhere, so the only missing quantity is the hour at home, and that has to travel with the ship.",
+      "narration": "Notice what that asks for. Local noon is free; the sun hands it to you. The whole difficulty is the other clock, keeping London's time while it is salted, swung and frozen for two years at sea.",
+      "visuals": [
+        {
+          "describe": "Harrison pointing at a pendulum clock with its bob swinging uselessly sideways",
+          "character": {
+            "id": "explorer",
+            "pose": "pointing"
+          },
+          "cue": "Notice what that asks for"
+        }
+      ],
+      "hold": 0.9,
+      "from": "derived",
+      "derivedFrom": ["step1"]
+    },
+    {
+      "idea": "A carpenter built the clock the astronomers could not",
+      "because": "The failure was mechanical rather than astronomical, so it fell to someone who worked in wood and brass rather than in tables of the moon.",
+      "narration": "John Harrison was a carpenter from Lincolnshire, and he spent thirty years on it. He replaced the pendulum with springs that did not care which way was down. In 1761 his watch crossed to Jamaica and lost five seconds.",
+      "visuals": [
+        {
+          "describe": "Harrison seated at a bench over a small brass sea-watch",
+          "character": {
+            "id": "explorer",
+            "pose": "sitting"
+          },
+          "cue": "John Harrison was a carpenter"
+        }
+      ],
+      "hold": 1.0,
+      "from": "asserted",
+      "derivedFrom": []
+    }
+  ],
+  "worked": {
+    "idea": "Five seconds of error is about a mile",
+    "because": "Fifteen degrees per hour is fifteen arc-minutes per minute of time, and one arc-minute of longitude at the equator is a nautical mile.",
+    "narration": "The earth turns one degree every four minutes. Five seconds of error is about a mile. The Scillies had been missed by a hundred.",
+    "visuals": [
+      {
+        "describe": "five seconds of error against one nautical mile, written as a short chain",
+        "kind": "text",
+        "cue": "The earth turns one degree"
+      }
+    ],
+    "hold": 1.0,
+    "from": "derived",
+    "derivedFrom": ["step1", "step3"]
+  },
+  "misconception": {
+    "idea": "The clock did not measure longitude — it remembered it",
+    "because": "The watch knows nothing about where the ship is; it only preserves the hour of a place left behind, and the sky supplies the rest.",
+    "narration": "It is tempting to say the watch found longitude. It did not. It measured nothing about the sea or the ship. It kept one number faithfully, and let the sun do the finding.",
+    "visuals": [
+      {
+        "describe": "Harrison standing beside a watch face still reading London time",
+        "character": {
+          "id": "explorer",
+          "pose": "standing"
+        },
+        "cue": "It is tempting to say"
+      }
+    ],
+    "hold": 1.2,
+    "from": "derived",
+    "derivedFrom": ["step1", "step2"]
+  },
+  "recap": {
+    "idea": "From a wreck to a watch",
+    "because": "",
+    "narration": "A sky that gives you north and refuses you west. A difference of hours that is a difference of degrees. And a carpenter who made the hour of home portable enough to carry across an ocean.",
+    "visuals": [],
+    "hold": 1.4,
+    "from": "given",
+    "derivedFrom": []
+  }
+}

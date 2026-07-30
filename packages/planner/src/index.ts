@@ -95,6 +95,7 @@ export {
   anthropicLesson,
   anthropicLessonEdit,
   lessonModel,
+  CAST_POSES,
   DEFAULT_LESSON_MODEL,
 } from './lesson-anthropic.js';
 export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';

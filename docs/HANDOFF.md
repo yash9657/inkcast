@@ -1,4 +1,4 @@
-# Handoff — 2026-07-29 · the remaining sequence, starting with step 1 of it
+# Handoff — 2026-07-29 · item 1 landed, so the sequence starts at step 7
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
@@ -12,9 +12,9 @@ after "How to verify a visual change cheaply" is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, twelve commits on top of `e95258b`. Everything is local;
-there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty. In
-order, by subject:
+Branch **`visuals-morph-density`**, thirteen commits on top of `e95258b`. Everything is
+local; there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty.
+In order, by subject:
 
     Keyvault: one vault, shared by the CLI and the studio
     Morph the anchor into the plot, and make cells frame-shaped
@@ -28,156 +28,104 @@ order, by subject:
     docs: rewrite the handoff to start on step 4
     The asset library: drawings we chose, pinned by version              <- step 4
     Character rigs: one person, several poses                            <- step 5 (half)
+    docs: sequence the remaining work, and demote step 8 on evidence
+    One asset router, and a pedagogy that can ask for a pose             <- step 5b
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2, 3 and 4 are ✅ in `PIPELINE.md`; step 5 is 🟡 with the
-split spelled out there.
+diff it belongs to. Steps 1, 6, 2, 3, 4 and 5b are ✅ in `PIPELINE.md`; step 5 is 🟡 with
+the split spelled out there.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
-errors across 9 projects, `pnpm -r test` **557 pass / 0 fail** across all eight
-test-bearing packages. The benchmark renders end to end in both formats from the shipped
-hand-authored lesson with no keys: 104.667 s / 3140 frames at 1920x1080, 61.500 s at
-1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%. The `projects/handwritten`
-geometry hashes are byte-identical across both of the last two steps.
+errors across 9 projects, `pnpm -r test` **569 pass / 0 fail** across all eight
+test-bearing packages. Two lessons now render end to end with no keys: the benchmark
+(104.667 s / 3140 frames at 1920x1080, 61.500 s at 1080x1920, mean fill 52.2% / 55.9%)
+and the new narrative one (2:11, 8 scenes, 4 assets, mean fill 23%). Both `cost $0.00`.
 
-**`STATUS.md` has three appendices**, all 2026-07-29. Rig figures are in the third, library
-figures in the second, pipeline figures in either of the last two — they agree. The 07-28
-body is a historical record and deliberately unedited.
+**`STATUS.md` has four appendices**, all 2026-07-29, newest last. The 07-28 body is a
+historical record and deliberately unedited.
+
+## What just landed, in one paragraph
+
+The planner held a second, earlier copy of the asset router and it won: `buildAsset`
+matched lucide first and minted the asset with **lucide's slug as the id and lucide's
+prompt as the prompt**, so `"Odysseus tied to the mast of his ship"` shipped as
+`id: 'rocket'` and every downstream lane including the library was asked about a rocket.
+That pre-resolution is deleted — `resolveAsset` is a superset of it, so nothing that used
+to resolve stopped. On top of that the pedagogy can now address the library at all:
+`Lesson.cast`, `VisualIntent.character = { id, pose? }`, and the compiler mints
+`ref: { path: 'characters/<id>', variant: pose }`. `kind: 'narrative'` finally has
+consequences — two `critiqueLesson` rules branch on it. Proof is
+`examples/lessons/longitude.lesson.json`, a new hand-authored narrative lesson that draws
+one explorer standing, walking, pointing and sitting, all composed, no key.
 
 ## The sequence
 
-`PIPELINE.md`'s "Order of work" is a dependency order and says so; after step 1 it asks to be
-ordered **by leverage**. This is that ordering re-done now that steps 4 and 5 have changed the
-picture, with the evidence each position rests on. Numbered steps keep their `PIPELINE.md`
+Re-ordered by leverage now that item 1 is done. Numbered steps keep their `PIPELINE.md`
 numbers; unnumbered work is marked.
 
 | #   | Work                                                   | Key? | Why here                                                                                               |
 | --- | ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------ |
-| 1   | **Planner addressability** (unnumbered)                | no   | Unlocks steps 4 and 5 entirely, and fixes a shippable defect. Specified in full below.                 |
-| 2   | **Step 7 — the script stage**                          | no   | The only remaining numbered step that attacks the live quality complaint. Self-contained.              |
-| 3   | **Close root cause 1** (unnumbered)                    | no   | Architectural debt whose cost has now bitten twice. Promote to 2 if you prefer architecture to polish. |
+| 1   | **Step 7 — the script stage**                          | no   | The only remaining numbered step that attacks the live quality complaint. Specified below.             |
+| 2   | **Close root cause 1** (unnumbered)                    | no   | Architectural debt whose cost has now bitten **three** times. Promote to 1 if you prefer architecture. |
+| 3   | **Region grouping for single-figure beats**            | no   | Newly evidenced: the narrative lesson fills 23% of frame against the benchmark's 52%.                  |
 | 4   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, and a wrong drawing today.                                                           |
-| 5   | **Step 8 — `entersAtWord`**                            | no   | **Demoted on evidence** — see below. Insurance, not a fix.                                             |
-| 6   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                                  |
-| 7   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                     |
+| 5   | **The lucide confidence threshold** (known defect)     | no   | Newly visible: Odysseus now draws `presentation` instead of `rocket`. Better, still wrong.             |
+| 6   | **Step 8 — `entersAtWord`**                            | no   | **Demoted on evidence** — still insurance, not a fix. See below.                                       |
+| 7   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                                  |
+| 8   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                     |
 
-**2 — step 7.** `cadence` drives both the TTS rate and the trailing `hold`; `emphasis` drives
-voice and board weight. It is here because `STATUS.md`'s standing verdict names pacing among
-the live quality failures ("every region change opens on a caption in a void") and this is the
-step that owns pacing. _Done when:_ a punchy beat is measurably faster and holds shorter than a
-`slow_deliberate` one. No key, and it touches nothing item 1 touches, so the two are safe to
-do in either order.
+**2 — close root cause 1.** `visuals.json` is read for equations only; plots still go
+through `resolvePlot` in-process and every other element type is re-derived by the
+renderer's own `primsFor`. It needs `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`)
+derivable somewhere the visuals stage can reach, probably `@inkcast/core`. It sits at 2
+rather than 1 only because its payoff is invisible in a frame — but note this bug class has
+now cost **three** steps of work: the dead plot solver (step 1), the planner pre-empting the
+asset router (step 5b), and the two curve catalogues (`doubleWell`, still open). A fourth
+instance is likely while the pattern is still available.
 
-**3 — close root cause 1.** `visuals.json` is read for equations only; plots still go through
-`resolvePlot` in-process and every other element type is re-derived by the renderer's own
-`primsFor`. It needs `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable
-somewhere the visuals stage can reach, probably `@inkcast/core`. It sits at 3 rather than 2
-only because its payoff is invisible in a frame — but note that **this exact bug class has now
-cost two steps of work**: the dead plot solver (step 1) and the planner pre-empting the asset
-router (item 1). A third instance is likely while the pattern is still available.
+**3 — region grouping.** New evidence rather than a new idea. The narrative lesson renders
+at **23% mean content fill** against the benchmark's 52%, and the camera warning names the
+cause exactly: each beat is one figure in its own cell, so the camera holds a mostly-empty
+frame. The benchmark hides this because its beats share a drawing. Any lesson whose beats
+each have their own picture will look like this, which is most narrative lessons.
 
-**5 — step 8, and why it moved down.** The rationale in `PIPELINE.md` is sound: a phrase has
+**5 — the lucide threshold.** With the description now preserved, an unmatched subject
+falls to a _generic_ wrong icon rather than a confidently wrong one: `odysseus-tied-the-mast`
+matches `presentation` on a token. That is an improvement — the id and prompt survive, so
+the generator fixes it the moment a key exists — but a lettered card reading the actual
+description would be more honest than a presentation icon. Tightening `matchAsset`'s
+threshold touches every existing project, so it is its own piece with its own control run.
+
+**6 — step 8, and why it stays down.** The rationale in `PIPELINE.md` is sound: a phrase has
 to be found again by the aligner and can fail to match or match twice, where an index cannot.
-But **measured on the shipped lesson, 67 of 67 cues locate cleanly in their own narration by
-text alone** (both formats; the probe is four lines over `findCueSpan` and `matchTokens`). So
-it is fixing a fragility that does not currently fire. It would matter more for an
-LLM-authored lesson, where the cue is written separately from the narration and can drift —
-and that is exactly the case nobody can measure here, because it needs an Anthropic key. Do it
-when you have one, or when a cue warning actually appears.
+But measured on the shipped lesson, **67 of 67 cues locate cleanly by text alone**. The new
+narrative lesson is more interesting: it initially produced **six** cue warnings, all of the
+"cue lands at 92% of the narration but this is the beat's main picture" kind — which is a
+_lesson-authoring_ problem, not a matching one, and `entersAtWord` would not have fixed any
+of them. Re-cueing on opening phrases took it to one, and that one is `b7_chain`, the
+compiler's own recap element, which no lesson can control. So the fragility step 8 removes
+still does not fire; what does fire is authors cueing the main figure too late.
 
-## The next piece (item 1) — one asset router, and a pedagogy that can ask for a pose
+## The next piece (item 1) — step 7, the script stage
 
-Steps 4 and 5 built a library and a rig that **the pedagogy cannot address**. That is the
-highest-leverage thing left, it needs no key, and the case for it is measured rather than
-argued. Three findings, from probing the planner directly:
+`cadence` drives both the TTS rate and the trailing `hold`; `emphasis` drives voice and board
+weight. It is here because `STATUS.md`'s standing verdict names pacing among the live quality
+failures ("every region change opens on a caption in a void") and this is the step that owns
+pacing. Self-contained, needs no key.
 
-**1. The planner contains a second, earlier copy of the asset router, and it wins.**
-`buildAsset` (`planner/src/compile.ts:786`) calls `matchIcons(describe, 1)` and, on a hit,
-mints the asset with the **lucide slug as its id and lucide's own prompt as its prompt** —
-throwing away what the beat actually described. The visuals stage's lane order
-(inline → library → cache → generate → lucide → letter) then runs against evidence that has
-already been destroyed. This is root cause 1 all over again: two implementations of one
-decision, the earlier and worse one running first. Step 1 fixed exactly this shape for plots.
+_Done when:_ a punchy beat is measurably faster and holds shorter than a `slow_deliberate`
+one.
 
-What that costs, measured:
+**Read the six cue warnings above before starting.** They are the closest thing to a
+specification for what this stage is for: the voice stage already knows when a cue lands too
+late and already clamps it to 15%, and it is _telling the author_ to fix the lesson. A script
+stage that owned pacing could resolve that itself rather than warning — which is the same
+"derive it rather than detect it" move step 6 made for the analogy.
 
-    describe                                    planner mints            library then sees
-    "a hiker walking downhill in thick fog"     illustration lane        figures/walking   ✅
-    "a teacher pointing at a chalkboard"        illustration lane        figures/pointing  ✅
-    "a lone explorer crossing a desert"         illustration lane        characters/explorer ✅
-    "a person standing at the edge of a cliff"  icon: id=user            figures/standing  ✅ (luck)
-    "Odysseus tied to the mast of his ship"     icon: id=rocket          NOTHING           ❌
+### If you would rather not touch pacing
 
-The last row is a real defect you can ship today: **Odysseus draws a rocket.** Once the id is
-`rocket` and the prompt is "a rocket taking off", nothing downstream can recover — the library
-is asked after the evidence is gone. The `user` row only works by luck, because lucide's
-substitute prompt happens to contain the word "person".
-
-**2. No pose can ever be requested, so step 5 currently buys nothing in a real run.**
-`VisualIntent` is `{ describe, kind, cue }` — there is no way to name a library path or a
-variant. Every rig resolution therefore takes the default pose, `standing`. The explorer can
-be the same person across three beats and is always standing, which is exactly what
-`figures/standing` already did. **The rig's payoff is zero until this is fixed**, and that
-is the strongest argument for doing this next rather than finishing step 5's generated half.
-
-**3. `kind: 'narrative'` is accepted, prompted for, and then ignored.** It is a real value in
-`LessonKind`, `lesson-anthropic.ts` prompts for it — and nothing downstream branches on it.
-`Lesson.cast` is sketched as NEW in `PIPELINE.md` and **does not exist in the zod**. So a
-lesson can say "this is a story carried by characters" and the compiler treats it identically
-to a derivation.
-
-### What to build
-
-In dependency order. The first is worth doing alone even if you stop there.
-
-**a. Delete the planner's pre-resolution and let the visuals stage route.** `buildAsset` should
-mint the _description_ — `ctx.assets.use(slugOf(describe), describe, kind)` — and stop
-consulting lucide. The lane order already lives in `resolveAsset`, it is already correct, and
-it now has a library in front of it. Expect asset ids to change from lucide slugs to
-description slugs, which is a `storyboard` bump (→ 4) and invalidates visuals downstream. The
-benchmark is unaffected because it has zero assets.
-
-**Scope this to `compile.ts` and leave `heuristic.ts` alone unless you have a reason.**
-`heuristic.ts:211` calls `matchIcons` too, but for a different job: it decorates a _document_
-beat — a heading, a quote, a definition — where there is no described subject to preserve and
-lucide picking something apt is the whole intent. `compile.ts` is the one routing a subject a
-lesson described, and that is where throwing the description away costs something.
-
-While you are there: the `log.debug` at `compile.ts:814` says an illustration "degrades to a
-placeholder without one", which stopped being true for characters in step 4. Same class of
-stale message as the one fixed in `pipeline/src/degrade.ts`.
-
-**b. `Lesson.cast`, for real.** `{ id, name, look }[]` as `PIPELINE.md` sketches it, defaulted
-so every saved `lesson.json` still parses (the `version: 1` note in the lesson schema explains
-why that matters and how the cache invalidates instead). A narrative lesson declares who is in
-it once, rather than re-describing them per beat — which is the same "resolve once, reuse by
-id" argument that made `storyboard.assets[]` a top-level library.
-
-**c. `VisualIntent` gains a way to name a cast member and a pose.** Something like
-`character?: { id: string; pose?: string }`. **Do not derive the pose from the beat's verb** —
-that is the guessing step 6 removed for the analogy, and it would fail the same way. Explicit
-or absent.
-
-**d. The compiler mints `Asset.ref`.** A cast member becomes an `Asset` with
-`ref: { path: 'characters/<id>', variant: pose }`. Resolution already pins the version on the
-way out, so the compiler should not invent one.
-
-### Done when
-
-**A narrative lesson renders one character across three beats in three different poses, with
-no key.** That is step 5's acceptance bar reached _through the product_ rather than through a
-unit test, which is the part that is currently missing — and it is checkable with
-`frames.mts` on a hand-written narrative lesson in `examples/lessons/`, so it costs about ten
-seconds to see.
-
-Two cheaper checks worth writing on the way: `Odysseus tied to the mast` must no longer mint
-`rocket` (that is a planner test, not a visuals one), and a lesson with a `cast` must produce
-`Asset.ref` entries pointing at rig paths.
-
-### If you would rather not touch the planner
-
-Take item 2 (step 7) instead — it is self-contained, needs no key, and shares no code with
-this. See "The sequence" above for the rest.
+Take item 2 (root cause 1) instead — it is the architectural debt, it needs no key, and it
+shares no code with the script stage.
 
 ## Where step 5 stopped
 
@@ -191,6 +139,7 @@ Done, and pinned by 18 tests in `visuals/test/character.test.ts`:
   `{ name, how, requested }`, and `name !== requested` is where a fallback shows up.
 - The variant cache at `~/.inkcast/cache/characters/<id>/<pose>-<seed>.svg`, storing
   **geometry not a rendering**, written only for accepted candidates.
+- **New:** the pedagogy can reach all of it. See step 5b in `PIPELINE.md`.
 
 **What is left needs a key.** Two pieces:
 
@@ -202,6 +151,12 @@ Done, and pinned by 18 tests in `visuals/test/character.test.ts`:
    ink quantity and proportion, rejects mush, and would accept a different person's face.
    `PoseGate` is the seam. This is the piece that decides whether a generated pose is
    trustworthy, so it is worth getting right rather than shipping approximately.
+
+**If you add a pose to a rig, `CAST_POSES` in `planner/src/lesson-anthropic.ts` has to learn
+about it.** That constant is what the model is told exists, and the planner cannot read the
+library — it does not depend on `@inkcast/visuals` and should not start. The copy is pinned:
+`pipeline/test/cast.test.ts` fails if the two disagree, so this is a caught mistake rather
+than a silent one.
 
 ## Three things about rigs that are silent when wrong
 
@@ -225,9 +180,23 @@ this. It cost a render to find the first time.
 
 ## How to verify a visual change cheaply
 
-Four tools, cheapest first. **Use the first one that can see your change.**
+Five tools, cheapest first. **Use the first one that can see your change.**
 
-**1. Per-element geometry hashing across a stash — seconds, and it sees what a frame grab
+**1. Storyboard hashing — sub-second, and the only one that can see the planner.**
+`packages/pipeline/src/sbhash.mts`:
+
+    npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude > /tmp/after.txt
+    git stash push -u && git status --short          # confirm the tree is CLEAN
+    npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude > /tmp/before.txt
+    git stash pop
+    diff /tmp/before.txt /tmp/after.txt
+
+Compiles only — no voice, no visuals, no render — and prints the whole-storyboard hash plus
+the asset table (ids and refs) for both presets. **A planner change is a storyboard change and
+tools 2–4 are all pointed downstream of the compiler**, so `projects/handwritten` will stay
+byte-identical whatever you do to `buildAsset`. This is the one that notices.
+
+**2. Per-element geometry hashing across a stash — seconds, and it sees what a frame grab
 cannot.** `packages/visuals/src/geomhash.mts`:
 
     npx tsx packages/visuals/src/geomhash.mts handwritten > /tmp/after.txt
@@ -237,33 +206,29 @@ cannot.** `packages/visuals/src/geomhash.mts`:
     diff /tmp/before.txt /tmp/after.txt
 
 It resolves the visuals stage into a temp dir, so the real project's cached assets are
-neither read nor written, and hashes each element's stroke `d` values only. Being
-_committed_ is what makes the stash step work: `git stash -u` takes untracked files with it
-and leaves tracked ones alone.
+neither read nor written, and hashes each element's stroke `d` values only.
 
 **`projects/handwritten` is the project with `asset` elements** (2: `cpu` and `ram`, both on
-the icon lane). It is the control that proves you have not disturbed what was already drawn —
-step 4's most useful single measurement was this diff coming out byte-identical.
+the icon lane). It is the control that proves you have not disturbed what was already drawn.
 `projects/final-169` is the benchmark (8 plots, 19 paths, a diagram) and has **zero**
 assets, so it will tell you nothing about the library or a rig.
 
-One gotcha reading the output: the stage logs to **stdout** too, so filter on the tab
-separator rather than trusting redirection.
+One gotcha reading the output of either tool: the stage logs to **stdout** too, so filter on
+the tab separator rather than trusting redirection.
 
-**2. A contact sheet of the library — about ten seconds, and it is how you look at a
+**3. A contact sheet of the library — about ten seconds, and it is how you look at a
 drawing.** `packages/visuals/src/libsheet.mts`:
 
     npx tsx packages/visuals/src/libsheet.mts /tmp/sheet
     npx tsx packages/render/src/frames.mts /tmp/sheet /tmp/sheet-frames 20
 
 Every library asset in a grid with its path under it, and **one cell per pose** for a rig —
-which is the only way to see the thing that makes it a rig, since a rig drawn once tells you
-nothing about whether its poses read as the same person. Rendered with the cloud lane off. A
-static SVG cannot show you what matters — the sketch pass rewrites the geometry, fills are
+which is the only way to see the thing that makes it a rig. Rendered with the cloud lane off.
+A static SVG cannot show you what matters — the sketch pass rewrites the geometry, fills are
 hachured, and document order becomes reveal order — so **render a new asset before
-committing it.** Both of step 4's real defects were invisible until this frame existed.
+committing it.**
 
-**3. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
+**4. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
 
     npx tsx packages/render/src/frames.mts <projectDir> <outDir> [seconds...]
 
@@ -271,12 +236,17 @@ With no timestamps it takes eight evenly spaced frames. It compiles the plan its
 picks up live geometry changes **without re-running the pipeline** — except for equations,
 which come from the sidecar and so need the visuals stage to have run.
 
+**A project dir it can read needs the storyboard the visuals stage returned, not the one you
+compiled.** `resolveVisuals` returns a _clone_ carrying each asset's `svg` path and pinned
+`ref`; it does not mutate its input. Write the return value to `storyboard.json` or every
+asset renders as a labelled placeholder box, which looks like a resolution failure and is not.
+
 Scene windows are estimated from the narration when voice has not run, so compute offsets
 yourself: `max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. A script that needs
 both the planner and the renderer has to live in `packages/pipeline` — it is the only
 package that depends on both.
 
-**4. A full render**, only when you need audio or the encode:
+**5. A full render**, only when you need audio or the encode:
 
     INKCAST_PROJECTS=/tmp/verify node apps/cli/bin/inkcast.mjs \
       cast examples/lessons/gradient-descent.lesson.json \
@@ -284,21 +254,12 @@ package that depends on both.
 
 Add `--short` for the 9:16 pass. ~100 s each including a local Kokoro voice pass; render
 stage alone is 38.8 s / 23.4 s. Afterwards, `npx tsx packages/render/src/fillcheck.mts
-/tmp/verify/bench/storyboard.json` gives the content-fill number `STATUS.md` quotes, in a
-second, instead of digging it out of a debug log.
+/tmp/verify/bench/storyboard.json` gives the content-fill number `STATUS.md` quotes.
+**Stage timings from a loaded machine are worthless** — a narrative render measured 62.5 s of
+voice on an idle machine and 275.7 s for the identical work while other jobs ran.
 
 There is still **no golden-image or frame-diff harness**; the only pixel assertion anywhere
-is a same-run self-consistency check in `page.test.ts`. And **for anything that only changes
-the storyboard, skip all four** — compile the lesson and hash the JSON either side of a
-stash.
-
-**That last line is the one that matters for "the next piece".** A planner change is a
-storyboard change, and none of the four tools above is pointed at it: `geomhash.mts` resolves
-the visuals stage against a storyboard _already on disk_, so it cannot see the planner at all
-and `projects/handwritten` will stay byte-identical whatever you do to `buildAsset`. Compile
-the lesson and diff the storyboard JSON instead — `Lesson.parse` → `compileLesson`, no voice,
-no visuals, sub-second. What you want to read in that diff is `assets[]`: the ids should stop
-being lucide slugs and start being description slugs, and cast members should carry a `ref`.
+is a same-run self-consistency check in `page.test.ts`.
 
 ## Traps
 
@@ -307,6 +268,13 @@ with their working directory set to the sibling `finito` checkout. If the first 
 see is a Next.js finance app, you are in the wrong repo. There is no git remote, so check
 `git log` against the commit list above to confirm where you are. Shell `cd` does not
 persist between commands; use absolute paths.
+
+**`git stash -u` takes your untracked measurement tool with it.** This cost a measurement in
+the session that wrote this file: a throwaway hashing script under `packages/` vanished at
+the exact moment the "before" run needed it. That is precisely why `geomhash.mts`,
+`sbhash.mts`, `libsheet.mts` and `frames.mts` are _committed_ rather than kept in scratch. If
+you write a new one, commit it first or recreate it inside the stash window and delete it
+before `stash pop` — pop fails if the file is back in the way.
 
 **A script under `/tmp` resolves its imports from `/tmp`.** This bites immediately with
 workspace packages: `import … from '@inkcast/visuals'` in a `/tmp` script fails with
@@ -323,28 +291,26 @@ confirm the tree is actually clean before trusting a measurement.
 **`--json` suppresses every log line, so a clean log is not a clean run.** A `cast --json`
 render writes the report to stdout and leaves stderr **completely empty** — zero bytes, not
 "warnings only". Grepping that file for `cue`, `warn` or `fill` returns nothing whatever
-happened, which reads exactly like "no problems found". This nearly produced a false finding
-about cue resolution in this very session; the honest measurement came from calling
-`findCueSpan` over the storyboard instead. Drop `--json` when you want to see what a stage
-said, and check `wc -c` on a log before concluding anything from its silence.
+happened, which reads exactly like "no problems found". Drop `--json` when you want to see
+what a stage said, and check `wc -c` on a log before concluding anything from its silence.
+Dropping it is how the six cue warnings on the narrative lesson were found at all.
 
 **`pnpm -r test | tail` will lie to you.** Piping through `tail` truncates per-package
 output and the totals. Redirect the whole log to a file and sum with
 `awk '/# pass [0-9]+$/ {p+=$NF} …'` — note the `$NF`, because the lines are prefixed with
 the package name and `$3` silently sums nothing. Check that all **eight** test-bearing
-packages appear (`core` has no tests). `keyvault` reports 58 tests but 55 passes — three
-keychain tests are opt-in, so 557/560 is the expected shape, not a failure.
+packages appear (`core` has no tests).
 
 **`pnpm lint` is `prettier --check .`,** so formatting is a hard gate, not advice. Run
 `npx prettier --write` on what you touched before claiming green — and re-run it after late
 edits to a doc, which is how an unformatted `HANDOFF.md` got committed once already.
+**A hand-edited `examples/*.lesson.json` needs it too.**
 
 **A library asset's cache key is not just the storyboard.** An unpinned `AssetRef` resolves
 to whatever the manifest calls newest, and an aliased entity depends on a match table that
 lives outside the storyboard entirely — so `libraryFingerprint()` feeds both into the asset
 key, and `assetFingerprint`/`visualsFingerprint` in `pipeline/src/keys.ts` carry `ref`. A rig
-adds a third such input (the pose, and whatever the rig file says), and forgetting it means
-your improvement is invisible until someone deletes the project.
+adds a third such input (the pose, and whatever the rig file says).
 
 **`teach <topic> --lesson <file>` silently ignores the file.** Passing both a topic and
 `--lesson` derives a lesson from the topic instead, and with no Anthropic key that produces
@@ -359,7 +325,8 @@ holds together because the lesson is hand-authored; a topic-only run with no key
 degenerates, and does not morph. Set an Anthropic key before concluding anything about
 whether a concept lands. **For step 5 this cuts both ways:** the composed half of a rig must
 be judged with no key at all (that is the point of it), and the generated half cannot be
-judged without one.
+judged without one. **The same now applies to `cast`:** the two shipped lessons are
+hand-authored, so nothing here measures whether a _model_ fills in a cast sensibly.
 
 **`seed: 0` means "no seed" in roughjs.** `Random.next()` tests `if (this.seed)` and falls
 through to `Math.random()` when it is falsy, so zero is the single seed value that is _not_
@@ -367,14 +334,13 @@ reproducible. `baseOptions` nudges it to 1; do not remove that.
 
 **Bump the stage version when output changes — and know when not to.**
 `packages/pipeline/src/keys.ts` carries `STAGE_CODE_VERSION` and the reasoning; current state
-is `storyboard@3, visuals@6, render@5`. The test is whether the stage produces a different
-artefact _for identical inputs_. Step 5 bumped nothing on purpose: no existing asset's geometry
-moved, and an asset that newly resolves to a rig invalidates itself through
-`libraryFingerprint`. A global bump is for when you cannot tell which assets moved. **Editing a
-shipped rig in place is the case that does need one** — every project that resolved it keeps its
-old drawing otherwise, which is also the argument for adding `explorer.v2.json` instead.
-`render` stays where it is as long as the renderer keeps inlining an asset's SVG rather than
-re-deriving it.
+is `storyboard@4, visuals@6, render@5`. The test is whether the stage produces a different
+artefact _for identical inputs_. Step 5b bumped `storyboard` because every asset id moved from
+a lucide slug to a description slug — note honestly that the benchmark's own hash did _not_
+move, since it has no assets, so the bump is conservative for that lesson and correct in
+general. Step 5 bumped nothing on purpose. **Editing a shipped rig in place is the case that
+does need one** — every project that resolved it keeps its old drawing otherwise, which is
+also the argument for adding `explorer.v2.json` instead.
 
 ## Deliberate stopgaps
 
@@ -386,13 +352,8 @@ on both sides.
 
 **An equation does not grow with the vertical type gain.** 9:16 applies a 1.42x gain to
 _text_, but an equation is geometry fitted to a planner-measured box, so it does not scale
-with it: in 16:9 the equation is about twice the caption's height, in 9:16 slightly smaller.
-Legible in both — taste, not breakage — and the fix is a role or a gain at the
+with it. Legible in both — taste, not breakage — and the fix is a role or a gain at the
 `makeEquation` call site, which wants a frame to judge it by.
-
-**The worked example's arithmetic lands late.** Its cue resolves to 82% of the beat, so the
-update line arrives after the descent it describes. Cue resolution is doing as it was
-asked; whether that is the right cue is a pedagogy question about the beat.
 
 **Frame fill is measured as a proxy.** `contentFill` in `render/src/camera.ts` is the union
 of element _bounding boxes_ over the view area. A single hand-drawn line has a large box and
@@ -405,8 +366,7 @@ no migration and deliberately so.
 
 **The pen sprite is invisible to the label solver.** Visuals places labels clear of ink and
 of each other, but the marker sprite is a renderer-side decoration it knows nothing about,
-so a label can still be struck through by the pen. Visible at `t=64` of the benchmark —
-"downhill" struck through, "too small" under the marker.
+so a label can still be struck through by the pen. Visible at `t=64` of the benchmark.
 
 **A library asset is fitted to its element box, so it can be stretched.** `libraryPaths`
 uses `fitMatrix`, which preserves aspect, but the box comes from the planner — a figure in a
@@ -425,58 +385,48 @@ The planner **authors** these params (`plots.ts:402` passes `[1, 2, 0.55, 2.2]`)
 runs `descend()` on its own `evalFn` to place the step dots, while visuals draws the curve.
 So the drawn curve and the simulated descent can disagree and the dots can leave the curve.
 Reachable through the `local-minima` recipe; the benchmark does not use it. Crisp plots make
-this **more** visible, not less: a dot off an exact curve no longer hides in a wobble.
+this **more** visible, not less.
 
 **`visuals.json` is read for equations only.** Step 3 made the sidecar a real input for the
 first time, but plots still go through `resolvePlot` in-process and every other element type
-is re-derived by the renderer's own `primsFor`. Closing the rest needs
-`resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
-stage can reach, probably `@inkcast/core` — the remaining part of root cause 1, and item 3 in
-"The sequence".
+is re-derived by the renderer's own `primsFor`. The remaining part of root cause 1, and item
+2 in "The sequence".
 
-**Cue resolution is not currently failing, which is worth knowing before you fix it.** 67 of
-67 cues on the shipped lesson locate in their own narration by text alone, both formats.
-`enter.cue` fragility is real in principle and step 8 removes it properly, but on this lesson
-it never fires — so treat a cue warning as news rather than as the expected state.
+**A single-figure beat fills about a quarter of the frame.** Measured at 23% mean content
+fill on the narrative lesson against 52% on the benchmark, with the camera warning naming the
+cause: one element per cell, so the camera holds mostly whitespace. Item 3 in "The sequence".
 
-**The planner draws a rocket for Odysseus.** `buildAsset` matches lucide _before_ the visuals
-stage gets a say, and mints the asset with the lucide slug as its id and lucide's prompt as its
-prompt — so `"Odysseus tied to the mast of his ship"` becomes `id: 'rocket'`,
-`prompt: 'a rocket taking off'`, and every downstream lane including the library is asked about
-a rocket. Measured, not hypothesised; the probe table is in "The next piece" above. This is the
-first thing that section fixes, and the fix is to delete the pre-resolution rather than to
-patch the matcher.
+**The lucide lane is confidently wrong for an unmatched subject.** `odysseus-tied-the-mast`
+matches `presentation` on a token where a lettered card carrying the real description would
+be honest. Better than the `rocket` it drew before — the id and prompt now survive, so a key
+fixes it properly — but still a wrong drawing. Item 5.
 
-**Nothing upstream constructs an `AssetRef`, so step 5 currently buys nothing in a real run.**
-`VisualIntent` is `{ describe, kind, cue }` — no path, no variant. Every rig resolution takes
-the default pose, so the explorer is always `standing`, which is what `figures/standing`
-already did. The library is reachable through the alias table and not _addressable_ by the
-pedagogy. **This is the biggest gap in the area** and it is the second thing "The next piece"
-fixes.
-
-**`kind: 'narrative'` is accepted and then ignored.** A real value in `LessonKind`, prompted
-for in `lesson-anthropic.ts`, and nothing downstream branches on it. `Lesson.cast` is sketched
-as NEW in `PIPELINE.md` and does not exist in the zod, so a lesson can declare itself a story
-carried by characters and be compiled exactly like a derivation.
+**Cue resolution is not failing for the reason step 8 addresses.** 67 of 67 cues on the
+benchmark locate by text alone. The narrative lesson produced six warnings of a _different_
+kind — the cue lands late in its own narration and the element is the beat's main picture, so
+the voice stage clamps it to 15% and says so. That is a pedagogy problem the script stage
+owns, not a matching problem `entersAtWord` would fix. One warning remains and it is
+`b7_chain`, the compiler's own recap element, which no lesson can control.
 
 **A generated pose that fell back keeps the fallback.** A project resolved against a cold
 variant cache draws the composed pose, and its asset key does not depend on machine state — so
 warming the cache later changes nothing until someone re-resolves. Same trade as a pinned asset
-version, deliberately, but it means `library.pose.how` in a sidecar records what happened once
-rather than what is available now.
+version, deliberately.
 
 **A rigged figure sits in more air than a hand-authored one.** The rig's `viewBox` has to
-contain its widest pose, so narrow poses are fitted with slack — visible on the contact sheet,
-where the explorer cells are smaller than the `figures/` cells. Inherent to the fixed viewBox
-that identity requires; tightening it to the measured union of all poses recovered about 10%.
+contain its widest pose, so narrow poses are fitted with slack — visible on the contact sheet.
+Inherent to the fixed viewBox that identity requires.
+
+**The explorer's `sitting` pose reads thinly.** It hides the far leg correctly, but the arms
+end up close enough to the torso outline that the seated figure reads as armless in a frame.
+A rig-authoring fix (`explorer.v2.json`, not an edit in place), not a code one.
 
 **`illustration` still needs a key for anything that is not a person.** Step 4 closed the
 character half of this. An arbitrary object — a trebuchet, a rover — is a lucide icon or a
-lettered card without a provider, and the degradation notice in `pipeline/src/degrade.ts`
-now says exactly that.
+lettered card without a provider.
 
-**Open elsewhere in the plan:** no multi-line/`align` equations (one `equation` is one
-line); the planner only ever emits one equation, the worked example's update line, with no
-`VisualIntent.kind: 'equation'` to ask for others; `coreInsight` is validated but nothing
-downstream reads it; and the `$0.20/min` cost target is still unaddressed — marginal cost is
-currently $0.00 on this machine because everything runs locally.
+**Open elsewhere in the plan:** no multi-line/`align` equations; the planner only ever emits
+one equation, the worked example's update line, with no `VisualIntent.kind: 'equation'` to ask
+for others; `coreInsight` is validated but nothing downstream reads it; and the `$0.20/min`
+cost target is still unaddressed — marginal cost is currently $0.00 on this machine because
+everything runs locally.

@@ -82,7 +82,10 @@ export const PIPELINE_VERSION = 2;
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
   lesson: 2,
-  storyboard: 3,
+  // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
+  // now a slug of what the beat described rather than an icon slug — every asset id in
+  // every storyboard moved, and the visuals keyed to them with it.
+  storyboard: 4,
   voice: 2,
   visuals: 6,
   render: 5,

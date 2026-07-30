@@ -27,6 +27,7 @@
 import type {
   Analogy,
   Asset,
+  CastMember,
   DiagramElement,
   Element,
   EquationElement,
@@ -51,7 +52,6 @@ import {
   hillPoint,
   walkerPaths,
 } from './figures.js';
-import { matchIcons } from './icons.js';
 import type { BeatRole } from './regions.js';
 import { planBoard } from './regions.js';
 import { buildPlot, plotHints, trim } from './plots.js';
@@ -67,23 +67,60 @@ export const COMPILER_VERSION = 1;
 
 /* ------------------------------------------------------------------ assets */
 
-type Registry = { use(slug: string, prompt: string, kind: Asset['kind']): string; list(): Asset[] };
+type Registry = {
+  use(slug: string, prompt: string, kind: Asset['kind']): string;
+  cast(ref: NonNullable<VisualIntent['character']>, cast: CastMember[]): string;
+  list(): Asset[];
+};
 
 function registry(): Registry {
   const map = new Map<string, Asset>();
+  const mint = (id: string, asset: Asset): string => {
+    const existing = map.get(id);
+    if (existing) return existing.id;
+    map.set(id, asset);
+    return id;
+  };
   return {
     use(slug, prompt, kind) {
-      const existing = map.get(slug);
-      if (existing) return existing.id;
-      map.set(slug, {
+      return mint(slug, {
         id: slug,
         kind,
         prompt,
         seed: seedOf(slug),
         source: kind === 'icon' ? 'builtin' : 'generated',
       });
-      return slug;
     },
+
+    /**
+     * A cast member in one pose, as a library reference.
+     *
+     * The id carries the pose because the pose is part of what gets drawn: one asset id
+     * is resolved once, so `explorer` in three poses has to be three entries or the
+     * second beat silently redraws the first beat's pose. Identity survives that,
+     * because a rig seeds its ink from the rig and the part — not from the asset id —
+     * which is the whole reason `character.ts` refuses to seed per asset.
+     *
+     * No `version`: a reference goes in unpinned and comes out pinned by the visuals
+     * stage, so inventing one here would freeze the storyboard against a library the
+     * compiler never read.
+     */
+    cast(ref, cast) {
+      const member = cast.find((c) => c.id === ref.id);
+      const id = ref.pose ? `${ref.id}-${ref.pose}` : ref.id;
+      return mint(id, {
+        id,
+        kind: 'illustration',
+        prompt: member?.look || `${member?.name || ref.id}, hand-drawn line art`,
+        ref: {
+          path: `characters/${ref.id}`,
+          ...(ref.pose ? { variant: ref.pose } : {}),
+        },
+        seed: seedOf(id),
+        source: 'library',
+      });
+    },
+
     list: () => [...map.values()],
   };
 }
@@ -585,6 +622,10 @@ type IntentContext = BeatContext & {
 
 function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   const describe = intent.describe || ctx.step.idea;
+  // Naming a cast member settles what to draw, so it outranks `kind` — which
+  // defaults to `plot` and would otherwise turn "draw Mara, walking" into a graph
+  // for any author who wrote the character and left the kind alone.
+  if (intent.character) return buildAsset(describe, 'illustration', ctx, intent.character);
   switch (intent.kind) {
     case 'plot': {
       // The one plot that is not drawn but *grown*: it takes the anchor's box so the
@@ -625,7 +666,7 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
       return buildDiagram(describe, ctx);
     case 'icon':
     case 'illustration':
-      return buildAsset(describe, intent.kind, ctx);
+      return buildAsset(describe, intent.kind, ctx, intent.character);
     case 'motion':
       return buildMotion(describe, ctx);
     default:
@@ -783,39 +824,46 @@ function recapChain(lesson: Lesson, id: string, box: Box, preset: Preset): Eleme
 
 /* -------------------------------------------------------------------- assets */
 
+/**
+ * An `icon` or `illustration` intent: mint the entity, and route nothing.
+ *
+ * This used to match lucide here and mint the *icon* — id `rocket`, prompt "a rocket
+ * taking off" — which destroyed the only evidence of what the beat asked for before
+ * any better lane could see it. "Odysseus tied to the mast of his ship" drew a rocket,
+ * and nothing downstream could recover, because the library was asked about a rocket.
+ *
+ * There is exactly one asset router and it lives in the visuals stage
+ * (`resolveAsset`): inline → library → generate → lucide → letter. It is a superset of
+ * what was here — lane 3 runs the same lucide match on the id and the prompt — so this
+ * loses no icon that used to resolve; it just stops jumping the queue in front of the
+ * library. Same shape as step 1's dead plot solver: two implementations of one
+ * decision, the earlier and worse one running first.
+ *
+ * A cast member takes the earlier branch instead: the lesson named who this is, so the
+ * intent carries a library path and there is nothing to route.
+ */
 function buildAsset(
   describe: string,
   kind: 'icon' | 'illustration',
   ctx: IntentContext,
+  character?: VisualIntent['character'],
 ): Element[] {
-  const match = matchIcons(describe, 1)[0];
   const size = Math.min(ctx.box.w, ctx.box.h) * 0.82;
-  if (match) {
-    const assetId = ctx.assets.use(match.slug, match.prompt, 'icon');
-    const el = makeAsset(ctx.id, assetId, size);
-    el.at = centre(el.at, ctx.box);
-    el.enter = { ...el.enter, at: 0.08 };
-    return [el];
-  }
-  if (kind === 'illustration') {
-    // No key means no text-to-image, and the visuals stage says so loudly. The
-    // prompt is still recorded, so the same project renders properly the moment
-    // a provider is configured — nothing here is a placeholder.
-    const slug = slugOf(describe);
-    const assetId = ctx.assets.use(
-      slug,
-      `${stripMarkdown(describe)}, hand-drawn line art, marker on whiteboard`,
-      'illustration',
-    );
-    const el = makeAsset(ctx.id, assetId, size);
-    el.at = centre(el.at, ctx.box);
-    el.enter = { ...el.enter, at: 0.08 };
-    log.debug(
-      `illustration "${slug}" needs an image provider; it degrades to a placeholder without one`,
-    );
-    return [el];
-  }
-  return buildFreeform(describe, ctx);
+
+  const assetId = character
+    ? ctx.assets.cast(character, ctx.lesson.cast)
+    : ctx.assets.use(
+        slugOf(describe),
+        kind === 'illustration'
+          ? `${stripMarkdown(describe)}, hand-drawn line art, marker on whiteboard`
+          : stripMarkdown(describe),
+        kind,
+      );
+
+  const el = makeAsset(ctx.id, assetId, size);
+  el.at = centre(el.at, ctx.box);
+  el.enter = { ...el.enter, at: 0.08 };
+  return [el];
 }
 
 function slugOf(describe: string): string {

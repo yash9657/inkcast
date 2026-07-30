@@ -695,3 +695,83 @@ test('cells are frame-shaped, so holding one fills the frame', () => {
     }
   }
 });
+
+/* ------------------------------------------------------- the one asset router */
+
+/**
+ * Build a one-beat lesson whose first step draws `visual`, and return its assets.
+ *
+ * Compiling the shipped lesson with one intent swapped is deliberate: it keeps every
+ * other input — regions, presets, budget — at values that are already known to
+ * compile, so a failure here is about the asset and nothing else.
+ */
+function assetsFor(visual: Record<string, unknown>): Storyboard['assets'] {
+  const l = structuredClone(lesson);
+  l.steps[0]!.visuals = [visual as never];
+  return compileLesson(l, {}).assets;
+}
+
+test('the planner mints what the beat described, not what lucide would have matched', () => {
+  // The defect this replaces: `matchIcons` ran here first and minted the *icon* —
+  // id `rocket`, prompt "a rocket taking off" — so "Odysseus tied to the mast of his
+  // ship" drew a rocket and no downstream lane could recover, because the library was
+  // asked about a rocket. The description is the only evidence of intent there is.
+  const [odysseus] = assetsFor({
+    describe: 'Odysseus tied to the mast of his ship',
+    kind: 'illustration',
+  });
+  assert.ok(odysseus, 'the beat minted no asset');
+  assert.notEqual(odysseus.id, 'rocket');
+  assert.match(odysseus.id, /odysseus/);
+  assert.match(odysseus.prompt ?? '', /Odysseus tied to the mast/);
+
+  // An icon intent keeps its description too. It still reaches lucide — the visuals
+  // stage runs the same match on the id and the prompt — just after the library has
+  // had its say rather than before.
+  const [cliff] = assetsFor({
+    describe: 'a person standing at the edge of a cliff',
+    kind: 'icon',
+  });
+  assert.ok(cliff, 'the icon beat minted no asset');
+  assert.notEqual(cliff.id, 'user');
+  assert.match(cliff.prompt ?? '', /edge of a cliff/);
+});
+
+test('a cast member compiles to a library reference, one asset per pose', () => {
+  const l = structuredClone(lesson);
+  l.cast = [{ id: 'explorer', name: 'Harrison', look: 'a lean carpenter in a long coat' }];
+  l.steps[0]!.visuals = [
+    { describe: 'Harrison walks the deck', character: { id: 'explorer', pose: 'walking' } },
+  ] as never;
+  l.steps[1]!.visuals = [
+    { describe: 'Harrison points at the clock', character: { id: 'explorer', pose: 'pointing' } },
+  ] as never;
+  // The same pose twice is the same drawing, so it must be one asset, not two.
+  l.steps[2]!.visuals = [
+    { describe: 'Harrison walks on', character: { id: 'explorer', pose: 'walking' } },
+  ] as never;
+
+  const assets = compileLesson(l, {}).assets.filter((a) => a.ref);
+  assert.equal(assets.length, 2, 'one asset per distinct pose');
+  for (const a of assets) {
+    assert.equal(a.ref?.path, 'characters/explorer');
+    assert.equal(a.source, 'library');
+    // Unpinned on the way in: the visuals stage resolves the newest version and
+    // writes the number back, so a compiler that invented one would freeze the
+    // storyboard against a library it never read.
+    assert.equal(a.ref?.version, undefined);
+  }
+  assert.deepEqual(assets.map((a) => a.ref?.variant).sort(), ['pointing', 'walking']);
+});
+
+test('naming a character outranks `kind`, which defaults to plot', () => {
+  // `kind` defaults to `plot`, so an author who writes the character and leaves the
+  // kind alone would otherwise get a graph where they asked for a person.
+  const assets = assetsFor({
+    describe: 'Harrison at the bench',
+    character: { id: 'explorer', pose: 'sitting' },
+  });
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0]?.ref?.path, 'characters/explorer');
+  assert.equal(assets[0]?.ref?.variant, 'sitting');
+});
