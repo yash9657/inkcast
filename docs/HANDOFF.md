@@ -1,158 +1,127 @@
-# Handoff — 2026-07-29 (steps 1, 6, 2 and 3 landed; step 4 is next)
+# Handoff — 2026-07-29 · start on step 4 (the library skeleton)
 
-Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md`
-is the last verification report; this file exists so a session starting cold knows
-what changed underneath both of them, and which traps are waiting.
+Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
+the verification record; this file exists so a session starting cold knows exactly where
+things stand, what to do next, and which traps are waiting.
 
-Delete or rewrite this once the next piece of work lands. It goes stale by design.
+Delete or rewrite this once step 4 lands. It goes stale by design.
 
-## Where the code is
+**Your job: step 4.** The baseline under you is verified — read "Where things stand", then
+go to "Step 4" and start. Everything after that is reference.
 
-Branch **`visuals-morph-density`**, nine commits on top of `e95258b`. Everything is
-local; there is **no remote**, so nothing is pushed anywhere. In order, by subject:
+## Where things stand
+
+Branch **`visuals-morph-density`**, nine commits on top of `e95258b`. Everything is local;
+there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty. In
+order, by subject:
 
     Keyvault: one vault, shared by the CLI and the studio
     Morph the anchor into the plot, and make cells frame-shaped
     docs: the staged-pipeline architecture, and a handoff
-    One implementation of plot geometry, and it is the good one
+    One implementation of plot geometry, and it is the good one          <- step 1
     docs: rewrite the handoff for step 6
-    Lesson schema v2: the morph comes from the mapping, not the prose
-    Two ink modes, and plots draw crisp
-    The equation lane: real typeset mathematics
-    Consolidate: a real render, a re-verified STATUS, one cache gate   <- new
+    Lesson schema v2: the morph comes from the mapping, not the prose    <- step 6
+    Two ink modes, and plots draw crisp                                  <- step 2
+    The equation lane: real typeset mathematics                          <- step 3
+    Consolidate: a real render, a re-verified STATUS, one cache gate
 
-Each message carries the reasoning for its own change; read them before the diffs.
+Each message carries the reasoning for its own change and is worth reading before the
+diff it belongs to. Steps 1, 6, 2 and 3 of `PIPELINE.md` are done and marked ✅ there.
 
-Which files step 3 touched:
+**The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
+errors across 9 projects, `pnpm -r test` **528 pass / 0 fail** across all eight
+test-bearing packages. The benchmark renders end to end in both formats from the shipped
+hand-authored lesson with no keys: 104.667 s / 3140 frames at 1920x1080, 61.500 s at
+1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%.
 
-    packages/core/src/storyboard.ts          `EquationElement`, into the Element union
-    packages/visuals/src/equation.ts         NEW: the lane — MathJax, extraction, fitting
-    packages/visuals/src/geometry.ts         crisp now bypasses roughjs (see the defect below)
-    packages/visuals/src/manifest.ts         `ElementVisual.equation`
-    packages/visuals/src/resolve.ts          case 'equation', with a text fallback
-    packages/render/src/visuals.ts           `equationFor` — the first sidecar *read*
-    packages/render/src/compile.ts           `equationPrims`, one prim per glyph
-    packages/planner/src/elements.ts         `makeEquation`, and TeX width estimation
-    packages/planner/src/compile.ts          `updateLine` emits TeX; the sum is an equation
-    packages/pipeline/src/keys.ts            storyboard@3, visuals@5, render@5
-    packages/visuals/test/equation.test.ts   NEW
-    docs/PIPELINE.md                         step 3 done; the step 2 correction
+**Take figures from `STATUS.md`'s 2026-07-29 appendix, not from its body.** That document
+is a dated record rather than a checklist, so the 07-28 body is deliberately unedited and
+the appendix names the six claims that have moved.
 
-Verified at that commit: `pnpm lint` clean, `pnpm -r typecheck` 0 errors across 9
-projects, `pnpm -r test` **528 pass / 0 fail** (was 513). Frame grabs confirm the
-milestone example renders as real glyphs, revealing left to right with the pen tracking
-the write position, both standalone and as the benchmark's worked-beat update line.
+## Step 4 — the library skeleton
 
-**The benchmark has now been rendered end to end in both formats**, the first full render
-since step 1, and `STATUS.md` carries a dated re-verification appendix with the numbers.
-104.667 s / 3140 frames at 1920x1080, 61.500 s at 1080x1920, both from the shipped lesson
-with no keys, `cost $0.00`. Mean content fill re-measured at 52.2% / 55.9%. Nothing is
-inherited any more — read the appendix rather than this file for figures.
+**The goal**, verbatim from `PIPELINE.md`:
 
-## What step 3 actually did
+> **4. Library skeleton.** `library.json`, `AssetRef`, resolution order
+> (library -> cache -> generate -> lucide), and the hand-authored `figures/` cast. Closes
+> the no-key character gap as a side effect. _Done when:_ an asset resolves by path and
+> version with no network.
 
-A new `equation` element carrying **TeX**, typeset by the visuals stage into exact glyph
-outlines, revealed glyph by glyph from left to right, and drawn `crisp`.
+`PIPELINE.md` has the intended directory layout under "The asset library" and the
+`AssetRef` shape under "Asset reference". Read both before designing anything — and note
+that `CharacterRig` in the same section belongs to **step 5**, not this one. Step 4 is the
+skeleton the rigs will hang from.
 
-**The typesetter is MathJax (`@mathjax/src` v4), not KaTeX, and that is a departure from
-the plan.** KaTeX has no SVG output — it emits `<span>`s positioned by CSS, so getting
-geometry out of it means running a CSS engine or reimplementing KaTeX's layout rules
-against its internal tree. MathJax's SVG output is pure Node, needs no browser and no
-font files, and returns glyph outlines already placed. The plan's _goal_ was real glyphs
-as exact vector; the engine was a means, and this is the one that gets there without a
-second implementation of TeX layout to drift out of sync.
+### What exists today, concretely
 
-Three consequences worth knowing before touching the lane:
+Asset resolution lives in **`resolveAsset()`, `packages/visuals/src/resolve.ts:285`**, and
+its lane order is currently:
 
-**The output surface is tiny, and the extractor asserts it stays that way.** With
-`fontCache: 'none'` MathJax emits only `<g>`, `<path>` and `<rect>` inside one `<svg>`,
-and only `translate`/`scale` transforms — verified across fractions, roots, sums,
-integrals, matrices and accents. So `equation.ts` walks the tree composing matrices
-rather than parsing SVG, and an unrecognised transform **warns and drops that mark**
-rather than guessing. That asymmetry is deliberate: a misplaced glyph is a _different
-equation_, and the whole point of the lane is that the notation can be trusted.
+1. **inline** — `Asset.svg` already holding `<svg…`, written out untouched and authoritative.
+2. **illustration** — `illustrationPaths()` (`image.ts`), text-to-image → vectorise →
+   roughen. Needs `REPLICATE_API_TOKEN` or `FAL_KEY`; a missing key downgrades, never errors.
+3. **icon** — `matchAsset()` + `iconPaths()` (`icons.ts`), a roughened `lucide-static` glyph
+   matched on the asset id first and the prompt second.
+4. **letter card** — `letterCardItems()`, a hand-drawn rect with the entity's name in it.
 
-**Glyphs are filled outlines, so the reveal is per glyph rather than per stroke.** The
-marks come out ordered left to right, and the page runtime already gives every part of an
-item a slice of the timeline proportional to its ink, in drawing order — so the ordering
-_is_ the animation and the renderer needed no new capability. Each glyph also carries a
-thin stroke (3% of its em) because the stroke is what gets dash-revealed, with the fill
-fading in over the same window.
+Step 4 inserts the library as the new first stop after inline, and turns lane 2 into
+"cache, then generate". `lucide` stays exactly where it is — `PIPELINE.md` is explicit that
+it is a ~2000-icon _fallback provider_, not the library: "the library is the things we
+chose; lucide is the things we settle for."
 
-**`visuals.json` is finally read, not just written.** Equations are the first geometry the
-renderer consumes from the sidecar. They escape the reason plots cannot be: an equation is
-fit to its element's box in canvas units and has no camera-dependent unit anywhere in it,
-whereas a plot's caption size _is_ its unit of measurement. And they could not be
-recomputed in the renderer even if we wanted to — typesetting is an async import and
-`compilePlan` is synchronous.
+Other ground truth you will want:
 
-`base` is the only TeX package loaded. It already covers fractions, roots, sub/
-superscripts, Greek, integrals, sums, `\text`, `\hat`, `\vec` and the standard operators
-and arrows. MathJax 4 requires each further package to be imported to self-register, so
-adding one is a deliberate act rather than a default.
+- **`Asset`** is `packages/core/src/storyboard.ts:36` — `{ id, kind, prompt?, svg?, seed?,
+source? }`, where `kind` is `illustration | icon | diagram | image`. `AssetRef`
+  (`path`, `version`, `variant?`, `ink`) is a **new** type; nothing constructs one yet.
+- **`AssetElement`** references an asset by `assetId` string, and the planner's `registry()`
+  (`planner/src/compile.ts`) mints those ids from slugs. That is the seam where a
+  library path would replace a bare slug.
+- **Generated illustrations already cache**, but per project: `ILLUSTRATION_DIR =
+'assets/illustrations'` (`visuals/src/image.ts:61`), keyed by id + prompt hash.
+  `PIPELINE.md` wants the machine-wide cache at `~/.inkcast/cache/<id>/…` instead.
+- **`assets/` in the repo currently holds only fonts** (`assets/fonts/hand`, `.../ui`).
+  `assets/library/` does not exist. There is no `figures/` cast, which is why a character
+  falls through to a lucide icon or a lettered card today.
+- **`resolveVisuals`' `case 'asset'`** already fits a resolved entity's strokes from the
+  sidecar into the element box with `fitMatrix` + `placeStrokes` — that is most of the
+  machinery "resolve by path and version" needs on the drawing side.
 
-### The defect step 3 found in step 2, and fixed
+### What steps 2 and 3 left open for you
 
-**Step 2's "crisp path data is used verbatim" was only nearly true**, and the equation
-lane is what exposed it. roughjs at `roughness: 0` keeps every control point but re-emits
-the result **one subpath per segment**, inserting a `moveto` before each curve and
-dropping the `Z` that closed the contour. On a stroked line that is invisible — each
-`moveto` lands exactly where the previous segment ended, so the same pixels are drawn.
-On a _filled_ one it is fatal: a glyph outline arrives as forty independent open curves
-with no closed contour left to fill, and every letter rendered as a hollow outline. The
-frame of that looks like a deliberate stylistic choice, which is what makes it dangerous.
+**`AssetRef.ink` is the field the ink mode was built for.** `DrawContext.ink` exists and
+defaults to `sketch`; `resolvePlot` and `resolveEquation` each set their own mode, and both
+let a caller-supplied mode win. So threading `AssetRef.ink` through is wiring, not design.
 
-`roughenPathData` now bypasses roughjs entirely when the mode is crisp, taking our own
-`parsePath`/`pathToString` round-trip, which preserves subpaths and closes and only
-normalises precision. Crisp plot curves changed as a side effect — one subpath of 240
-segments where there were 240 subpaths of one — which is why `visuals`/`render` moved to
-@5 rather than only gaining a field.
+**A library symbol is a filled crisp path, and that path used to break.** Step 3 found that
+roughjs at zero roughness re-emits one subpath per segment and drops the closing `Z` —
+invisible on a stroked line, fatal on a filled outline, which rendered every glyph hollow.
+`roughenPathData` now bypasses roughjs entirely when the mode is crisp. Treat that as
+load-bearing for step 4 rather than incidental: a hand-authored symbol with a filled
+counter is exactly the case that regressed.
 
-**The step 2 test that should have caught this used a single-segment path**, the one input
-for which roughjs inserts no extra `moveto`. It now uses a multi-segment closed path and
-asserts both the subpath count and the trailing `Z`, plus a second test that a crisp path
-can carry a fill at all. Worth remembering as a shape of mistake: the test named the right
-property and chose the one input that could not exercise it.
+**`visuals.json` is now read, for equations.** If a library asset needs geometry the
+renderer cannot recompute, the sidecar is the established route — see the "Equations _are_
+read from `visuals.json`" note in `render/src/visuals.ts`, which explains what makes a lane
+eligible (no camera-dependent unit in its geometry).
 
-Not done, and not required by step 3:
+### Acceptance
 
-- **No `\begin{align}` or multi-line equations.** One `equation` is one line. Stacking
-  two is two elements, and nothing aligns them on `=`.
-- **The planner only ever emits one equation**, the worked example's update line. Every
-  other beat still gets prose. A `VisualIntent.kind: 'equation'` would be the way to let
-  the lesson ask for one, and it does not exist.
-- **`makeEquation` estimates its box from the TeX source**, since the planner cannot see
-  the typeset result. Control sequences count as one glyph and `\frac` collapses to its
-  longer side. An over-generous estimate costs whitespace and an under-generous one costs
-  size — never a collision, because the visuals stage fits into whatever box it is given,
-  preserving aspect.
-- `AssetRef.ink` is still not wired, and `cast`, `coreInsight`'s consumer and the
-  `$0.20/min` target are all still open.
-
-## Step 4 — the library skeleton. Start here.
-
-**The goal** (`PIPELINE.md` step 4): `library.json`, `AssetRef`, resolution order
-(library -> cache -> generate -> lucide), and the hand-authored `figures/` cast. Closes
-the no-key character gap as a side effect. _Done when:_ an asset resolves by path and
-version with no network.
-
-Two things from steps 2 and 3 land directly on this. `AssetRef.ink` is the field the ink
-mode was built for — `resolvePlot` and `resolveEquation` each decide their own mode today,
-and both already let a caller-supplied mode win, so the seam is open. And a library symbol
-is exactly the filled crisp path that the roughjs defect above would have broken, so treat
-that fix as load-bearing rather than incidental.
-
-Note that `resolveVisuals`' `case 'asset'` already fits a resolved entity's strokes into
-the element box with `fitMatrix` + `placeStrokes`, which is most of what "resolve by path
-and version" has to produce.
+"An asset resolves by path and version with no network" is the bar, so the test to write is
+a resolution that runs with the image provider disabled and asserts the _library_ lane was
+taken — not merely that something was drawn, which the icon and letter lanes already
+guarantee. `AssetVisual.lane` is the field that records which lane won; add the new one to
+that union and assert on it. Pin the version too: the point of `AssetRef.version` is that
+improving an asset leaves existing videos rendering the old one, so a test that resolves v1
+while v2 exists is the one that proves it.
 
 ## How to verify a visual change cheaply
 
 Three tools, cheapest first. **Use the first one that can see your change.**
 
-**1. Per-element geometry hashing across a stash — seconds, and it sees what a frame
-grab cannot.** `packages/visuals/src/geomhash.mts` (sibling of `frames.mts`, not wired
-into any script):
+**1. Per-element geometry hashing across a stash — seconds, and it sees what a frame grab
+cannot.** `packages/visuals/src/geomhash.mts` (sibling of `frames.mts`, not wired into any
+script):
 
     npx tsx packages/visuals/src/geomhash.mts final-169 handwritten > /tmp/after.txt
     git stash push -u && git status --short          # confirm the tree is CLEAN
@@ -162,33 +131,33 @@ into any script):
 
 It resolves the visuals stage into a temp dir, so the real project's cached assets are
 neither read nor written, and hashes each element's stroke `d` values only. Being
-_committed_ is what makes the stash step work: `git stash -u` takes untracked files with
-it and leaves tracked ones alone.
+_committed_ is what makes the stash step work: `git stash -u` takes untracked files with it
+and leaves tracked ones alone.
 
-`projects/final-169` is the benchmark (8 plots, 19 paths, arrows, a diagram);
-`projects/handwritten` complements it (shapes, emphasis, assets) and between them they
-cover every element type. Both storyboards predate the equation element, which made them
-a clean control for step 3: only the 8 plots moved, and all 45 sketch elements came back
-byte-identical. One gotcha when reading the output — the stage logs to **stdout** too, so
-filter on the tab separator rather than trusting redirection.
+For step 4, **`projects/handwritten` is the project that matters** — it is the one with
+`asset` elements (2), plus shapes and emphasis. `projects/final-169` is the benchmark (8
+plots, 19 paths, a diagram) and has **zero** assets, so it will tell you nothing about the
+library lane while making a useful control that you have not disturbed anything else.
+
+One gotcha reading the output: the stage logs to **stdout** too, so filter on the tab
+separator rather than trusting redirection.
 
 **2. Frame grabs — ~76 ms each, no encode.** `packages/render/src/frames.mts`:
 
     npx tsx packages/render/src/frames.mts <projectDir> <outDir> [seconds...]
 
-With no timestamps it takes eight evenly spaced frames. It compiles the plan itself, so
-it picks up live geometry changes **without re-running the pipeline** — except for
-equations, which come from the sidecar and therefore need the visuals stage to have run.
-For plot work `t=40` and `t=64` of `projects/final-169` are the plot-dense beats.
+With no timestamps it takes eight evenly spaced frames. It compiles the plan itself, so it
+picks up live geometry changes **without re-running the pipeline** — except for equations,
+which come from the sidecar and so need the visuals stage to have run.
 
-**To see a planner change in a frame without paying for voice**, compile the lesson and
-run visuals into a temp dir, then point `frames.mts` at it — about ten seconds against
-four minutes. `Lesson.parse` (there is no `parseLesson` export) -> `compileLesson` ->
+**To see a planner change in a frame without paying for voice**, compile the lesson and run
+visuals into a temp dir, then point `frames.mts` at it — about ten seconds against four
+minutes. `Lesson.parse` (there is no `parseLesson` export) → `compileLesson` →
 `resolveVisuals`, write `storyboard.json` back, then grab frames. Scene windows are
 estimated from the narration when voice has not run, so compute the offsets yourself:
-`max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. The worked beat is `s6`,
-landing around 68–82 s. A script that does this has to live in `packages/pipeline` — it is
-the only package that depends on both the planner and the renderer.
+`max(1.8, words / 2.6 + 0.6) + hold` per scene, accumulated. Such a script has to live in
+`packages/pipeline` — it is the only package that depends on both the planner and the
+renderer.
 
 **3. A full render**, only when you need audio or the encode:
 
@@ -196,49 +165,50 @@ the only package that depends on both the planner and the renderer.
       cast examples/lessons/gradient-descent.lesson.json \
       --project bench --force --json
 
-Add `--short` for the 9:16 pass. ~4 minutes, including a local Kokoro voice pass.
+Add `--short` for the 9:16 pass. ~4 minutes each including a local Kokoro voice pass;
+render stage alone is 41.2 s / 30.1 s. The last full render's numbers are in `STATUS.md`'s
+appendix, so you have a baseline to compare against rather than a vibe.
 
-There is still **no golden-image or frame-diff harness**; the only pixel assertion
-anywhere is a same-run self-consistency check in `page.test.ts`. And **for anything that
-only changes the storyboard, skip all three** — compile the lesson and hash the JSON
-either side of a stash.
+There is still **no golden-image or frame-diff harness**; the only pixel assertion anywhere
+is a same-run self-consistency check in `page.test.ts`. And **for anything that only changes
+the storyboard, skip all three** — compile the lesson and hash the JSON either side of a
+stash.
 
 ## Traps
 
-**This repo is `inkcast`, at `~/code/inkcast`.** It has **no git remote**, so
-`git remote -v` is empty and cannot confirm anything — check `git log` against the commit
-list above instead. **Three** sessions have now been launched with their working
-directory set to the sibling `finito` checkout. If the first thing you see is a Next.js
-finance app, you are in the wrong repo. Shell `cd` does not persist between commands;
-use absolute paths.
+**This repo is `inkcast`, at `~/code/inkcast`.** **Three** sessions have now been launched
+with their working directory set to the sibling `finito` checkout. If the first thing you
+see is a Next.js finance app, you are in the wrong repo. There is no git remote, so check
+`git log` against the commit list above to confirm where you are. Shell `cd` does not
+persist between commands; use absolute paths.
 
 **A script under `/tmp` resolves its imports from `/tmp`.** This bites immediately with
-workspace packages: `import ... from '@inkcast/visuals'` in a `/tmp` script fails with
+workspace packages: `import … from '@inkcast/visuals'` in a `/tmp` script fails with
 `ERR_MODULE_NOT_FOUND` however the path is written. Put throwaway scripts _inside_ the
-package whose dependencies they need — and remember `render` does not depend on `planner`;
-only `pipeline` depends on everything.
+package whose dependencies they need — and note `render` does not depend on `planner`; only
+`pipeline` depends on everything.
 
-**`git stash push --keep-index=false` fails and stashes nothing.** The flag takes no
-value, so git errors out — but the error is one line and easy to miss, and the follow-up
-command then runs against an _unstashed_ tree, producing a "baseline" identical to the
-new one that looks like proof when nothing was compared. After any stash, run
-`git status --short` and confirm the tree is actually clean before trusting a measurement.
+**`git stash push --keep-index=false` fails and stashes nothing.** The flag takes no value,
+so git errors out — but the error is one line and easy to miss, and the follow-up command
+then runs against an _unstashed_ tree, producing a "baseline" identical to the new one that
+looks like proof when nothing was compared. After any stash, run `git status --short` and
+confirm the tree is actually clean before trusting a measurement.
 
 **`pnpm -r test | tail` will lie to you.** Piping through `tail` truncates per-package
 output and the totals. Redirect the whole log to a file and sum with
-`awk '/# pass [0-9]+$/ {p+=$NF} ...'` — note the `$NF`, because the lines are prefixed
-with the package name and `$3` silently sums nothing. Check that all **eight**
-test-bearing packages appear (`core` has no tests). Also: `keyvault` reports 58 tests but
-55 passes — three are skipped, so 528/531 is the expected shape, not a failure.
+`awk '/# pass [0-9]+$/ {p+=$NF} …'` — note the `$NF`, because the lines are prefixed with
+the package name and `$3` silently sums nothing. Check that all **eight** test-bearing
+packages appear (`core` has no tests). `keyvault` reports 58 tests but 55 passes — three
+keychain tests are opt-in, so 528/531 is the expected shape, not a failure.
 
 **`pnpm lint` is `prettier --check .`,** so formatting is a hard gate, not advice. Run
-`npx prettier --write` on what you touched before claiming green — and re-run it after
-late edits to a doc, which is how an unformatted `HANDOFF.md` got committed once already.
+`npx prettier --write` on what you touched before claiming green — and re-run it after late
+edits to a doc, which is how an unformatted `HANDOFF.md` got committed once already.
 
 **`teach <topic> --lesson <file>` silently ignores the file.** Passing both a topic and
-`--lesson` derives a lesson from the topic instead, and with no Anthropic key that
-produces a ~20-second stub. Use `cast`. Still worth fixing: the flag combination should
-either honour `--lesson` or refuse.
+`--lesson` derives a lesson from the topic instead, and with no Anthropic key that produces
+a ~20-second stub. Use `cast`. Still worth fixing: the flag combination should either
+honour `--lesson` or refuse.
 
 **`next build` over a dirty `.next` still breaks.** `rm -rf apps/web/.next` first.
 
@@ -246,76 +216,78 @@ either honour `--lesson` or refuse.
 `providers: planner heuristic` — the pedagogy is `lesson-derive.ts`, not a model. It only
 holds together because the lesson is hand-authored; a topic-only run with no key
 degenerates, and does not morph. Set an Anthropic key before concluding anything about
-whether the concept lands.
+whether a concept lands. **This matters unusually much for step 4:** the no-key path is
+exactly where the character gap shows, so test the `figures/` cast without a key on
+purpose.
 
-**`seed: 0` means "no seed" in roughjs.** `Random.next()` tests `if (this.seed)` and
-falls through to `Math.random()` when it is falsy, so zero is the single seed value that
-is _not_ reproducible. `baseOptions` nudges it to 1; do not remove that.
+**`seed: 0` means "no seed" in roughjs.** `Random.next()` tests `if (this.seed)` and falls
+through to `Math.random()` when it is falsy, so zero is the single seed value that is _not_
+reproducible. `baseOptions` nudges it to 1; do not remove that.
 
-**Existing projects are stale against storyboard@3 / visuals@5 / render@5.** Intended —
-the boards and the plot geometry genuinely changed — but the next `cast` over
-`projects/final-169` will recompile, re-resolve and re-render rather than serving cache,
-and will look like it is doing far more work than your change should cause.
+**Bump the stage version when output changes.** `packages/pipeline/src/keys.ts` carries
+`STAGE_CODE_VERSION` and the reasoning; current state is
+`storyboard@3, visuals@5, render@5`. A library asset changing how something is drawn is a
+`visuals` bump, and the file's header explains why forgetting costs you an afternoon of
+suspecting the wrong thing.
 
 ## Deliberate stopgaps
 
-**MathJax is a ~110 MB dependency.** There is no small correct option: KaTeX is ~2.5 MB
-and cannot produce geometry, and writing a TeX layout engine is not a trade anyone should
-take. It is imported **lazily**, so a storyboard with no equations never loads it, and its
-absence is survivable — `resolveEquation` returns `undefined` and the caller draws the TeX
-source as text. That fallback is tested on both sides (`unusable source falls back` in
-visuals, `an equation with no typeset geometry falls back` in render).
+**MathJax is a ~110 MB dependency** (`@mathjax/src` v4, used by the equation lane). There
+is no small correct option: KaTeX is ~2.5 MB and cannot produce geometry. It is imported
+**lazily**, so a storyboard with no equations never loads it, and its absence is survivable
+— `resolveEquation` returns `undefined` and the caller draws the TeX source as text, tested
+on both sides.
 
 **An equation does not grow with the vertical type gain.** 9:16 applies a 1.42x gain to
-_text_, but an equation is geometry fitted to a planner-measured box, so it does not
-scale with it. The result is inverted emphasis on the format where the update line
-matters most: in 16:9 the equation is about twice the caption's height, in 9:16 slightly
-smaller than it. Legible in both — this is taste, not breakage — and the fix is a role or
-a gain at the `makeEquation` call site, which wants a frame to judge it by.
+_text_, but an equation is geometry fitted to a planner-measured box, so it does not scale
+with it: in 16:9 the equation is about twice the caption's height, in 9:16 slightly smaller.
+Legible in both — taste, not breakage — and the fix is a role or a gain at the
+`makeEquation` call site, which wants a frame to judge it by.
 
-**The worked example's arithmetic lands late.** Its cue resolves to 82% of the beat, so
-the update line arrives after the descent is drawn and after the annotation about it. Cue
-resolution is doing what it was asked; whether that is the right cue is a pedagogy
-question about the beat rather than a rendering bug.
+**The worked example's arithmetic lands late.** Its cue resolves to 82% of the beat, so the
+update line arrives after the descent it describes. Cue resolution is doing as it was
+asked; whether that is the right cue is a pedagogy question about the beat.
 
-**Frame fill is measured as a proxy.** `contentFill` in `render/src/camera.ts` is the
-union of element _bounding boxes_ over the view area. A single hand-drawn line has a
-large box and little ink, so the number rewards big sparse shapes. Useful for catching
-regressions, misleading as a target — read frames as well.
+**Frame fill is measured as a proxy.** `contentFill` in `render/src/camera.ts` is the union
+of element _bounding boxes_ over the view area. A single hand-drawn line has a large box and
+little ink, so the number rewards big sparse shapes. Useful for catching regressions,
+misleading as a target — read frames as well.
 
 **One legacy vault may still exist on a machine.** `<repo>/.inkcast/keys.json` from the
-pre-unification studio is no longer read. `vaultInfo()` reports it as `legacyPath`. There
-is no migration and deliberately so.
+pre-unification studio is no longer read. `vaultInfo()` reports it as `legacyPath`. There is
+no migration and deliberately so.
 
-**The pen sprite is invisible to the label solver.** Visuals places labels clear of ink
-and of each other, but the marker sprite is a renderer-side decoration it knows nothing
-about, so a label can still be struck through by the pen. Still visible at `t=64` of the
-benchmark — "downhill" is struck through and "too small" sits under the marker.
+**The pen sprite is invisible to the label solver.** Visuals places labels clear of ink and
+of each other, but the marker sprite is a renderer-side decoration it knows nothing about,
+so a label can still be struck through by the pen. Visible at `t=64` of the benchmark —
+"downhill" struck through, "too small" under the marker.
 
 ## Known defects, not fixed
 
-**The planner and visuals disagree about `doubleWell`.** Two catalogues of the named
-curve functions remain and they disagree:
+**The planner and visuals disagree about `doubleWell`.** Two catalogues of the named curve
+functions remain and they disagree:
 
     planner/src/curves.ts   a*x^4 - b*x^2 + tilt*x + k          defaults [1, 2, 0, 2]
     visuals/src/plot.ts     a*((x/b)^2 - 1)^2 + tilt*(x/b) + k  defaults [1, 1, 0.35, 0.4]
 
 The planner **authors** these params (`plots.ts:402` passes `[1, 2, 0.55, 2.2]`) and also
-runs `descend()` on its own `evalFn` to place the step dots, while visuals draws the
-curve. So the drawn curve and the simulated descent can disagree and the dots can leave
-the curve. Reachable through the `local-minima` recipe; the benchmark does not use it.
-Crisp plots make this **more** visible, not less: a dot off an exact curve no longer
-hides in a wobble.
+runs `descend()` on its own `evalFn` to place the step dots, while visuals draws the curve.
+So the drawn curve and the simulated descent can disagree and the dots can leave the curve.
+Reachable through the `local-minima` recipe; the benchmark does not use it. Crisp plots make
+this **more** visible, not less: a dot off an exact curve no longer hides in a wobble.
 
-**`visuals.json` is read for equations only.** Step 3 made the sidecar a real input for
-the first time, but plots still go through `resolvePlot` in-process and every other
-element type is re-derived by the renderer's own `primsFor`. Closing the rest needs
+**`visuals.json` is read for equations only.** Step 3 made the sidecar a real input for the
+first time, but plots still go through `resolvePlot` in-process and every other element type
+is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
-stage can reach, probably `@inkcast/core` — that is the remaining part of root cause 1.
+stage can reach, probably `@inkcast/core` — the remaining part of root cause 1.
 
-**`STATUS.md` is no longer stale, but read it the right way round.** The 07-28 body is
-left unedited on purpose — a dated record of what was measured, not a checklist — and a
-2026-07-29 appendix names the six claims that have moved and carries the current numbers.
-Take figures from the appendix, not from the body. Everything the body reports that the
-appendix does not contradict still stands, including `illustration` never resolving
-without a key, the flat local voice, and topic-only lessons degenerating.
+**`illustration` never resolves without a key**, and characters are stick figures or
+lettered cards. **This is the gap step 4 is meant to close**, so it is listed here as the
+starting condition rather than as a complaint.
+
+**Open elsewhere in the plan:** no multi-line/`align` equations (one `equation` is one
+line); the planner only ever emits one equation, the worked example's update line, with no
+`VisualIntent.kind: 'equation'` to ask for others; `coreInsight` is validated but nothing
+downstream reads it; and the `$0.20/min` cost target is still unaddressed — marginal cost is
+currently $0.00 on this machine because everything runs locally.
