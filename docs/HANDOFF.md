@@ -1,18 +1,17 @@
-# Handoff — 2026-07-29 · step 5 is half done; finish it or move to step 7
+# Handoff — 2026-07-29 · next: let the pedagogy address the library
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
 things stand, what to do next, and which traps are waiting.
 
-Delete or rewrite this once the next step lands. It goes stale by design.
+Delete or rewrite this once the next piece lands. It goes stale by design.
 
-**Your job: read "Where step 5 stopped" and pick.** Finishing step 5 needs an API key and
-cannot be verified without one. If you do not have one, step 7 (the script stage) is the next
-thing that is fully doable offline. Everything after that is reference.
+**Your job is described in "The next piece" below, and it needs no API key.** Read "Where
+things stand" first, then that section. Everything after is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, eleven commits on top of `e95258b`. Everything is local;
+Branch **`visuals-morph-density`**, twelve commits on top of `e95258b`. Everything is local;
 there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty. In
 order, by subject:
 
@@ -30,8 +29,8 @@ order, by subject:
     Character rigs: one person, several poses                            <- step 5 (half)
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2, 3 and 4 are done and marked ✅ in `PIPELINE.md`; step 5
-is marked 🟡 with the split spelled out.
+diff it belongs to. Steps 1, 6, 2, 3 and 4 are ✅ in `PIPELINE.md`; step 5 is 🟡 with the
+split spelled out there.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
 errors across 9 projects, `pnpm -r test` **557 pass / 0 fail** across all eight
@@ -40,9 +39,108 @@ hand-authored lesson with no keys: 104.667 s / 3140 frames at 1920x1080, 61.500 
 1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%. The `projects/handwritten`
 geometry hashes are byte-identical across both of the last two steps.
 
-**`STATUS.md` now has three appendices.** Rig figures are in the third ("Character rigs"),
-library figures in the second, pipeline figures in either of the last two — they agree. The
-07-28 body is a historical record and deliberately unedited.
+**`STATUS.md` has three appendices**, all 2026-07-29. Rig figures are in the third, library
+figures in the second, pipeline figures in either of the last two — they agree. The 07-28
+body is a historical record and deliberately unedited.
+
+## The next piece — one asset router, and a pedagogy that can ask for a pose
+
+Steps 4 and 5 built a library and a rig that **the pedagogy cannot address**. That is the
+highest-leverage thing left, it needs no key, and the case for it is measured rather than
+argued. Three findings, from probing the planner directly:
+
+**1. The planner contains a second, earlier copy of the asset router, and it wins.**
+`buildAsset` (`planner/src/compile.ts:786`) calls `matchIcons(describe, 1)` and, on a hit,
+mints the asset with the **lucide slug as its id and lucide's own prompt as its prompt** —
+throwing away what the beat actually described. The visuals stage's lane order
+(inline → library → cache → generate → lucide → letter) then runs against evidence that has
+already been destroyed. This is root cause 1 all over again: two implementations of one
+decision, the earlier and worse one running first. Step 1 fixed exactly this shape for plots.
+
+What that costs, measured:
+
+    describe                                    planner mints            library then sees
+    "a hiker walking downhill in thick fog"     illustration lane        figures/walking   ✅
+    "a teacher pointing at a chalkboard"        illustration lane        figures/pointing  ✅
+    "a lone explorer crossing a desert"         illustration lane        characters/explorer ✅
+    "a person standing at the edge of a cliff"  icon: id=user            figures/standing  ✅ (luck)
+    "Odysseus tied to the mast of his ship"     icon: id=rocket          NOTHING           ❌
+
+The last row is a real defect you can ship today: **Odysseus draws a rocket.** Once the id is
+`rocket` and the prompt is "a rocket taking off", nothing downstream can recover — the library
+is asked after the evidence is gone. The `user` row only works by luck, because lucide's
+substitute prompt happens to contain the word "person".
+
+**2. No pose can ever be requested, so step 5 currently buys nothing in a real run.**
+`VisualIntent` is `{ describe, kind, cue }` — there is no way to name a library path or a
+variant. Every rig resolution therefore takes the default pose, `standing`. The explorer can
+be the same person across three beats and is always standing, which is exactly what
+`figures/standing` already did. **The rig's payoff is zero until this is fixed**, and that
+is the strongest argument for doing this next rather than finishing step 5's generated half.
+
+**3. `kind: 'narrative'` is accepted, prompted for, and then ignored.** It is a real value in
+`LessonKind`, `lesson-anthropic.ts` prompts for it — and nothing downstream branches on it.
+`Lesson.cast` is sketched as NEW in `PIPELINE.md` and **does not exist in the zod**. So a
+lesson can say "this is a story carried by characters" and the compiler treats it identically
+to a derivation.
+
+### What to build
+
+In dependency order. The first is worth doing alone even if you stop there.
+
+**a. Delete the planner's pre-resolution and let the visuals stage route.** `buildAsset` should
+mint the _description_ — `ctx.assets.use(slugOf(describe), describe, kind)` — and stop
+consulting lucide. The lane order already lives in `resolveAsset`, it is already correct, and
+it now has a library in front of it. Expect asset ids to change from lucide slugs to
+description slugs, which is a `storyboard` bump (→ 4) and invalidates visuals downstream. The
+benchmark is unaffected because it has zero assets.
+
+**Scope this to `compile.ts` and leave `heuristic.ts` alone unless you have a reason.**
+`heuristic.ts:211` calls `matchIcons` too, but for a different job: it decorates a _document_
+beat — a heading, a quote, a definition — where there is no described subject to preserve and
+lucide picking something apt is the whole intent. `compile.ts` is the one routing a subject a
+lesson described, and that is where throwing the description away costs something.
+
+While you are there: the `log.debug` at `compile.ts:814` says an illustration "degrades to a
+placeholder without one", which stopped being true for characters in step 4. Same class of
+stale message as the one fixed in `pipeline/src/degrade.ts`.
+
+**b. `Lesson.cast`, for real.** `{ id, name, look }[]` as `PIPELINE.md` sketches it, defaulted
+so every saved `lesson.json` still parses (the `version: 1` note in the lesson schema explains
+why that matters and how the cache invalidates instead). A narrative lesson declares who is in
+it once, rather than re-describing them per beat — which is the same "resolve once, reuse by
+id" argument that made `storyboard.assets[]` a top-level library.
+
+**c. `VisualIntent` gains a way to name a cast member and a pose.** Something like
+`character?: { id: string; pose?: string }`. **Do not derive the pose from the beat's verb** —
+that is the guessing step 6 removed for the analogy, and it would fail the same way. Explicit
+or absent.
+
+**d. The compiler mints `Asset.ref`.** A cast member becomes an `Asset` with
+`ref: { path: 'characters/<id>', variant: pose }`. Resolution already pins the version on the
+way out, so the compiler should not invent one.
+
+### Done when
+
+**A narrative lesson renders one character across three beats in three different poses, with
+no key.** That is step 5's acceptance bar reached _through the product_ rather than through a
+unit test, which is the part that is currently missing — and it is checkable with
+`frames.mts` on a hand-written narrative lesson in `examples/lessons/`, so it costs about ten
+seconds to see.
+
+Two cheaper checks worth writing on the way: `Odysseus tied to the mast` must no longer mint
+`rocket` (that is a planner test, not a visuals one), and a lesson with a `cast` must produce
+`Asset.ref` entries pointing at rig paths.
+
+### If you would rather not touch the planner
+
+**Step 7 (the script stage)** is the next numbered step that is fully doable offline: split
+from `lesson`, `cadence` driving both TTS rate and `hold`, `emphasis` driving voice and board
+weight. _Done when:_ a punchy beat is measurably faster and holds shorter than a
+`slow_deliberate` one. It is self-contained and does not depend on any of the above.
+
+**Finishing step 5 needs an API key** and cannot be verified without one — see "Where step 5
+stopped" below before deciding.
 
 ## Where step 5 stopped
 
@@ -66,12 +164,7 @@ Done, and pinned by 18 tests in `visuals/test/character.test.ts`:
 2. **The real identity gate.** `plausibilityGate` is a deliberately-named floor: it compares
    ink quantity and proportion, rejects mush, and would accept a different person's face.
    `PoseGate` is the seam. This is the piece that decides whether a generated pose is
-   trustworthy, so it is the piece worth getting right rather than shipping approximately.
-
-**The largest gap here is not in the rig at all: nothing upstream can ask for a pose.** The
-planner mints slugs and prompts, never an `AssetRef` and never a `variant`, so a rig is
-reachable by hand and by alias and not by pedagogy. `VisualIntent` is where that would go, and
-it is a planner change that needs no key.
+   trustworthy, so it is worth getting right rather than shipping approximately.
 
 ## Three things about rigs that are silent when wrong
 
@@ -161,6 +254,14 @@ There is still **no golden-image or frame-diff harness**; the only pixel asserti
 is a same-run self-consistency check in `page.test.ts`. And **for anything that only changes
 the storyboard, skip all four** — compile the lesson and hash the JSON either side of a
 stash.
+
+**That last line is the one that matters for "the next piece".** A planner change is a
+storyboard change, and none of the four tools above is pointed at it: `geomhash.mts` resolves
+the visuals stage against a storyboard _already on disk_, so it cannot see the planner at all
+and `projects/handwritten` will stay byte-identical whatever you do to `buildAsset`. Compile
+the lesson and diff the storyboard JSON instead — `Lesson.parse` → `compileLesson`, no voice,
+no visuals, sub-second. What you want to read in that diff is `assets[]`: the ids should stop
+being lucide slugs and start being description slugs, and cast members should carry a `ref`.
 
 ## Traps
 
@@ -287,12 +388,25 @@ is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
 stage can reach, probably `@inkcast/core` — the remaining part of root cause 1.
 
-**Nothing upstream constructs an `AssetRef`, and this is now the biggest gap in the area.**
-The planner mints slugs and prompts; every library resolution in a real run happens through the
-alias table, and the reference is written _back_. So the library is reachable but not
-_addressable_ by the pedagogy — a lesson cannot ask for `figures/pointing` by name, and it
-certainly cannot ask for `characters/explorer` in the `walking` pose, which is the entire point
-of having built a rig. `VisualIntent` is where that goes, and it needs no key.
+**The planner draws a rocket for Odysseus.** `buildAsset` matches lucide _before_ the visuals
+stage gets a say, and mints the asset with the lucide slug as its id and lucide's prompt as its
+prompt — so `"Odysseus tied to the mast of his ship"` becomes `id: 'rocket'`,
+`prompt: 'a rocket taking off'`, and every downstream lane including the library is asked about
+a rocket. Measured, not hypothesised; the probe table is in "The next piece" above. This is the
+first thing that section fixes, and the fix is to delete the pre-resolution rather than to
+patch the matcher.
+
+**Nothing upstream constructs an `AssetRef`, so step 5 currently buys nothing in a real run.**
+`VisualIntent` is `{ describe, kind, cue }` — no path, no variant. Every rig resolution takes
+the default pose, so the explorer is always `standing`, which is what `figures/standing`
+already did. The library is reachable through the alias table and not _addressable_ by the
+pedagogy. **This is the biggest gap in the area** and it is the second thing "The next piece"
+fixes.
+
+**`kind: 'narrative'` is accepted and then ignored.** A real value in `LessonKind`, prompted
+for in `lesson-anthropic.ts`, and nothing downstream branches on it. `Lesson.cast` is sketched
+as NEW in `PIPELINE.md` and does not exist in the zod, so a lesson can declare itself a story
+carried by characters and be compiled exactly like a derivation.
 
 **A generated pose that fell back keeps the fallback.** A project resolved against a cold
 variant cache draws the composed pose, and its asset key does not depend on machine state — so
