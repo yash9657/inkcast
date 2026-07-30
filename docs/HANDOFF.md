@@ -8,7 +8,7 @@ Delete or rewrite this once the next piece of work lands. It goes stale by desig
 
 ## Where the code is
 
-Branch **`visuals-morph-density`**, eight commits on top of `e95258b`. Everything is
+Branch **`visuals-morph-density`**, nine commits on top of `e95258b`. Everything is
 local; there is **no remote**, so nothing is pushed anywhere. In order, by subject:
 
     Keyvault: one vault, shared by the CLI and the studio
@@ -18,7 +18,8 @@ local; there is **no remote**, so nothing is pushed anywhere. In order, by subje
     docs: rewrite the handoff for step 6
     Lesson schema v2: the morph comes from the mapping, not the prose
     Two ink modes, and plots draw crisp
-    The equation lane: real typeset mathematics                        <- new
+    The equation lane: real typeset mathematics
+    Consolidate: a real render, a re-verified STATUS, one cache gate   <- new
 
 Each message carries the reasoning for its own change; read them before the diffs.
 
@@ -38,12 +39,15 @@ Which files step 3 touched:
     docs/PIPELINE.md                         step 3 done; the step 2 correction
 
 Verified at that commit: `pnpm lint` clean, `pnpm -r typecheck` 0 errors across 9
-projects, `pnpm -r test` **524 pass / 0 fail** (was 513). Frame grabs confirm the
+projects, `pnpm -r test` **528 pass / 0 fail** (was 513). Frame grabs confirm the
 milestone example renders as real glyphs, revealing left to right with the pen tracking
 the write position, both standalone and as the benchmark's worked-beat update line.
-**No full render or encode has been done since step 1** — the benchmark check compiled
-the lesson and ran visuals only, skipping voice, so the 104.6 s figure is still
-inherited.
+
+**The benchmark has now been rendered end to end in both formats**, the first full render
+since step 1, and `STATUS.md` carries a dated re-verification appendix with the numbers.
+104.667 s / 3140 frames at 1920x1080, 61.500 s at 1080x1920, both from the shipped lesson
+with no keys, `cost $0.00`. Mean content fill re-measured at 52.2% / 55.9%. Nothing is
+inherited any more — read the appendix rather than this file for figures.
 
 ## What step 3 actually did
 
@@ -225,7 +229,7 @@ output and the totals. Redirect the whole log to a file and sum with
 `awk '/# pass [0-9]+$/ {p+=$NF} ...'` — note the `$NF`, because the lines are prefixed
 with the package name and `$3` silently sums nothing. Check that all **eight**
 test-bearing packages appear (`core` has no tests). Also: `keyvault` reports 58 tests but
-55 passes — three are skipped, so 524/527 is the expected shape, not a failure.
+55 passes — three are skipped, so 528/531 is the expected shape, not a failure.
 
 **`pnpm lint` is `prettier --check .`,** so formatting is a hard gate, not advice. Run
 `npx prettier --write` on what you touched before claiming green — and re-run it after
@@ -262,6 +266,18 @@ absence is survivable — `resolveEquation` returns `undefined` and the caller d
 source as text. That fallback is tested on both sides (`unusable source falls back` in
 visuals, `an equation with no typeset geometry falls back` in render).
 
+**An equation does not grow with the vertical type gain.** 9:16 applies a 1.42x gain to
+_text_, but an equation is geometry fitted to a planner-measured box, so it does not
+scale with it. The result is inverted emphasis on the format where the update line
+matters most: in 16:9 the equation is about twice the caption's height, in 9:16 slightly
+smaller than it. Legible in both — this is taste, not breakage — and the fix is a role or
+a gain at the `makeEquation` call site, which wants a frame to judge it by.
+
+**The worked example's arithmetic lands late.** Its cue resolves to 82% of the beat, so
+the update line arrives after the descent is drawn and after the annotation about it. Cue
+resolution is doing what it was asked; whether that is the right cue is a pedagogy
+question about the beat rather than a rendering bug.
+
 **Frame fill is measured as a proxy.** `contentFill` in `render/src/camera.ts` is the
 union of element _bounding boxes_ over the view area. A single hand-drawn line has a
 large box and little ink, so the number rewards big sparse shapes. Useful for catching
@@ -291,22 +307,15 @@ the curve. Reachable through the `local-minima` recipe; the benchmark does not u
 Crisp plots make this **more** visible, not less: a dot off an exact curve no longer
 hides in a wobble.
 
-**`rerender()` has a weaker cache gate of its own.** The visuals cache naming was fixed
-in `cast.ts`, but `rerender()` (`cast.ts:796`) still re-runs visuals only when an asset
-lacks an `svg` (`missingArt`, :871) or the board fingerprint moved, and never checks that
-element SVGs or the manifest exist. **This now matters more than it did:** equations are
-read from the manifest, so a path that skips visuals against a stale manifest yields a
-board whose equations fall back to raw TeX.
-
 **`visuals.json` is read for equations only.** Step 3 made the sidecar a real input for
 the first time, but plots still go through `resolvePlot` in-process and every other
 element type is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
 stage can reach, probably `@inkcast/core` — that is the remaining part of root cause 1.
 
-**`STATUS.md` is dated 2026-07-28 and is now five changes stale.** Its "two vaults",
-"anchor draws a second hillside" and "mean content fill 48%/53%" defects are fixed, its
-"`visuals.json` is written and never read" is now half-true as described above, and its
-account of plot ink predates crisp mode while its account of the worked beat predates the
-equation lane. Everything else in it stands, including `illustration` never resolving
-without a key.
+**`STATUS.md` is no longer stale, but read it the right way round.** The 07-28 body is
+left unedited on purpose — a dated record of what was measured, not a checklist — and a
+2026-07-29 appendix names the six claims that have moved and carries the current numbers.
+Take figures from the appendix, not from the body. Everything the body reports that the
+appendix does not contradict still stands, including `illustration` never resolving
+without a key, the flat local voice, and topic-only lessons degenerating.

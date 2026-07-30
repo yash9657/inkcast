@@ -104,6 +104,27 @@ const log = logger('pipeline');
  */
 const VISUALS_MANIFEST = 'assets/visuals.json';
 
+/**
+ * The files the visuals stage must have left behind for its cache entry to be believed.
+ *
+ * Both entry points — `cast()` and `rerender()` — gate the stage on this, and they take
+ * it from one place because they did not, and drifted: `rerender()` hashed the board
+ * without naming a single artefact, so a project whose `assets/` had been deleted or
+ * truncated still read as fresh and skipped the stage.
+ *
+ * What that costs has grown. A missing manifest used to mean the renderer resolved
+ * plots in-process to make up for a cache entry that was lying — wasteful but correct.
+ * An **equation cannot be typeset in the renderer at all** (typesetting is an async
+ * import; `compilePlan` is synchronous), so it degrades to raw TeX on the board.
+ *
+ * Asset SVGs are named for the same reason at one remove: `Asset.svg` records that
+ * artwork *was* resolved, which a restored project without its `assets/` directory
+ * still claims. Only the filesystem knows whether it is still there.
+ */
+export function visualsArtefacts(sb: Storyboard): string[] {
+  return [VISUALS_MANIFEST, ...sb.assets.flatMap((a) => (a.svg ? [a.svg] : []))];
+}
+
 export type CastInput = {
   /** Raw text or markdown to teach from. */
   text?: string;
@@ -644,14 +665,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       (await isFresh(run.dir, cacheSlot('visuals', a.id), assetKeyFor(a)));
     if (!fresh) staleAssets.add(a.id);
   }
-  // The manifest is named as an *artefact*, not merely hashed. Without it a deleted
-  // or truncated `assets/visuals.json` still reads as fresh, the stage is skipped,
-  // and the renderer — which now takes its plot geometry from that file — has to
-  // resolve every plot in-process to make up for a cache entry that was lying.
+  // Artefacts, not just a hash — see `visualsArtefacts` for what a lying cache entry
+  // costs now that equations are read from the manifest rather than recomputed.
   const visualsFresh =
     !run.force &&
     staleAssets.size === 0 &&
-    (await isFresh(run.dir, cacheSlot('visuals'), boardVisualsKey, [VISUALS_MANIFEST]));
+    (await isFresh(run.dir, cacheSlot('visuals'), boardVisualsKey, visualsArtefacts(sb)));
 
   const assetsBefore = new Set(sb.assets.filter((a) => a.svg).map((a) => a.id));
   if (visualsFresh) {
@@ -867,9 +886,13 @@ export async function rerender(
   }
 
   /* visuals: whenever artwork is missing or the board's geometry moved */
+  //
+  // Gated on the same artefacts `cast()` gates on. This path did not name any, which
+  // made it the one place that could still skip the stage against a missing manifest
+  // and put raw TeX on the board where an equation belongs.
   const visualsKey = visualsFingerprint(sb);
   const missingArt = sb.assets.some((a) => !a.svg);
-  if (!missingArt && (await isFresh(dir, cacheSlot('visuals'), visualsKey))) {
+  if (!missingArt && (await isFresh(dir, cacheSlot('visuals'), visualsKey, visualsArtefacts(sb)))) {
     skipped.push('visuals');
     bus.done('visuals', 'cached');
   } else {

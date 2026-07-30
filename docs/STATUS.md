@@ -1,10 +1,9 @@
 # Inkcast status
 
-> **Partly superseded, 2026-07-29.** Three defects reported below are now fixed — the
-> two vaults, the second hillside, and the frame-fill numbers. See `HANDOFF.md` for
-> which lines to disregard before acting on them. The rest of this report still stands.
-> It is left unedited on purpose: it is a dated record of what was measured, not a
-> live checklist.
+> **Partly superseded — see the re-verification appended at the end (2026-07-29).**
+> The 07-28 report below is left unedited on purpose: it is a dated record of what was
+> measured, not a live checklist. Six of its claims no longer hold. Read the appendix
+> before acting on anything here.
 
 Written by the verification agent, 2026-07-28, against the working tree at
 `9d138b3` (nothing committed). Every claim is backed by a command run on this
@@ -212,3 +211,112 @@ opens on a caption in a void. And the narrator is a robot. Those are quality
 failures rather than capability failures, which is the honest good news: the IR
 can now express the picture, and the remaining work is craft in the compiler
 rather than another rebuild.
+
+---
+
+# Re-verification, 2026-07-29
+
+Written after four changes landed on top of the report above — lesson schema v2, the
+morph, two ink modes, and the equation lane (`PIPELINE.md` steps 6, 1, 2, 3). Measured
+against the working tree at `6606edb` plus the cache-gate fix, on the same machine and
+with the same **zero API keys**: `providers` reports
+`planner heuristic · voice kokoro · images builtin`, and both runs end `cost $0.00`.
+
+The 07-28 report is not edited. This appendix says which of its claims have moved and
+what the numbers are now.
+
+## Which claims above no longer hold
+
+| Claim in the 07-28 report                             | Now                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Two vaults** (Missing or broken)                    | Fixed. One vault, shared by the CLI and the studio.                                                                                  |
+| **The anchor draws a second hillside** (Partial)      | Fixed. The hill morphs into the plot in place, derived from `analogy.maps`.                                                          |
+| **Mean content fill 48% / 53%**                       | Re-measured: **52.2% / 55.9%**.                                                                                                      |
+| **`visuals.json` … written and never read**           | Half true. Plots are resolved through the visuals stage's own resolver; equations are read from the sidecar. Everything else is not. |
+| **`w ← 3 − 0.1 × 4 = 2.6` is on the board** (as text) | Still on the board, now as **typeset mathematics** — a real minus and a real arrow, not font substitutes.                            |
+| **486 pass**                                          | **528 pass, 0 fail, 3 skipped.**                                                                                                     |
+
+Everything else in the report stands, including `illustration` never resolving without a
+key, the flat local voice, topic-only lessons degenerating, and the caption-in-a-void at
+each region change.
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **528 pass, 0 fail** across all eight test-bearing packages
+(`keyvault` reports 58 tests / 55 passes — three keychain tests are opt-in).
+
+## The benchmark, both formats, from the shipped hand-authored lesson
+
+Rendered with `cast … --force`, no keys, first try in both formats.
+
+|                        | 16:9                    | 9:16 `--short`                |
+| ---------------------- | ----------------------- | ----------------------------- |
+| output                 | 1920x1080 h264 + aac    | 1080x1920 h264 + aac          |
+| ffprobe duration       | 104.667 s               | 61.500 s                      |
+| video frames           | 3140                    | —                             |
+| reported `durationSec` | 104.64 s                | 61.47 s                       |
+| scenes                 | 9                       | 6 (compiler cut 3 for budget) |
+| mean content fill      | 52.2% (min 32, max 100) | 55.9% (min 37, max 100)       |
+| voice stage            | 55.7 s                  | 34.7 s                        |
+| visuals stage          | 0.29 s                  | 0.26 s                        |
+| render stage           | 41.2 s                  | 30.1 s                        |
+| sum of stage timings   | 97.1 s                  | 65.0 s                        |
+| `lessonProblems`       | none                    | `estimated 101s exceeds 60s`  |
+
+The duration is unchanged from 07-28 to the millisecond, which is the expected result:
+none of these four changes touched narration, and duration is set by the audio.
+
+**The render stage is 41.2 s where the 07-28 report measured 110.5 s of wall clock for
+the whole run.** Those are different quantities — that figure was end-to-end and this is
+one stage — so treat 41.2 s as the first measurement of the render stage alone rather
+than as a speed-up anyone has demonstrated.
+
+## What the frames show that they did not
+
+Read at the plot-dense and worked beats in both aspects.
+
+**Plots are `crisp`.** Axes are exact straight lines with clean single-stroke arrowheads,
+and curves are smooth sampled parabolas rather than roughened polylines. The handwriting
+is untouched, so the board still reads hand-drawn — a hand-drawn board carrying an
+accurate graph, which is the whole point of having two ink modes.
+
+**The worked example's update line is real mathematics.** `w ← 3 − 0.1 × 4 = 2.6` is set
+from TeX as glyph outlines: an italic `w`, a true `←`, a proper minus distinct from a
+hyphen, `×` and `=`. It reveals left to right with the pen tracking the write position.
+Verified in both aspects — 16:9 at t≈78.5 s, 9:16 at t≈52.2 s.
+
+**Timing note, not a defect.** The equation's cue resolves to 82% of the worked beat, so
+it arrives _after_ the descent has been drawn and after the "steps shrink as it flattens"
+annotation. For a worked example the arithmetic arguably wants to land with the descent
+rather than behind it. That is cue resolution doing exactly what it was asked to; whether
+the cue is the right one is a pedagogy question for the beat, not a rendering bug.
+
+**Scale differs between aspects.** In 16:9 the equation is about twice the caption's
+height; in 9:16 it is slightly smaller than the caption. Vertical output applies a 1.42x
+type gain to _text_, and an equation is geometry fitted to a planner-measured box, so it
+does not grow with it. Legible in both, but the emphasis is inverted on the format where
+the line matters most.
+
+## Fixed while re-verifying
+
+- `packages/pipeline/src/cast.ts` — `rerender()` gated the visuals stage on a board hash
+  and **named no artefacts**, so a project whose `assets/` had been deleted or truncated
+  read as fresh and skipped the stage. `cast()` had been tightened for this and
+  `rerender()` had not. The cost of that grew with step 3: a missing manifest used to mean
+  the renderer re-resolved plots in-process, wasteful but correct, whereas an equation
+  cannot be typeset in the renderer at all and degrades to raw TeX on the board. Both
+  entry points now take the artefact list from one exported function, `visualsArtefacts`,
+  because writing it twice is what let them drift. Four tests pin it.
+
+## Verdict
+
+The 07-28 verdict — "partly; the answer moved from no to yes on the one question that
+matters" — still reads correctly, and two of the three things it named as blocking are
+now addressed. The abstraction does earn its keep visually: the hill morphs into the
+plot in place rather than the graph appearing beside it. The numbers on the board are now
+notation rather than an approximation of notation.
+
+What it named that is still true: half the frame is often empty, every region change opens
+on a caption in a void, and the narrator is a robot without a key. Those remain quality
+failures rather than capability failures.
