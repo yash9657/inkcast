@@ -85,7 +85,10 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
-  storyboard: 4,
+  // 5: every scene carries `cadence` and `emphasis`, and `hold` is now clamped by the
+  // cadence rather than only by a global 3s cap. Most holds are unchanged; the ones
+  // that move are beats whose cadence forbids the silence they used to get.
+  storyboard: 5,
   voice: 2,
   visuals: 6,
   render: 5,

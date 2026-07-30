@@ -214,6 +214,11 @@ type Beat = {
 `hold`, so a punchy beat cannot end up with a two-second silence after it because two
 stages disagreed.
 
+**Shipped** (step 7), on `LessonStep` rather than in a stage of its own — see step 7 in
+"Order of work" for why, and for the numbers. `text` stayed as `LessonStep.narration`;
+`targetSec` was not built, because `adaptLesson` already fits a lesson to a preset's
+budget and a per-beat target would be a second opinion about the same thing.
+
 ### 3. Storyboard (primitive and layout)
 
 ```ts
@@ -657,9 +662,55 @@ lesson still morphs — verified byte-identical storyboards, both aspects — an
 with the same mapping but different wording also morphs, which is
 `the same mapping in different words still morphs` in `planner/test/compile.test.ts`.
 
-**7. The script stage.** Split from `lesson`; `cadence` drives both TTS rate and `hold`;
-`emphasis` drives voice and board weight. _Done when:_ a punchy beat is measurably
-faster and holds shorter than a slow_deliberate one.
+**7. The script stage.** ✅ **DONE**, as fields on the lesson beat rather than as a
+seventh pipeline stage. `cadence` drives both the TTS rate and `hold`; `emphasis` drives
+voice and board weight. _Done when:_ a punchy beat is measurably faster and holds shorter
+than a slow_deliberate one — measured on real Kokoro audio over identical words:
+**160.7 / 151.7 / 142.0 wpm** for punchy / building_energy / slow_deliberate, a 1.13x
+spread, with holds capped at 0.8s / 1.6s / 3.0s respectively.
+
+**Why not a separate stage.** The sketch above splits `script` out of `lesson` so that
+"rewriting the words is the most common edit and should not require re-planning the
+pedagogy". That rationale is already served: `editLesson` handles pacing, silence, dropped
+beats and reordering mechanically with no key, and the keyed path patches the lesson under
+its original teaching brief. Moving `narration` into a new artefact would migrate every
+saved `lesson.json`, the model prompt, `critiqueLesson`, `adaptLesson` and the presets, to
+buy an editing property the repository already has. The _valuable_ half of step 7 is not
+the stage boundary — it is that pacing stops being two decisions.
+
+And it was two. An author set `hold` freely in the lesson; the voice stage spoke the whole
+video at one global `targetWpm`. Nothing connected them and nothing could notice they were
+fighting, so a beat written as a quick aside could be followed by two seconds of silence.
+`cadence` is now the single source: it sets the speech rate _and_ supplies the baseline and
+the **ceiling** for the silence. The ceiling is what makes it a guarantee rather than a
+convention — a `punchy` beat asking for three seconds gets 0.8.
+
+Three things worth knowing before extending it.
+
+**`CADENCE` lives in `@inkcast/core`, and must.** `@inkcast/planner` reads it for `hold` and
+`@inkcast/voice` reads it for the rate; both depend on core and neither may own a copy. This
+is the same fact read by two stages, which is exactly the case the `doubleWell` split is the
+counterexample to.
+
+**Every cadence stays inside the 140–160 wpm teaching band.** The three rates are 0.933, 1.0
+and 1.067 against the 150 target, landing on 140/150/160. A first cut used 0.88–1.12 and put
+the _body_ of a lesson at 168 wpm — the pacing feature quietly breaking the pacing rule the
+repository set when it moved off the MVP's 193.
+
+**Cadence is derived when absent, not defaulted.** `cadenceFor` reads it off the beat: a
+question is `slow_deliberate` because the silence afterwards is the point, a worked example
+and a misconception are slow because both have to be followed, a hook is `punchy`, a beat
+under sixteen words is an aside, everything else builds. A flat default would have left the
+field dead weight on every existing lesson and on the whole no-key path. One rule was tried
+and removed: _short sentences are punchy_ fired on nearly every beat of both shipped lessons,
+because 5–9 words a sentence is simply what good spoken teaching looks like — it measured
+whether the narration was well written, not how the beat should be delivered.
+
+**Emphasis is time, not volume.** No local voice this pipeline runs accepts SSML — Kokoro
+takes a speed and nothing else — so a phrase carrying emphasis is slowed slightly and given a
+longer beat after it, which is what a person actually does. On the board the same words are
+drawn one step up the type scale, and only where they actually appear: emphasis names phrases
+of the _narration_, most of which is never written down.
 
 **8. `entersAtWord`.** Replace phrase cues with word indices end to end. _Done when:_
 every element resolves to a timestamp with no fallback warnings in the render log.

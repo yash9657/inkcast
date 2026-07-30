@@ -1,4 +1,4 @@
-# Handoff — 2026-07-29 · item 1 landed, so the sequence starts at step 7
+# Handoff — 2026-07-30 · step 7 landed, so the sequence starts at root cause 1
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
@@ -12,7 +12,7 @@ after "How to verify a visual change cheaply" is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, thirteen commits on top of `e95258b`. Everything is
+Branch **`visuals-morph-density`**, fourteen commits on top of `e95258b`. Everything is
 local; there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty.
 In order, by subject:
 
@@ -30,102 +30,98 @@ In order, by subject:
     Character rigs: one person, several poses                            <- step 5 (half)
     docs: sequence the remaining work, and demote step 8 on evidence
     One asset router, and a pedagogy that can ask for a pose             <- step 5b
+    Pacing is one decision, and it is cadence                            <- step 7
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2, 3, 4 and 5b are ✅ in `PIPELINE.md`; step 5 is 🟡 with
-the split spelled out there.
+diff it belongs to. Steps 1, 6, 2, 3, 4, 5b and 7 are ✅ in `PIPELINE.md`; step 5 is 🟡
+with the split spelled out there.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
-errors across 9 projects, `pnpm -r test` **569 pass / 0 fail** across all eight
+errors across 9 projects, `pnpm -r test` **578 pass / 0 fail** across all eight
 test-bearing packages. Two lessons now render end to end with no keys: the benchmark
 (104.667 s / 3140 frames at 1920x1080, 61.500 s at 1080x1920, mean fill 52.2% / 55.9%)
 and the new narrative one (2:11, 8 scenes, 4 assets, mean fill 23%). Both `cost $0.00`.
 
-**`STATUS.md` has four appendices**, all 2026-07-29, newest last. The 07-28 body is a
+**`STATUS.md` has five appendices**, the last dated 2026-07-30, newest last. The 07-28 body is a
 historical record and deliberately unedited.
 
 ## What just landed, in one paragraph
 
-The planner held a second, earlier copy of the asset router and it won: `buildAsset`
-matched lucide first and minted the asset with **lucide's slug as the id and lucide's
-prompt as the prompt**, so `"Odysseus tied to the mast of his ship"` shipped as
-`id: 'rocket'` and every downstream lane including the library was asked about a rocket.
-That pre-resolution is deleted — `resolveAsset` is a superset of it, so nothing that used
-to resolve stopped. On top of that the pedagogy can now address the library at all:
-`Lesson.cast`, `VisualIntent.character = { id, pose? }`, and the compiler mints
-`ref: { path: 'characters/<id>', variant: pose }`. `kind: 'narrative'` finally has
-consequences — two `critiqueLesson` rules branch on it. Proof is
-`examples/lessons/longitude.lesson.json`, a new hand-authored narrative lesson that draws
-one explorer standing, walking, pointing and sitting, all composed, no key.
+Pacing was two decisions that could not see each other: an author set `hold` per beat,
+and the voice stage spoke the whole video at one global rate. So a beat written as a
+quick aside could be followed by two seconds of silence and nothing could notice. Step 7
+makes `cadence` the single source — it sets the speech rate _and_ supplies the baseline
+and the **ceiling** for the silence, so a `punchy` beat asking for three seconds gets
+0.8. Measured on real Kokoro audio over identical words: 160.7 / 151.7 / 142.0 wpm, all
+inside the 140–160 teaching band. Cadence is _derived_ when absent (a question is slow
+because the pause is the point; a hook is punchy), so the no-key path exercises it too.
+`emphasis` is the other half: a phrase carrying weight is slowed and given a beat after
+it — emphasis is time, not volume, because no local voice takes SSML — and drawn one step
+heavier where those words appear on the board. Built as fields on the lesson beat rather
+than a seventh pipeline stage; `PIPELINE.md` step 7 explains why.
 
 ## The sequence
 
-Re-ordered by leverage now that item 1 is done. Numbered steps keep their `PIPELINE.md`
+Re-ordered by leverage now that step 7 is done. Numbered steps keep their `PIPELINE.md`
 numbers; unnumbered work is marked.
 
-| #   | Work                                                   | Key? | Why here                                                                                               |
-| --- | ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------ |
-| 1   | **Step 7 — the script stage**                          | no   | The only remaining numbered step that attacks the live quality complaint. Specified below.             |
-| 2   | **Close root cause 1** (unnumbered)                    | no   | Architectural debt whose cost has now bitten **three** times. Promote to 1 if you prefer architecture. |
-| 3   | **Region grouping for single-figure beats**            | no   | Newly evidenced: the narrative lesson fills 23% of frame against the benchmark's 52%.                  |
-| 4   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, and a wrong drawing today.                                                           |
-| 5   | **The lucide confidence threshold** (known defect)     | no   | Newly visible: Odysseus now draws `presentation` instead of `rocket`. Better, still wrong.             |
-| 6   | **Step 8 — `entersAtWord`**                            | no   | **Demoted on evidence** — still insurance, not a fix. See below.                                       |
-| 7   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                                  |
-| 8   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                     |
+| #   | Work                                                   | Key? | Why here                                                                                          |
+| --- | ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------- |
+| 1   | **Close root cause 1** (unnumbered)                    | no   | The last architectural debt, and its cost has now bitten **four** times. Specified below.         |
+| 2   | **Region grouping for single-figure beats**            | no   | The live quality complaint with the most evidence: 23% frame fill against the benchmark's 52%.    |
+| 3   | **The `doubleWell` disagreement** (known defect)       | no   | Small, contained, a wrong drawing today — and the canonical instance of the root-cause-1 pattern. |
+| 4   | **The lucide confidence threshold** (known defect)     | no   | Odysseus draws `presentation`. Better than `rocket`, still wrong.                                 |
+| 5   | **Step 8 — `entersAtWord`**                            | no   | **Still demoted on evidence.** See below — and note step 7 took the wind out of it further.       |
+| 6   | **Finish step 5** — i2i adapter + real identity gate   | YES  | Blocked without a provider. Nothing else waits on it.                                             |
+| 7   | **Step 9, the cost target, 9:16 equations, music/SFX** | some | Genuinely later. `PIPELINE.md` "Still open" carries the reasoning.                                |
 
-**2 — close root cause 1.** `visuals.json` is read for equations only; plots still go
-through `resolvePlot` in-process and every other element type is re-derived by the
-renderer's own `primsFor`. It needs `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`)
-derivable somewhere the visuals stage can reach, probably `@inkcast/core`. It sits at 2
-rather than 1 only because its payoff is invisible in a frame — but note this bug class has
-now cost **three** steps of work: the dead plot solver (step 1), the planner pre-empting the
-asset router (step 5b), and the two curve catalogues (`doubleWell`, still open). A fourth
-instance is likely while the pattern is still available.
+**2 — region grouping.** The narrative lesson renders at **23% mean content fill** against
+the benchmark's 52%, and the camera warning names the cause exactly: each beat is one figure
+in its own cell, so the camera holds a mostly-empty frame. The benchmark hides this because
+its beats share a drawing. Any lesson whose beats each have their own picture looks like
+this, which is most narrative lessons.
 
-**3 — region grouping.** New evidence rather than a new idea. The narrative lesson renders
-at **23% mean content fill** against the benchmark's 52%, and the camera warning names the
-cause exactly: each beat is one figure in its own cell, so the camera holds a mostly-empty
-frame. The benchmark hides this because its beats share a drawing. Any lesson whose beats
-each have their own picture will look like this, which is most narrative lessons.
-
-**5 — the lucide threshold.** With the description now preserved, an unmatched subject
+**4 — the lucide threshold.** With the description preserved (step 5b), an unmatched subject
 falls to a _generic_ wrong icon rather than a confidently wrong one: `odysseus-tied-the-mast`
-matches `presentation` on a token. That is an improvement — the id and prompt survive, so
-the generator fixes it the moment a key exists — but a lettered card reading the actual
-description would be more honest than a presentation icon. Tightening `matchAsset`'s
-threshold touches every existing project, so it is its own piece with its own control run.
+matches `presentation` on a token. The id and prompt survive, so a key fixes it properly —
+but a lettered card carrying the real description would be more honest than a presentation
+icon. Tightening `matchAsset` touches every existing project, so it wants its own control run.
 
-**6 — step 8, and why it stays down.** The rationale in `PIPELINE.md` is sound: a phrase has
-to be found again by the aligner and can fail to match or match twice, where an index cannot.
-But measured on the shipped lesson, **67 of 67 cues locate cleanly by text alone**. The new
-narrative lesson is more interesting: it initially produced **six** cue warnings, all of the
-"cue lands at 92% of the narration but this is the beat's main picture" kind — which is a
-_lesson-authoring_ problem, not a matching one, and `entersAtWord` would not have fixed any
-of them. Re-cueing on opening phrases took it to one, and that one is `b7_chain`, the
-compiler's own recap element, which no lesson can control. So the fragility step 8 removes
-still does not fire; what does fire is authors cueing the main figure too late.
+**5 — step 8, and why it stays down.** The rationale in `PIPELINE.md` is sound in principle: a
+phrase has to be found again by the aligner and can fail to match or match twice, where an
+index cannot. But measured, it does not fire — 67 of 67 cues on the benchmark locate by text
+alone. The narrative lesson's six warnings were a _different_ thing entirely (cues placed too
+late in their own narration), fixed by re-cueing, and step 7 is now the stage that owns that
+class of problem. One warning remains anywhere: `b7_chain`, the compiler's own recap element,
+which no lesson can control.
 
-## The next piece (item 1) — step 7, the script stage
+## The next piece (item 1) — close root cause 1
 
-`cadence` drives both the TTS rate and the trailing `hold`; `emphasis` drives voice and board
-weight. It is here because `STATUS.md`'s standing verdict names pacing among the live quality
-failures ("every region change opens on a caption in a void") and this is the step that owns
-pacing. Self-contained, needs no key.
+`visuals.json` is read for **equations only**. Plots still go through `resolvePlot` in-process
+and every other element type is re-derived by the renderer's own `primsFor`. So there are two
+implementations of most geometry that must agree by hand, and the better one is dead.
 
-_Done when:_ a punchy beat is measurably faster and holds shorter than a `slow_deliberate`
-one.
+It sits first now because everything with a visible payoff ahead of it is done, and because
+**this bug class has now cost four pieces of work**: the dead plot solver (step 1), the
+planner pre-empting the asset router (step 5b), the two curve catalogues (`doubleWell`, still
+open below), and the `silence` provider applying the speech rate twice (found by step 7). A
+fifth instance is likely while the pattern is still available.
 
-**Read the six cue warnings above before starting.** They are the closest thing to a
-specification for what this stage is for: the voice stage already knows when a cue lands too
-late and already clamps it to 15%, and it is _telling the author_ to fix the lesson. A script
-stage that owned pacing could resolve that itself rather than warning — which is the same
-"derive it rather than detect it" move step 6 made for the analogy.
+_What it needs:_ `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere
+the visuals stage can reach, probably `@inkcast/core`. That is the actual blocker — a plot's
+caption size is its unit of measurement, so plot geometry is camera-dependent in a way an
+equation's is not, which is exactly why equations went first.
 
-### If you would rather not touch pacing
+_Done when:_ the renderer stops calling `resolvePlot` and reads plot geometry from the
+sidecar, with `projects/final-169` geometry hashes explaining every stroke that moves.
 
-Take item 2 (root cause 1) instead — it is the architectural debt, it needs no key, and it
-shares no code with the script stage.
+**Verify it with `geomhash.mts`, not `sbhash.mts`** — this is a visuals/render change and the
+benchmark is the project with eight plots. See "How to verify a visual change cheaply".
+
+### If you would rather work on something visible
+
+Take item 2 (region grouping). It needs no key, it is the complaint with the most measured
+evidence behind it, and it shares no code with root cause 1.
 
 ## Where step 5 stopped
 
@@ -269,6 +265,21 @@ see is a Next.js finance app, you are in the wrong repo. There is no git remote,
 `git log` against the commit list above to confirm where you are. Shell `cd` does not
 persist between commands; use absolute paths.
 
+**A constant that is only ever one value hides every bug in the code that reads it.**
+The `silence` provider sized its clip from `req.targetWpm` _and_ divided by `req.speed` —
+which is already `targetWpm / naturalWpm` — so it applied the rate twice. That was invisible
+for as long as every scene shared one global rate, because `speed` stayed at 1 and squaring
+1 changes nothing. Per-scene `cadence` made it measurable in the first test that used it:
+140 vs 160 wpm came out as 1.31x instead of 1.14x. When you make something vary that never
+varied before, expect its consumers to be wrong in ways nothing could previously detect.
+
+**Words-per-minute read off a whole scene is not the speech rate.** `durationSec` includes
+the inter-clause gaps and the trailing pad, and a beat of four short sentences has far more
+gap than one long sentence. Measured that way, the narrative lesson's `punchy` hook looks
+_slower_ (121.7 wpm) than its `building_energy` steps (146 wpm) — which reads like cadence
+being backwards and is not. To measure delivery, synthesise **identical words** at two
+cadences and compare, the way `voice.test.ts` does.
+
 **`git stash -u` takes your untracked measurement tool with it.** This cost a measurement in
 the session that wrote this file: a throwaway hashing script under `packages/` vanished at
 the exact moment the "before" run needed it. That is precisely why `geomhash.mts`,
@@ -334,11 +345,14 @@ reproducible. `baseOptions` nudges it to 1; do not remove that.
 
 **Bump the stage version when output changes — and know when not to.**
 `packages/pipeline/src/keys.ts` carries `STAGE_CODE_VERSION` and the reasoning; current state
-is `storyboard@4, visuals@6, render@5`. The test is whether the stage produces a different
+is `storyboard@5, visuals@6, render@5`. The test is whether the stage produces a different
 artefact _for identical inputs_. Step 5b bumped `storyboard` because every asset id moved from
 a lucide slug to a description slug — note honestly that the benchmark's own hash did _not_
 move, since it has no assets, so the bump is conservative for that lesson and correct in
-general. Step 5 bumped nothing on purpose. **Editing a shipped rig in place is the case that
+general. Step 7 bumped it again for `cadence`/`emphasis` on every scene. Step 5 bumped nothing
+on purpose, and **step 7 deliberately did not bump `voice`**: a storyboard with no cadence
+produces byte-identical audio, and a scene that has one invalidates itself precisely, because
+the per-scene wpm and the emphasis list are both in the voice cache key. **Editing a shipped rig in place is the case that
 does need one** — every project that resolved it keeps its old drawing otherwise, which is
 also the argument for adding `explorer.v2.json` instead.
 
@@ -400,6 +414,18 @@ cause: one element per cell, so the camera holds mostly whitespace. Item 3 in "T
 matches `presentation` on a token where a lettered card carrying the real description would
 be honest. Better than the `rocket` it drew before — the id and prompt now survive, so a key
 fixes it properly — but still a wrong drawing. Item 5.
+
+**Pacing is bounded by cadence, which means an author's `hold` is a request.** A beat marked
+`punchy` asking for three seconds of silence gets 0.8, silently. That is the guarantee working
+— it is what stops a quick beat sitting in dead air — but it will surprise someone who set a
+hold and watched it not take effect. The ceilings are 0.8 / 1.6 / 3.0s for punchy /
+building_energy / slow_deliberate, in `CADENCE` in `packages/core/src/lesson.ts`.
+
+**Emphasis lands on a clause, not a word.** The clip is assembled per clause, so that is the
+unit available: a phrase carrying emphasis slows the whole clause containing it by 0.92x and
+adds 0.18s after it. Word-level stress needs the aligner's output fed back into synthesis,
+which is step 8's machinery. The numbers are small on purpose — a heavy hand at this
+granularity drags a sentence rather than stressing a word.
 
 **Cue resolution is not failing for the reason step 8 addresses.** 67 of 67 cues on the
 benchmark locate by text alone. The narrative lesson produced six warnings of a _different_

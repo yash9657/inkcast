@@ -121,6 +121,7 @@ export function heuristicPlan(doc: SourceDoc, opts: PlanOptions = {}): Storyboar
       camera: { x: 0, y: 0, zoom: 1, transition: 0 },
       elements: [title],
       hold: 0,
+      emphasis: [],
     });
   }
 
@@ -419,6 +420,7 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
           camera: { x: 0, y: 0, zoom: 1, transition: 0.45 },
           elements,
           hold: 0,
+          emphasis: [],
         },
         hints,
         slots: { ...ctx.prevSlots, ...slots },
@@ -448,8 +450,11 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       elements,
       // Deliberate silence is a teaching decision, so it belongs to the lesson
       // compiler (see `compile.ts`). The document planner is the no-key CI
-      // fixture for the renderer and holds nothing.
+      // fixture for the renderer and holds nothing. `cadence` is absent for the
+      // same reason: a document beat has no delivery to speak of, so the voice
+      // stage uses its global rate, exactly as it did before cadence existed.
       hold: 0,
+      emphasis: [],
     },
     hints,
     slots,

@@ -34,7 +34,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Scene, StageOptions, Storyboard } from '@inkcast/core';
-import { hash, isFresh, logger, markFresh, report, totalDuration } from '@inkcast/core';
+import { CADENCE, hash, isFresh, logger, markFresh, report, totalDuration } from '@inkcast/core';
 import {
   appendSilence,
   measureDuration,
@@ -143,11 +143,37 @@ type SynthContext = {
   dir: string;
   speed: number;
   targetWpm: number;
+  /** Verbatim phrases of this scene's narration that carry its weight. */
+  emphasis: readonly string[];
   language: string;
   padSec: number;
   chain: ReturnType<typeof openVoiceChain>;
   aligner: ReturnType<typeof openAligner>;
 };
+
+/**
+ * How much a phrase carrying emphasis is slowed, and how much extra room it gets
+ * after it.
+ *
+ * Emphasis is *time*, not volume. No local voice this pipeline can run accepts SSML —
+ * Kokoro takes a speed and nothing else — so getting louder is not available, and a
+ * gain applied to the samples afterwards would be an artefact rather than a delivery.
+ * What is available is exactly what a person actually does with a phrase that
+ * matters: slow down over it and leave a moment after it.
+ *
+ * Both numbers are small on purpose. This lands on a *clause*, because clauses are
+ * the unit the clip is already assembled from, so a heavy hand here does not stress a
+ * word — it drags a whole sentence.
+ */
+const EMPHASIS_SLOWDOWN = 0.92;
+const EMPHASIS_EXTRA_GAP = 0.18;
+
+/** Does this phrase contain any of the scene's emphasised spans? */
+function carriesEmphasis(phrase: string, emphasis: readonly string[]): boolean {
+  if (!emphasis.length) return false;
+  const haystack = phrase.toLowerCase();
+  return emphasis.some((e) => haystack.includes(e.trim().toLowerCase()));
+}
 
 /**
  * Synthesise one scene phrase by phrase and assemble the clip.
@@ -178,10 +204,11 @@ async function synthesizeScene(
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i]!;
       const tmp = path.join(scratch, `${index}-${i}.wav`);
+      const stressed = carriesEmphasis(phrase.text, ctx.emphasis);
       const result = await ctx.chain.synthesize({
         text: phrase.text,
-        speed: ctx.speed,
-        targetWpm: ctx.targetWpm,
+        speed: stressed ? round3(ctx.speed * EMPHASIS_SLOWDOWN) : ctx.speed,
+        targetWpm: stressed ? Math.round(ctx.targetWpm * EMPHASIS_SLOWDOWN) : ctx.targetWpm,
         language: ctx.language,
         outPath: tmp,
       });
@@ -193,7 +220,9 @@ async function synthesizeScene(
 
       parts.push({
         samples: trimmed.length ? trimmed : samples,
-        gapSec: gapAfter(phrase, phrases[i + 1]),
+        // The moment after the phrase that mattered. Added to the clause gap rather
+        // than replacing it, so punctuation still does its own work.
+        gapSec: gapAfter(phrase, phrases[i + 1]) + (stressed ? EMPHASIS_EXTRA_GAP : 0),
       });
 
       // Provider timings are relative to the untrimmed clip; rebase them so they
@@ -350,11 +379,18 @@ export async function narrate(
 
       const active = await chain.active();
       lastProvider = active.id;
+      // This scene's own rate. `cadence` is the storyboard's single pacing decision —
+      // it also fixed `scene.hold`, upstream — so a beat written to be delivered
+      // quickly is spoken quickly *and* left quickly, rather than the two being set
+      // by stages that never meet. Absent cadence is the old behaviour exactly.
+      const sceneWpm = scene.cadence
+        ? clamp(round3(targetWpm * CADENCE[scene.cadence].rate), 80, 260)
+        : targetWpm;
       // Speed is derived, not assumed: dividing the target rate by the voice's
       // measured baseline is the only way "140-160 wpm" becomes true rather than
       // aspirational. Providers that set an absolute rate ignore it.
       const speed = active.naturalWpm
-        ? clamp(round3(userSpeed * (targetWpm / active.naturalWpm)), 0.5, 2)
+        ? clamp(round3(userSpeed * (sceneWpm / active.naturalWpm)), 0.5, 2)
         : userSpeed;
 
       const inputHash = hash(
@@ -362,12 +398,16 @@ export async function narrate(
         active.id,
         active.voice,
         speed,
-        targetWpm,
+        sceneWpm,
         padSec,
         scene.hold,
         phraseSplit,
         alignMode,
         phrases.length,
+        // Emphasis changes the audio — a phrase carrying it is slowed and given a
+        // longer beat after it — so it belongs in the key or a re-emphasised lesson
+        // reuses the clip that ignored it.
+        scene.emphasis.join('|'),
         CLIP_SIGNATURE,
       );
       sceneHashes.push(inputHash);
@@ -382,7 +422,8 @@ export async function narrate(
       const ctx: SynthContext = {
         dir,
         speed,
-        targetWpm,
+        targetWpm: sceneWpm,
+        emphasis: scene.emphasis,
         language: out.meta.language,
         padSec,
         chain,
@@ -413,19 +454,23 @@ export async function narrate(
         const finalActive = await chain.active();
         lastProvider = finalActive.id;
         const finalSpeed = finalActive.naturalWpm
-          ? clamp(round3(userSpeed * (targetWpm / finalActive.naturalWpm)), 0.5, 2)
+          ? clamp(round3(userSpeed * (sceneWpm / finalActive.naturalWpm)), 0.5, 2)
           : userSpeed;
+        // Same shape as the key above, and it has to stay that way: this is the one
+        // that is written after a provider swap, so a field added there and missed
+        // here would silently mark a clip fresh under the wrong inputs.
         const finalHash = hash(
           text,
           finalActive.id,
           finalActive.voice,
           finalSpeed,
-          targetWpm,
+          sceneWpm,
           padSec,
           scene.hold,
           phraseSplit,
           alignMode,
           phrases.length,
+          scene.emphasis.join('|'),
           CLIP_SIGNATURE,
         );
         sceneHashes[i] = finalHash;

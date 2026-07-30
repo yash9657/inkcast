@@ -589,3 +589,97 @@ beats do not share a drawing. Not caused by this piece, and not hidden by it.
 and should not start depending on `@inkcast/visuals` to. The copy is pinned by a test in
 `pipeline`, which is the package that can see both — add a pose to a rig and it fails until the
 model is told.
+
+# The script stage, 2026-07-30
+
+`PIPELINE.md` step 7, built as fields on the lesson beat rather than as a seventh pipeline
+stage. The reasoning for that choice is in `PIPELINE.md`; this section is the measurement.
+
+## What was actually broken
+
+Pacing was **two decisions that could not see each other**. An author set `hold` per beat in
+the lesson; the voice stage spoke the entire video at one global `targetWpm`. So a beat
+written as a quick aside could be followed by two seconds of silence, and a worked example
+could be raced through at the same words-per-minute as a punchline — and nothing anywhere
+could notice the two were fighting. That is the same bug class as the dead plot solver and
+the duplicated asset router, in its third and fourth appearance.
+
+## The acceptance bar, precisely
+
+> _Done when:_ a punchy beat is measurably faster and holds shorter than a slow_deliberate one.
+
+**Met, on real Kokoro audio, over identical words.** Three scenes, same 29-word narration,
+differing only in cadence:
+
+    punchy            10.825s   160.7 wpm     hold ceiling 0.8s
+    building_energy   11.470s   151.7 wpm     hold ceiling 1.6s
+    slow_deliberate   12.250s   142.0 wpm     hold ceiling 3.0s
+
+    slow / punchy = 1.132x
+
+The three rates land on the 140/150/160 targets they were designed for, and all three sit
+inside the 140–160 wpm teaching band. That band is not decoration — it is the decision that
+moved this project off the MVP's 193 wpm — so an early version of this table using 0.88–1.12
+was wrong twice over: it put the _body_ of a lesson at 168 wpm, which is the pacing feature
+breaking the pacing rule.
+
+Also pinned in the fast tests, through the `silence` provider: the same ratio, the cache key,
+and the emphasis timing.
+
+## What the pacing change actually moved
+
+Cadence is derived from the beat when absent, so both shipped lessons are re-paced without
+either being edited. Across 29 scenes (two lessons × two presets), **5 holds moved**:
+
+    gradient-descent standard  worked   0.95 -> 1.05    slow_deliberate floor
+    gradient-descent short     worked   0.6  -> 1.0     slow_deliberate floor
+    longitude        short     worked   0.6  -> 1.0     slow_deliberate floor
+    longitude        standard  hook     1.55 -> 0.8     punchy ceiling
+    longitude        short     hook     1.3  -> 0.8     punchy ceiling
+
+Every one is the mechanism doing what it says and nothing else: arithmetic gets the pause it
+needed and was not getting, and a hook written to be quick stops sitting in a long silence.
+The other 24 holds are unchanged, which is the outcome to want — this is a pacing fix, not a
+re-timing of everything.
+
+## A real bug this exposed
+
+The `silence` provider applied the rate **twice**: it sized its clip from `req.targetWpm` and
+then divided by `req.speed`, which is already `targetWpm / naturalWpm`. Invisible for as long
+as every scene shared one global rate — `speed` stayed at 1, so squaring it changed nothing —
+and measurable the instant cadence made the rate per-scene: 140 vs 160 wpm came out as 1.31x
+instead of 1.14x. Fixed by generating at the declared baseline and letting `speed` carry the
+rate, never both.
+
+Worth recording as a pattern rather than a one-off: a constant that is only ever one value
+hides every bug in the code that consumes it.
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **578 pass, 0 fail** across all eight test-bearing packages (569 → 578).
+
+`STAGE_CODE_VERSION.storyboard` 4 → 5: every scene now carries `cadence` and `emphasis`, and
+`hold` is clamped by the cadence rather than only by a global 3s cap. **`voice` is
+deliberately not bumped** — a storyboard with no cadence produces byte-identical audio, and a
+scene that has one invalidates itself precisely, because the per-scene wpm and the emphasis
+list are both in the voice cache key. A global bump is for when you cannot tell which scenes
+moved; here you can.
+
+The narrative lesson still renders end to end with no key at `cost $0.00`.
+
+## What is deliberately not done
+
+**No `targetSec` per beat.** The sketch in `PIPELINE.md` has one. `adaptLesson` already fits
+a lesson to its preset's second budget, and a per-beat target would be a second opinion about
+the same quantity — which is the exact shape this piece exists to remove.
+
+**Emphasis lands on a clause, not a word.** The clip is assembled per clause, so that is the
+unit available. A word-level version needs the aligner's output to feed back into synthesis,
+which is step 8's machinery, not this one's. The numbers are small on purpose (0.92x speed,
++0.18s gap) because a heavy hand at clause granularity drags a whole sentence.
+
+**The heuristic document planner stays uncadenced.** `heuristic.ts` already declares that
+deliberate silence is a teaching decision belonging to the lesson compiler, and holds nothing.
+A document beat has no delivery to speak of, so those scenes carry no cadence and the voice
+stage uses its global rate — exactly as before.

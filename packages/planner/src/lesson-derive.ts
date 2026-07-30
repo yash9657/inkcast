@@ -37,8 +37,14 @@ const log = logger('planner:lesson:derive');
  *
  * A function rather than a shared constant so no two beats alias one `derivedFrom`.
  */
-function grounded(): Pick<LessonStep, 'from' | 'derivedFrom'> {
-  return { from: 'given', derivedFrom: [] };
+function grounded(): Pick<LessonStep, 'from' | 'derivedFrom' | 'emphasis'> {
+  // No emphasis, and no `cadence` either: this author lifts the document's own
+  // sentences and has no opinion about which words carry a beat or how it should be
+  // delivered. Leaving `cadence` unset is not a shrug — `cadenceFor` reads it off the
+  // beat's role and shape, so a no-key lesson is still paced beat by beat rather than
+  // flat. Guessing emphasis from prose would be the other thing: a heuristic dressed
+  // as intent, which is what `lesson-derive` exists to avoid claiming.
+  return { from: 'given', derivedFrom: [], emphasis: [] };
 }
 
 /* -------------------------------------------------------------- doc reading */

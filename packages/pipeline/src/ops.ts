@@ -180,7 +180,12 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
           elements: [],
           // Inherit the neighbour's silence: an inserted beat lands in the same
           // rhythm as the one it follows, rather than running straight into it.
+          // `cadence` comes with it, and must: inheriting the hold alone would give
+          // the new scene a considered pause and the global speech rate, which is
+          // precisely the disagreement cadence exists to make impossible.
           hold: neighbour.hold,
+          emphasis: [],
+          ...(neighbour.cadence === undefined ? {} : { cadence: neighbour.cadence }),
           ...(neighbour.region === undefined ? {} : { region: neighbour.region }),
         };
         sb.scenes.splice(at, 0, scene);

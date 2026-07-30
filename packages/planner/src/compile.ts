@@ -27,6 +27,7 @@
 import type {
   Analogy,
   Asset,
+  Cadence,
   CastMember,
   DiagramElement,
   Element,
@@ -38,7 +39,14 @@ import type {
   TextElement,
   VisualIntent,
 } from '@inkcast/core';
-import { lessonBeats, logger, parseStoryboard, report } from '@inkcast/core';
+import {
+  holdForCadence,
+  lessonBeats,
+  logger,
+  parseStoryboard,
+  report,
+  resolveEmphasis,
+} from '@inkcast/core';
 import { deriveCues, preferredCue } from './cues.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
@@ -203,6 +211,18 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       cellBands: share?.bands ?? 1,
       cellBand: share?.band ?? 0,
     });
+    // Pacing is one decision. `cadence` sets this scene's speech rate (read later by
+    // the voice stage) and bounds its trailing silence, so the two are settled here
+    // together rather than by two stages that never meet.
+    const paced = holdFor(step, role, preset);
+    const emphasis = resolveEmphasis(step);
+    for (const phrase of emphasis.missing) {
+      log.warn(
+        `beat ${i} emphasises "${phrase}", which is not in its narration — dropped ` +
+          `(emphasis is located by text, so a phrase that is not there cannot be spoken ` +
+          `or drawn differently)`,
+      );
+    }
     const scene: Scene = {
       id: `s${i}`,
       narration: step.narration.trim(),
@@ -210,7 +230,9 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       elements: built,
       region: board.regionOf(i).key,
       role,
-      hold: holdFor(step, role, preset),
+      hold: paced.hold,
+      cadence: paced.cadence,
+      emphasis: emphasis.found,
     };
     assignTiming(scene, built);
     return scene;
@@ -352,12 +374,45 @@ type BoardMemory = {
 };
 
 /** Seconds of silence after a beat: a breath, and longer after a question. */
-function holdFor(step: LessonStep, role: BeatRole, preset: Preset): number {
+/**
+ * This beat's cadence and the silence that follows it, settled together.
+ *
+ * The pedagogical bonuses are unchanged — a question the learner is meant to attempt
+ * needs real silence, and a misconception needs a moment to land — but they are now
+ * *requests* rather than the last word. `holdForCadence` adds them to the cadence's
+ * baseline and clamps the result to what that cadence permits, so a beat delivered
+ * as a quick aside cannot come out with two seconds of dead air after it. That was
+ * previously possible and had no way of being noticed: the hold was decided here and
+ * the speech rate was decided in the voice stage, from a global setting.
+ */
+/**
+ * Text roles in descending visual weight — the renderer owns the type scale, so this
+ * is the order, not the sizes.
+ */
+const TEXT_WEIGHT: TextElement['role'][] = ['title', 'heading', 'body', 'label', 'caption'];
+
+/**
+ * One step up the type scale, when this text carries the beat's emphasis.
+ *
+ * One step and no more. Emphasis that jumps a caption to `title` stops being emphasis
+ * and becomes a different layout — and the planner has already measured the cell for
+ * the role it chose.
+ */
+function weightUp(role: TextElement['role'], stressed: boolean): TextElement['role'] {
+  if (!stressed) return role;
+  const i = TEXT_WEIGHT.indexOf(role);
+  return i > 0 ? TEXT_WEIGHT[i - 1]! : role;
+}
+
+function holdFor(
+  step: LessonStep,
+  role: BeatRole,
+  preset: Preset,
+): { cadence: Cadence; hold: number } {
   const asks = /[?]\s*$/.test(step.narration.trim());
-  const base = step.hold + preset.holdBonus;
-  // A question the learner is meant to attempt needs real silence, not a beat.
-  const bonus = asks ? 1 : role === 'misconception' ? 0.4 : 0;
-  return round(Math.min(3, base + bonus), 2);
+  const bonus = preset.holdBonus + (asks ? 1 : role === 'misconception' ? 0.4 : 0);
+  const paced = holdForCadence(step, role, bonus);
+  return { cadence: paced.cadence, hold: round(paced.hold, 2) };
 }
 
 /* --------------------------------------------------------------- one beat */
@@ -395,20 +450,41 @@ function buildBeat(ctx: BeatContext): Element[] {
   const cueOf = new Map<string, string>();
   const elements: Element[] = [];
 
+  /**
+   * The other half of `emphasis`: words the beat leans on are drawn heavier.
+   *
+   * Only where the emphasised words are *actually on the board*. Emphasis names
+   * phrases of the narration, and most of what is said is never written down — so
+   * this promotes the elements that happen to carry those words and silently leaves
+   * the rest, rather than inventing a mark for something the learner cannot see.
+   */
+  const stressed = resolveEmphasis(step).found;
+  const carries = (text: string): boolean => {
+    if (!stressed.length) return false;
+    const haystack = text.toLowerCase();
+    return stressed.some((e) => haystack.includes(e.toLowerCase()));
+  };
+
   /* --- the caption that names this cell --- */
   const captionText = captionFor(step, role, preset);
-  const caption = makeText(eid('idea'), captionText, preset.captionRole, {
-    maxWidth: cell.w,
-    align: 'center',
-  });
+  const caption = makeText(
+    eid('idea'),
+    captionText,
+    weightUp(preset.captionRole, carries(captionText)),
+    {
+      maxWidth: cell.w,
+      align: 'center',
+    },
+  );
 
   /* --- text notes: the model's own text intents, plus worked arithmetic --- */
   const { notes, figures } = partition(step);
   const noteEls: Array<TextElement | EquationElement> = notes.map((intent, k) => {
+    const body = noteText(intent.describe);
     const el = makeText(
       eid(`note${k}`),
-      noteText(intent.describe),
-      preset.vertical ? 'heading' : 'body',
+      body,
+      weightUp(preset.vertical ? 'heading' : 'body', carries(body)),
       {
         maxWidth: cell.w,
         align: 'center',

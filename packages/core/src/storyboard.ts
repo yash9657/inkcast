@@ -474,8 +474,32 @@ export const Scene = z.object({
    * screen. A learner needs a breath before the next idea, and a longer pause
    * after a question so they can attempt an answer. Without this every gap is
    * unintended dead air.
+   *
+   * Derived from `cadence` rather than copied from the lesson — see `Cadence` in
+   * `lesson.ts`. The two are set together so they cannot disagree.
    */
   hold: z.number().min(0).default(0),
+  /**
+   * How this beat is delivered, carried through from the lesson.
+   *
+   * The voice stage reads it for this scene's speech rate, and `hold` above was
+   * derived from it. That is the point: one decision reaches both, so a beat
+   * delivered as a quick aside cannot also be followed by a long silence.
+   *
+   * Optional so a storyboard written before this existed still parses; absent means
+   * the voice stage uses its global target rate, which is what every scene got
+   * before.
+   */
+  cadence: z.enum(['slow_deliberate', 'building_energy', 'punchy']).optional(),
+  /**
+   * Phrases of `narration` that carry this beat's weight, verbatim and already
+   * checked to occur in it.
+   *
+   * Spoken with more room and drawn with more weight. Validated upstream
+   * (`resolveEmphasis`), so anything here is known to be findable — a consumer may
+   * fail to place it, but not because the phrase was never in the text.
+   */
+  emphasis: z.array(z.string()).default([]),
 
   /* ---- filled in by the voice stage; do not author by hand ---- */
   /** Measured duration of this scene's synthesised narration, in seconds. */

@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import type { PlotElement, Scene, Storyboard } from '@inkcast/core';
-import { Storyboard as StoryboardSchema, lessonBeats, parseStoryboard } from '@inkcast/core';
+import {
+  CADENCE,
+  Storyboard as StoryboardSchema,
+  lessonBeats,
+  parseStoryboard,
+} from '@inkcast/core';
 import { compileLesson, findReuse, updateLine } from '../src/compile.js';
 import { deriveCues, cueResolves } from '../src/cues.js';
 import { curveY, descend, evalFn, fitYDomain, slopeAt } from '../src/curves.js';
@@ -458,6 +463,7 @@ test('updateLine computes the arithmetic rather than copying it', () => {
       because: 'y',
       from: 'given',
       derivedFrom: [],
+      emphasis: [],
       narration: 'anything',
       hold: 0,
       visuals: [{ describe: 'w = 5, slope = -2, learning rate 0.5', kind: 'plot' }],
@@ -474,6 +480,7 @@ test('updateLine computes the arithmetic rather than copying it', () => {
         because: '',
         from: 'given',
         derivedFrom: [],
+        emphasis: [],
         narration: '',
         hold: 0,
         visuals: [],
@@ -774,4 +781,53 @@ test('naming a character outranks `kind`, which defaults to plot', () => {
   assert.equal(assets.length, 1);
   assert.equal(assets[0]?.ref?.path, 'characters/explorer');
   assert.equal(assets[0]?.ref?.variant, 'sitting');
+});
+
+/* ------------------------------------------------------------- pacing on the board */
+
+test('every scene carries the cadence its hold was derived from', () => {
+  // The two travel together or they are two decisions again: the voice stage reads
+  // `cadence` for this scene's rate, and `hold` was clamped by that same cadence.
+  for (const scene of sb.scenes) {
+    assert.ok(scene.cadence, `${scene.id} has no cadence`);
+    assert.ok(
+      scene.hold <= CADENCE[scene.cadence].maxHold + 0.001,
+      `${scene.id} exceeds its ceiling`,
+    );
+  }
+  // The shipped lesson opens on a question, which is the one thing that outranks a
+  // hook's punchiness — the silence afterwards is the point of asking.
+  const hook = sceneFor(sb, 'hook');
+  assert.equal(hook.cadence, 'slow_deliberate');
+  assert.ok(hook.hold > 2, `the hook must hold, measured ${hook.hold}s`);
+  // Arithmetic is followed, not raced.
+  assert.equal(sceneFor(sb, 'worked').cadence, 'slow_deliberate');
+});
+
+test('emphasis reaches the board as visual weight, and only where the words are', () => {
+  const l = structuredClone(lesson);
+  const beat = l.steps[0]!;
+  // A phrase that is genuinely in this beat's narration, and one that is not.
+  const phrase = beat.narration.split(/\s+/).slice(1, 4).join(' ');
+  beat.emphasis = [phrase, 'a phrase that appears nowhere'];
+  beat.visuals = [{ describe: `${phrase} is the whole point`, kind: 'text' }] as never;
+
+  const board = compileLesson(l, {});
+  const scene = board.scenes.find((s) => s.narration === beat.narration.trim());
+  assert.ok(scene, 'the beat did not compile to a scene');
+  // Only the findable one survives — an unfindable phrase cannot be located by the
+  // voice stage or the board, so carrying it forward would be a silent no-op.
+  assert.deepEqual(scene.emphasis, [phrase]);
+
+  // The note carrying those words is drawn a step heavier than a plain note.
+  const note = scene.elements.find((el) => el.type === 'text' && el.id.includes('note0'));
+  assert.ok(note && note.type === 'text');
+  assert.equal(note.role, 'heading', 'an emphasised note should outweigh a plain body note');
+
+  const plain = compileLesson(lesson, {}).scenes.flatMap((s) =>
+    s.elements.filter((el) => el.type === 'text' && el.id.includes('note0')),
+  );
+  for (const el of plain) {
+    assert.equal(el.type === 'text' && el.role, 'body', 'an unemphasised note stays at body');
+  }
 });

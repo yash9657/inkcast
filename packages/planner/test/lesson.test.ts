@@ -3,7 +3,15 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Lesson, critiqueLesson, lessonBeats } from '@inkcast/core';
+import {
+  CADENCE,
+  Lesson,
+  cadenceFor,
+  critiqueLesson,
+  holdForCadence,
+  lessonBeats,
+  resolveEmphasis,
+} from '@inkcast/core';
 import { buildDoc } from '../src/ingest.js';
 import { anthropicLesson, anthropicLessonEdit } from '../src/lesson-anthropic.js';
 import { lessonJsonSchema } from '../src/schema.js';
@@ -355,6 +363,8 @@ test('the Lesson tool schema makes the shape of a lesson non-optional', async ()
       'derivedFrom',
       'narration',
       'visuals',
+      'cadence',
+      'emphasis',
       'hold',
     ]);
   }
@@ -485,5 +495,94 @@ test('a narrative lesson with no cast is a critique failure', () => {
   assert.deepEqual(
     critiqueLesson({ ...l, kind: 'stem' as const }).filter((p) => /cast/.test(p)),
     [],
+  );
+});
+
+/* ------------------------------------------------------------------- pacing */
+
+/** A minimal beat, so a cadence rule can be tested without a whole lesson. */
+function beat(narration: string, extra: Partial<Parameters<typeof cadenceFor>[0]> = {}) {
+  return {
+    idea: 'x',
+    because: 'y',
+    from: 'given' as const,
+    derivedFrom: [],
+    emphasis: [],
+    narration,
+    hold: 0.4,
+    visuals: [],
+    ...extra,
+  };
+}
+
+test('cadence is read off what the beat is doing', () => {
+  const body =
+    'The slope under your feet tells you which way the ground falls away from here, ' +
+    'and that is the only thing you need in order to take a sensible step downhill.';
+  // A question is slow, whatever role it plays: the silence afterwards is the point.
+  assert.equal(cadenceFor(beat('So what do you do?'), 'step'), 'slow_deliberate');
+  assert.equal(cadenceFor(beat('So what do you do?'), 'hook'), 'slow_deliberate');
+  // Arithmetic and corrections have to be followed.
+  assert.equal(cadenceFor(beat(body), 'worked'), 'slow_deliberate');
+  assert.equal(cadenceFor(beat(body), 'misconception'), 'slow_deliberate');
+  // A hook that is not a question has five seconds to earn attention.
+  assert.equal(cadenceFor(beat(body), 'hook'), 'punchy');
+  // A genuinely short beat is an aside.
+  assert.equal(cadenceFor(beat('That is the whole idea.'), 'step'), 'punchy');
+  // Everything else builds — the recap included.
+  assert.equal(cadenceFor(beat(body), 'step'), 'building_energy');
+  assert.equal(cadenceFor(beat(body), 'recap'), 'building_energy');
+  // An author who states a cadence is taken at their word, rules or no rules.
+  assert.equal(cadenceFor(beat('So what do you do?', { cadence: 'punchy' }), 'hook'), 'punchy');
+});
+
+test('a punchy beat cannot be given a long silence, however much is asked for', () => {
+  // The guarantee the whole mechanism exists for. Before this, `hold` was set in the
+  // compiler and the speech rate in the voice stage from a global setting, so a beat
+  // written as a quick aside could be followed by two seconds of dead air and nothing
+  // could notice the two were fighting.
+  const greedy = beat('That is the whole idea.', { hold: 3 });
+  const paced = holdForCadence(greedy, 'step', 1);
+  assert.equal(paced.cadence, 'punchy');
+  assert.equal(paced.hold, CADENCE.punchy.maxHold);
+  assert.ok(paced.hold <= 0.8, `punchy held ${paced.hold}s`);
+
+  // A slow beat may have the pause, and the same greedy request is honoured there.
+  const slow = holdForCadence(beat('Is that right?', { hold: 3 }), 'step', 1);
+  assert.equal(slow.cadence, 'slow_deliberate');
+  assert.ok(slow.hold > 0.8 && slow.hold <= CADENCE.slow_deliberate.maxHold);
+
+  // And the cadence's own baseline is a floor, so a lesson that never thought about
+  // silence still gets a considered pause rather than none.
+  assert.equal(holdForCadence(beat('Is that right?', { hold: 0 }), 'step').hold, 0.9);
+});
+
+test('every cadence speaks inside the 140-160 wpm teaching band', () => {
+  // The band is a considered decision the MVP's 193 wpm is the counterexample to. A
+  // cadence that leaves it is the pacing feature quietly breaking the pacing rule.
+  for (const [name, spec] of Object.entries(CADENCE)) {
+    const wpm = 150 * spec.rate;
+    assert.ok(wpm >= 139.5 && wpm <= 160.5, `${name} speaks at ${wpm.toFixed(1)} wpm`);
+  }
+  assert.ok(CADENCE.punchy.rate > CADENCE.building_energy.rate);
+  assert.ok(CADENCE.building_energy.rate > CADENCE.slow_deliberate.rate);
+  assert.ok(CADENCE.punchy.maxHold < CADENCE.slow_deliberate.maxHold);
+});
+
+test('emphasis has to be findable in the words it emphasises', () => {
+  const step = beat('The slope points uphill, and we want to go down.', {
+    emphasis: ['points uphill', 'go DOWN', 'nowhere in this text'],
+  });
+  const { found, missing } = resolveEmphasis(step);
+  // Matching is case-insensitive, because an author quoting their own narration
+  // should not be defeated by capitalisation.
+  assert.deepEqual(found, ['points uphill', 'go DOWN']);
+  assert.deepEqual(missing, ['nowhere in this text']);
+
+  const l = structuredClone(shipped);
+  l.steps[0]!.emphasis = ['a phrase that is not there'];
+  assert.ok(
+    critiqueLesson(l).some((p) => /emphasises "a phrase that is not there"/.test(p)),
+    'unfindable emphasis passed critique',
   );
 });

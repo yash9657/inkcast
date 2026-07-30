@@ -69,7 +69,13 @@ import type { Element, Scene, Storyboard } from '@inkcast/core';
 
 /* ------------------------------------------------------------------ fixtures */
 
-type SceneSpec = { narration: string; hold?: number; elements?: Element[] };
+type SceneSpec = {
+  narration: string;
+  hold?: number;
+  elements?: Element[];
+  cadence?: Scene['cadence'];
+  emphasis?: string[];
+};
 
 function scene(spec: SceneSpec, i: number): Scene {
   return {
@@ -78,6 +84,8 @@ function scene(spec: SceneSpec, i: number): Scene {
     camera: { x: 960, y: 540, zoom: 1, transition: 0.9 },
     elements: spec.elements ?? [],
     hold: spec.hold ?? 0,
+    emphasis: spec.emphasis ?? [],
+    ...(spec.cadence ? { cadence: spec.cadence } : {}),
   };
 }
 
@@ -1034,4 +1042,79 @@ test('whisper chunks map onto our own tokens, monotonically', () => {
   assert.deepEqual(mapToExpected([], hypothesis), []);
   assert.deepEqual(mapToExpected(['a'], []), []);
   assert.deepEqual(hypothesisFromChunks({ text: 'no chunks here' }), []);
+});
+
+/* ------------------------------------------------------------------- pacing */
+
+test('a punchy beat is measurably faster than a slow_deliberate one', async () => {
+  // The acceptance bar for the script stage, measured on assembled audio rather than
+  // on the plan. Identical words in both scenes, so the only difference is delivery.
+  const words =
+    'The slope under your feet tells you which way the ground falls away, and that ' +
+    'is the only thing you need in order to take a sensible step downhill.';
+
+  await withTempProject(async (dir) => {
+    const sb = storyboard([
+      { narration: words, cadence: 'punchy' },
+      { narration: words, cadence: 'slow_deliberate' },
+      { narration: words },
+    ]);
+    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+
+    const [punchy = 0, slow = 0, plain = 0] = out.scenes.map((s) => s.durationSec ?? 0);
+    assert.ok(punchy > 0 && slow > 0 && plain > 0);
+
+    // Faster is shorter, for the same words. The margin is the 140-vs-160 wpm the
+    // cadence table sets, so it is real but deliberately not dramatic — this is a
+    // change of delivery, not of speed-reading.
+    assert.ok(slow > punchy, `slow ${slow.toFixed(2)}s must exceed punchy ${punchy.toFixed(2)}s`);
+    const ratio = slow / punchy;
+    assert.ok(ratio > 1.1 && ratio < 1.2, `expected ~1.14x, measured ${ratio.toFixed(3)}x`);
+
+    // An uncadenced scene sits between them, because it uses the global target rate.
+    assert.ok(plain > punchy && plain < slow, `plain ${plain.toFixed(2)}s must sit between`);
+  });
+});
+
+test('cadence changes the audio, so it changes the cache key', async () => {
+  // Re-pacing a lesson has to re-synthesise it. A cadence that was not in the key
+  // would leave the old clip on disk and look like the change had no effect.
+  await withTempProject(async (dir) => {
+    const words = 'One idea per scene keeps the board readable enough to follow along.';
+    const first = await narrate(storyboard([{ narration: words, cadence: 'punchy' }]), dir, {
+      provider: 'silence',
+      padSec: 0,
+    });
+    const second = await narrate(
+      storyboard([{ narration: words, cadence: 'slow_deliberate' }]),
+      dir,
+      { provider: 'silence', padSec: 0 },
+    );
+    assert.ok(
+      (second.scenes[0]!.durationSec ?? 0) > (first.scenes[0]!.durationSec ?? 0),
+      're-pacing reused the cached clip instead of re-synthesising',
+    );
+  });
+});
+
+test('an emphasised phrase is given more room than the same words unemphasised', async () => {
+  // Emphasis is time, not volume: no local voice takes SSML, so the phrase carrying
+  // the weight is slowed and given a beat after it — which is what a person does.
+  await withTempProject(async (dir) => {
+    const words = 'The slope points uphill. We want to go down, so we subtract it.';
+    const sb = storyboard([
+      { narration: words },
+      { narration: words, emphasis: ['points uphill'] },
+    ]);
+    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+
+    const [plain = 0, stressed = 0] = out.scenes.map((s) => s.durationSec ?? 0);
+    assert.ok(
+      stressed > plain,
+      `emphasised ${stressed.toFixed(2)}s must exceed plain ${plain.toFixed(2)}s`,
+    );
+    // Small on purpose. This lands on a clause, so a heavy hand drags a sentence
+    // rather than stressing a word.
+    assert.ok(stressed - plain < 0.6, `emphasis added ${(stressed - plain).toFixed(2)}s`);
+  });
 });

@@ -126,6 +126,52 @@ export const Analogy = z.object({
  */
 export const StepGrounding = z.enum(['given', 'derived', 'asserted']);
 
+/**
+ * How a beat is delivered — and the **single source of pacing**.
+ *
+ * Pacing used to be two decisions that could disagree. An author set `hold` freely,
+ * and the voice stage spoke the whole video at one global rate, so a beat could be
+ * written as a quick aside and still be followed by two seconds of silence, or a
+ * worked example could be raced through at the same words-per-minute as a punchline.
+ * Nothing connected the two, and nothing could notice they were fighting.
+ *
+ * `cadence` connects them: it sets the speech rate *and* bounds the trailing silence,
+ * so a `punchy` beat provably cannot end up sitting in a long pause. See `CADENCE`.
+ */
+export const Cadence = z.enum(['slow_deliberate', 'building_energy', 'punchy']);
+
+/**
+ * What each cadence means, in numbers, in one place.
+ *
+ * `@inkcast/planner` and `@inkcast/voice` both read this, and both depend on
+ * `@inkcast/core` — so it lives here rather than being duplicated at each end. Two
+ * catalogues of one fact is the shape that has now gone wrong three times in this
+ * repository; this is the same fact (how fast, and how long a pause) read by two
+ * stages, which is exactly the case for defining it once.
+ *
+ *  - `rate` multiplies the teaching words-per-minute target, and the three values are
+ *    chosen so that every cadence lands **inside the 140–160 wpm teaching band**
+ *    (`TEACHING_WPM_MIN`/`MAX` in `@inkcast/voice`): 140, 150, 160 against the 150
+ *    target. That band is a considered decision — the MVP ran at 193 wpm and it is
+ *    the reason this one does not — so cadence varies delivery *within* it rather
+ *    than treating it as a suggestion. A first cut used 132–168 and pushed the body
+ *    of a lesson above the band, which is the band being quietly broken by the
+ *    feature meant to respect it.
+ *  - `hold` is the baseline silence after the beat.
+ *  - `maxHold` is the ceiling that makes the guarantee real. Bonuses for a question
+ *    or a misconception are added to `hold` and then clamped here, so the pedagogy
+ *    can still ask for a pause but cannot smuggle a two-second silence onto a beat
+ *    delivered as a quick one.
+ */
+export const CADENCE: Record<Cadence, { rate: number; hold: number; maxHold: number }> = {
+  // The arithmetic of a worked example, and the sentence that corrects a wrong
+  // belief: both need the learner to keep up, and both need a moment afterwards.
+  slow_deliberate: { rate: 0.933, hold: 0.9, maxHold: 3 },
+  building_energy: { rate: 1.0, hold: 0.5, maxHold: 1.6 },
+  // A hook, an aside, a one-line turn. Fast to say and quick to leave.
+  punchy: { rate: 1.067, hold: 0.25, maxHold: 0.8 },
+};
+
 export const LessonStep = z.object({
   /** The single new idea, in one sentence. If it needs two, split the step. */
   idea: z.string(),
@@ -150,7 +196,34 @@ export const LessonStep = z.object({
   /** Spoken narration for this beat, 140-160 wpm, whole sentences only. */
   narration: z.string(),
   visuals: z.array(VisualIntent).default([]),
-  /** Seconds of silence after this beat, so the idea can land. */
+  /**
+   * How this beat is delivered. Drives the speech rate and bounds `hold`.
+   *
+   * Optional, and **derived from the beat when absent** (`cadenceFor`) rather than
+   * defaulted to a constant — a lesson written before this field existed, or by an
+   * author that does not think about delivery, still gets pacing that varies with
+   * what each beat is doing. A flat default would have made the field dead weight on
+   * every existing lesson.
+   */
+  cadence: Cadence.optional(),
+  /**
+   * Phrases from this beat's `narration`, verbatim, that carry its weight.
+   *
+   * Spoken with more room — the phrase is slowed and given a longer beat after it,
+   * which is what a person does rather than getting louder — and given more visual
+   * weight where the same words appear on the board.
+   *
+   * A phrase that is not in the narration is dropped with a warning: emphasis that
+   * silently matches nothing is worse than no emphasis, because it reads as working.
+   */
+  emphasis: z.array(z.string()).default([]),
+  /**
+   * Seconds of silence after this beat, so the idea can land.
+   *
+   * The author's *request*, not the final say: `cadence` supplies the baseline and a
+   * ceiling, and the compiler clamps this to it. That clamp is what stops pacing
+   * being two decisions again — see `Cadence`.
+   */
   hold: z.number().min(0).default(0.4),
 });
 
@@ -220,6 +293,7 @@ export type Lesson = z.infer<typeof Lesson>;
 export type LessonStep = z.infer<typeof LessonStep>;
 export type VisualIntent = z.infer<typeof VisualIntent>;
 export type CastMember = z.infer<typeof CastMember>;
+export type Cadence = z.infer<typeof Cadence>;
 export type LessonKind = z.infer<typeof LessonKind>;
 export type TeachingStrategy = z.infer<typeof TeachingStrategy>;
 export type AnalogyMap = z.infer<typeof AnalogyMap>;
@@ -261,6 +335,101 @@ export function lessonBeats(l: Lesson): LessonBeat[] {
   return beats;
 }
 
+/* ------------------------------------------------------------------ pacing */
+
+/** A beat that ends by asking something the learner is meant to attempt. */
+const ASKS = /\?\s*$/;
+
+/**
+ * How this beat should be delivered, when nobody said.
+ *
+ * An author may set `cadence` and it is taken as written. Most will not — the
+ * no-key author (`lesson-derive.ts`) cannot form an opinion about delivery, and a
+ * lesson written before the field existed has none. Rather than defaulting those to
+ * a constant, which would leave every existing lesson paced exactly as flatly as
+ * before, the cadence is read off what the beat is *doing*.
+ *
+ * The rules are deliberately few and each one is about the beat's job, not about its
+ * wording — the same standard step 6 set when it stopped detecting the analogy by
+ * regex and started deriving it from the mapping:
+ *
+ *  - **A question is slow.** Not because questions are said slowly, but because the
+ *    silence afterwards is the point: the learner is meant to attempt an answer, and
+ *    `slow_deliberate` is the only cadence whose ceiling permits a real pause.
+ *  - **A worked example is slow.** Arithmetic that outruns the learner teaches
+ *    nothing, and this is the beat where understanding is supposed to consolidate.
+ *  - **A misconception is slow.** The correction has to land, and it is the one beat
+ *    whose whole job is to overwrite something the learner already believes.
+ *  - **A hook is punchy.** Five seconds to make someone want the answer.
+ *  - **A very short beat is punchy.** Under sixteen words is an aside or a turn, not
+ *    a claim being built, and delivering it slowly reads as portentous.
+ *  - **Everything else builds**, the recap included: retracing the whole chain is the
+ *    one place the video is allowed to gather pace rather than dwell.
+ *
+ * Note what is deliberately *not* a rule. A first cut made short sentences punchy, on
+ * the theory that clipped prose is quick prose. Measured against both shipped
+ * lessons, average sentence length is 5–9 words almost everywhere — because that is
+ * simply what good spoken teaching looks like — so the rule fired on nearly every
+ * beat and made `punchy` the default rather than the exception. It was measuring
+ * whether the narration was well written, not how the beat should be delivered.
+ * Beat *length* is the honest version of that signal, and role carries the rest.
+ */
+export function cadenceFor(step: LessonStep, role: LessonBeat['role']): Cadence {
+  if (step.cadence) return step.cadence;
+  if (ASKS.test(step.narration)) return 'slow_deliberate';
+  if (role === 'worked' || role === 'misconception') return 'slow_deliberate';
+  if (role === 'hook') return 'punchy';
+  if (step.narration.split(/\s+/).filter(Boolean).length < 16) return 'punchy';
+  return 'building_energy';
+}
+
+/**
+ * The silence after a beat: the cadence's baseline, plus what the pedagogy asks for
+ * and what the author requested, clamped to what the cadence permits.
+ *
+ * The clamp is the whole mechanism. Without it `hold` and the speech rate are set by
+ * different people who never meet, which is how a beat delivered as a quick aside
+ * ends up followed by two seconds of dead air. `maxHold` means that cannot happen —
+ * an author may ask for three seconds after a punchy line and will get 0.8.
+ *
+ * `bonus` is the caller's (the compiler passes a preset's own hold bonus). Returned
+ * unrounded; the compiler rounds once, where it also knows the preset.
+ */
+export function holdForCadence(
+  step: LessonStep,
+  role: LessonBeat['role'],
+  bonus = 0,
+): { cadence: Cadence; hold: number } {
+  const cadence = cadenceFor(step, role);
+  const spec = CADENCE[cadence];
+  // The author's `hold` is a request, and the cadence's own baseline is the floor —
+  // so a lesson that never thought about silence still gets a considered pause.
+  const asked = Math.max(spec.hold, step.hold) + bonus;
+  return { cadence, hold: Math.min(spec.maxHold, asked) };
+}
+
+/**
+ * The emphasis phrases that actually occur in this beat's narration.
+ *
+ * Emphasis is matched case-insensitively and must be contiguous in the narration,
+ * because both consumers need to *find* it again: the voice stage locates the phrase
+ * among the clause splits it already made, and the board looks for the same words in
+ * a text element. A phrase that matches nothing is returned in `missing` rather than
+ * dropped in silence — emphasis that quietly does nothing is worse than none, since
+ * it reads as working.
+ */
+export function resolveEmphasis(step: LessonStep): { found: string[]; missing: string[] } {
+  const haystack = step.narration.toLowerCase();
+  const found: string[] = [];
+  const missing: string[] = [];
+  for (const phrase of step.emphasis) {
+    const needle = phrase.trim().toLowerCase();
+    if (needle && haystack.includes(needle)) found.push(phrase.trim());
+    else missing.push(phrase);
+  }
+  return { found, missing };
+}
+
 /**
  * Structural critique of a lesson, used to reject weak plans before they cost a
  * render. Returns human-readable problems; empty means it passes.
@@ -286,6 +455,12 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     // A character reference resolves to a library path, so a dangling one draws
     // nothing rather than drawing the wrong thing. Same class as a `derivedFrom`
     // naming no beat, and worth catching before it costs a render.
+    // Emphasis has to be findable in the words it emphasises, for the same reason a
+    // cue does: both consumers locate it by text. A phrase that matches nothing is a
+    // silent no-op, which reads as working.
+    for (const phrase of resolveEmphasis(step).missing) {
+      problems.push(`${role} emphasises "${phrase}", which is not in its narration`);
+    }
     for (const v of step.visuals) {
       if (v.character && !castIds.has(v.character.id)) {
         problems.push(

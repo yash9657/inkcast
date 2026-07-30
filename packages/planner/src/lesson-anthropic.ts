@@ -96,7 +96,15 @@ NARRATION
 - Spoken English at about 150 words per minute. Contractions. Short clauses. Whole sentences only — never a fragment, never a sentence continued into the next beat.
 - Roughly 18–42 words per beat. The whole lesson must fit in about ${Math.round(seconds)} seconds of speech including silences.
 - Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.
-- \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation.
+- \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation. Note that \`cadence\` below sets a floor and a ceiling on it, so a beat marked \`punchy\` will not be given a long pause however much you ask for.
+
+PACING IS ONE DECISION, AND IT IS \`cadence\`
+\`cadence\` sets how fast a beat is spoken *and* how long the silence after it may run. Set it only where you actually have an opinion; left out, it is read off what the beat is doing, and that default is good.
+- \`slow_deliberate\` — arithmetic the learner has to follow, a correction that has to land, a question they should attempt. Spoken at 140 wpm, and the only cadence allowed a long pause.
+- \`building_energy\` — the body of an explanation. 150 wpm. This is the normal case.
+- \`punchy\` — a hook, an aside, a one-line turn. 160 wpm, and at most 0.8s of silence after. Do not mark a beat \`punchy\` and then ask for two seconds of hold; you will get 0.8 and the beat will feel clipped.
+
+\`emphasis\` lists phrases from THIS beat's \`narration\`, copied verbatim, that carry its weight. They are spoken with more room — slowed slightly and given a beat afterwards, which is what a person does rather than getting louder — and drawn heavier wherever those same words appear on the board. One or two per beat at most: emphasis on everything is emphasis on nothing. A phrase that is not in the narration character for character is rejected, because both the voice and the board find it by searching the text.
 
 VISUALS — WRITE A DRAWING INSTRUCTION, NOT A CAPTION
 Every beat needs at least one entry in \`visuals\`, and \`describe\` must say what the learner SEES, as an instruction to someone holding a marker. "A bowl-shaped curve with a ball high on the left slope and a straight tangent line touching it, sloping up to the right" is a drawing instruction. "Gradient descent finds the minimum" is a caption and will produce nothing worth watching.
