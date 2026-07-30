@@ -80,10 +80,11 @@ as the first with none of the benefit. There is also no character rig, so the ca
 every narrative topic is stick figures.
 
 _Equation typesetting was the third item here and is done — see step 3. **The library is
-now done too — see step 4:** curated assets resolve by path and pinned version, and the
-generated-raster cache is machine-wide rather than per project. What remains of this root
-cause is the rigs (step 5): the cast is four hand-authored poses, so a character can stand
-or walk but cannot be *the same character* standing and walking._
+done — see step 4:** curated assets resolve by path and pinned version, and the
+generated-raster cache is machine-wide rather than per project. **Rigs are half done — see
+step 5:** `characters/explorer` holds identity across four poses with no key, so a character
+can now be *the same character* standing and walking. What remains is the pose composition
+cannot describe, which needs a provider and the identity check that goes with it._
 
 ## The stage contracts
 
@@ -360,33 +361,72 @@ teeth: **document order is draw order**, because the writer reveals items in the
 receives them, so a figure is authored the way a person draws one. That ordering is most of
 why a curated asset reads better than a traced one, and it is invisible in a static SVG.
 
+**Shipped** (step 5, composed half). `packages/visuals/src/character.ts` is the source of
+truth. Filed as `characters/<id>.v<N>.json` rather than `characters/<id>/character.json`,
+which keeps the library's one version rule (`<path>.v<N>.<ext>`) and drops a directory: the
+parts _are_ path data, so the rig file is the geometry and a companion `base.svg` would be a
+second source of truth for the same drawing.
+
 ```ts
-/** characters/<id>/character.json */
+/** characters/<id>.v<N>.json */
 type CharacterRig = {
   id: string;
   version: number;
-  /** Locked, so a regenerated variant is pixel-identical. */
+  /** Locked, so a regenerated variant is pixel-identical. Overrides the asset's seed. */
   seed: number;
   /** The canonical description every variant is conditioned on. */
   look: string;
+  /** NEW, and load-bearing: fixed for every pose, or the character changes size. */
+  viewBox: [number, number, number, number];
   /**
    * Named parts with pivots.
    *
    * Poses are *composed* from these where the pose is a limb rotation, and only
    * generated when it is not. Composition is free, instant and exactly consistent;
    * generation is none of those, so it is the fallback rather than the mechanism.
+   *
+   * `parent` is NEW: a chain is what lets a knee bend, which is what puts a seated pose
+   * inside composition's reach instead of outside it.
    */
-  parts: { id: string; d: string; pivot: [number, number] }[];
-  poses: Record<string, { compose?: Record<string, number>; generated?: boolean }>;
+  parts: {
+    id: string;
+    d: string;
+    pivot: [number, number];
+    parent?: string;
+    fill?: string;
+    weight?: StrokeWeight;
+  }[];
+  poses: Record<
+    string,
+    {
+      compose?: Record<string, number>; // part id -> degrees clockwise
+      hide?: string[]; // NEW. The far leg, in a pose where it would read as tangle.
+      generated?: boolean;
+      /** NEW. The composed pose to draw when generation is unavailable or rejected. */
+      fallback?: string;
+    }
+  >;
 };
 ```
 
 **Identity across poses** is the gate. A generated variant is conditioned on the
 base _raster_ (image-to-image, not prompt repetition, which does not work), cached
-under `~/.inkcast/cache/<id>/<pose>-<seed>.svg`, and accepted only if an embedding
+under `~/.inkcast/cache/characters/<id>/<pose>-<seed>.svg`, and accepted only if an embedding
 similarity check against the base passes. A failed check retries once and then falls
 back to a composed pose. Silently shipping a character with a different face is worse
 than shipping a stiffer one.
+
+**As built** (step 5): the cache, the one retry and the fallback are real and tested; the
+_embedding_ check is not, and `plausibilityGate` stands in for it as an explicitly-named
+floor. The cache stores **geometry, not a rendering**, so the ink style, palette and stroke
+weight can all change afterwards without paying a provider again — what was expensive was
+deciding what the pose looks like. Only an accepted candidate is ever written, which is what
+makes the cache-hit branch safe to trust without re-running the gate.
+
+One consequence of caching per machine while pinning per storyboard: a project resolved
+against a cold cache draws the composed fallback and keeps drawing it, because its asset key
+does not depend on machine state — and deliberately should not. Re-resolving is the deliberate
+act that picks up a warmed cache, exactly as it is for a bumped asset version.
 
 **Versioning is what makes it compound.** A storyboard pins `AssetRef.version`, so
 improving `characters/odysseus` to v3 leaves every existing video rendering v2 until
@@ -482,9 +522,69 @@ fill up front and hachure the region itself. Setting a fill on sketch output pos
 the outline of a pen line — the first render of the cast came out with ringed heads and
 nothing inside them.
 
-**5. Character rigs.** `character.json`, composed poses, generated-variant cache,
-similarity gate. _Done when:_ the same character across three beats is pixel-identical
-where composed and above threshold where generated.
+**5. Character rigs.** 🟡 **THE COMPOSED HALF IS DONE; THE GENERATED HALF IS NOT.**
+`character.json`, composed poses, generated-variant cache, similarity gate. _Done when:_ the
+same character across three beats is pixel-identical where composed and above threshold
+where generated.
+
+**The first half of that bar is met and pinned.** `the same character composes identically
+across poses` (`visuals/test/character.test.ts`) draws standing, walking and pointing and
+asserts the head and torso are the _same bytes_ in all three — not similar, identical — while
+also asserting the poses genuinely differ, so it cannot pass by drawing one picture three
+times. `assets/library/characters/explorer.v1.json` is the rig: ten parts, four composed
+poses, one generated one.
+
+**The second half cannot be verified on this machine and is not claimed.** See "What is left
+of step 5" below.
+
+Three things identity turned out to depend on, none of them obvious, all of them silent when
+wrong:
+
+1. **The rig declares its own `viewBox` and every pose is fitted through it.** Measure the
+   source box from the composed parts instead and a raised arm widens it, so every pose lands
+   on a different `fitMatrix` and the head comes out a slightly different size in each beat.
+   Nothing looks broken; the character just stops being the same size. `loadRig` refuses a rig
+   without one.
+2. **A part's ink seed is a function of the rig and the part id, and of nothing else.** Not
+   its index, which is what a loop hands you: a pose that hides the far leg shifts every later
+   part by one and the whole body re-wobbles. Per-part seeds mean a pose can hide, add or
+   reorder parts and everything it did not touch is byte-identical.
+3. **The rig's `seed` overrides the asset's.** One character in three beats is three `Asset`
+   entries, because resolution is per id — so seeding from the asset id gives the same face
+   three different wobbles, which is exactly the failure this document calls worse than
+   shipping a stiffer character.
+
+Two design choices worth knowing before extending it.
+
+**Parts form a chain, so composition reaches further than expected.** `RigPart.parent` means
+rotating a thigh carries its shin and foot, and the shin's angle is relative to the thigh. That
+is fifteen lines and it moves a _seated_ pose from "impossible to compose" to "four numbers",
+which matters because it keeps generation as the fallback rather than the mechanism — the
+property this document says composition has and generation lacks.
+
+**Rigs are authored in profile, facing right.** A 2D rig can only rotate about pivots, and
+limb rotation is only meaningful in the view where limbs swing; front-on, the same rotations
+give arm gestures and nothing else. `AssetElement.flipX` already exists to face left.
+
+### What is left of step 5
+
+**No image-to-image adapter ships.** `PoseGenerator` is the seam and it is injected, so the
+cache, the gate, the retry and the fallback are all real and tested against a stub — but
+nothing in the repo calls a provider for a pose. The reason is the standard `image.ts` already
+sets for itself: its request shapes were checked against the live provider schemas rather than
+recalled, and with no key on this machine an i2i request shape would be a guess shipped as
+fact.
+
+**The identity gate is a floor, not the gate.** `plausibilityGate` compares how much ink there
+is and how the whole thing is proportioned, both scale-free. It rejects a vectoriser that
+returned mush; it will happily accept a different person's face. The embedding similarity this
+document specifies needs a model this package cannot run offline, and `PoseGate` is where it
+arrives. Until it does, a generated pose is not trustworthy enough to be worth a key, which is
+why the shipped rig composes all four of its useful poses and marks only `thinking` as
+generated — a pose that falls back to `standing` and says so in the manifest.
+
+So the honest state: **a character can hold identity across poses today, with no key, and
+cannot yet be posed in a way composition cannot describe.**
 
 **6. Lesson schema v2.** ✅ **DONE.** `kind`, `strategy`, `coreInsight`, `analogy.maps`,
 `from`/`derivedFrom` with the no-`asserted` validator for first-principles. The morph is

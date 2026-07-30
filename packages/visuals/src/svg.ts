@@ -425,6 +425,27 @@ export function flipXM(cx: number): Matrix {
   return { a: -1, b: 0, c: 0, d: 1, e: 2 * cx, f: 0 };
 }
 
+/**
+ * Rotate by `deg` clockwise about `(cx, cy)` — the pivot form, because every caller
+ * wants to turn a limb about a joint rather than about the origin.
+ *
+ * Clockwise, since y grows downward in SVG and a character rig reads better when a
+ * positive angle swings a limb the way a positive angle looks on screen.
+ */
+export function rotateM(deg: number, cx = 0, cy = 0): Matrix {
+  const r = (deg * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  return {
+    a: cos,
+    b: sin,
+    c: -sin,
+    d: cos,
+    e: cx - cx * cos + cy * sin,
+    f: cy - cx * sin - cy * cos,
+  };
+}
+
 /** Uniform fit of `src` into `dst`, centred, with an optional inset. */
 export function fitMatrix(src: Box, dst: Box, inset = 0): Matrix {
   const tw = Math.max(1e-6, dst.w - inset * 2);

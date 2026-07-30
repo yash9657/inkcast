@@ -48,8 +48,8 @@ test('the shipped library loads and every registered version is on disk', () => 
   }
 });
 
-test('a figure draws inside its box, in document order', () => {
-  const drawn = libraryPaths({ ref: { path: 'figures/standing' }, box, ctx });
+test('a figure draws inside its box, in document order', async () => {
+  const drawn = await libraryPaths({ ref: { path: 'figures/standing' }, box, ctx });
   assert.ok(drawn, 'figures/standing must resolve');
   assert.equal(drawn.version, 1);
   assert.equal(drawn.ink, 'sketch', 'a figure is read as a feeling, so it is roughened');
@@ -68,8 +68,8 @@ test('a figure draws inside its box, in document order', () => {
   );
 });
 
-test('a crisp symbol keeps its closed contour and its fill', () => {
-  const drawn = libraryPaths({ ref: { path: 'symbols/physics/force-vector' }, box, ctx });
+test('a crisp symbol keeps its closed contour and its fill', async () => {
+  const drawn = await libraryPaths({ ref: { path: 'symbols/physics/force-vector' }, box, ctx });
   assert.ok(drawn);
   assert.equal(drawn.ink, 'crisp', 'a direction a learner reads must not wobble');
 
@@ -87,10 +87,10 @@ test('a crisp symbol keeps its closed contour and its fill', () => {
   assert.equal(drawn.paths.length, 3, 'three children, three paths');
 });
 
-test('AssetRef.ink overrides what the library declares', () => {
+test('AssetRef.ink overrides what the library declares', async () => {
   const asRef = { path: 'symbols/physics/force-vector' as const };
-  const crisp = libraryPaths({ ref: asRef, box, ctx });
-  const sketch = libraryPaths({ ref: { ...asRef, ink: 'sketch' }, box, ctx });
+  const crisp = await libraryPaths({ ref: asRef, box, ctx });
+  const sketch = await libraryPaths({ ref: { ...asRef, ink: 'sketch' }, box, ctx });
   assert.ok(crisp && sketch);
   assert.equal(sketch.ink, 'sketch');
   assert.notEqual(
@@ -187,16 +187,16 @@ async function withLibrary(dir: string, fn: () => Promise<void> | void): Promise
 
 test('a pinned version is drawn even when a newer one exists', async () => {
   const dir = await fixtureLibrary();
-  await withLibrary(dir, () => {
+  await withLibrary(dir, async () => {
     assert.equal(loadLibrary()?.assets['test/box']?.version, 2, 'the newest is v2');
 
-    const pinned = libraryPaths({ ref: { path: 'test/box', version: 1 }, box, ctx });
+    const pinned = await libraryPaths({ ref: { path: 'test/box', version: 1 }, box, ctx });
     assert.ok(pinned);
     assert.equal(pinned.version, 1);
     assert.equal(pinned.paths.length, 1, 'v1 is one rectangle');
 
     // The same reference with nothing pinned takes the improvement.
-    const latest = libraryPaths({ ref: { path: 'test/box' }, box, ctx });
+    const latest = await libraryPaths({ ref: { path: 'test/box' }, box, ctx });
     assert.ok(latest);
     assert.equal(latest.version, 2);
     assert.equal(latest.paths.length, 3, 'v2 is a crossed rectangle');
@@ -213,9 +213,12 @@ test('a pinned version is drawn even when a newer one exists', async () => {
 
 test('a missing version or path falls through instead of throwing', async () => {
   const dir = await fixtureLibrary();
-  await withLibrary(dir, () => {
-    assert.equal(libraryPaths({ ref: { path: 'test/box', version: 9 }, box, ctx }), undefined);
-    assert.equal(libraryPaths({ ref: { path: 'test/nope' }, box, ctx }), undefined);
+  await withLibrary(dir, async () => {
+    assert.equal(
+      await libraryPaths({ ref: { path: 'test/box', version: 9 }, box, ctx }),
+      undefined,
+    );
+    assert.equal(await libraryPaths({ ref: { path: 'test/nope' }, box, ctx }), undefined);
   });
 });
 

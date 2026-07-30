@@ -363,11 +363,17 @@ async function resolveAsset(args: {
     : matchLibrary({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
   if (curated) {
     const ref: AssetRef = asset.ref ?? { path: curated.path };
-    const drawn = libraryPaths({ ref, box, ctx });
+    const drawn = await libraryPaths({ ref, box, ctx });
     if (drawn) {
       items = pathItems(drawn.paths);
       lane = 'library';
-      library = { path: drawn.path, version: drawn.version, ink: drawn.ink, how: curated.how };
+      library = {
+        path: drawn.path,
+        version: drawn.version,
+        ink: drawn.ink,
+        how: curated.how,
+        ...(drawn.pose ? { pose: drawn.pose } : {}),
+      };
     }
   }
 

@@ -76,6 +76,16 @@
       "license": "CC0-1.0",
       "provenance": "hand-authored for inkcast",
       "match": ["mass"]
+    },
+    "characters/explorer": {
+      "version": 1,
+      "rig": true,
+      "ink": "sketch",
+      "kind": "illustration",
+      "title": "Explorer (rig: standing, walking, pointing, sitting)",
+      "license": "CC0-1.0",
+      "provenance": "hand-authored for inkcast",
+      "match": ["explorer", "adventurer", "voyager", "protagonist"]
     }
   }
 }

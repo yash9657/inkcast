@@ -1,17 +1,18 @@
-# Handoff — 2026-07-29 · start on step 5 (character rigs)
+# Handoff — 2026-07-29 · step 5 is half done; finish it or move to step 7
 
 Session state, not design. `PIPELINE.md` is the durable architecture and `STATUS.md` is
 the verification record; this file exists so a session starting cold knows exactly where
 things stand, what to do next, and which traps are waiting.
 
-Delete or rewrite this once step 5 lands. It goes stale by design.
+Delete or rewrite this once the next step lands. It goes stale by design.
 
-**Your job: step 5.** The baseline under you is verified — read "Where things stand", then
-go to "Step 5" and start. Everything after that is reference.
+**Your job: read "Where step 5 stopped" and pick.** Finishing step 5 needs an API key and
+cannot be verified without one. If you do not have one, step 7 (the script stage) is the next
+thing that is fully doable offline. Everything after that is reference.
 
 ## Where things stand
 
-Branch **`visuals-morph-density`**, ten commits on top of `e95258b`. Everything is local;
+Branch **`visuals-morph-density`**, eleven commits on top of `e95258b`. Everything is local;
 there is **no remote**, so nothing is pushed anywhere and `git remote -v` is empty. In
 order, by subject:
 
@@ -25,81 +26,72 @@ order, by subject:
     The equation lane: real typeset mathematics                          <- step 3
     Consolidate: a real render, a re-verified STATUS, one cache gate
     docs: rewrite the handoff to start on step 4
-    The asset library: drawings we chose, pinned by version             <- step 4
+    The asset library: drawings we chose, pinned by version              <- step 4
+    Character rigs: one person, several poses                            <- step 5 (half)
 
 Each message carries the reasoning for its own change and is worth reading before the
-diff it belongs to. Steps 1, 6, 2, 3 and 4 of `PIPELINE.md` are done and marked ✅ there.
+diff it belongs to. Steps 1, 6, 2, 3 and 4 are done and marked ✅ in `PIPELINE.md`; step 5
+is marked 🟡 with the split spelled out.
 
 **The baseline is measured, not inherited.** `pnpm lint` clean, `pnpm -r typecheck` 0
-errors across 9 projects, `pnpm -r test` **539 pass / 0 fail** across all eight
+errors across 9 projects, `pnpm -r test` **557 pass / 0 fail** across all eight
 test-bearing packages. The benchmark renders end to end in both formats from the shipped
 hand-authored lesson with no keys: 104.667 s / 3140 frames at 1920x1080, 61.500 s at
-1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%.
+1080x1920, `cost $0.00`. Mean content fill 52.2% / 55.9%. The `projects/handwritten`
+geometry hashes are byte-identical across both of the last two steps.
 
-**`STATUS.md` now has two appendices**, both dated 07-29. Take library figures from the
-second one ("The asset library"), pipeline figures from either — they agree — and treat
-the 07-28 body as a historical record that is deliberately unedited.
+**`STATUS.md` now has three appendices.** Rig figures are in the third ("Character rigs"),
+library figures in the second, pipeline figures in either of the last two — they agree. The
+07-28 body is a historical record and deliberately unedited.
 
-## Step 5 — character rigs
+## Where step 5 stopped
 
-**The goal**, verbatim from `PIPELINE.md`:
+Done, and pinned by 18 tests in `visuals/test/character.test.ts`:
 
-> **5. Character rigs.** `character.json`, composed poses, generated-variant cache,
-> similarity gate. _Done when:_ the same character across three beats is pixel-identical
-> where composed and above threshold where generated.
+- `assets/library/characters/explorer.v1.json` — a ten-part rig, profile, four composed poses
+  (`standing`, `walking`, `pointing`, `sitting`) plus `thinking` marked generated.
+- `packages/visuals/src/character.ts` — loader with structural validation, composition with a
+  parent chain, per-part seeding, the generated-pose orchestration.
+- `AssetRef.variant` selects a pose end to end; `AssetVisual.library.pose` records
+  `{ name, how, requested }`, and `name !== requested` is where a fallback shows up.
+- The variant cache at `~/.inkcast/cache/characters/<id>/<pose>-<seed>.svg`, storing
+  **geometry not a rendering**, written only for accepted candidates.
 
-`PIPELINE.md`'s "The asset library" section has the `CharacterRig` shape and the
-identity-across-poses gate. Read both. Note the acceptance bar is about **identity**, not
-about drawing quality: three poses of one character that are recognisably the same person.
+**What is left needs a key.** Two pieces:
 
-### What step 4 built for you
+1. **An image-to-image adapter.** `PoseGenerator` is the injected seam and nothing calls a
+   provider. Do not guess the request shape — `image.ts` checked its shapes against the live
+   provider schemas rather than recalling them, and that standard is the reason the lane works
+   at all. Check flux's i2i schema before writing it.
+2. **The real identity gate.** `plausibilityGate` is a deliberately-named floor: it compares
+   ink quantity and proportion, rejects mush, and would accept a different person's face.
+   `PoseGate` is the seam. This is the piece that decides whether a generated pose is
+   trustworthy, so it is the piece worth getting right rather than shipping approximately.
 
-The library skeleton is done and the rigs hang off it. Concretely:
+**The largest gap here is not in the rig at all: nothing upstream can ask for a pose.** The
+planner mints slugs and prompts, never an `AssetRef` and never a `variant`, so a rig is
+reachable by hand and by alias and not by pedagogy. `VisualIntent` is where that would go, and
+it is a planner change that needs no key.
 
-- **`packages/visuals/src/library.ts`** is the lane. It loads `assets/library/library.json`,
-  resolves `<path>.v<N>.svg`, converts children to `InkPath`s honouring the entry's ink
-  mode, and matches unreferenced entities by id then prompt. Its header carries the
-  authoring rules; `assets/library/README.md` is the short version for whoever adds an asset.
-- **`AssetRef`** is real: `packages/core/src/storyboard.ts`, reachable as `Asset.ref`.
-  `variant` is **already in the type and read by nothing** — that is step 5's field, and it
-  is the seam a pose arrives through.
-- **`assets/library/figures/`** holds the four archetypes as v1. They are _poses_, not a
-  character: four separate files with no shared identity, which is exactly the gap.
-- **`AssetVisual.lane`** gained `'library'`, and `AssetVisual.library` records
-  `{ path, version, ink, how }`. Assert on those rather than on "something was drawn".
-- **`~/.inkcast/cache/`** is the machine-wide cache root (`cacheDir()` in
-  `@inkcast/core`). The illustration lane already uses `cacheDir('illustrations')`; PIPELINE
-  wants generated _variants_ under `~/.inkcast/cache/<id>/<pose>-<seed>.svg`, so the root and
-  the convention are both there.
+## Three things about rigs that are silent when wrong
 
-### The two traps waiting specifically for you
+Learned the hard way; all three are in `character.ts`'s header too.
 
-**A sketch fill must go into roughjs, not onto its output.** This cost a render to find.
-Crisp output _is_ the authored contour, so setting `fill` on the returned `InkPath` works —
-the equation lane does it. Sketch output is not: roughjs returns the wobbly _stroke_ it
-drew, so a post-hoc fill fills the outline of a pen line, and the whole cast rendered with
-ringed heads and hollow faces. `libraryPaths` now branches on the mode; a rig composing
-limbs will hit exactly the same fork.
+**A rig must declare its `viewBox`, and it must contain the widest pose.** Every pose is
+fitted through it. Measure it per pose instead and the head changes size between beats —
+nothing looks broken, the character just stops being the same size. Size it to one pose and
+the others hang outside their element box. `loadRig` refuses a rig without one; measure the
+union of every pose and add a margin.
 
-**A `<circle>` becomes a diamond under the sketch pass.** `svgChildren` converts a circle
-to two half arcs, which leaves four control points for roughjs to displace, and at marker
-roughness that reads as a rhombus. Every head in the cast is four cubics anchored at the
-compass points instead. If a rig generates or composes round parts, author them the same way
-— and do **not** "fix" this in `svgChildren`, because lucide shares that reader and every
-icon's geometry would move.
+**Seed a part from the rig and the part id, never from its index.** A pose that hides the far
+leg shifts every later part by one and re-wobbles the whole body. And never from the asset id:
+one character in three beats is three `Asset` entries, so that gives the same face three
+different wobbles.
 
-### Acceptance
-
-"Pixel-identical where composed" is a geometry assertion, so make it one: compose the same
-part at the same pivot twice and compare `d` strings, not images. The seed discipline is
-already load-bearing here — `seedFrom` is deterministic and `baseOptions` pins the crisp
-seed — so identical composition input must give identical output or something upstream is
-non-deterministic.
-
-The generated half needs a key and cannot be asserted offline. Structure it so the
-similarity gate is testable with a stub: the _decision_ (accept, retry once, fall back to a
-composed pose) is code and should be pinned; the embedding call is the part that needs a
-provider.
+**A sketch fill goes into roughjs, not onto its output.** Crisp output is the authored contour
+so a fill can be set afterwards; sketch output is the wobbly stroke roughjs drew, so a
+post-hoc fill fills the outline of a pen line. Both the library lane and `inkParts` branch on
+this. It cost a render to find the first time.
 
 ## How to verify a visual change cheaply
 
@@ -132,9 +124,11 @@ separator rather than trusting redirection.
 drawing.** `packages/visuals/src/libsheet.mts`:
 
     npx tsx packages/visuals/src/libsheet.mts /tmp/sheet
-    npx tsx packages/render/src/frames.mts /tmp/sheet /tmp/sheet-frames 18
+    npx tsx packages/render/src/frames.mts /tmp/sheet /tmp/sheet-frames 20
 
-Every library asset in a grid with its path under it, rendered with the cloud lane off. A
+Every library asset in a grid with its path under it, and **one cell per pose** for a rig —
+which is the only way to see the thing that makes it a rig, since a rig drawn once tells you
+nothing about whether its poses read as the same person. Rendered with the cloud lane off. A
 static SVG cannot show you what matters — the sketch pass rewrites the geometry, fills are
 hachured, and document order becomes reveal order — so **render a new asset before
 committing it.** Both of step 4's real defects were invisible until this frame existed.
@@ -193,7 +187,7 @@ output and the totals. Redirect the whole log to a file and sum with
 `awk '/# pass [0-9]+$/ {p+=$NF} …'` — note the `$NF`, because the lines are prefixed with
 the package name and `$3` silently sums nothing. Check that all **eight** test-bearing
 packages appear (`core` has no tests). `keyvault` reports 58 tests but 55 passes — three
-keychain tests are opt-in, so 539/542 is the expected shape, not a failure.
+keychain tests are opt-in, so 557/560 is the expected shape, not a failure.
 
 **`pnpm lint` is `prettier --check .`,** so formatting is a hard gate, not advice. Run
 `npx prettier --write` on what you touched before claiming green — and re-run it after late
@@ -225,11 +219,16 @@ judged without one.
 through to `Math.random()` when it is falsy, so zero is the single seed value that is _not_
 reproducible. `baseOptions` nudges it to 1; do not remove that.
 
-**Bump the stage version when output changes.** `packages/pipeline/src/keys.ts` carries
-`STAGE_CODE_VERSION` and the reasoning; current state is
-`storyboard@3, visuals@6, render@5`. A rig changing how a character is drawn is a `visuals`
-bump; `render` stays where it is as long as the renderer keeps inlining an asset's SVG
-rather than re-deriving it.
+**Bump the stage version when output changes — and know when not to.**
+`packages/pipeline/src/keys.ts` carries `STAGE_CODE_VERSION` and the reasoning; current state
+is `storyboard@3, visuals@6, render@5`. The test is whether the stage produces a different
+artefact _for identical inputs_. Step 5 bumped nothing on purpose: no existing asset's geometry
+moved, and an asset that newly resolves to a rig invalidates itself through
+`libraryFingerprint`. A global bump is for when you cannot tell which assets moved. **Editing a
+shipped rig in place is the case that does need one** — every project that resolved it keeps its
+old drawing otherwise, which is also the argument for adding `explorer.v2.json` instead.
+`render` stays where it is as long as the renderer keeps inlining an asset's SVG rather than
+re-deriving it.
 
 ## Deliberate stopgaps
 
@@ -288,10 +287,23 @@ is re-derived by the renderer's own `primsFor`. Closing the rest needs
 `resolveFraming`/`unitsPerPixel` (`render/src/camera.ts`) derivable somewhere the visuals
 stage can reach, probably `@inkcast/core` — the remaining part of root cause 1.
 
-**Nothing upstream constructs an `AssetRef`.** The planner mints slugs and prompts; every
-library resolution in a real run happens through the alias table, and the reference is
-written _back_. So the library is reachable but not yet _addressable_ by the pedagogy — a
-lesson cannot ask for `figures/pointing` by name. `VisualIntent` is where that would go.
+**Nothing upstream constructs an `AssetRef`, and this is now the biggest gap in the area.**
+The planner mints slugs and prompts; every library resolution in a real run happens through the
+alias table, and the reference is written _back_. So the library is reachable but not
+_addressable_ by the pedagogy — a lesson cannot ask for `figures/pointing` by name, and it
+certainly cannot ask for `characters/explorer` in the `walking` pose, which is the entire point
+of having built a rig. `VisualIntent` is where that goes, and it needs no key.
+
+**A generated pose that fell back keeps the fallback.** A project resolved against a cold
+variant cache draws the composed pose, and its asset key does not depend on machine state — so
+warming the cache later changes nothing until someone re-resolves. Same trade as a pinned asset
+version, deliberately, but it means `library.pose.how` in a sidecar records what happened once
+rather than what is available now.
+
+**A rigged figure sits in more air than a hand-authored one.** The rig's `viewBox` has to
+contain its widest pose, so narrow poses are fitted with slack — visible on the contact sheet,
+where the explorer cells are smaller than the `figures/` cells. Inherent to the fixed viewBox
+that identity requires; tightening it to the measured union of all poses recovered about 10%.
 
 **`illustration` still needs a key for anything that is not a person.** Step 4 closed the
 character half of this. An arbitrary object — a trebuchet, a rover — is a lucide icon or a

@@ -127,6 +127,25 @@ export {
   type MotionSample,
 } from './motion.js';
 
+/* ---- character rigs (one person, several poses) ------------------------- */
+export {
+  composePose,
+  inkParts,
+  loadRig,
+  plausibilityGate,
+  posePath,
+  resetPoseNotice,
+  resetRigCache,
+  resolveGeneratedPose,
+  type CharacterRig,
+  type ComposedPart,
+  type GeneratedPose,
+  type PoseGate,
+  type PoseGenerator,
+  type RigPart,
+  type RigPose,
+} from './character.js';
+
 /* ---- the asset library (first stop; the things we chose) ---------------- */
 export {
   LIBRARY_MANIFEST,
@@ -234,6 +253,7 @@ export {
   pathToString,
   pointsBBox,
   samplePath,
+  rotateM,
   scaleM,
   segsBBox,
   segsLength,

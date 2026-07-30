@@ -69,6 +69,15 @@ export const PIPELINE_VERSION = 2;
  *   drawing than it was — a figure instead of a lucide glyph or a lettered card.
  *   Render is *not* bumped with it: the renderer inlines an asset's SVG file rather
  *   than re-deriving its geometry, so nothing in `render/` changed behaviour.
+ *
+ * Character rigs (step 5) deliberately did **not** bump anything, and the reasoning is
+ * worth keeping because the rule above looks like it demands one. The test is whether the
+ * stage produces a different artefact *for identical inputs*, and it does not: no existing
+ * asset's geometry moved (the `projects/handwritten` geometry hashes are byte-identical
+ * across the change), and an asset that newly resolves to a rig is one whose
+ * `libraryFingerprint` went from empty to a real path — so it invalidates itself, precisely,
+ * without dragging every other project through a recompute. A global bump is for when you
+ * cannot tell which assets moved. Here you can.
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,

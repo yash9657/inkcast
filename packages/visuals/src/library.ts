@@ -48,6 +48,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger, type Asset, type AssetRef } from '@inkcast/core';
+import type { CharacterRig, ComposedPart, PoseGenerator } from './character.js';
+import { composePose, inkParts, loadRig, resolveGeneratedPose } from './character.js';
 import type { DrawContext, InkMode, InkPath, StrokeWeight } from './geometry.js';
 import { roughenPathData } from './geometry.js';
 import type { Box } from './svg.js';
@@ -89,6 +91,16 @@ export type LibraryEntry = {
    * worse than a generic one.
    */
   match?: string[];
+  /**
+   * This entry is a character rig, so its artefact is `<path>.v<N>.json` rather than
+   * `.svg` and `AssetRef.variant` selects a pose.
+   *
+   * Declared here rather than inferred from the `characters/` prefix or probed for on
+   * disk: the library should be able to say what kind of thing an entry is without
+   * reading it, and a path convention that carries meaning is a path convention someone
+   * will eventually break by filing a rig somewhere sensible.
+   */
+  rig?: boolean;
 };
 
 export type Library = {
@@ -155,6 +167,7 @@ export function loadLibrary(dir?: string): Library | undefined {
         clean[key] = { ...entry, ink: entry.ink === 'crisp' ? 'crisp' : 'sketch' };
       }
       found = { dir: candidate, version: parsed.version ?? 1, assets: clean };
+      warnAliasCollisions(clean);
       log.debug(`library loaded from ${candidate}`, `${Object.keys(clean).length} assets`);
       break;
     } catch (err) {
@@ -166,14 +179,46 @@ export function loadLibrary(dir?: string): Library | undefined {
   return found;
 }
 
+/**
+ * Report any noun two entries both claim.
+ *
+ * Matching resolves a collision by taking whichever entry the manifest lists first, which
+ * is arbitrary and invisible: the loser simply never matches that word again. Cheap to
+ * detect at load, so it is not left to be discovered by wondering why an alias stopped
+ * working.
+ */
+function warnAliasCollisions(assets: Record<string, LibraryEntry>): void {
+  const owner = new Map<string, string>();
+  for (const [assetPath, entry] of Object.entries(assets)) {
+    for (const alias of entry.match ?? []) {
+      const key = alias.toLowerCase();
+      const first = owner.get(key);
+      if (first) {
+        log.warn(
+          `library alias "${key}" is claimed by both ${first} and ${assetPath} — ${first} wins ` +
+            'because it is listed first, which is not a decision anyone made',
+        );
+        continue;
+      }
+      owner.set(key, assetPath);
+    }
+  }
+}
+
 export function libraryAvailable(dir?: string): boolean {
   const lib = loadLibrary(dir);
   return !!lib && Object.keys(lib.assets).length > 0;
 }
 
-/** Absolute path of one version of one asset. */
+/**
+ * Absolute path of one version of one asset.
+ *
+ * A rig is `.json` because its parts *are* path data — the rig file is the geometry, so a
+ * companion `base.svg` would be a second source of truth for the same drawing.
+ */
 export function libraryFile(lib: Library, assetPath: string, version: number): string {
-  return path.join(lib.dir, `${assetPath}.v${version}.svg`);
+  const ext = lib.assets[assetPath]?.rig ? 'json' : 'svg';
+  return path.join(lib.dir, `${assetPath}.v${version}.${ext}`);
 }
 
 /* ---------------------------------------------------------------- matching */
@@ -269,6 +314,8 @@ export type LibraryResult = {
   file: string;
   ink: InkMode;
   paths: InkPath[];
+  /** Which pose was drawn, and how, when the asset is a character rig. */
+  pose?: { name: string; how: 'composed' | 'cache' | 'generated'; requested: string };
 };
 
 const WEIGHTS: ReadonlySet<string> = new Set(['hairline', 'light', 'normal', 'bold']);
@@ -284,14 +331,19 @@ const WEIGHTS: ReadonlySet<string> = new Set(['hairline', 'light', 'normal', 'bo
  * pinned version that is missing is a *warning*, not an error — the reference is
  * still honest about what it wanted, and refusing to draw anything would turn a
  * library bookkeeping slip into a hole in the video.
+ *
+ * Async only because of one branch: a rig's `generated: true` pose can involve a
+ * provider. Everything else here is synchronous file reads and arithmetic.
  */
-export function libraryPaths(args: {
+export async function libraryPaths(args: {
   ref: AssetRef;
   box: Box;
   ctx: DrawContext;
   dir?: string;
   inset?: number;
-}): LibraryResult | undefined {
+  /** Supplied by a keyed caller to fill a `generated: true` pose. */
+  generate?: PoseGenerator;
+}): Promise<LibraryResult | undefined> {
   const lib = loadLibrary(args.dir);
   if (!lib) return undefined;
 
@@ -309,6 +361,13 @@ export function libraryPaths(args: {
         'falling through to the other lanes',
     );
     return undefined;
+  }
+
+  const ink = args.ref.ink ?? entry.ink;
+
+  if (entry.rig) {
+    const drawn = await rigPaths({ ...args, file, ink });
+    return drawn ? { path: args.ref.path, version, file, ink, ...drawn } : undefined;
   }
 
   let text: string;
@@ -338,7 +397,6 @@ export function libraryPaths(args: {
     svgViewBox(text) ?? unionBox(children.map((c) => pointsBBox(samplePath(parsePath(c.d)))));
   if (!(source.w > 0 && source.h > 0)) return undefined;
 
-  const ink = args.ref.ink ?? entry.ink;
   const inset = args.inset ?? Math.min(args.box.w, args.box.h) * 0.04;
   const m = fitMatrix(source, args.box, inset);
   const group = `library:${args.ref.path}`;
@@ -400,4 +458,95 @@ export function libraryPaths(args: {
 
   if (paths.length === 0) return undefined;
   return { path: args.ref.path, version, file, ink, paths };
+}
+
+/**
+ * The rig branch: pick a pose, get its geometry, ink it.
+ *
+ * The pose resolution order is where the compose/generate trade lives. A composed pose is
+ * used directly. A `generated: true` pose tries the cache and then the provider, and on
+ * any failure — no key, a cold cache, a rejected candidate — draws its declared
+ * `fallback` instead. So the worst case for a character is *stiffer*, never absent, and
+ * never a different person.
+ */
+async function rigPaths(args: {
+  ref: AssetRef;
+  box: Box;
+  ctx: DrawContext;
+  file: string;
+  ink: InkMode;
+  inset?: number;
+  generate?: PoseGenerator;
+}): Promise<{ paths: InkPath[]; pose: NonNullable<LibraryResult['pose']> } | undefined> {
+  const rig = loadRig(args.file);
+  if (!rig) return undefined;
+
+  const requested = args.ref.variant ?? defaultPose(rig);
+  if (!requested) {
+    log.warn(`rig ${rig.id} declares no poses`);
+    return undefined;
+  }
+  const spec = rig.poses[requested];
+  if (!spec) {
+    log.warn(
+      `rig ${rig.id} has no pose "${requested}" — falling through to the other lanes rather ` +
+        'than drawing a pose nobody asked for',
+    );
+    return undefined;
+  }
+
+  const ink = (parts: readonly ComposedPart[]): InkPath[] =>
+    inkParts({
+      rig,
+      parts,
+      box: args.box,
+      ctx: args.ctx,
+      ink: args.ink,
+      ...(args.inset !== undefined ? { inset: args.inset } : {}),
+    });
+
+  if (!spec.generated) {
+    const parts = composePose(rig, requested);
+    if (!parts?.length) return undefined;
+    const paths = ink(parts);
+    return paths.length
+      ? { paths, pose: { name: requested, how: 'composed', requested } }
+      : undefined;
+  }
+
+  // A generated pose is judged against a composed one, so the fallback has to exist
+  // before anything is generated — it is both the reference and the safety net.
+  const fallbackName = spec.fallback ?? defaultPose(rig, requested);
+  const base = fallbackName ? composePose(rig, fallbackName) : undefined;
+  if (!base?.length) {
+    log.warn(
+      `rig ${rig.id}: pose "${requested}" is generated and has no composable fallback, so there ` +
+        'is nothing to judge a candidate against and nothing to draw if one fails',
+    );
+    return undefined;
+  }
+
+  const generated = await resolveGeneratedPose({
+    rig,
+    pose: requested,
+    base,
+    ...(args.generate ? { generate: args.generate } : {}),
+  });
+
+  const parts = generated?.parts ?? base;
+  const paths = ink(parts);
+  if (!paths.length) return undefined;
+  return {
+    paths,
+    pose: {
+      name: generated ? requested : (fallbackName as string),
+      how: generated?.how ?? 'composed',
+      requested,
+    },
+  };
+}
+
+/** The first pose a rig declares, skipping one name and any pose that must be generated. */
+function defaultPose(rig: CharacterRig, exclude?: string): string | undefined {
+  return Object.entries(rig.poses).find(([name, spec]) => name !== exclude && !spec.generated)?.[0];
 }

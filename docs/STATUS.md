@@ -1,7 +1,7 @@
 # Inkcast status
 
-> **Partly superseded — see the two sections appended at the end: the re-verification
-> (2026-07-29) and the asset library (2026-07-29, later).**
+> **Partly superseded — see the three sections appended at the end: the re-verification
+> (2026-07-29), the asset library (2026-07-29, later) and character rigs (later still).**
 > The 07-28 report below is left unedited on purpose: it is a dated record of what was
 > measured, not a live checklist. Six of its claims no longer hold. Read the appendix
 > before acting on anything here.
@@ -398,8 +398,97 @@ is now one arm, one leg, and a seat that sits below the thigh rather than across
 
 - **No `characters/`.** A rig is step 5, and the distinction is the point: four poses are
   not a cast, because nothing yet draws _the same person_ standing and then walking.
+  (**Superseded by the next section** — `characters/explorer` now does.)
 - **The planner never emits an `AssetRef`.** Nothing upstream knows the library exists;
   entities reach it through the alias table or not at all. That is why the alias lists are
   narrow and why `Asset.ref` is written _back_ after resolution.
 - **`symbols/` is two files.** `circuit/` and `math/` are step 9, and the two physics
   symbols exist to prove the path namespace nests, not to be a symbol set.
+
+# Character rigs, 2026-07-29 (later still)
+
+`PIPELINE.md` step 5, and **half of it**. The composed half is done and pinned; the generated
+half is implemented but cannot be verified on this machine and is not claimed. That split is
+the main thing to take from this section.
+
+## The acceptance bar, precisely
+
+> _Done when:_ the same character across three beats is pixel-identical where composed and
+> above threshold where generated.
+
+**First clause: met, and pinned as bytes.** `the same character composes identically across
+poses` composes `standing`, `walking` and `pointing` from
+`assets/library/characters/explorer.v1.json` into one box and asserts the `head` and `torso`
+stroke data are _identical strings_ in all three — then asserts the legs and arms are _not_,
+so it cannot pass by drawing one picture three times. Confirmed visually too: the five poses
+on the contact sheet share one head.
+
+**Second clause: not met, and not attempted dishonestly.** Nothing in the repo generates a
+pose. `PoseGenerator` is an injected seam; the cache, the single retry, the gate and the
+fallback are real and tested against stubs. What is missing is an image-to-image adapter and
+the embedding check — see "The boundary" below.
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **557 pass, 0 fail, 3 skipped** across all eight test-bearing packages
+(539 → 557; 18 new character tests, two of which pin the variant cache round-trip).
+
+**Control: `projects/handwritten` geometry hashes are byte-identical** to the pre-step-4
+baseline, so neither the library lane nor the rig work has moved a single stroke of anything
+that was already being drawn. Nothing was bumped in `STAGE_CODE_VERSION` and the file now
+explains why: no existing asset's output changed, and an asset that newly resolves to a rig
+invalidates itself through `libraryFingerprint` rather than dragging every project through a
+recompute.
+
+## What the frames show
+
+`npx tsx packages/visuals/src/libsheet.mts` now expands a rig into one cell per pose, which is
+the only way to review the thing that makes it a rig. Eleven cells, one frame at t=20 s, no
+keys.
+
+**The five explorer poses read as one person.** Same head, same torso, same weight; `walking`
+reads unmistakably as mid-stride, `pointing` as pointing, `sitting` as seated. `thinking` is
+identical to `standing`, which is correct — it is the generated pose drawing its fallback.
+
+**Two defects were found by looking, again.** The resting arms were authored _inside_ the
+torso outline, so in profile they vanished into it and the figure read as a blob with a head;
+they now hang just outside the silhouette either side. And `sitting` drew both legs, which in
+profile land on top of each other and read as tangle rather than as legs — the far leg is now
+hidden for that pose, the same call `figures/sitting` makes by hand.
+
+**The rig's `viewBox` was measured, not guessed.** It has to contain the widest pose
+(`pointing`, reaching to x≈113) while being fitted identically for the narrowest
+(`standing`, 46 units wide), so a rigged figure sits in more air than a hand-authored one.
+That is the cost of identity and it is visible on the sheet: the explorer cells are smaller
+than the `figures/` cells. Tightening the box to the measured union of all five poses
+recovered about 10% of it; the rest is inherent.
+
+## The boundary, stated plainly
+
+Two pieces are missing and both are missing for the same reason — they need something this
+machine does not have.
+
+**No image-to-image adapter.** `image.ts` sets the standard itself: its request shapes were
+checked against the live provider schemas rather than recalled. With no key here, an i2i
+request shape would be a guess shipped as fact, so it is not shipped.
+
+**The identity gate is a floor, not the gate.** `plausibilityGate` compares ink quantity and
+proportion, both scale-free, and is named for what it does: it rejects a vectoriser that
+returned mush and would happily accept a different person's face. The embedding check needs a
+model that cannot run offline here. `PoseGate` is the seam it arrives through, and until it
+does, a generated pose is not trustworthy enough to be worth a key — which is why the shipped
+rig composes all four of its useful poses and marks only `thinking` as generated.
+
+The manifest records `library.pose` as `{ name, how, requested }`, and `name !== requested` is
+exactly the case where a generated pose fell back. That is the one place the record admits the
+board is showing a different posture than the storyboard asked for.
+
+## Still true from the sections above
+
+The benchmark is untouched by any of this — it has zero assets, and its numbers
+(104.667 s / 3140 frames / 52.2%, 61.500 s / 55.9%, `cost $0.00`) were last measured in the
+previous section and nothing since could have moved them. The planner still never emits an
+`AssetRef` or a variant, so **nothing upstream can ask for a pose yet**: a rig is reachable by
+hand and by alias, and not by pedagogy. That is the largest remaining gap in this area and it
+is a planner change, not a rig one.

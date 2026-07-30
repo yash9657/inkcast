@@ -52,7 +52,21 @@ export type AssetVisual = {
    * a deliberate act rather than a side effect of the library moving on. `how` says
    * whether a path was pinned or a registered noun matched.
    */
-  library?: { path: string; version: number; ink: string; how: 'path' | 'alias' };
+  library?: {
+    path: string;
+    version: number;
+    ink: string;
+    how: 'path' | 'alias';
+    /**
+     * For a character rig: which pose was drawn and how it was got.
+     *
+     * `name` and `requested` differ exactly when a generated pose fell back to a composed
+     * one, which is the case worth being able to see from the outside — the character is
+     * still the right character, in the wrong posture, and nothing else in the record
+     * would say so.
+     */
+    pose?: { name: string; how: 'composed' | 'cache' | 'generated'; requested: string };
+  };
   icon?: { slug: string; how: string };
   /** Project-relative cached raster, when this came through the illustration lane. */
   raster?: string;
