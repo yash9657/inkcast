@@ -43,7 +43,9 @@ export const PIPELINE_VERSION = 2;
  *   per-beat `from`/`derivedFrom`, so the same topic yields a different lesson.
  * - lesson 3: every beat names the vocabulary it introduces (`terms`). The derived
  *   author fills it from the narration and the model is briefed to, so the same document
- *   yields a lesson with words on it that the previous one only said out loud.
+ *   yields a lesson with words on it that the previous one only said out loud. The
+ *   derived author also stopped captioning several beats with one section heading, so its
+ *   `idea` fields moved as well.
  * - storyboard 2: where the abstraction arrives is derived from `analogy.maps` rather
  *   than matched in the narration, so the same lesson can compile to a different board.
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.

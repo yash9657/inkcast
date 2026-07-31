@@ -284,6 +284,7 @@ How to read them:
 - "derives from … which is not a beat in this lesson" — use the real ids: \`hook\`, \`anchor\`, \`step1\`…, \`worked\`, \`misconception\`, \`recap\`.
 - "and no beat writes it" — that word is spoken and never drawn anywhere in the video. Add it to that beat's \`terms\`, spelled exactly as the narration says it, or write it into the beat's \`idea\`.
 - "writes the term … which is not in its narration" — \`terms\` are quoted from the narration, character for character. Either copy it exactly or say the word in the narration.
+- "is captioned … the same as" — two cells would write one string, and the recap would draw that step twice. Each \`idea\` is that beat's own single new idea; if two beats really have the same one, they are one beat.
 - "does not name the one insight it exists to install" — write \`coreInsight\` as one sentence, and check every beat serves it.
 - "names no correspondences" — fill in \`analogy.maps\`: each \`from\` a concrete part of the anchor, each \`to\` what it stands for.
 - "says it teaches by analogy but does not record one" — either record the analogy, or change \`strategy\` to what you actually did.

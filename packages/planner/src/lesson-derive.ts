@@ -232,11 +232,46 @@ function visualFor(beat: Beat, doc: SourceDoc): VisualIntent[] {
 
 /* -------------------------------------------------------------------- steps */
 
+/**
+ * The one line this beat writes on the board, and never a line another beat wrote.
+ *
+ * A document's section becomes several beats, so reaching for the heading first — which
+ * is what this did — captions all of them the same thing. Measured on the photosynthesis
+ * document, three of eight cells said "The one-line version" and two more said "Where it
+ * happens": a third of the board's words were one string repeated, and the accumulated
+ * board is supposed to *be* the summary.
+ *
+ * So the heading is the first *preference*, not the answer, and a beat whose turn at it
+ * has already been taken falls through to a sentence of its own. `used` is the ideas
+ * already claimed, and it is mutated here so the next beat sees this one's choice.
+ */
+function ideaFor(beat: Beat, source: string, used: Set<string>): string {
+  const def = definitionOf(source);
+  const candidates = [
+    def?.term ? `${def.term}: ${def.definition}` : undefined,
+    beat.heading,
+    strongest(sentences(source)),
+    // Last resort, and never a repeat: the beat's own opening sentence.
+    sentences(source)[0],
+    source,
+  ];
+  for (const candidate of candidates) {
+    const idea = shorten(candidate ?? '', 12);
+    if (!idea) continue;
+    const key = idea.toLowerCase();
+    if (used.has(key)) continue;
+    used.add(key);
+    return idea;
+  }
+  return shorten(candidates.find(Boolean) ?? '', 12);
+}
+
 function stepFrom(
   beat: Beat,
   doc: SourceDoc,
   preset: Preset,
   index: number,
+  used: Set<string>,
 ): LessonStep | undefined {
   const source = stripMarkdown(beat.source);
   const narration = clampNarration(
@@ -248,12 +283,7 @@ function stepFrom(
   if (wordCount(narration) < 5) return undefined;
 
   const def = definitionOf(source);
-  const idea = shorten(
-    def?.term
-      ? `${def.term}: ${def.definition}`
-      : beat.heading || strongest(sentences(source)) || source,
-    12,
-  );
+  const idea = ideaFor(beat, source, used);
   const because =
     reasonNear(source, idea) ??
     (def?.definition ? speakify(`it is ${def.definition}`) : undefined) ??
@@ -308,10 +338,24 @@ export function deriveLesson(
   // is dropped rather than aired twice.
   const spoken: string[] = [speakify(opening), speakify(analogy ?? opening)];
   const drawn: string[] = [];
+  const anchorSource = analogy ?? opening;
+  // The two captions the setup will write, settled before the steps so no step can
+  // caption its cell with a line the hook or the anchor is already going to write.
+  // With no document, `opening` is only the topic — and the topic is already the video's
+  // title, so captioning the hook with it says nothing and collides with the one step a
+  // bare topic produces. The question the hook asks is what that beat actually
+  // contributes, so it is the honest caption. A real document has a sentence to use.
+  const hookIdea = capitalize(
+    shorten(opening === doc.title ? hookQuestion(doc.title) : opening, 10),
+  );
+  const anchorIdea = capitalize(
+    shorten(analogy ? anchorSource : `start from what ${doc.title} is for`, 10),
+  );
+  const captions = new Set([hookIdea.toLowerCase(), anchorIdea.toLowerCase()]);
   beats.forEach((beat, i) => {
     if (steps.length >= 5) return;
     if (factBeat && beat === factBeat && extractFacts(beat.source, 4).length >= 2) return;
-    const step = stepFrom(beat, doc, preset, i);
+    const step = stepFrom(beat, doc, preset, i, captions);
     if (!step) return;
     if (spoken.some((prior) => saysAgain(step.narration, prior) > 0.6)) return;
     // Two beats in a row asking for the same picture is how the MVP ended up
@@ -356,7 +400,7 @@ export function deriveLesson(
     preset.maxWordsPerBeat + 6,
   );
   const hook: LessonStep = {
-    idea: capitalize(shorten(opening, 10)),
+    idea: hookIdea,
     // The hook is the one beat `critiqueLesson` does not require a reason for:
     // a question does not need justifying, it needs answering.
     because: '',
@@ -373,10 +417,9 @@ export function deriveLesson(
     hold: 1.4,
   };
 
-  const anchorSource = analogy ?? opening;
   const anchorNarration = clampNarration(speakify(anchorSource), preset.maxWordsPerBeat);
   const anchor: LessonStep = {
-    idea: capitalize(shorten(analogy ? anchorSource : `start from what ${doc.title} is for`, 10)),
+    idea: anchorIdea,
     because:
       reasonNear(doc.text, anchorSource) ??
       speakify(all.find((s) => s !== anchorSource && wordCount(s) >= 8) ?? anchorSource),
@@ -452,7 +495,7 @@ export function deriveLesson(
 
   if (factBeat && extractFacts(factBeat.source, 4).length >= 2) {
     const facts = extractFacts(factBeat.source, 3);
-    const worked = stepFrom(factBeat, doc, preset, steps.length);
+    const worked = stepFrom(factBeat, doc, preset, steps.length, captions);
     if (worked) {
       lesson.worked = {
         ...worked,

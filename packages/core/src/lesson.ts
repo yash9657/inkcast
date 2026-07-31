@@ -570,6 +570,19 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     earlier.add(id);
   }
 
+  // Two cells captioned the same thing is a third of the board's words spent saying one
+  // string. It reads as a stuck record, and it is worst in the one place the board is
+  // supposed to pay off: the recap draws the chain of ideas, so a repeated `idea` makes
+  // the summary of the argument say the same step twice.
+  const captions = new Map<string, string>();
+  for (const { step, role } of beats) {
+    const key = step.idea.trim().toLowerCase();
+    if (!key) continue;
+    const first = captions.get(key);
+    if (first) problems.push(`${role} is captioned "${step.idea}", the same as ${first}`);
+    else captions.set(key, role);
+  }
+
   if (!l.coreInsight.trim()) {
     problems.push('the lesson does not name the one insight it exists to install');
   }

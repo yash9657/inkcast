@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -328,6 +329,30 @@ test('a lesson derived from a document is a real, valid, renderable lesson', () 
   const sb = compileLesson(derived, {});
   assert.equal(sb.scenes.length, lessonBeats(adaptLesson(derived, PRESETS.standard)).length);
   assert.ok(sb.scenes.every((s) => s.elements.length > 0));
+});
+
+test('no two cells on the board are captioned the same thing', () => {
+  // Measured on the photosynthesis document: three of eight cells said "The one-line
+  // version" and two more said "Where it happens", because a document's section becomes
+  // several beats and every one of them reached for the heading. A third of the board's
+  // words were one string, and the recap — which draws the chain of ideas — drew that
+  // step twice.
+  const photosynthesis = readFileSync(
+    path.resolve(import.meta.dirname, '../../../examples/photosynthesis.md'),
+    'utf8',
+  );
+  for (const source of [GRADIENT_DESCENT, photosynthesis]) {
+    const l = deriveLesson(buildDoc(source, 'markdown'), {}, PRESETS.standard);
+    const ideas = lessonBeats(l).map((b) => b.step.idea.toLowerCase());
+    assert.deepEqual(ideas, [...new Set(ideas)], `a caption was drawn twice: ${ideas.join(' / ')}`);
+  }
+  // Wherever a repeat comes from, including a model, the gate sees it.
+  const l = structuredClone(shipped);
+  l.steps[1]!.idea = l.steps[0]!.idea;
+  assert.ok(
+    critiqueLesson(l).some((p) => /is captioned ".*", the same as step/.test(p)),
+    'two cells captioned the same thing passed critique',
+  );
 });
 
 test('a bare topic string needs no document', () => {
