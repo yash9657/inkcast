@@ -193,6 +193,25 @@ type LessonStep = {
   hold: number;
 
   /**
+   * The vocabulary this beat introduces, verbatim from its own `narration`. ✅ SHIPPED.
+   *
+   * A chalkboard explanation writes the word as it says it, and nothing here could:
+   * the board's only words were `idea`, so a photosynthesis render had 3 of 22 spoken
+   * technical terms on it and none of its three initialisms — while the voice stage
+   * spells initialisms out letter by letter, so "see oh two" was unrecoverable.
+   *
+   * The compiler writes each term in that beat's cell as a row along the foot of it,
+   * cued to the word, once per video (`planVocabulary`). Matched against the narration
+   * the way `emphasis` and `cue` are, because all three are *found* by searching the
+   * text. `critiqueLesson` rejects a spoken initialism or name that no beat writes —
+   * only those two kinds, since "you said ATP and this video never writes ATP" is a
+   * fact and "you should have written membrane" is taste. What counts as a term is one
+   * shared definition in `core/src/terms.ts`, about the form of the word rather than
+   * about a list of subjects.
+   */
+  terms: string[];
+
+  /**
    * Where this step's claim comes from.
    *
    * The rule that makes "reason from first principles" checkable rather than
@@ -762,8 +781,36 @@ changes the library assets and character rigs instead, and unwinds roughjs-speci
 machinery (`baseOptions`, the `seed: 0` guard). Take it with frames in front of you, not
 as a refactor.
 
+**11. The board writes what it says.** ✅ **DONE.** Vocabulary as a first-class field
+(`LessonStep.terms`, contract 1 above), written in the beat's own cell and cued to the
+spoken word; a shared, form-based definition of what counts as a term; and a quality gate
+that fails a lesson which says an initialism or a name no cell ever writes. _Done when:_
+the vocabulary count on a real document rises and every initialism lands — measured by
+`vocabcheck.mts`, 3 of 22 → 13 of 22 with 3 of 3 initialisms on the photosynthesis
+document, 4 of 19 → 10 of 19 with 6 of 6 names on the shipped longitude lesson.
+
+Two defects of the same family went with it. **A repeated caption**: a document's section
+becomes several beats and each reached for its heading, so three cells said "The one-line
+version" and the recap drew that step twice — the heading is now a preference, not the
+answer, and an identical `idea` is a critique failure. **A plot where there is no
+quantity**: the shape keywords answered _which_ plot and were being asked _whether_ a
+plot, so `cycle` drew the Calvin cycle as a sine wave of value against time.
+`worthPlotting` asks the second question — a quantity, and something happening to it —
+and vetoes the match; `describesAPlot` stops the compiler drawing its fallback parabola,
+labelled `w` and `loss`, for an intent that describes no plot at all.
+
 ## Still open
 
+- **Frame fill on a document is 17%, against 47.6% on the benchmark.** Measured with
+  `sbjson.mts` then `fillcheck.mts` (both committed) on `examples/photosynthesis.md`. The
+  hole is a beat whose only figure is one square asset centred in a frame-shaped cell:
+  a square drawing cannot fill a 16:9 frame however large it is, so the honest fixes are
+  a **two-column cell** (words beside the drawing rather than above it) or **framing the
+  ink rather than the cell** — and the second contradicts a considered decision in
+  `regions.ts`, where one cell is deliberately the tightest shot there is. Both change
+  every board, so take it with frames in front of you. Note also that `contentFill`
+  counts bounding boxes, so inflating an element's box raises the number without
+  enlarging the picture: the metric can be gamed and should not be optimised directly.
 - **Music and SFX** are named in the brief and absent from the compositor. A separate
   piece of work, not a design problem.
 - **The cost target.** `$0.20/min` was set when zero-key was the headline. With keyed

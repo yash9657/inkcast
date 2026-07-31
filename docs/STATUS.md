@@ -776,3 +776,90 @@ step 10 states the two options and what each one costs.
 
 **`visuals/src/svg.ts` has its own `parsePath`.** A third path parser, serving a different
 job (segment rewriting rather than flattening to points). Noted, not touched.
+
+# The board writes what it says, 2026-07-31
+
+The engine was never the problem; the board was. This closes item 1 of the handoff and
+one half of item 4, and both were measured before and after with tools that are now
+committed rather than typed at a shell.
+
+## The defect, reproduced before it was fixed
+
+`examples/photosynthesis.md` through the no-key authors, then
+`packages/pipeline/src/vocabcheck.mts`:
+
+    3 of 22 spoken terms are on the board (0 of 3 initialisms and names)
+    213 words spoken, 70 words drawn, across 8 scenes
+
+Every word on that board was a beat heading. Three cells said "The one-line version" and
+two more said "Where it happens", so a third of those 70 words was one string repeated —
+and the recap, which draws the chain of ideas, listed the same step twice. The shipped
+longitude lesson was no better on vocabulary: **0 of 6** of the people and places it
+names were ever written, only pronounced.
+
+Zero of three initialisms is the sharp end of it. Since `6b46e14` the voice stage spells
+an initialism out letter by letter, so "see oh two" is unrecoverable unless the board
+also draws `CO₂`.
+
+## What was done
+
+**`LessonStep.terms`** — the vocabulary a beat introduces, verbatim from its own
+narration. The compiler writes each term as a row along the foot of that beat's cell,
+one text element per term with the term as its own cue, so the voice stage lands the
+writing on the word. `planVocabulary` settles the whole lesson at once, because "written
+once" and "not where a caption already says it" are facts about the board rather than
+about a beat.
+
+**One definition of a term**, in `packages/core/src/terms.ts`, about the form of the word
+and not about a list of subjects: an initialism or formula, a name (paired with the noun
+it qualifies only after an article — "the Calvin cycle" yes, `London says` no), and a long
+content word that is not everyday English. The third rule is loose on purpose, so callers
+rank and cap.
+
+**A gate that can see it.** A spoken initialism or name that no beat writes is a critique
+failure, measured across the lesson because the board never wipes. Only those two kinds.
+
+**One cell, one caption.** The derived author reached for `beat.heading` first, so beats
+sharing a section shared a caption; the heading is now a preference and a taken one falls
+through to a sentence of the beat's own. An identical `idea` on two beats is a critique
+failure wherever it comes from.
+
+**A plot belongs where there is a quantity.** `cycle` no longer selects the wave recipe
+and a lone `supply` no longer selects a demand curve, and behind that, `worthPlotting`
+asks the question the keyword tables were being asked and cannot answer.
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **595 pass, 0 fail** across the eight test-bearing packages (586 → 595).
+
+## The numbers, after
+
+    examples/photosynthesis.md   13 of 22 terms  (3 of 3 initialisms)   80 words drawn
+      after the caption fix      15 of 22                              100 words drawn
+    examples/lessons/longitude   10 of 19 terms  (6 of 6 names)        102 words drawn
+
+`sbhash.mts` over both shipped lessons, at both presets: **`gradient-descent`
+byte-identical** across all three commits, `longitude` changed only where it gained
+vocabulary. That is the shape of the whole change — it costs nothing where there is
+nothing to write, and the benchmark keeps `loss`, `parameter` and `gradient` in its
+`jargonBudget` and never says them, so there is no vocabulary to write.
+
+## What is deliberately not done
+
+**The density half of item 4.** Frame fill on the photosynthesis document is 17.1%
+against 47.6% on `projects/final-169`, and the cause is not something a constant can fix:
+a beat whose only figure is one square asset centred in a frame-shaped cell leaves the
+sides empty at any size. The two honest fixes — a two-column cell, or framing the ink
+rather than the cell — both change every board, and the second argues with a considered
+decision in `regions.ts`. `PIPELINE.md`'s "Still open" states them.
+
+**The loose third term rule.** `findTerms` will offer "Chemists" and "ingredients" on a
+derived lesson, because a long content word is the only recall rule available without a
+word-frequency corpus. Ranking and the per-beat cap keep them off the board where
+anything better exists, and the gate only ever _requires_ the two certain kinds. A
+keyed lesson names its own terms and does not need the heuristic at all.
+
+**Nothing here was measured on a model-authored lesson**, because there is still no key
+on this machine. Both shipped lessons are hand-authored. The brief and the revision pass
+teach the idiom, and that is untested.
