@@ -25,6 +25,7 @@
         "cue": "In 1707 a British fleet"
       }
     ],
+    "terms": ["British fleet", "Scilly Isles"],
     "hold": 1.4,
     "from": "given",
     "derivedFrom": []
@@ -43,6 +44,7 @@
         "cue": "Measuring north is easy"
       }
     ],
+    "terms": ["latitude"],
     "hold": 0.8,
     "from": "given",
     "derivedFrom": []
@@ -62,6 +64,7 @@
           "cue": "So wait for noon"
         }
       ],
+      "terms": ["London"],
       "hold": 0.9,
       "from": "given",
       "derivedFrom": ["anchor"]
@@ -80,6 +83,7 @@
           "cue": "Notice what that asks for"
         }
       ],
+      "terms": [],
       "hold": 0.9,
       "from": "derived",
       "derivedFrom": ["step1"]
@@ -98,6 +102,7 @@
           "cue": "John Harrison was a carpenter"
         }
       ],
+      "terms": ["John Harrison", "Lincolnshire", "Jamaica"],
       "hold": 1.0,
       "from": "asserted",
       "derivedFrom": []
@@ -114,6 +119,7 @@
         "cue": "The earth turns one degree"
       }
     ],
+    "terms": [],
     "hold": 1.0,
     "from": "derived",
     "derivedFrom": ["step1", "step3"]
@@ -132,6 +138,7 @@
         "cue": "It is tempting to say"
       }
     ],
+    "terms": [],
     "hold": 1.2,
     "from": "derived",
     "derivedFrom": ["step1", "step2"]
@@ -141,6 +148,7 @@
     "because": "",
     "narration": "A sky that gives you north and refuses you west. A difference of hours that is a difference of degrees. And a carpenter who made the hour of home portable enough to carry across an ocean.",
     "visuals": [],
+    "terms": [],
     "hold": 1.4,
     "from": "given",
     "derivedFrom": []

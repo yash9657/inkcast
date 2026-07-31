@@ -46,11 +46,13 @@ import {
   parseStoryboard,
   report,
   resolveEmphasis,
+  resolveTerms,
+  sameTerm,
 } from '@inkcast/core';
 import { deriveCues, preferredCue } from './cues.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
-import { makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
+import { FONT, makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
 import {
   blobPath,
   bowlPath,
@@ -177,18 +179,30 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
     },
   );
 
-  // Who divides each shared cell's text zone, in beat order. The host is first,
-  // because it is the beat that draws the picture the others are talking about.
-  const sharers = new Map<number, number[]>();
-  for (const [beat, host] of reuse.annotates) {
-    const group = sharers.get(host) ?? [host];
-    group.push(beat);
-    sharers.set(host, group);
-  }
+  // Which beats draw into each cell, in beat order. The host is first, because it is
+  // the beat that draws the picture the others are talking about — and a cell nobody
+  // shares is a group of one, which is why both of the divisions below can be read off
+  // this single map.
+  const cells = new Map<number, number[]>();
+  beats.forEach((_, i) => {
+    const host = reuse.annotates.get(i) ?? i;
+    const group = cells.get(host) ?? [];
+    group.push(i);
+    cells.set(host, group);
+  });
+
+  // Who divides each cell's text zone, and who gets which row of its vocabulary strip.
+  // Both are settled here, before any beat is built, for the same reason: a beat that
+  // draws a picture has to leave room for words a *later* beat has not written yet.
+  const vocab = planVocabulary(beats, preset);
   const bands = new Map<number, { bands: number; band: number }>();
-  for (const group of sharers.values()) {
-    const ordered = [...group].sort((a, b) => a - b);
-    ordered.forEach((beat, k) => bands.set(beat, { bands: ordered.length, band: k }));
+  const strips = new Map<number, { rows: number; row: number }>();
+  for (const group of cells.values()) {
+    group.forEach((beat, k) => bands.set(beat, { bands: group.length, band: k }));
+    // Only beats that actually write a term claim a row, so a cell whose sharers have
+    // no vocabulary loses no drawing space to an empty strip.
+    const writers = group.filter((beat) => (vocab[beat]?.length ?? 0) > 0);
+    writers.forEach((beat, k) => strips.set(beat, { rows: writers.length, row: k }));
   }
 
   const assets = registry();
@@ -197,6 +211,7 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
   const scenes: Scene[] = beats.map(({ step, role }, i) => {
     const cell = inset(board.cellOf(i), 10);
     const share = bands.get(i);
+    const strip = strips.get(i);
     const built = buildBeat({
       step,
       role,
@@ -210,6 +225,9 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       morphsAnchor: reuse.bridge?.beat === i,
       cellBands: share?.bands ?? 1,
       cellBand: share?.band ?? 0,
+      terms: vocab[i] ?? [],
+      termRows: strip?.rows ?? 0,
+      termRow: strip?.row ?? 0,
     });
     // Pacing is one decision. `cadence` sets this scene's speech rate (read later by
     // the voice stage) and bounds its trailing silence, so the two are settled here
@@ -273,6 +291,72 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
   });
   report(opts, { stage: 'plan', pct: 100, note: `${scenes.length} scenes` });
   return parseStoryboard(sb);
+}
+
+/* ------------------------------------------------------------- the vocabulary */
+
+/**
+ * Most terms one beat may write. A beat with a fourth term is a glossary, and the fix
+ * for a glossary is more beats, not smaller handwriting.
+ */
+const MAX_TERMS = 3;
+
+/**
+ * Which term each beat writes on the board, settled for the whole lesson at once.
+ *
+ * Two decisions, and both need the whole lesson in view:
+ *
+ *  - **A term is written once.** The board never wipes, so the beat that introduces a
+ *    term writes it and every later beat that says it again leaves it alone. Writing
+ *    ATP three times in three cells does not teach it three times; it reads as three
+ *    different things called ATP.
+ *  - **A beat does not write what some cell already says.** A beat captioned "ATP: the
+ *    cell's energy currency" has already written the word, so the strip does not draw it
+ *    again — and neither does any later beat, because that caption is still up there.
+ *
+ * The captions counted are the ones the cells will really carry: `captionFor` shortens a
+ * beat's `idea` to the preset's word budget, and the tail it cuts is not on the board.
+ * The difference is load-bearing — the longitude anchor's idea names both latitude and
+ * longitude, its caption keeps only the first nine words, and testing against the idea
+ * would decide that "longitude" had been written when it had been cut.
+ *
+ * Every test uses `sameTerm`, so they hold for the *forms* of a word rather than for
+ * exact strings: a beat whose caption says "molecules" does not also write "molecule".
+ *
+ * Returned per beat in spoken order, which is the order the strip writes them.
+ */
+export function planVocabulary(
+  beats: { step: LessonStep; role: BeatRole }[],
+  preset: Preset,
+): string[][] {
+  const written = beats.map(({ step, role }) => captionFor(step, role, preset)).filter(Boolean);
+  return beats.map(({ step }) => {
+    const out: string[] = [];
+    for (const term of resolveTerms(step).found) {
+      if (out.length >= MAX_TERMS) break;
+      if (!term || written.some((seen) => sameTerm(seen, term))) continue;
+      written.push(term);
+      out.push(term);
+    }
+    return out;
+  });
+}
+
+/**
+ * How far through a beat's words a term is first spoken, as a fraction.
+ *
+ * The cue is what actually lands the word on the voice — resolved to a real timestamp,
+ * word-exactly — so this is only the fallback for a beat that was never narrated. It is
+ * still worth deriving honestly rather than spacing the terms evenly: `assignTiming`
+ * orders elements by this number, and a term written before the figure it belongs to
+ * would be drawn in the wrong order on a silent render.
+ */
+function spokenAt(narration: string, term: string): number {
+  const at = narration.toLowerCase().indexOf(term.toLowerCase());
+  if (at < 0) return 0;
+  const before = wordCount(narration.slice(0, at));
+  const total = Math.max(1, wordCount(narration));
+  return Math.min(0.92, before / total);
 }
 
 /* --------------------------------------------------- the abstraction's arrival */
@@ -435,6 +519,12 @@ type BeatContext = {
   cellBands: number;
   /** Which of those bands this beat's words go in, from the top. */
   cellBand: number;
+  /** Vocabulary this beat writes, in spoken order. See `planVocabulary`. */
+  terms: string[];
+  /** Rows the cell's vocabulary strip holds, across every beat sharing the cell. */
+  termRows: number;
+  /** Which of those rows is this beat's, from the top. */
+  termRow: number;
 };
 
 /** Which intents want a figure box, and which are text notes. */
@@ -531,12 +621,26 @@ function buildBeat(ctx: BeatContext): Element[] {
     elements.push(t);
   });
 
-  /* --- the figure area: the rest of the cell, and never less than half of it --- */
-  // The text budget above caps words at 40% of the cell, so this is always the
-  // larger share. Clamping to the cell rather than taking a minimum height is
-  // what keeps every element provably inside its own cell, and therefore inside
-  // its region: an element that overflowed downwards would collide with the beat
-  // below it, which is the one thing region sharing must never do.
+  /* --- the vocabulary, along the foot of the cell --- */
+  //
+  // A row at the bottom rather than another line in the text stack above, for two
+  // reasons. The stack is measured against a budget and scaled down when it overflows,
+  // so putting terms in it would shrink the caption of every beat that has any — and
+  // the terms are the one thing on this board the learner has to be able to read. And
+  // the strip reaches the bottom edge of the cell, so a beat with one small figure
+  // stops leaving the bottom third of its cell blank.
+  const stripH = ctx.termRows * TERM_ROW_H;
+  const termEls = ctx.terms.length
+    ? termRow(ctx, cell, cell.y + cell.h - stripH + ctx.termRow * TERM_ROW_H, eid)
+    : [];
+
+  /* --- the figure area: the rest of the cell, above the vocabulary --- */
+  // The text budget above caps words at 40% of the cell and the strip below takes one
+  // short row per beat writing into it, so the picture keeps the larger share of every
+  // cell either shipped lesson produces. Clamping to the cell rather than taking a
+  // minimum height is what keeps every element provably inside its own cell, and
+  // therefore inside its region: an element that overflowed downwards would collide
+  // with the beat below it, which is the one thing region sharing must never do.
   //
   // With the cell to itself, the picture starts right under this beat's own words,
   // so short text means a bigger drawing. With the cell shared it starts under the
@@ -547,7 +651,7 @@ function buildBeat(ctx: BeatContext): Element[] {
     x: cell.x,
     y: round(figureTop, 2),
     w: cell.w,
-    h: round(Math.max(60, cell.y + cell.h - figureTop), 2),
+    h: round(Math.max(60, cell.y + cell.h - stripH - figureTop), 2),
   };
 
   // A `motion` intent alongside a `plot` intent rides that plot instead of
@@ -610,11 +714,79 @@ function buildBeat(ctx: BeatContext): Element[] {
     elements.push(big);
   }
 
+  // Last, so that a beat drawing nothing but words still counts as having nothing to
+  // look at above: the vocabulary is what the narrator says, not the beat's picture.
+  elements.push(...termEls);
+
   for (const el of elements) {
     const wantedCue = cueOf.get(el.id);
     if (wantedCue) el.enter = { ...el.enter, cue: wantedCue };
   }
   return elements;
+}
+
+/* --------------------------------------------------------- the vocabulary strip */
+
+/** Type scale for a written term. */
+const TERM_ROLE: TextElement['role'] = 'label';
+/** Space between two terms on the same row, so they read as separate words. */
+const TERM_GAP = 44;
+/** One row of the strip, including the air above it. */
+const TERM_ROW_H = round(FONT[TERM_ROLE] * 1.34 + 14, 2);
+
+/**
+ * The terms a beat writes, laid out as one row along the foot of its cell.
+ *
+ * Each term is its own element because each lands on its own word: the term is the cue,
+ * so the voice stage resolves it to the moment the narrator says it and the board writes
+ * it there. One element holding "ATP · NADPH" could only arrive once, which is the
+ * difference between vocabulary appearing as it is taught and a caption listing it.
+ *
+ * A row that does not fit is cut from the end rather than shrunk — the terms are set at
+ * the size the rest of the board's labels are, and a term too small to read is not
+ * written. The cut is logged, because a silently dropped term reads as a term the lesson
+ * never named.
+ */
+function termRow(
+  ctx: BeatContext,
+  cell: Box,
+  top: number,
+  eid: (name: string) => string,
+): TextElement[] {
+  const made = ctx.terms.map((term, k) =>
+    makeText(eid(`term${k}`), term, TERM_ROLE, { maxWidth: cell.w, align: 'center' }),
+  );
+  const fits: TextElement[] = [];
+  let used = 0;
+  for (const el of made) {
+    const width = used === 0 ? el.at.w : used + TERM_GAP + el.at.w;
+    if (width > cell.w) break;
+    used = width;
+    fits.push(el);
+  }
+  if (fits.length < made.length) {
+    log.warn(
+      `beat ${ctx.index} names ${made.length} terms and its cell has room for ${fits.length}`,
+      `dropped ${made
+        .slice(fits.length)
+        .map((el) => `"${el.text}"`)
+        .join(', ')} — say fewer terms per beat, or split the beat`,
+    );
+  }
+
+  let x = cell.x + (cell.w - used) / 2;
+  for (const el of fits) {
+    el.at = { x: round(x, 2), y: round(top, 2), w: el.at.w, h: el.at.h };
+    x += el.at.w + TERM_GAP;
+    // The cue is the term itself, verbatim, which is as exact as a cue gets: the board
+    // writes the word on the word.
+    el.enter = {
+      ...el.enter,
+      at: round(spokenAt(ctx.step.narration, el.text), 3),
+      cue: el.text,
+    };
+  }
+  return fits;
 }
 
 /** The words that name a cell on the finished board. */

@@ -104,6 +104,15 @@ PACING IS ONE DECISION, AND IT IS \`cadence\`
 - \`building_energy\` — the body of an explanation. 150 wpm. This is the normal case.
 - \`punchy\` — a hook, an aside, a one-line turn. 160 wpm, and at most 0.8s of silence after. Do not mark a beat \`punchy\` and then ask for two seconds of hold; you will get 0.8 and the beat will feel clipped.
 
+WRITE THE WORD AS YOU SAY IT
+\`terms\` is the vocabulary this beat introduces, copied VERBATIM from its own \`narration\`. The board writes each one in that beat's cell, cued to the word, so it appears under your voice as you reach it — and it stays there, because the board never wipes.
+
+This is the whole idiom of a chalkboard explanation and it is not optional. A term the learner has only *heard* is a term they cannot spell, cannot look up and will not recognise next time. It matters most for an initialism: ATP is narrated as "ay tee pee", and nobody recovers "ATP" from that unless the letters are on the board. **A spoken initialism or name that no beat writes is rejected.**
+- Copy it character for character, plural and all: "thylakoids", not "thylakoid". It is matched against your narration and dropped if it is not there.
+- One or two per beat, three at the very most. A beat introducing five terms is a glossary; split it.
+- Do not repeat a term a previous beat introduced, and do not name one your \`idea\` already says — the caption is on the board too, and the same word written twice reads as two things.
+- Terms are for words, not for numbers or whole phrases: "RuBisCO", "the Calvin cycle", "latitude". Not "six molecules of carbon dioxide".
+
 \`emphasis\` lists phrases from THIS beat's \`narration\`, copied verbatim, that carry its weight. They are spoken with more room — slowed slightly and given a beat afterwards, which is what a person does rather than getting louder — and drawn heavier wherever those same words appear on the board. One or two per beat at most: emphasis on everything is emphasis on nothing. A phrase that is not in the narration character for character is rejected, because both the voice and the board find it by searching the text.
 
 VISUALS — WRITE A DRAWING INSTRUCTION, NOT A CAPTION
@@ -273,6 +282,8 @@ How to read them:
 - "says it is derived but names nothing it derives from" — list the earlier beat ids in \`derivedFrom\`.
 - "derives from … which comes later" — the order is wrong, not the reference. Move the beat it depends on before it.
 - "derives from … which is not a beat in this lesson" — use the real ids: \`hook\`, \`anchor\`, \`step1\`…, \`worked\`, \`misconception\`, \`recap\`.
+- "and no beat writes it" — that word is spoken and never drawn anywhere in the video. Add it to that beat's \`terms\`, spelled exactly as the narration says it, or write it into the beat's \`idea\`.
+- "writes the term … which is not in its narration" — \`terms\` are quoted from the narration, character for character. Either copy it exactly or say the word in the narration.
 - "does not name the one insight it exists to install" — write \`coreInsight\` as one sentence, and check every beat serves it.
 - "names no correspondences" — fill in \`analogy.maps\`: each \`from\` a concrete part of the anchor, each \`to\` what it stands for.
 - "says it teaches by analogy but does not record one" — either record the analogy, or change \`strategy\` to what you actually did.

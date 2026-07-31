@@ -14,6 +14,7 @@
  * with real numbers, then name the wrong belief the learner has probably formed.
  */
 import { z } from 'zod';
+import { findTerms, sameTerm } from './terms.js';
 
 /** A visual intent, resolved into concrete elements by the storyboard compiler. */
 export const VisualIntent = z.object({
@@ -217,6 +218,25 @@ export const LessonStep = z.object({
    * silently matches nothing is worse than no emphasis, because it reads as working.
    */
   emphasis: z.array(z.string()).default([]),
+  /**
+   * The vocabulary this beat introduces, copied verbatim from its `narration`.
+   *
+   * A chalkboard explanation **writes the word as it says it**, and until this field
+   * existed nothing in the pipeline could: the board's only words were the beat's
+   * `idea`, so a photosynthesis render spoke ATP, NADPH and G3P three times each and
+   * never wrote a letter of any of them. Eleven of its fourteen technical terms were
+   * spoken and never drawn.
+   *
+   * The compiler writes each of these in the beat's own cell, cued to the word, so the
+   * term appears under the narrator's voice as they reach it — and once, across the
+   * whole video, because the board never wipes. Terms are matched against the narration
+   * the way `emphasis` and `cue` are, and for the same reason: a phrase that is not
+   * there cannot be found, so it is reported rather than silently dropped.
+   *
+   * Two or three per beat is the ceiling worth using. A beat that introduces five terms
+   * is a glossary, and the fix is more beats.
+   */
+  terms: z.array(z.string()).default([]),
   /**
    * Seconds of silence after this beat, so the idea can land.
    *
@@ -431,6 +451,37 @@ export function resolveEmphasis(step: LessonStep): { found: string[]; missing: s
 }
 
 /**
+ * The terms this beat asks the board to write that its narration actually says.
+ *
+ * Same contract as `resolveEmphasis`, because the consumers are the same kind: the
+ * board writes the term and cues it to the spoken word, so a term the narration does
+ * not contain has nothing to land on. It comes back in *spoken* order rather than the
+ * order the author listed them, since that is the order the board writes them in.
+ */
+export function resolveTerms(step: LessonStep): { found: string[]; missing: string[] } {
+  const haystack = step.narration.toLowerCase();
+  const found: { text: string; at: number }[] = [];
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of step.terms) {
+    const term = raw.trim();
+    const needle = term.toLowerCase();
+    if (!needle) continue;
+    const at = haystack.indexOf(needle);
+    if (at < 0) {
+      missing.push(raw);
+      continue;
+    }
+    // One term, one place on the board: a lesson that lists ATP twice is asking for
+    // the same word to be written on top of itself.
+    if (seen.has(needle)) continue;
+    seen.add(needle);
+    found.push({ text: term, at });
+  }
+  return { found: found.sort((a, b) => a.at - b.at).map((t) => t.text), missing };
+}
+
+/**
  * Structural critique of a lesson, used to reject weak plans before they cost a
  * render. Returns human-readable problems; empty means it passes.
  */
@@ -441,6 +492,8 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
   /** Ids already passed, so a `derivedFrom` cannot point forwards. */
   const earlier = new Set<string>();
   const castIds = new Set(l.cast.map((c) => c.id));
+  /** Every word this lesson puts on the board: its terms, and the captions. */
+  const inked = beats.flatMap((b) => [...b.step.terms, b.step.idea]).filter(Boolean);
 
   for (const { step, role, id } of beats) {
     if (!step.because.trim() && role !== 'recap' && role !== 'hook') {
@@ -460,6 +513,29 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     // silent no-op, which reads as working.
     for (const phrase of resolveEmphasis(step).missing) {
       problems.push(`${role} emphasises "${phrase}", which is not in its narration`);
+    }
+    // A term is written on the board and cued to the spoken word, so it has the same
+    // requirement as emphasis: it has to be findable in the words it comes from.
+    for (const term of resolveTerms(step).missing) {
+      problems.push(`${role} writes the term "${term}", which is not in its narration`);
+    }
+    // Vocabulary that is spoken and never written is the defect `terms` exists for, so
+    // it is a critique failure and not a warning.
+    //
+    // Only the terms there is no argument about: an initialism, which the voice stage
+    // spells out letter by letter and which is therefore unrecoverable unless it is also
+    // drawn, and a name. "You said ATP and this video never writes ATP" is a fact;
+    // "you should have written membrane" is taste, and taste does not belong in a gate.
+    //
+    // Measured against the *whole lesson*, not the beat. The board never wipes, so a
+    // term written once is written for good — and a recap that retraces the argument
+    // must not be asked to write the vocabulary a second time.
+    for (const term of findTerms(step.narration)) {
+      if (term.kind === 'word' || inked.some((text) => sameTerm(text, term.text))) continue;
+      problems.push(
+        `${role} says "${term.text}" and no beat writes it — put it in \`terms\` so the ` +
+          `board writes it as the narrator says it`,
+      );
     }
     for (const v of step.visuals) {
       if (v.character && !castIds.has(v.character.id)) {

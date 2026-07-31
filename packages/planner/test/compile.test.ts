@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import type { PlotElement, Scene, Storyboard } from '@inkcast/core';
+import type { PlotElement, Scene, Storyboard, TextElement } from '@inkcast/core';
 import {
   CADENCE,
   Storyboard as StoryboardSchema,
   lessonBeats,
   parseStoryboard,
 } from '@inkcast/core';
-import { compileLesson, findReuse, updateLine } from '../src/compile.js';
+import { compileLesson, findReuse, planVocabulary, updateLine } from '../src/compile.js';
 import { deriveCues, cueResolves } from '../src/cues.js';
 import { curveY, descend, evalFn, fitYDomain, slopeAt } from '../src/curves.js';
 import type { Box } from '../src/elements.js';
@@ -24,6 +24,13 @@ const SHIPPED = path.resolve(
   '../../../examples/lessons/gradient-descent.lesson.json',
 );
 const lesson = await readLessonFile(SHIPPED);
+
+/** The narrative benchmark: a declared cast, named poses, and written vocabulary. */
+const NARRATIVE = path.resolve(
+  import.meta.dirname,
+  '../../../examples/lessons/longitude.lesson.json',
+);
+const narrative = await readLessonFile(NARRATIVE);
 
 const sb = compileLesson(lesson, {});
 const vertical = compileLesson(lesson, { preset: 'short' });
@@ -69,9 +76,17 @@ test('the compiler is deterministic', () => {
 /* --------------------------------------------------------------- the geometry */
 
 test('no two beats sharing a region overlap, and nothing leaves its region', () => {
-  for (const board of [sb, vertical]) {
+  // Both shipped lessons, at both presets. The narrative one is here because it is the
+  // one that writes vocabulary: a term strip is ink at the very bottom edge of a cell,
+  // which is exactly where an off-by-one leaves its region or lands on the beat below.
+  for (const [source, board] of [
+    [lesson, sb],
+    [lesson, vertical],
+    [narrative, compileLesson(narrative, {})],
+    [narrative, compileLesson(narrative, { preset: 'short' })],
+  ] as const) {
     const shaped = adaptLesson(
-      lesson,
+      source,
       PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'],
     );
     const beats = lessonBeats(shaped);
@@ -464,6 +479,7 @@ test('updateLine computes the arithmetic rather than copying it', () => {
       from: 'given',
       derivedFrom: [],
       emphasis: [],
+      terms: [],
       narration: 'anything',
       hold: 0,
       visuals: [{ describe: 'w = 5, slope = -2, learning rate 0.5', kind: 'plot' }],
@@ -481,6 +497,7 @@ test('updateLine computes the arithmetic rather than copying it', () => {
         from: 'given',
         derivedFrom: [],
         emphasis: [],
+        terms: [],
         narration: '',
         hold: 0,
         visuals: [],
@@ -829,5 +846,105 @@ test('emphasis reaches the board as visual weight, and only where the words are'
   );
   for (const el of plain) {
     assert.equal(el.type === 'text' && el.role, 'body', 'an unemphasised note stays at body');
+  }
+});
+
+/* ------------------------------------------------- the board writes what it says */
+
+/** Every text element on a board, with the scene it belongs to. */
+function boardText(board: Storyboard): { scene: Scene; el: TextElement }[] {
+  return board.scenes.flatMap((scene) =>
+    scene.elements
+      .filter((el): el is TextElement => el.type === 'text')
+      .map((el) => ({ scene, el })),
+  );
+}
+
+test('a term the lesson names is written on the board, cued to the spoken word', () => {
+  // The defect this exists for: a photosynthesis render spoke ATP, NADPH and G3P three
+  // times each and never wrote a letter of any of them. Eleven of fourteen technical
+  // terms were spoken and never drawn.
+  const board = compileLesson(narrative, {});
+  const beats = lessonBeats(adaptLesson(narrative, PRESETS.standard));
+  const named = beats.flatMap((b) => b.step.terms);
+  assert.ok(named.length >= 5, 'the narrative benchmark should name real vocabulary');
+
+  // Every term the lesson names is somewhere in the board's ink — as a term of its own,
+  // or inside the caption that already said it.
+  const ink = boardText(board)
+    .map(({ el }) => el.text.toLowerCase())
+    .join(' | ');
+  for (const term of named) {
+    assert.ok(ink.includes(term.toLowerCase()), `"${term}" is spoken and never written`);
+  }
+
+  // The ones written as vocabulary are written *on the word*.
+  const planned = planVocabulary(beats, PRESETS.standard).flat();
+  assert.ok(planned.length >= 4, `only ${planned.length} terms reached the board`);
+  for (const term of planned) {
+    const written = boardText(board).find(({ el }) => el.text === term);
+    assert.ok(written, `"${term}" was planned and never drawn`);
+    // The cue is the term itself, so the voice stage lands the writing on the word.
+    assert.equal(written.el.enter.cue, term);
+    assert.ok(
+      cueResolves(written.scene.narration, written.el.enter.cue),
+      `the cue for "${term}" is not in the narration it came from`,
+    );
+    // `write` is the per-stroke handwriting reveal — the word appears as it is said,
+    // rather than fading in whole.
+    assert.equal(written.el.enter.style, 'write');
+  }
+});
+
+test('a term is written once, and never where a caption already says it', () => {
+  const beats = lessonBeats(adaptLesson(narrative, PRESETS.standard));
+  const planned = planVocabulary(beats, PRESETS.standard).flat();
+  assert.deepEqual(planned, [...new Set(planned)], 'the board wrote the same word twice');
+
+  // A caption anywhere on the board covers the word: the board never wipes, so a term
+  // a cell already carries does not need writing again.
+  const l = structuredClone(narrative);
+  l.steps[0]!.terms = ['London'];
+  l.steps[0]!.idea = 'London is the clock you carry';
+  const covered = planVocabulary(lessonBeats(adaptLesson(l, PRESETS.standard)), PRESETS.standard);
+  assert.ok(
+    !covered.flat().includes('London'),
+    'a term the caption already writes should not be written a second time',
+  );
+
+  // And a term the narration does not actually contain is dropped rather than drawn
+  // with a cue that can never resolve.
+  const wrong = structuredClone(narrative);
+  wrong.steps[0]!.terms = ['a term nobody says'];
+  assert.ok(
+    !planVocabulary(lessonBeats(adaptLesson(wrong, PRESETS.standard)), PRESETS.standard)
+      .flat()
+      .includes('a term nobody says'),
+  );
+});
+
+test('the vocabulary sits along the foot of its cell and leaves the picture the larger share', () => {
+  for (const preset of [PRESETS.standard, PRESETS.short] as const) {
+    const board = compileLesson(narrative, { preset: preset.name });
+    const beats = lessonBeats(adaptLesson(narrative, preset));
+    const plan = planBoard(
+      beats.map((b) => b.role),
+      { aspect: preset.aspect, maxPerRegion: preset.maxPerRegion },
+    );
+    board.scenes.forEach((scene, i) => {
+      const cell = plan.cellOf(i);
+      const terms = scene.elements.filter((el) => el.type === 'text' && el.id.includes('_term'));
+      if (!terms.length) return;
+      for (const el of terms) {
+        // Inside the cell, and in its bottom fifth: the strip is the foot of the panel.
+        assert.ok(
+          el.at.y >= cell.y + cell.h * 0.8 && el.at.y + el.at.h <= cell.y + cell.h,
+          `${scene.id}/${el.id} is not in the foot of its cell`,
+        );
+        assert.ok(el.at.x >= cell.x && el.at.x + el.at.w <= cell.x + cell.w);
+      }
+      // One row, so the strip cannot eat the drawing.
+      assert.equal(new Set(terms.map((el) => el.at.y)).size, 1, `${scene.id} wrote two rows`);
+    });
   }
 });

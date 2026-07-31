@@ -15,7 +15,7 @@
  * not a claim of equivalence.
  */
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { Lesson as LessonSchema, logger } from '@inkcast/core';
+import { Lesson as LessonSchema, findTerms, logger, technicalTerms } from '@inkcast/core';
 import type { Beat } from './beats.js';
 import { buildBeats, definitionOf, extractFacts } from './beats.js';
 import { clampNarration, lessonSeconds } from './presets.js';
@@ -25,6 +25,33 @@ import { capitalize, keyTerms, sentences, shorten, stripMarkdown, wordCount } fr
 import type { LessonOptions, SourceDoc } from './types.js';
 
 const log = logger('planner:lesson:derive');
+
+/**
+ * The vocabulary a derived beat writes on the board.
+ *
+ * This is the one thing on this path that is not a compromise. Naming the terms a beat
+ * introduces is not an act of teaching — it is a property of the words, which is exactly
+ * what a heuristic can read — so `technicalTerms` does here what it does for the model:
+ * the board writes ATP as the narrator says ATP, with no key and no network.
+ *
+ * Certainty first, then a little recall. Every initialism and name a beat says is written,
+ * up to the schema's ceiling of three: those are the ones with no argument about them, and
+ * an initialism especially, because the voice stage spells it out letter by letter and
+ * nothing recovers "H₂O" from "aitch two oh". A beat with fewer than two of those tops up
+ * with its best long words, and stops at two — this author reads prose rather than
+ * choosing what to teach, so its third-best guess at what is vocabulary is its worst one.
+ *
+ * Terms are deduplicated across the whole lesson downstream (`planVocabulary`), so a beat
+ * whose offers are all already on the board writes nothing, which is correct.
+ */
+function vocabulary(narration: string): string[] {
+  const certain = findTerms(narration)
+    .filter((t) => t.kind !== 'word')
+    .map((t) => t.text);
+  // `technicalTerms` ranks initialisms and names above long words, so asking it for two
+  // returns the certain one plus the best word when there is only one certain term.
+  return certain.length >= 2 ? certain.slice(0, 3) : technicalTerms(narration, 2);
+}
 
 /**
  * The grounding every heuristic beat gets, and why it is the same one every time.
@@ -240,6 +267,7 @@ function stepFrom(
     because,
     ...grounded(),
     narration,
+    terms: vocabulary(narration),
     visuals: visualFor(beat, doc),
     hold: 0.4,
   };
@@ -303,14 +331,16 @@ export function deriveLesson(
     steps.push(step);
   });
   if (!steps.length) {
+    const narration = clampNarration(
+      writeNarration(doc.text || doc.title, { maxWords: preset.maxWordsPerBeat }),
+      preset.maxWordsPerBeat,
+    );
     steps.push({
       idea: capitalize(shorten(opening, 12)),
       because: speakify(all[1] ?? opening),
       ...grounded(),
-      narration: clampNarration(
-        writeNarration(doc.text || doc.title, { maxWords: preset.maxWordsPerBeat }),
-        preset.maxWordsPerBeat,
-      ),
+      narration,
+      terms: vocabulary(narration),
       visuals: [
         {
           describe: `${keyTerms(doc.text, 3).join(' ') || doc.title} drawn as a simple object`,
@@ -321,16 +351,18 @@ export function deriveLesson(
     });
   }
 
+  const hookNarration = clampNarration(
+    `${hookQuestion(doc.title)} ${speakify(opening)}`,
+    preset.maxWordsPerBeat + 6,
+  );
   const hook: LessonStep = {
     idea: capitalize(shorten(opening, 10)),
     // The hook is the one beat `critiqueLesson` does not require a reason for:
     // a question does not need justifying, it needs answering.
     because: '',
     ...grounded(),
-    narration: clampNarration(
-      `${hookQuestion(doc.title)} ${speakify(opening)}`,
-      preset.maxWordsPerBeat + 6,
-    ),
+    narration: hookNarration,
+    terms: vocabulary(hookNarration),
     visuals: [
       {
         describe: `${keyTerms(`${doc.title} ${opening}`, 3).join(' ') || doc.title} drawn as a simple object, with a question mark beside it`,
@@ -342,13 +374,15 @@ export function deriveLesson(
   };
 
   const anchorSource = analogy ?? opening;
+  const anchorNarration = clampNarration(speakify(anchorSource), preset.maxWordsPerBeat);
   const anchor: LessonStep = {
     idea: capitalize(shorten(analogy ? anchorSource : `start from what ${doc.title} is for`, 10)),
     because:
       reasonNear(doc.text, anchorSource) ??
       speakify(all.find((s) => s !== anchorSource && wordCount(s) >= 8) ?? anchorSource),
     ...grounded(),
-    narration: clampNarration(speakify(anchorSource), preset.maxWordsPerBeat),
+    narration: anchorNarration,
+    terms: vocabulary(anchorNarration),
     visuals: analogy
       ? [
           {
@@ -399,6 +433,9 @@ export function deriveLesson(
       idea: 'The chain, end to end',
       because: '',
       ...grounded(),
+      // No terms: the recap adds nothing new, and every word it says has been said
+      // before — so anything it could write is already on the board.
+      terms: [],
       narration: clampNarration(
         composeItems(
           [anchor.idea, ...steps.map((s) => s.idea)].map((s) => shorten(s, 6).replace(/…$/, '')),
@@ -432,11 +469,13 @@ export function deriveLesson(
   }
 
   if (wrong) {
+    const narration = clampNarration(speakify(wrong), preset.maxWordsPerBeat);
     lesson.misconception = {
       idea: capitalize(shorten(wrong, 10)),
       because: speakify(wrong),
       ...grounded(),
-      narration: clampNarration(speakify(wrong), preset.maxWordsPerBeat),
+      narration,
+      terms: vocabulary(narration),
       visuals: [
         {
           describe: `${keyTerms(wrong, 3).join(' ')} drawn as a simple object, crossed out`,

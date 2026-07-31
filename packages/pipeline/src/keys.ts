@@ -41,6 +41,9 @@ export const PIPELINE_VERSION = 2;
  * - ingest 1: original.
  * - lesson 2: schema v2 — `kind`, `strategy`, `coreInsight`, `analogy.maps` and
  *   per-beat `from`/`derivedFrom`, so the same topic yields a different lesson.
+ * - lesson 3: every beat names the vocabulary it introduces (`terms`). The derived
+ *   author fills it from the narration and the model is briefed to, so the same document
+ *   yields a lesson with words on it that the previous one only said out loud.
  * - storyboard 2: where the abstraction arrives is derived from `analogy.maps` rather
  *   than matched in the narration, so the same lesson can compile to a different board.
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.
@@ -95,14 +98,18 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 2,
+  lesson: 3,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
   // 5: every scene carries `cadence` and `emphasis`, and `hold` is now clamped by the
   // cadence rather than only by a global 3s cap. Most holds are unchanged; the ones
   // that move are beats whose cadence forbids the silence they used to get.
-  storyboard: 5,
+  // 6: a beat's `terms` are written on the board as a row along the foot of its cell,
+  // which adds elements and takes that row's height off the figure area. A lesson that
+  // names no terms compiles byte-identically — verified on `gradient-descent`, both
+  // presets — so this bump only recomputes projects that gained ink.
+  storyboard: 6,
   voice: 3,
   visuals: 7,
   render: 5,

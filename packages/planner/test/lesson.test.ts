@@ -8,9 +8,12 @@ import {
   Lesson,
   cadenceFor,
   critiqueLesson,
+  findTerms,
   holdForCadence,
   lessonBeats,
   resolveEmphasis,
+  resolveTerms,
+  technicalTerms,
 } from '@inkcast/core';
 import { buildDoc } from '../src/ingest.js';
 import { anthropicLesson, anthropicLessonEdit } from '../src/lesson-anthropic.js';
@@ -365,6 +368,7 @@ test('the Lesson tool schema makes the shape of a lesson non-optional', async ()
       'visuals',
       'cadence',
       'emphasis',
+      'terms',
       'hold',
     ]);
   }
@@ -508,6 +512,7 @@ function beat(narration: string, extra: Partial<Parameters<typeof cadenceFor>[0]
     from: 'given' as const,
     derivedFrom: [],
     emphasis: [],
+    terms: [],
     narration,
     hold: 0.4,
     visuals: [],
@@ -584,5 +589,97 @@ test('emphasis has to be findable in the words it emphasises', () => {
   assert.ok(
     critiqueLesson(l).some((p) => /emphasises "a phrase that is not there"/.test(p)),
     'unfindable emphasis passed critique',
+  );
+});
+
+/* -------------------------------------------------------------- the vocabulary */
+
+test('technicalTerms names the vocabulary and leaves the prose alone', () => {
+  // Three rules, and the initialism is the one that matters most: the voice stage
+  // spells ATP out letter by letter, so a listener cannot recover the word unless the
+  // board also writes it.
+  assert.deepEqual(
+    technicalTerms('It runs in the stroma, spending the ATP and NADPH stage one made.', 2),
+    ['ATP', 'NADPH'],
+  );
+  // A name pairs with the noun it qualifies, but only inside an article — otherwise the
+  // next word is as likely to be a verb.
+  assert.deepEqual(findTerms('The second stage is the Calvin cycle.')[0], {
+    text: 'Calvin cycle',
+    kind: 'name',
+    at: 24,
+  });
+  assert.deepEqual(
+    findTerms('So wait for noon, and if London says three you are three hours behind.').map(
+      (t) => t.text,
+    ),
+    ['London'],
+  );
+  // A long content word counts; everyday English, inflections and descriptive
+  // compounds do not.
+  assert.deepEqual(technicalTerms('The thylakoid membranes are studded with chlorophyll.', 3), [
+    'thylakoid',
+    'membranes',
+    'chlorophyll',
+  ]);
+  assert.deepEqual(
+    technicalTerms('The one-line version is actually more interesting than the summary suggests.'),
+    [],
+  );
+  // Two forms of one word are one term: a board that writes both has written nothing
+  // twice.
+  assert.deepEqual(technicalTerms('Six molecules become one molecule of glucose.', 3), [
+    'molecules',
+    'glucose',
+  ]);
+  // A sentence-initial capital is how sentences start, not a name.
+  assert.deepEqual(findTerms('Measure the slope. Repeat that and you reach the bottom.'), []);
+});
+
+test('a term has to be findable in the narration that says it', () => {
+  const step = beat('It runs in the stroma, spending the ATP that stage one made.', {
+    terms: ['ATP', 'atp', 'NADPH'],
+  });
+  const { found, missing } = resolveTerms(step);
+  // Case-insensitive, deduplicated, and in the order the words are spoken — which is
+  // the order the board writes them in.
+  assert.deepEqual(found, ['ATP']);
+  assert.deepEqual(missing, ['NADPH']);
+
+  const l = structuredClone(shipped);
+  l.steps[0]!.terms = ['a term nobody says'];
+  assert.ok(
+    critiqueLesson(l).some((p) => /writes the term "a term nobody says"/.test(p)),
+    'an unfindable term passed critique',
+  );
+});
+
+test('an initialism spoken and never written anywhere is a critique failure', () => {
+  const l = structuredClone(shipped);
+  l.steps[0]!.narration = 'The gradient is what a GPU spends its whole day computing.';
+  l.steps[0]!.emphasis = [];
+  assert.ok(
+    critiqueLesson(l).some((p) => /says "GPU" and no beat writes it/.test(p)),
+    'a spoken initialism that nothing writes passed critique',
+  );
+
+  // Naming it fixes it — and so does a caption that already carries it, because the
+  // board never wipes and the word is up there either way.
+  const named = structuredClone(l);
+  named.steps[0]!.terms = ['GPU'];
+  assert.deepEqual(critiqueLesson(named), []);
+  const captioned = structuredClone(l);
+  captioned.steps[0]!.idea = 'A GPU spends its day on this';
+  assert.deepEqual(critiqueLesson(captioned), []);
+
+  // A recap is never asked for vocabulary: it retraces what earlier beats introduced,
+  // and their words are still on the board.
+  const recapped = structuredClone(shipped);
+  recapped.recap.narration = 'And that is what a GPU does all day, one small step at a time.';
+  recapped.steps[0]!.terms = ['gradient'];
+  recapped.steps[0]!.narration = `${recapped.steps[0]!.narration} The gradient says which way.`;
+  assert.ok(
+    critiqueLesson(recapped).some((p) => /recap says "GPU"/.test(p)),
+    'the recap may introduce nothing, but it must not say a word no cell carries',
   );
 });
