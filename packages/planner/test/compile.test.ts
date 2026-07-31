@@ -15,7 +15,15 @@ import type { Box } from '../src/elements.js';
 import { overlaps } from '../src/layout.js';
 import { readLessonFile } from '../src/lesson-io.js';
 import { PRESETS, adaptLesson } from '../src/presets.js';
-import { axisLabels, deriveBowl, plotHints, recipeFor } from '../src/plots.js';
+import {
+  axisLabels,
+  deriveBowl,
+  describesAPlot,
+  plotHints,
+  recipeChosen,
+  recipeFor,
+  worthPlotting,
+} from '../src/plots.js';
 import { shorten } from '../src/text.js';
 import { cellBoxes, groupIntoRegions, planBoard } from '../src/regions.js';
 
@@ -469,6 +477,43 @@ test('recipes are selected by the drawing instruction, not by chatter', () => {
   assert.equal(recipeFor('a bell curve'), 'gaussian');
   assert.equal(recipeFor('an s-curve of probability'), 'sigmoid');
   assert.equal(recipeFor('something with no keywords at all'), 'bowl');
+});
+
+test('a plot belongs where there is a quantity, not where a word matched', () => {
+  // The live failure this removes: a beat about the Calvin cycle was drawn as a sine wave
+  // of value against time, because the word `cycle` selected the wave recipe. That is not
+  // vague — it is a claim about something oscillating, and it is false.
+  assert.ok(!recipeChosen('the Calvin cycle'), '`cycle` still selects a curve');
+  assert.ok(!describesAPlot('the Calvin cycle'));
+  assert.ok(
+    !worthPlotting('The second stage is called the Calvin cycle, and it runs in the stroma.'),
+  );
+  // "an energy supply it cannot generate" is not a demand curve, either.
+  assert.ok(!recipeChosen('the Calvin cycle needs an energy supply it cannot generate'));
+  assert.equal(recipeFor('supply and demand as two crossing straight lines'), 'supply-demand');
+
+  // A passage that really is about a quantity still gets its axes — including the
+  // flagship one, which names a quantity and a minimum without stating one number.
+  assert.ok(worthPlotting('it walks downhill on a loss surface until it settles in a minimum'));
+  assert.ok(worthPlotting('training takes 10 times longer than it needs to, for no benefit'));
+  // And an explicit instruction that names its axes needs no numbers at all.
+  assert.ok(describesAPlot('a curve of adoption against price, rising to the right'));
+  assert.ok(describesAPlot('a bell curve with the middle shaded'));
+});
+
+test('a plot intent with nothing to plot is not drawn as a false curve', () => {
+  const l = structuredClone(lesson);
+  // What a model does when it describes a picture and leaves `kind` alone: the schema
+  // defaults it to `plot`, and the fallback recipe is a parabola labelled `w` and `loss`.
+  l.steps[0]!.visuals = [{ describe: 'the Calvin cycle', kind: 'plot' }];
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'plot'),
+    'a plot with no quantity in it was drawn anyway',
+  );
+  // Still something on the board: the words, not a caption in a rectangle.
+  assert.ok(scene.elements.length > 1);
 });
 
 test('updateLine computes the arithmetic rather than copying it', () => {

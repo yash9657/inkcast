@@ -64,7 +64,7 @@ import {
 } from './figures.js';
 import type { BeatRole } from './regions.js';
 import { planBoard } from './regions.js';
-import { buildPlot, plotHints, trim } from './plots.js';
+import { buildPlot, describesAPlot, plotHints, recipeChosen, trim } from './plots.js';
 import { adaptLesson, resolvePreset } from './presets.js';
 import type { Preset } from './presets.js';
 import { shorten, stripMarkdown, wordCount } from './text.js';
@@ -876,6 +876,20 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   if (intent.character) return buildAsset(describe, 'illustration', ctx, intent.character);
   switch (intent.kind) {
     case 'plot': {
+      // An author said `plot` — or said nothing, since `plot` is the schema's default —
+      // and described something with no quantity, no axis and no shape in it. No recipe
+      // matched, so what would be drawn is the fallback: a parabola labelled `w` and
+      // `loss`, which is gradient descent's vocabulary appearing in a lesson about
+      // something else. Drawing the words is worse than a good picture and better than a
+      // false one, so the intent goes to the diagram lane instead, and loudly.
+      if (!recipeChosen(describe, ctx.step.narration) && !describesAPlot(describe)) {
+        log.warn(
+          `beat ${ctx.index} asked for a plot of "${describe}", which names no quantity`,
+          'a plot needs something measurable and something it varies against — drawing it ' +
+            'as a diagram instead. Say what is on each axis, or ask for a different kind.',
+        );
+        return buildDiagram(describe, ctx);
+      }
       // The one plot that is not drawn but *grown*: it takes the anchor's box so the
       // axes appear around the shape already there, and names it so the renderer can
       // bend one into the other. This is the moment the abstraction earns its keep,

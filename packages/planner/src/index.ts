@@ -119,6 +119,9 @@ export {
   plotHints,
   axisLabels,
   recipeFor,
+  recipeChosen,
+  worthPlotting,
+  describesAPlot,
   trim,
 } from './plots.js';
 export type { PlotHints, PlotContext } from './plots.js';

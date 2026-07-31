@@ -18,6 +18,7 @@ import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
 import { Lesson as LessonSchema, findTerms, logger, technicalTerms } from '@inkcast/core';
 import type { Beat } from './beats.js';
 import { buildBeats, definitionOf, extractFacts } from './beats.js';
+import { worthPlotting } from './plots.js';
 import { clampNarration, lessonSeconds } from './presets.js';
 import type { Preset } from './presets.js';
 import { composeItems, speakify, writeNarration } from './narration.js';
@@ -177,10 +178,11 @@ const PLOT_SHAPES: [RegExp, string][] = [
     'two curves: training error falling, unseen-data error turning back up',
   ],
   [
-    /\bsupply|demand|price\b/i,
+    // The pairing, not the lone word — "an energy supply" is not a demand curve.
+    /supply and demand|(?:supply|demand) curve|\bprices?\b/i,
     'supply and demand as two crossing straight lines, with the crossing point marked',
   ],
-  [/\boscillat|wave|cycle|periodic/i, 'a sine wave over time'],
+  [/\boscillat|wave|periodic/i, 'a sine wave over time'],
   [/\bthreshold|cutoff|switch(?:es)? on/i, 'a threshold: flat, then a step up'],
   [/\brate|per second|per year|over time|speed\b/i, 'a straight line of value against time'],
 ];
@@ -189,8 +191,19 @@ const PLOT_SHAPES: [RegExp, string][] = [
 function visualFor(beat: Beat, doc: SourceDoc): VisualIntent[] {
   const text = `${beat.heading} ${beat.source}`;
 
+  // A shape keyword says *which* plot; it cannot say whether a plot is the right drawing,
+  // and this table was being asked both questions. `worthPlotting` asks the second one —
+  // is there a quantity here, and does anything happen to it — so a passage that merely
+  // contains the word does not get axes. See `worthPlotting` for the failure this
+  // removes.
   for (const [re, describe] of PLOT_SHAPES) {
-    if (re.test(text)) return [{ describe, kind: 'plot' }];
+    if (!re.test(text)) continue;
+    if (worthPlotting(text)) return [{ describe, kind: 'plot' }];
+    log.debug(
+      `beat "${beat.heading}" matched a plot shape but states no quantity — not drawing axes`,
+      describe,
+    );
+    break;
   }
 
   if ((beat.shape === 'steps' || beat.shape === 'list') && beat.items?.length) {

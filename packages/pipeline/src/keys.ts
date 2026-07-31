@@ -46,6 +46,14 @@ export const PIPELINE_VERSION = 2;
  *   yields a lesson with words on it that the previous one only said out loud. The
  *   derived author also stopped captioning several beats with one section heading, so its
  *   `idea` fields moved as well.
+ * - lesson 4 / storyboard 7: a plot has to be about a quantity that varies, not about a
+ *   passage that happened to contain a shape keyword — so the derived author stops asking
+ *   for axes where there is nothing to measure, and the compiler stops drawing the
+ *   fallback parabola for an intent that describes no plot. Both stages move because the
+ *   decision is made twice, once per side of the seam: the author choosing whether to ask
+ *   for a plot, and the compiler deciding what to do when it is asked for one anyway.
+ *   Both shipped lessons compile byte-identically (`sbhash`, both presets) — every plot
+ *   they ask for names its own curve.
  * - storyboard 2: where the abstraction arrives is derived from `analogy.maps` rather
  *   than matched in the narration, so the same lesson can compile to a different board.
  * - voice 2: cue resolution, modelled silence, `Scene.hold` in the clip.
@@ -100,7 +108,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 3,
+  lesson: 4,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -111,7 +119,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // which adds elements and takes that row's height off the figure area. A lesson that
   // names no terms compiles byte-identically — verified on `gradient-descent`, both
   // presets — so this bump only recomputes projects that gained ink.
-  storyboard: 6,
+  storyboard: 7,
   voice: 3,
   visuals: 7,
   render: 5,
