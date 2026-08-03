@@ -100,6 +100,20 @@ test(
   },
 );
 
+test('an invocation we feed has no controlling terminal', () => {
+  // The bug this pins is invisible to every other test in this file, and that is the
+  // point of testing the option rather than the outcome. `security -w` prompts, and a
+  // prompt reads /dev/tty when the process has one — so the pipe we wrote is ignored and
+  // the write blocks until the timeout. A test runner has no controlling terminal, so the
+  // broken version round-tripped perfectly here while failing in the studio, whose dev
+  // server was started from a terminal. `detached` is what removes the race.
+  assert.equal(keychain.spawnOptions(true).detached, true, 'a fed invocation kept its tty');
+  // And only there: an invocation that prompts for nothing has no race to lose, and
+  // staying attached lets a locked-keychain prompt reach the person at the keyboard.
+  assert.equal(keychain.spawnOptions(false).detached, false);
+  assert.deepEqual(keychain.spawnOptions(true).stdio, ['pipe', 'pipe', 'pipe']);
+});
+
 test('keychain availability is platform-honest', () => {
   assert.equal(keychainAvailable(), process.platform === 'darwin');
 });
