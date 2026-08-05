@@ -50,6 +50,7 @@ import {
   sameTerm,
 } from '@inkcast/core';
 import { deriveCues, preferredCue } from './cues.js';
+import { buildDrawing } from './drawing.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
 import { FONT, makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
@@ -608,7 +609,13 @@ function buildBeat(ctx: BeatContext): Element[] {
   const bands = Math.max(1, ctx.cellBands);
   const texts: Array<TextElement | EquationElement> = [caption, ...noteEls];
   const wanted = texts.reduce((h, t) => h + t.at.h, 0) + texts.length * 16;
-  const zone = cell.h * (ctx.preset.vertical ? 0.34 : 0.4);
+  // A composed drawing labels its own parts, so the words above it are doing less work
+  // and can have less of the cell. This is where the frame fill of a drawn board comes
+  // from: the figure box was two and a half times wider than it was tall, so a picture
+  // fitted into it by height left a third of the cell blank on either side.
+  const drawn = step.visuals.some((v) => v.marks?.length);
+  const share = ctx.preset.vertical ? (drawn ? 0.28 : 0.34) : drawn ? 0.26 : 0.4;
+  const zone = cell.h * share;
   const budget = Math.min(wanted, zone / bands);
   const scale = wanted > budget ? budget / wanted : 1;
   let y = cell.y + (zone / bands) * Math.min(ctx.cellBand, bands - 1);
@@ -896,6 +903,17 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   // defaults to `plot` and would otherwise turn "draw Mara, walking" into a graph
   // for any author who wrote the character and left the kind alone.
   if (intent.character) return buildAsset(describe, 'illustration', ctx, intent.character);
+  // Marks outrank every other lane, whatever `kind` says. An author who placed the
+  // strokes has already answered the question every lane below is guessing at, and the
+  // guess cannot beat the answer.
+  if (intent.marks?.length) {
+    const drawn = buildDrawing(intent.marks, { id: ctx.id, box: ctx.box });
+    if (drawn.length) return drawn;
+    log.warn(
+      `beat ${ctx.index} carries ${intent.marks.length} marks that draw nothing`,
+      'falling back to the lane its kind names',
+    );
+  }
   switch (intent.kind) {
     case 'plot': {
       // An author said `plot` — or said nothing, since `plot` is the schema's default —
@@ -945,6 +963,10 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
       }
       return built;
     }
+    // A `draw` intent with no marks got as far as here because the drawing author was
+    // not available — no key, or the call failed. The instruction is still a drawing
+    // instruction, so it goes to whichever free lane can hold it.
+    case 'draw':
     case 'path':
       return buildFreeform(describe, ctx);
     case 'diagram':

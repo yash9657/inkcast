@@ -98,6 +98,17 @@ export {
   CAST_POSES,
   DEFAULT_LESSON_MODEL,
 } from './lesson-anthropic.js';
+
+/* ------------------------------------------------------------- the drawing lane */
+export {
+  buildDrawing,
+  cleanMarks,
+  fitDrawing,
+  markBounds,
+  repairLabels,
+  MAX_MARKS,
+} from './drawing.js';
+export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
 export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';
 export {
   PRESETS,

@@ -130,6 +130,14 @@ export const PIPELINE_VERSION = 2;
  *   presets — every path intent it has really is one of the six — and `longitude`'s ship
  *   stops being a hillside.
  *
+ * - lesson 8 / storyboard 11: the drawing lane. A `draw` intent carries the picture itself
+ *   — every mark, placed by the drawing author — so a keyed lesson is a different file for
+ *   the same document, and the compiler turns those marks into ordinary elements, which is
+ *   a different board for the same lesson. The text zone above a drawn picture also
+ *   shrinks from 40% of the cell to 26%, because a drawing that labels its own parts needs
+ *   less caption above it. Neither shipped lesson has a `draw` intent, so both compile
+ *   byte-identically at both presets.
+ *
  * Character rigs (step 5) deliberately did **not** bump anything, and the reasoning is
  * worth keeping because the rule above looks like it demands one. The test is whether the
  * stage produces a different artefact *for identical inputs*, and it does not: no existing
@@ -141,7 +149,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 7,
+  lesson: 8,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -155,7 +163,9 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // 10: an instruction the `path` lane cannot draw is no longer approximated by terrain
   // — it goes to the illustration lane, or to a diagram when it names short parts. A
   // lesson whose path intents are all within the six shapes compiles byte-identically.
-  storyboard: 10,
+  // 11: marks compile to elements, and a beat carrying a drawing gives its words less of
+  // the cell. A lesson with no marks is unaffected, both shipped ones included.
+  storyboard: 11,
   voice: 5,
   visuals: 7,
   render: 5,

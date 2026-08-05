@@ -6,7 +6,8 @@
  * through `zod-to-json-schema` — an optional dependency, because the schema is
  * only needed by the opt-in Anthropic adapter.
  */
-import { Lesson, Storyboard } from '@inkcast/core';
+import { Lesson, Mark, Storyboard } from '@inkcast/core';
+import { z } from 'zod';
 import { optionalImport } from './optional.js';
 
 /** Keys tool-use / structured-output schemas do not support. */
@@ -88,4 +89,18 @@ export async function storyboardJsonSchema(): Promise<Json | undefined> {
  */
 export async function lessonJsonSchema(): Promise<Json | undefined> {
   return toJsonSchema(Lesson, 'the Anthropic lesson author needs it to describe a Lesson');
+}
+
+/**
+ * A drawing — a list of marks — as a JSON Schema for the drawing author's forced tool.
+ *
+ * Derived here rather than hand-written next to the brief for the reason this file
+ * exists at all: a second copy of the mark vocabulary would drift from the first, and
+ * the compiler would then be reading fields the author was never told to emit.
+ */
+export async function drawingJsonSchema(): Promise<Json | undefined> {
+  return toJsonSchema(
+    z.object({ elements: z.array(Mark) }),
+    'the drawing author needs it to describe a drawing',
+  );
 }

@@ -16,6 +16,7 @@
 import type { Lesson } from '@inkcast/core';
 import { Lesson as LessonSchema, critiqueLesson, logger, report } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
+import { drawLesson } from './draw-anthropic.js';
 import { DELIVERED_WPS } from './presets.js';
 import { lessonJsonSchema } from './schema.js';
 import type { LessonOptions, SourceDoc } from './types.js';
@@ -119,7 +120,8 @@ This is the whole idiom of a chalkboard explanation and it is not optional. A te
 VISUALS — WRITE A DRAWING INSTRUCTION, NOT A CAPTION
 Every beat needs at least one entry in \`visuals\`, and \`describe\` must say what the learner SEES, as an instruction to someone holding a marker. "A bowl-shaped curve with a ball high on the left slope and a straight tangent line touching it, sloping up to the right" is a drawing instruction. "Gradient descent finds the minimum" is a caption and will produce nothing worth watching.
 
-The compiler recognises these, and the words in **bold** are what select them, so use them literally:
+The compiler recognises these, and the words in **bold** are what select them, so use them literally. **\`draw\` is the normal choice** — read it first and reach for another kind only when that kind is plainly better:
+- **draw** — a composed drawing, made of boxes, ellipses, freehand strokes, arrows, hatching, scattered dots and written labels, placed one by one by an illustrator who reads your \`describe\` and nothing else. It can draw anything: a battery cut open, a chloroplast, a wire looping through a bulb, a ship heading for the rocks, two things side by side with an arrow between them. It is free, it is drawn in the same hand as the rest of the board, and it can spell — so it labels its own parts. Write \`describe\` as the picture you want, in the detail you would use telling a person what to put on a whiteboard: what the parts are, where they sit relative to each other, what crosses what, what is inside what. Say the RELATION, because the relation is what teaches: "two flat stacks facing each other across a narrow gap, a plus charge crossing the gap freely, an electron turned back at it and going the long way round through a wire and a bulb" is a drawing instruction. "A battery" is not.
 - **plot** — anything with axes. Say which shape and which overlays: **bowl**/**parabola**/**loss curve**; **tangent** at a point; **steps** of descent; **two wells** or **local minimum** for a second, shallower valley; **three plots** comparing **too small**, **too large** and **about right**; **sigmoid**; **bell curve**; **exponential**; **logarithm**; **sine wave**; **threshold**; **straight line**; **overfitting** (training versus unseen data); **supply and demand**.
   Those named shapes are the ones it knows how to build; a plot that names none of them, and no quantity varying against anything, is not drawn as axes at all — it is handed to whichever lane can draw what you described. Put the numbers in the describe text and the drawn picture will be built from them: "w = 3, slope = +4, learning rate 0.1" derives a curve whose slope at w really is +4, and the drawn steps come from running the algorithm on it. Give real numbers whenever the beat has any.
 - **path** — freeform ink with no axes, and it can draw EXACTLY SIX THINGS: a **hillside**, a **bowl** (a valley, a basin), a container **blob**, a stick **figure**, **fog**, and **steps** down a slope. That list is not an example, it is the whole implementation. There is no seventh shape: this lane cannot draw a battery, a ship, a cell, a wire, a stack of layers or a cross-section of anything, and asking it for one gets you the drawing of that thing from another lane at best. Use \`path\` when the picture in your head really is terrain, a container, a person, fog or a walk downhill. Otherwise do not.
@@ -128,8 +130,8 @@ The compiler recognises these, and the words in **bold** are what select them, s
 - **icon** — one simple concrete object that a symbol set would already have: a clock, a leaf, a battery, an arrow. Drawn from a curated library or matched against a standard icon set, so it is instant and free — and generic. Do not reach for it to draw something specific.
 ${
   opts.illustrations
-    ? '- **illustration** — a specific thing no icon set contains: "a chloroplast with stacked thylakoid discs inside it", "Odysseus lashed to the mast of his ship", "a pendulum clock with its escapement exposed", "a battery cell cut open, two flat electrode stacks facing each other across a gap". This calls a text-to-image model and traces the result into hand-drawn outlines, and an image generator IS configured for this run. **This is the lane that draws the thing your beat is actually about, so it is the normal choice for any concrete object, place, person or structure** — reach for it whenever the picture is not axes, not one of the six path shapes, and not a flow of named parts. Describe the subject and nothing else — one centred thing, no scene, no background, no caption in the picture — because it is drawn as flat line art on a white board. Two rules, both learned from looking at what comes back: **never ask for a word inside the picture** (no "labelled X", no "marked plus", no "with the word Y on it") — the image model cannot spell, and a label comes out as scribble; put the word in \`terms\` or in \`idea\` and it will be written on the board properly, in the same handwriting as everything else. And **describe one moment**, not a change: "the same thing drawn twice, before and after" comes back as one muddled picture. If a beat needs a before and an after, that is two beats or a \`motion\`.'
-    : '- (there is no image generator configured for this run, so a specific object is drawn from a curated library if one matches, then a standard icon set, and failing both it becomes a lettered card. Prefer a **diagram** of named parts, or one of the six **path** shapes if the picture genuinely is one of them, over describing an object nothing can draw.)'
+    ? '- **illustration** — a text-to-image model, for the few subjects a composed drawing is genuinely worse at: a living thing, a person, a real place, anything whose *likeness* is the point ("a barn owl in flight", "the Parthenon"). An image generator IS configured for this run. It is the narrow lane, not the wide one, and it has hard limits worth knowing before you choose it: it **cannot spell** — asking for a word inside the picture ("labelled X", "marked plus") returns scribble — it **cannot draw a relation** — "a plus crossing the gap while an electron is turned back" came back as two empty rectangles — and it **cannot draw a change**, so "the same thing before and after" comes back as one muddled frame. If the beat is about structure, parts, or how things relate, use **draw** instead: it can do all three. Describe one centred subject, no scene, no background.'
+    : '- (there is no image generator configured for this run. That costs you almost nothing: **draw** needs no image model, and it is the better lane for anything structural anyway. Reach for it wherever you would have asked for a picture.)'
 }
 - **text** — an equation or a phrase that must be written out verbatim. Use sparingly; the picture should carry the idea.
 Use one visual per beat, two at most. A beat with three competing pictures teaches nothing.
@@ -248,6 +250,7 @@ export async function anthropicLesson(
         beats: 3 + lesson.steps.length,
         objective: lesson.objective,
       });
+      await drawLesson(lesson, opts);
       return lesson;
     }
 
@@ -269,6 +272,10 @@ export async function anthropicLesson(
       'render it, watch it, then edit the lesson rather than the storyboard',
     );
   }
+  // A lesson that never passed critique still gets its pictures: the beats are what they
+  // are by this point, and a flawed argument drawn well is a better video than a flawed
+  // argument drawn as a hillside.
+  if (best?.lesson) await drawLesson(best.lesson, opts);
   return best?.lesson;
 }
 

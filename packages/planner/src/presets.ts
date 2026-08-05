@@ -233,20 +233,24 @@ export function pickVisuals(visuals: VisualIntent[], limit: number): VisualInten
   if (visuals.length <= limit) return visuals;
   const weight = (v: VisualIntent): number => {
     switch (v.kind) {
-      case 'plot':
+      // A composed drawing wins every tie: it is local, free, addressable part by part,
+      // and it is the only lane that can draw what the beat actually describes.
+      case 'draw':
         return 0;
-      case 'path':
+      case 'plot':
         return 1;
-      case 'illustration':
+      case 'path':
         return 2;
-      case 'diagram':
+      case 'illustration':
         return 3;
-      case 'motion':
+      case 'diagram':
         return 4;
-      case 'icon':
+      case 'motion':
         return 5;
-      default:
+      case 'icon':
         return 6;
+      default:
+        return 7;
     }
   };
   return visuals

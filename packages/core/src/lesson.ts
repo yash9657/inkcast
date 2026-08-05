@@ -16,6 +16,92 @@
 import { z } from 'zod';
 import { findTerms, sameTerm } from './terms.js';
 
+/**
+ * One mark on the board — the whole vocabulary of the drawing lane.
+ *
+ * ## Why this exists
+ *
+ * Every other drawing lane in this repository answers a *named* request: a bowl, a
+ * hillside, a sigmoid, a flow of nodes. That is a list, and a list of topics can never
+ * be finished — the six freeform shapes were the vocabulary of one lesson about gradient
+ * descent, and a battery cross-section came out as a parabola because `cross-section`
+ * happened to be in the bowl regex. Enumeration is the wrong axis entirely.
+ *
+ * So this vocabulary is not of *subjects*, it is of *marks*, and it is closed on purpose:
+ * a box, an ellipse, a straight line, a freehand stroke, an arrow, a written label,
+ * hatching, scattered dots. Everything a person draws on a whiteboard is a composition of
+ * those eight, and composition — unlike enumeration — has no ceiling. The author writes
+ * the composition; nothing here has to know what a chloroplast is.
+ *
+ * Two properties this buys that a generated raster cannot:
+ *
+ * 1. **Words are ours.** A `label` is real text in the board's own handwriting, spelled
+ *    correctly and written as the narrator says it. An image model cannot spell, which is
+ *    why fourteen generated drawings came back carrying `+e> --` and two labels both
+ *    reading "full".
+ * 2. **Every part has a name.** `id` is the part, not the shape — `left-stack`, `gap`,
+ *    `ion`. A named part can be cued to the word that introduces it, highlighted while it
+ *    is discussed, moved, or redrawn identically in a later beat. A raster is one opaque
+ *    picture and none of that is reachable.
+ *
+ * Coordinates are in a normalised drawing space (`DRAW_W` × `DRAW_H`), origin top-left,
+ * y growing down, so a drawing is independent of the cell it eventually lands in. The
+ * compiler fits it to the beat's figure box.
+ */
+export const Mark = z.object({
+  /**
+   * What this part IS, in a few words: `left-stack`, `damp-gap`, `ion-1`, `wire`.
+   *
+   * Unique within the drawing. It survives into the element id, so it is what a later
+   * beat, an emphasis, or a motion refers to.
+   */
+  id: z.string(),
+  kind: z.enum(['rect', 'ellipse', 'line', 'stroke', 'arrow', 'label', 'hatch', 'dots']),
+  /** Left edge / first coordinate, for the box-shaped kinds. */
+  x: z.number().optional(),
+  /** Top edge. y grows *down*. */
+  y: z.number().optional(),
+  w: z.number().optional(),
+  h: z.number().optional(),
+  /**
+   * `stroke`, `line` and `arrow`: the waypoints, in order, each one `[x, y]`.
+   *
+   * An array of two numbers rather than a tuple, and that is a deliberate concession to
+   * the tool-call schema: a zod tuple compiles to draft-07 `items: [...]`, which the
+   * Messages API rejects outright as an invalid `input_schema`. The pair-ness is checked
+   * where the marks are read instead.
+   */
+  points: z.array(z.array(z.number())).optional(),
+  /** `stroke`: join the last point back to the first. */
+  closed: z.boolean().default(false),
+  /** `stroke`: curve through the points instead of joining them straight. */
+  smooth: z.boolean().default(false),
+  dashed: z.boolean().default(false),
+  /** `label`: the words, spelled as they should appear. */
+  text: z.string().optional(),
+  /** `label`: cap height in drawing units. */
+  size: z.number().optional(),
+  /** `dots`: how many. */
+  count: z.number().optional(),
+  /** `hatch`: degrees, 0 = horizontal. */
+  angle: z.number().optional(),
+});
+export type Mark = z.infer<typeof Mark>;
+
+/**
+ * The normalised drawing canvas every `Mark` is placed on.
+ *
+ * Landscape, and wider than a drawing "wants" to be, because the shape of the space it
+ * lands in is not negotiable: a beat's cell gives its words the top and its vocabulary
+ * strip the foot, leaving a figure box about twice as wide as it is tall. A drawing
+ * authored at 4:3 fits that by height and leaves a third of the cell empty on each side
+ * — measured at 17% frame fill, which is a board that reads as sparse however good the
+ * picture in the middle of it is. Authoring at the shape of the hole is free; stretching
+ * a circle into an ellipse to fill it is not.
+ */
+export const DRAW_W = 1000;
+export const DRAW_H = 560;
+
 /** A visual intent, resolved into concrete elements by the storyboard compiler. */
 export const VisualIntent = z.object({
   /**
@@ -25,12 +111,22 @@ export const VisualIntent = z.object({
    */
   describe: z.string(),
   /**
-   * Which primitive expresses it. `plot` and `path` are local and free;
+   * Which primitive expresses it. `draw`, `plot` and `path` are local and free;
    * `illustration` calls a text-to-image provider and needs a key.
    */
   kind: z
-    .enum(['plot', 'path', 'illustration', 'diagram', 'icon', 'text', 'motion'])
+    .enum(['plot', 'draw', 'path', 'illustration', 'diagram', 'icon', 'text', 'motion'])
     .default('plot'),
+  /**
+   * The drawing itself, when `kind` is `draw`: every mark, placed.
+   *
+   * Authored rather than resolved, which is the whole difference between this lane and
+   * the ones it replaces. `describe` says what the picture is *for* and the marks say
+   * what it *is*, so a lesson on disk carries its own pictures and re-rendering it is a
+   * pure function of the file — nothing has to be re-imagined, re-generated or paid for
+   * twice, and a human can move a stroke by editing JSON.
+   */
+  marks: z.array(Mark).optional(),
   /** Phrase from the narration this visual must land on. */
   cue: z.string().optional(),
   /**
