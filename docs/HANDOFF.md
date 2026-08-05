@@ -1,151 +1,202 @@
-# Handoff — 2026-08-05 (later still) · the board can draw now
+# Handoff — 2026-08-05 · the board draws its own pictures
 
-Session state, not design. `PIPELINE.md` is the durable architecture, `STATUS.md` the
-verification record. **`docs/research/drawing.md` is the one to read before touching a
-drawing lane** — it is the research and the experiment behind everything below, and it
-exists so the next session does not re-derive it. `docs/research/golpo-ux.md` is the
-competitor teardown.
+You are picking this up cold. Everything you need is here or named here. Read
+**`docs/research/drawing.md` before you touch a drawing lane** — it is the research and
+the experiment behind the current architecture, and two sessions were lost to skipping
+`docs/research/`. `PIPELINE.md` is the durable architecture, `STATUS.md` the dated
+verification record, `docs/research/golpo-ux.md` the competitor teardown.
+
+**This repo is `inkcast`, at `~/code/inkcast`.** Sessions have been launched in the sibling
+`finito` checkout by mistake. There is no remote; `git log` tells you where you are.
 
 ## The goal, stated once
 
 **A chalkboard-style explanation of any concept, at any level the user asks for, free.**
-Bring your own key, and open weights all the way down so someone with no money still gets a
-real video. Nothing below changes that.
+Bring your own key, and open weights all the way down so someone with no money still gets
+a real video. The user's standard for the drawing pipeline, in their words: _maths,
+physics, complex STEM, human anatomy — everything should be drawable, either through the
+image model with the fal key, or by ourselves._ That is the bar. Measure against it.
 
-## What changed, and why it is the whole architecture
+## How a video is made
 
-The user asked the right question: _is a folder of hand-written drawing rules a crude way
-to build this, given it can never cover every topic?_ It is, and the answer was not to
-extend the lists.
+    ingest → lesson → storyboard → voice → visuals → render
 
-Every lane answered **"which of the things I already know is this?"** — six freeform
-shapes, twelve plot recipes, a symbol set. Last session made those lanes honest about what
-they cannot draw. This session removed the need: **eight marks** — box, ellipse, line,
-freehand stroke, arrow, written label, hatching, scattered dots — composed by the model
-into any drawing at all. A topic space cannot be enumerated; a mark space can, because
-composition has no ceiling.
+`packages/` — `core` (the IR and its zod schemas), `planner` (lesson, drawing, compile),
+`voice`, `visuals` (roughjs geometry, assets, images), `render` (Chromium + ffmpeg),
+`pipeline` (orchestration, caching, cost), `keyvault` (macOS keychain), plus `apps/cli`
+and `apps/web`.
 
-`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
-**614 pass / 0 fail**. Commits `cd72eab` (the lane) and `d31ca5c` (the research).
+The lesson stage decides _what to teach_; the compiler decides _what gets drawn_; voice
+runs before visuals so every element resolves onto the word that introduces it.
 
-- `Mark` and `DRAW_W`/`DRAW_H` in `core/src/lesson.ts` — the vocabulary and the canvas.
-- `planner/src/drawing.ts` — marks → elements, pure and tested. Fit, and label repair.
-- `planner/src/draw-anthropic.ts` — the author: one focused call per picture, in parallel,
-  cached machine-wide by the hash of its instruction _and the brief_.
-- The teaching brief makes `draw` the normal choice and narrows `illustration` to
-  likeness — a living thing, a person, a real place.
+## Where the drawing problem got to
 
-**A mark compiles to an ordinary element.** A stroke is a `PathElement`, a box a
-`ShapeElement`, a label a `TextElement`. Nothing downstream changed: roughening, cueing,
-stroke-by-stroke reveal, camera, `persist` are all inherited. That is why a change this
-large touched no renderer code, and it is why **the sync work already done applies to
-drawings for free.**
+Three sessions of history, compressed, because the shape of it matters more than the
+detail:
 
-## The measurement
+1. The board drew mostly text, and what it drew was wrong — a battery cross-section came
+   out as a parabola. Cause: every drawing lane was a **hand-written list** answering
+   "which of the things I already know is this?" — six freeform shapes, twelve plot
+   recipes, a symbol set, all written from one lesson about gradient descent.
+2. Those lanes were made **honest** (they now decline what they cannot draw and route it
+   elsewhere) and the generated-image lane was measured properly: fourteen images, opened
+   one by one. Objects came back acceptably; **relations came back wrong** ("a plus charge
+   crossing the gap while an electron is turned back" → two empty rectangles), **words
+   came back as scribble**, and a raster has no parts, no reuse and no free path.
+3. So the axis was wrong, and the fix was not a longer list. **A topic space cannot be
+   enumerated; a mark space can.** Eight marks — `rect`, `ellipse`, `line`, `stroke`,
+   `arrow`, `label`, `hatch`, `dots` — composed by the model into any drawing at all.
 
-Same battery lesson, every picture switched to the new lane
-(`scratchpad/redraw.mts` → `sbjson` → `drawcheck` → `frames`):
+### The drawing lane, as it stands
 
-    before (image lane)   1 asset  · 11 path (hills, fog, a walker) · 13 text
-    now   (drawing lane)  43 path · 49 shape · 25 arrow · 63 text · 0 images
+- **`packages/core/src/lesson.ts`** — `Mark` (the eight kinds) and `DRAW_W`/`DRAW_H`
+  (1000×560, landscape to match the hole a beat leaves for a picture). A `VisualIntent`
+  with `kind: 'draw'` carries its own `marks`.
+- **`packages/planner/src/draw-anthropic.ts`** — the author. One focused call per picture,
+  four in flight, `claude-sonnet-5` by default (`INKCAST_DRAW_MODEL` overrides). Cached
+  machine-wide in `~/.inkcast/cache/drawings/` by a hash of the instruction **and the
+  brief**, so a re-render is free and two lessons wanting the same picture get the same
+  drawing.
+- **`packages/planner/src/drawing.ts`** — marks → elements. Pure, tested. Fits by content
+  bounds (uniformly, never stretched), drops self-titles, repairs label collisions.
+- **`packages/planner/src/compile.ts`** — `buildIntent` prefers marks over every other
+  lane; a beat carrying a drawing gives its caption 26% of the cell instead of 40%.
 
-**9/9 drawings composed, 0 compiler warnings, 0 image generations** — the whole video
-draws itself for the price of text tokens, in 25 seconds, in parallel. Frames were
-rendered and looked at: labelled electrodes, a soaked gap with ions crossing it and
-electrons stopped at it, a wire looping through a phone. Both shipped lessons compile
-byte-identically at both presets.
+**A mark compiles to an ordinary element** — a stroke is a `PathElement`, a box a
+`ShapeElement`, a label a `TextElement`. That is why this was a small change: roughening,
+cueing, stroke-by-stroke reveal, camera framing and `persist` are all inherited, and no
+renderer code was touched. Every element carries its part's own name
+(`b4_v0_damp-gap`, `b4_v0_ion-1`).
 
-Two capabilities no image model has, both visible in those frames: **it can spell** (the
-fourteen generated illustrations measured earlier came back carrying `+e> --`), and **it
-can draw a relation** (the image model's version of that same beat was two empty
-rectangles).
+## What is proven, and what is not
+
+**A twelve-subject breadth test, drawn and looked at** (`scratchpad/breadth.mts` pattern,
+rebuild it in ten lines): calculus area-under-curve, Pythagoras, matrix multiplication,
+free-body diagram on a ramp, magnetic field lines, the double slit, benzene, a titration
+rig, a heart in cross-section, a neuron, a knee joint, binary search.
+
+**12/12 drew.** Ranked by how well:
+
+- **Strong** — benzene (ring, alternating bonds, all six hydrogens), the neuron, the
+  heart (four chambers, septum, named valves, blood arrows), titration, Pythagoras,
+  free-body, calculus, binary search, matrix multiplication.
+- **Adequate** — magnetic field lines, the double slit (wavefronts tangle).
+- **Weak** — the knee joint. **Irregular organic anatomy is where a composed drawing is
+  least convincing**, and where the image lane still earns its place. If you want to close
+  the user's "human anatomy" requirement properly, that is the case to work on: either a
+  better brief for organic outlines, or routing likeness-heavy anatomy to `illustration`.
+
+Basic maths notation survives as Unicode (`a² + b²  = c²` rendered correctly). **Fractions,
+integrals, roots and matrices do not** — a `label` is plain text. The IR already has an
+`EquationElement` that typesets TeX to glyph outlines; a ninth mark, `math`, mapping to it
+is the obvious fix and is not done.
+
+**Not judged: a full keyed render.** Everything above is compiles, the visuals stage and
+stills. The board has been seen in frames; the _video_ has not, since the drawing lane
+landed. Do that once item 1 below is in, so the render pays for a real change.
 
 ## The work, in order
 
 ### 1. Show the drawing to the model that drew it
 
-The single highest-value thing left, and both the literature and our own frames say so.
+The highest-value thing left, and both the literature and our own frames say so.
 `drawing.md` §3: the paper's ablation is that removing canvas feedback degrades geometry;
-the working Excalidraw agents all render, look, and fix. Our remaining defects are exactly
-that class — labels crowding each other, a duplicate label, a leader line across the
-picture. `repairLabels` fixes the mechanical half already; the rest needs eyes.
+every working Excalidraw agent renders, looks, and fixes. Our residual defects are exactly
+that class — tangled wavefronts, a label still crowding an arrow, the odd word broken
+across lines.
 
-We have the renderer (`frames.mts` draws a storyboard in ~76ms a frame) and the model has
-vision. Render the drawing alone, hand it back with its own marks, ask for corrections.
-One extra call per picture, and only when a cheap geometric check says something is wrong.
+We have the renderer (`frames.mts`, ~76ms a frame) and the model has vision. Render the
+drawing alone, hand it back with its own marks, ask for corrections. Gate it on a cheap
+geometric check so it costs one extra call only when something is measurably wrong.
 
-_Done when:_ on the battery lesson, no label overlaps ink or another label, and you have
-looked at the frames.
+_Done when:_ on the twelve-subject sheet, no label overlaps ink or another label, and you
+have looked at the frames.
 
 ### 2. Cue the parts, and let the drawing drive the narration
 
-Every mark is now a named element on the board — `b4_v0_damp-gap`, `b4_v0_ion-1` — and
-nothing uses that yet. Three things the IR already supports and the drawing lane just made
-reachable:
+Every mark is a named element and **nothing uses that yet**. Three things the IR already
+supports:
 
-- **Cue a part to its own words.** `enter.cue` per element: the gap is drawn on "the damp
-  gap", the ion on "a lithium ion crosses". Today the whole drawing shares the intent's
-  one cue and is spread evenly across the beat.
-- **Highlight while discussing.** `EmphasisElement` targets an element id. A later beat can
-  circle `damp-gap` instead of drawing a second picture of it.
-- **Move a part.** `motion` on one mark — the ion actually crossing the gap as it is
-  described.
+- **`enter.cue` per element** — the gap drawn on "the damp gap", the ion on "a lithium ion
+  crosses". Today the whole drawing shares the intent's one cue, spread evenly.
+- **`EmphasisElement`** targets an element id — circle `damp-gap` in a later beat instead
+  of drawing a second picture of it.
+- **`motion`** on one mark — the ion actually crossing the gap as it is described.
 
-This is the user's other half arriving from the drawing side: _once we know what we are
-drawing, we can plan the script, the cadence and the pauses around it._ The lesson author
-writes narration and marks in the same run — it can be told to name the parts in the
-narration and cue them.
+This is the user's own framing: _once we nail the drawing, we know what we are drawing, so
+we can plan the lesson, the script, the cadence and the pauses around it._ It is now
+reachable because the drawing is structured, and it is the reason sync is the easier half.
 
-### 3. Reuse a drawing across beats
+### 3. A `math` mark
 
-Caching makes two identical instructions the same picture. Nothing lets beat 7 say "the
-drawing from beat 2, with the arrow reversed" — so a lesson still redraws its subject per
-beat, and the recap redraws it again. `cast`/`character` is the shape of the fix for
-people; the same idea for subjects is a small schema addition.
+`label` cannot set a fraction, an integral, a root or a matrix. `EquationElement` already
+typesets TeX (see `visuals/src/equation.ts`). One more `Mark.kind` closes maths and
+physics properly.
 
-### 4. Density, now that drawings fill the cell honestly
+### 4. Reuse a drawing across beats
 
-`fillcheck` 20.0% against a 48% benchmark. The canvas is landscape and a drawn beat gives
-its caption 26% of the cell instead of 40%, which helped; what is left is the cell grid
-itself — a two-column cell (words beside the picture) or framing the ink rather than the
-cell. `regions.ts` deliberately decided one cell is the tightest shot there is; that
-decision is now the binding constraint.
+Caching makes two _identical instructions_ the same picture; nothing lets beat 7 say "the
+drawing from beat 2, with the arrow reversed", so a lesson still redraws its subject per
+beat and the recap redraws it again. `cast`/`character` is the shape of the fix for people.
 
-### 5. Story, cadence, and the space between cuts
+### 5. Density
 
-Untouched, and now better positioned: item 2 is what makes it tractable. The levers are
-still the reveal order across a cut, camera transitions that never vary by role, and the
-`dominant` clamp.
+`fillcheck` 20% against a 48% benchmark. The canvas is landscape and drawn beats give
+their caption less of the cell, which helped; what is left is the cell grid itself — a
+two-column cell (words beside the picture), or framing the ink rather than the cell.
+`regions.ts` decided one cell is the tightest shot there is; that decision now binds.
 
-### 6. The voice bill
+### 6. Story, cadence, and the space between cuts
 
-ElevenLabs at **$0.21/min** is past the target the README quotes and was 86% of the last
-render's cost. `eleven_flash_v2_5` is about half the price at similar quality;
-`voice/src/providers/elevenlabs.ts`. Also: `pipeline.json` records the _requested_ voice
-id, not the one the adapter resolved to.
+Untouched, and item 2 is what makes it tractable. Levers: reveal order across a cut,
+camera transitions that never vary by role (0.45s in-region, 0.95s between, 1.3s recap),
+the `dominant` clamp.
+
+### 7. The voice bill
+
+ElevenLabs at **$0.21/min** — past the `$0.20/min`target the README quotes and 86% of the
+last full render's cost.`eleven_flash_v2_5`is about half the price at similar quality;
+the model id is a constant in`voice/src/providers/elevenlabs.ts`. Also `pipeline.json`
+records the _requested_ voice id, not the one the adapter resolved to.
 
 ## How to verify a change cheaply
 
-Ten tools, cheapest first. **Use the first one that can see your change.**
+Ten tools, cheapest first. **Use the first one that can see your change.** All are run
+from the repo root with `npx tsx <path>`.
 
-1. **`vocabcheck.mts`** — terms spoken vs written.
-2. **`synccheck.mts <projectDir>`** — every element against the word being spoken.
-3. **`sbhash.mts <lesson…>`** — storyboard hash, both presets, both shipped lessons.
-4. **`sbjson.mts <doc|lesson> <outDir>`** — a `storyboard.json` from anything, no key.
-5. **`drawcheck.mts <dir>`** — the visuals stage alone, keys hydrated. For the _image_ lane
-   it generates; for the drawing lane it just resolves, free.
-6. **`geomhash.mts`** / 7. **`planhash.mts`** — what visuals resolves, what render draws.
-7. **`libsheet.mts`** — a library asset or rig.
-8. **`frames.mts <projectDir> <outDir> [seconds…]`** — ~76ms a frame. **Every defect fixed
-   in the last two sessions was found here, not by reading code.** Copy
-   `storyboard.resolved.json` over `storyboard.json` first.
-9. **`fillcheck.mts`** — mean content fill. A regression check, not a target.
+1. `packages/pipeline/src/vocabcheck.mts` — terms spoken vs written.
+2. `packages/pipeline/src/synccheck.mts <projectDir>` — every element against the word
+   being spoken. Needs a project the voice stage has run over.
+3. `packages/pipeline/src/sbhash.mts gradient-descent longitude` — storyboard hash, both
+   presets, both shipped lessons. **The only tool that sees a planner change on them.**
+4. `packages/pipeline/src/sbjson.mts <doc|lesson.json> <outDir>` — a storyboard from
+   anything, no key.
+5. `packages/pipeline/src/drawcheck.mts <dir>` — the visuals stage alone with keys
+   hydrated. Generates images for the image lane; free for the drawing lane.
+6. `packages/visuals/src/geomhash.mts` — what the visuals stage resolves.
+7. `packages/render/src/planhash.mts` — what the renderer will draw, timing excluded.
+8. `packages/visuals/src/libsheet.mts` — the only way to look at a library asset or rig.
+9. `packages/render/src/frames.mts <projectDir> <outDir> [seconds…]` — ~76ms a frame.
+   **Every defect fixed in the last three sessions was found here, not by reading code.**
+   Copy `storyboard.resolved.json` over `storyboard.json` first so it draws real ink.
+10. `packages/render/src/fillcheck.mts <storyboard.json>` — mean content fill. A regression
+    check, not a target: it counts bounding boxes, so it can be gamed.
 
-**To test a brief or lane change without paying for a render**, call `designLesson` (the
-lesson stage alone, ~$0.06 against $0.45) or `drawLesson` on a lesson you already have —
-`scratchpad/redraw.mts` in this session's scratchpad does exactly that, and is ten lines.
+Tools 3, 6 and 7 take a stash diff:
 
-A full keyed render:
+    npx tsx <tool> <targets> > /tmp/after.txt
+    git stash push -u && git status --short          # confirm the tree is CLEAN
+    npx tsx <tool> <targets> > /tmp/before.txt
+    git stash pop
+    diff /tmp/before.txt /tmp/after.txt
+
+**To test the lesson brief without a render**, call `designLesson` from `@inkcast/pipeline`
+(the lesson stage alone, ~$0.06 against ~$0.45). **To test the drawing lane**, call
+`drawOne` / `drawLesson` from `@inkcast/planner` on a lesson you already have. Both are
+ten-line scripts; hydrate keys with `hydrateEnv()` from `@inkcast/keyvault` the way
+`drawcheck.mts` does.
+
+A full keyed render, when you need one:
 
     node apps/cli/bin/inkcast.mjs cast "How a lithium-ion battery charges" --project try
 
@@ -153,73 +204,78 @@ Drop `--json`; it silences stderr and a clean log then proves nothing.
 
 ## Traps
 
-**This repo is `inkcast`, at `~/code/inkcast`.** No remote — `git log` tells you where.
+**A keyword table answers "which", never "whether"** — and the deeper version this
+architecture is the answer to: _a table of subjects cannot be completed at all._ If you
+are adding an entry so one more topic works, you are on the wrong axis.
 
-**Read `docs/research/` before designing anything.** Three sessions have now paid for
-skipping it. `drawing.md` is the newest and the most load-bearing.
-
-**A keyword table answers "which", never "whether"** — and the deeper version, which this
-session is the answer to: _a table of subjects cannot be completed at all._ If you find
-yourself adding an entry so one more topic works, you are on the wrong axis.
+**Read the frames.** Every defect worth fixing in three sessions was visible in a rendered
+frame and invisible in the code.
 
 **A zod tuple breaks the tool schema.** `z.tuple([number, number])` compiles to draft-07
 `items: [...]`, which the Messages API rejects as an invalid `input_schema` — every call
-400s. `Mark.points` is `number[][]` for that reason and pair-ness is checked in code.
+400s. `Mark.points` is `number[][]` for that reason; pair-ness is checked in code.
 
-**`elements` sometimes comes back as a JSON string**, twice in eighteen calls, and the
-retry does not fix it because the model does not recognise it as an error. Parsed rather
-than rejected.
+**`elements` sometimes comes back as a JSON string** — twice in eighteen calls, and the
+retry does not fix it because the model does not recognise it as an error. It is parsed
+rather than rejected.
 
-**A brief is part of its own cache key.** `drawKey` hashes `DRAW_BRIEF` itself; a cache
+**A brief belongs inside its own cache key.** `drawKey` hashes `DRAW_BRIEF` itself; a cache
 that survived a brief change would serve drawings composed for a canvas that no longer
-exists.
+exists, which is the subtlest possible way to make a fix look like it did nothing.
 
-**Roughjs hachure at dot scale is one line.** Small filled circles come out as rings —
-dots are drawn small and heavily stroked instead.
+**`measureText` can only return its own estimate**, and the renderer wraps again against
+real font metrics. Any box sized exactly to the estimate will break words mid-syllable.
 
-**A path with `points` is splined; a path with `d` is verbatim.** An angular stroke must go
-in as `d` or Catmull-Rom rounds its corners into a wave.
+**Roughjs hachure at dot scale is one line** — filled circles come out as rings, so dots
+are drawn small and heavily stroked instead.
 
-**`git stash -u` takes your untracked measurement tool with it.** Every committed tool is
-committed for that reason.
+**A path with `points` is splined (Catmull-Rom); a path with `d` is verbatim.** An angular
+stroke must go in as `d` or its corners round off into a wave.
 
-**`pnpm -r test | tail` lies.** `awk '/# pass [0-9]+$/ {p+=$NF}'` — note `$NF`.
+**`seed: 0` means "no seed" in roughjs** — `baseOptions` nudges it to 1; do not remove.
 
-**`pnpm lint` is `prettier --check .`** — a hard gate, `docs/*.md` included.
+**`git stash -u` takes untracked measurement tools with it.** Every tool above is committed
+for that reason.
 
-**Stage versions** `lesson@8, storyboard@11, voice@5, visuals@7, render@5` in
-`packages/pipeline/src/keys.ts`.
+**`pnpm -r test | tail` lies.** Redirect and sum with `awk '/# pass [0-9]+$/ {p+=$NF}'` —
+note `$NF`, because lines carry a package prefix.
 
-**`seed: 0` means "no seed" in roughjs** — `baseOptions` nudges it to 1.
+**`pnpm lint` is `prettier --check .`** — a hard gate, `examples/*.lesson.json` and every
+`docs/*.md` included.
+
+**Stage versions** are `lesson@8, storyboard@11, voice@5, visuals@7, render@5` in
+`packages/pipeline/src/keys.ts`, which explains when to bump and when not to.
+
+**`teach <topic> --lesson <file>` silently ignores the file.** Use `cast`.
 
 ## Known defects, ranked by what a viewer notices
 
-1. **Labels crowd each other inside a drawing.** `repairLabels` moves a label off _ink_;
-   two labels can still stack, and near-duplicate labels get placed twice. Item 1.
-2. **A drawing is drawn evenly across its beat**, not cued part by part to the words that
-   name each part. Item 2.
-3. **The board is sparse** — 20% fill against a 48% benchmark. Item 4.
-4. **A subject is redrawn per beat** rather than referred to. Item 3.
-5. **The recap redraws its picture** in a fresh panel while the original is still up.
-6. **No open-weight path for the lesson stage.** The drawing lane is now the _closest_ — it
-   is a text model emitting JSON, so a local model could serve it. Untested.
-7. **`render/src/sketch.ts` is a second hand** — Mulberry32 against the visuals stage's
-   roughjs. Unifying redraws half of every board.
-8. **The planner and visuals disagree about `doubleWell`** — two catalogues of one curve.
-9. **Emphasis lands on a clause, not a word.**
-10. **`coreInsight` is validated and read by nothing.** No multi-line equations.
+1. **Irregular organic anatomy is weak** — the knee joint reads as blobs. Item 1 helps;
+   routing likeness to `illustration` may be the real answer.
+2. **Long single words still break across lines** on the tightest labels.
+3. **A drawing is drawn evenly across its beat**, not cued part by part. Item 2.
+4. **No maths notation beyond Unicode.** Item 3.
+5. **The board is sparse** — 20% fill against a 48% benchmark. Item 5.
+6. **A subject is redrawn per beat** rather than referred to. Item 4.
+7. **The recap redraws its picture** in a fresh panel while the original is still up.
+8. **No open-weight path for the lesson stage.** The drawing lane is the closest — a text
+   model emitting JSON, so a local model could serve it. Untested.
+9. **`render/src/sketch.ts` is a second hand** — Mulberry32 against the visuals stage's
+   roughjs. Unifying redraws half of every board. `PIPELINE.md` step 10.
+10. **The planner and visuals disagree about `doubleWell`** — two catalogues of one curve.
+11. **Emphasis lands on a clause, not a word.** **`coreInsight` is read by nothing.**
 
-## What has NOT been judged
+## Current state
 
-**No full keyed render has run since the drawing lane landed.** Everything above is a
-compile, a visuals resolve and stills — deliberately, because that is cents rather than
-dollars. The board has been seen in frames; the _video_ has not. Do that after item 1, so
-the render pays for a real change.
+Branch `visuals-morph-density`, working tree clean, six commits ahead of where the session
+started. `pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**616 pass / 0 fail**. Both shipped lessons (`examples/lessons/*.lesson.json`) compile
+byte-identically at both presets across every change.
 
 ## The one thing to hold on to
 
-The pedagogy was never the problem. The routing was fixed last session. What was left was
-that we had exactly two ways to draw — a plot, and whatever an image model returned for a
-sentence — and neither could draw two things and the relationship between them. Now the
-board composes its own pictures out of marks, labels its own parts, and every part has a
-name. **The next win is not a new lane. It is using the names.**
+The pedagogy was never the problem. The routing was fixed. What was left was that we had
+exactly two ways to draw — a plot, and whatever an image model returned for a sentence —
+and neither could draw two things and the relationship between them. Now the board
+composes its own pictures out of eight marks, labels its own parts in its own handwriting,
+and every part has a name. **The next win is not a new lane. It is using the names.**

@@ -1146,3 +1146,58 @@ rather than the pictures.
 Still open and visible in the frames: labels crowd each other, and near-duplicate labels
 get placed twice. That is the feedback loop the literature says is where the quality is,
 and it is item 1 of the handoff.
+
+# Twelve STEM subjects, drawn and looked at, 2026-08-05 (last)
+
+The claim under test was the user's own bar: _maths, physics, complex STEM, human anatomy
+— everything should be drawable, by the image model or by ourselves._ So: twelve subjects,
+one drawing each, through the real path (`drawOne` → `buildDrawing` → storyboard → visuals
+→ frames), every panel opened.
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**616 pass / 0 fail**.
+
+## The result
+
+**12/12 drew.** Ranked by how well they teach:
+
+- **Strong** — benzene (hexagonal ring, alternating double bonds, all six hydrogens, C6H6
+  written in the middle), the neuron (dendrites, cell body, nucleus, myelin segments, axon
+  terminals), the heart (four chambers, septum, tricuspid and mitral valves, blood in and
+  out), the titration rig (burette with a numbered scale, stand, dripping tip, conical
+  flask), Pythagoras (squares on all three sides, two shaded), the free-body diagram (ramp,
+  block, N/W/f arrows and θ), calculus (curve, axes, four hatched rectangles under it),
+  binary search (twelve numbered boxes, mid pointer, discarded half bracketed), matrix
+  multiplication (three grids, row and column highlighted, `row · column = entry`).
+- **Adequate** — magnetic field lines, the double slit (the wavefronts tangle).
+- **Weak** — the knee joint. **Irregular organic anatomy is the honest limit of a composed
+  drawing**, and the case where the image lane still earns its place.
+
+Maths notation survives as Unicode — `a² + b² = c²` rendered correctly. Fractions,
+integrals, roots and matrices would not: a `label` is plain text. `EquationElement` already
+typesets TeX, so a ninth `math` mark closes it.
+
+## The one defect that was in every panel
+
+Labels on ink, labels on each other, and four of twelve captioning themselves across the
+drawing. Three causes, all found by looking at frames, all fixed:
+
+- **`repairLabels` was repairing nothing.** It treated every mark as an obstacle, so a
+  heart outline or a ramp — bounding box covering most of the drawing — made every
+  candidate position busy, the search failed, and the label stayed exactly where it was.
+  Now: two labels never overlap, ever; ink is avoided only when it is _small_ (under a
+  fifth of the drawing), because a name inside the shape it names is normal on a whiteboard
+  and a name on top of a valve is not.
+- **Drawings titled themselves.** "Matrix Multiplication" across the grids, "Binary Search"
+  across the numbers. The beat's own sentence is already written above the cell, so a title
+  is a second caption and, being the biggest mark, the one that lands on everything. The
+  brief forbids it; `cleanMarks` drops it anyway.
+- **Labels broke mid-word** — `Cartilage` as "Cartil / age", `block` as "blo / ck", on
+  nearly every panel. `measureText` can only ever return its own estimate, and the renderer
+  wraps again against real handwriting metrics, which are wider. Boxes are widened by half
+  again after measuring, and capped at a share of the drawing so a sentence-length label
+  wraps into tidy lines rather than one line across the picture.
+
+Residual after the fix, visible in the frames and left for the render-and-look loop: the
+longest single words still break on the tightest labels, and the double-slit wavefronts
+overlap into a scribble.
