@@ -1024,3 +1024,78 @@ generated drawings_ — one image is not a measurement, and that lane has never 
 at scale. `docs/research/golpo-ux.md` §2 says the competitor's whole answer to "draw any
 topic" is generated images under a style preset, which is the lane we have and have not
 used.
+
+# The path lane tells the truth, and the illustration lane is judged at scale, 2026-08-05 (later)
+
+Item 1 of the previous handoff, measured on the same battery lesson
+(`projects/1d80720ea373/lesson.json`, recompiled with `sbjson.mts` — no key needed to
+compile, so this is a before/after of the _compiler_, not of a new render).
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**606 pass / 0 fail** (was 600; six new tests).
+
+## The board, before and after
+
+    before   1 asset · 11 path · 13 text · 1 plot · 1 arrow   ·   90 written words
+    after    9 asset ·  2 path · 12 text · 1 plot · 1 arrow   ·   78 written words
+
+The eleven path elements were hills, bowls, fog and a walker in a lesson about lithium
+ions. The two that remain are the _movers_ of the two `motion` beats — a chevron with a
+trail — and each of those beats now also draws the scene it describes. **Nine of ten beats
+carry a drawn object; the tenth is the worked example, which correctly gets a plot.**
+
+Both shipped lessons were re-hashed across the change (`sbhash.mts`, both presets):
+`gradient-descent` is **byte-identical** — every path intent it has really is one of the
+six shapes — and `longitude`'s hook, _"a ship's outline heading toward jagged rocks"_,
+stops being a hillside and mints an illustration.
+
+`fillcheck` moves the other way: **31.0% → 29.7%**. Honest and expected — an asset element
+is a square centred in its cell, where a hillside spanned the cell's whole width. The tool
+counts bounding boxes, so it is measuring the box, not the drawing. Defect 5 of the
+handoff (a single small drawing leaves the frame sparse) is now the binding one.
+
+## Ten drawings, looked at
+
+The lane had produced exactly one image in its life. Eight were generated for this lesson
+through fal (`fal-ai/flux/schnell`, 1024², ~$0.003 each, **$0.024 for the set**) and every
+one was opened. Honest verdict: **three good, three mediocre, two failures.**
+
+- Good: the hook's two battery cells, one with a level line; the anchor's two hatched
+  electrode stacks with a gap between them — which is precisely what the lesson asked for
+  and what the old lane drew as a parabola; the wire-and-bulb circuit joining two stacks.
+- Mediocre: a donut for "one circle labelled lithium atom"; a stacks-and-bulb recap whose
+  parts do not match the described recap.
+- Failed: "the two stacks again, a plus dot crossing the gap" came back as a plus sign, a
+  sun and a horizontal line.
+
+Two causes are legible in the images and both are now briefed against:
+
+1. **Words inside a picture come out as scribble.** The prompt has said `no text` since the
+   lane was written, but the _subject_ said "labelled lithium atom", "marked plus", "one
+   drawn with a full bar" — the negative and the subject were fighting, and the subject
+   won. Several images carry invented lettering (`+e> --`), and one carries two labels both
+   reading "full" where the lesson wanted full and empty.
+2. **A picture of a change is a muddled picture.** "The same cross-section drawn twice,
+   then an arrow" and "every arrow flipped" both came back as one confused frame.
+
+A third, not yet fixed: this lesson mints **five separate drawings of the same two
+stacks**, one per beat, each generated independently and each different. That is exactly
+the competitor defect `golpo-ux.md` §5.2 names, and our answer to it — one entity, one
+`assetId`, forever — exists in the IR and is unreachable from a lesson, because nothing in
+the schema lets a beat say "the picture from beat 2, again".
+
+## Two false plots, fixed on the way past
+
+Found by rendering frames of the new board, not by reading code.
+
+- The worked example — _"a plot of charge remaining against time: a straight line falling
+  from 3000 at hour zero to 0 at hour ten, and a steeper straight line rising"_ — was drawn
+  as a **parabola with a tangent on it, labelled `loss`**. The tangent recipe matched on
+  the bare word `steep`. A comparative is not a request for a tangent; `steep` is gone and
+  `how steep` stays.
+- Its axes then read `time` and `output`, because the Y table has no rule for charge.
+  `axisLabels` now reads an axis the instruction states outright — "a plot of **charge
+  remaining** against **time**" — ahead of any keyword table. The board says
+  `charge remaining` now.
+
+Both shipped lessons stay byte-identical across both plot changes.
