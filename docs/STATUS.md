@@ -1201,3 +1201,69 @@ drawing. Three causes, all found by looking at frames, all fixed:
 Residual after the fix, visible in the frames and left for the render-and-look loop: the
 longest single words still break on the tightest labels, and the double-slit wavefronts
 overlap into a scribble.
+
+# The board looks at its own drawing, 2026-08-05 (last)
+
+Item 1 of the previous handoff: render a composed drawing, hand it back to the model that
+composed it, ask for corrections, and gate that on a cheap geometric check. Built, measured
+and looked at. `docs/research/drawing.md` §5b is the reasoning; this is what was run.
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**636 pass / 0 fail** (616 before) · both shipped lessons compile byte-identically at both
+presets (`sbhash.mts` stash diff).
+
+## What was measured, with numbers
+
+**The cache, before and after mechanical repair** (`markcheck.mts cache` — no key, no
+network, ~50 ms for the machine's whole drawing cache):
+
+| stage                                                    | defect score | drawings still wrong |
+| -------------------------------------------------------- | ------------ | -------------------- |
+| as composed by the author                                | 713          | 41 of 41             |
+| after the repair pass, bounding boxes (previous session) | 48\*         | 20 of 41             |
+| after the repair pass, real ink geometry                 | 110          | 20 of 41             |
+
+\*The 48 is not the better number. Every one of those 48 was a label the repair itself had
+thrown off the canvas to clear a collision — a fix gaming its own measurement. With
+displacement priced properly, 110 is what is honestly left, and none of it is self-inflicted.
+
+**The twelve-subject sheet** (`drawsheet.mts`, which now holds the subject list so the
+breadth test is reproducible rather than remembered):
+
+- **12/12 drew. 10/12 measure clean.**
+- 4 measured dirty as composed: calculus 2, double-slit 6, heart 4, knee 6.
+- The correction pass fixed 2 (calculus 2 → 0, double-slit 6 → 2), tied on the heart
+  (4 → 4, kept — see below), and was **rejected on the knee** (6 → 7, the veto working).
+- Frames opened: benzene, magnetic field (before and after), heart (before and after), knee
+  joint, double slit, titration. Six of twelve, chosen for what the numbers said was
+  interesting rather than for a clean sweep.
+
+## The two frames that changed the design
+
+**The bar magnet.** Score 8 → 0, and the picture got worse: `N` and `S` began inside the
+hatched poles, which is how anybody draws a magnet, and the correction moved both letters
+out of the magnet into the field lines below, where they name nothing. The audit had counted
+hatching as ink. Shading is now something a name may be written **on** while still counting
+as something to be **near** — so the drawing audits clean as composed and no call is spent.
+
+**The heart.** Demanding a strictly better score threw the correction away on a tie, keeping
+an original whose septum was labelled inside the right ventricle and whose blood-flow arrows
+swept diagonally across every chamber. The score knows about labels and bounds; the model had
+looked at the render. **A tie now goes to the model.** With that rule the septum moves onto a
+leader arrow — pointed at the outer wall rather than the dividing line, which no measurement
+can see and a viewer can.
+
+## What is honestly not done
+
+- **Not 12/12 clean.** The heart keeps one `label-on-ink` and the knee keeps one plus an
+  `off-canvas`; the knee's correction measured worse and was rejected. The handoff's bar for
+  item 1 was "no label overlaps ink or another label" on all twelve. 10/12.
+- **A clean audit is not a good drawing.** Benzene audits clean with its double bonds drawn
+  as chords across the ring's middle. The gate is arithmetic and cannot see it.
+  `INKCAST_DRAW_FIX=all` runs the unconditional pass for that experiment.
+- **Not judged: a full keyed render.** Everything above is drawings, stills and audits. The
+  drawing lane has still never been watched as video.
+- **The label-width estimate resolves to about ±3% of the canvas.** Measured against the real
+  font: mean advance 0.521 of cap height against the planner's 0.52, so the estimate is
+  sound — but two long names 30 units apart render visibly tight without measuring as a
+  collision (`incoming plane waves` beside `barrier` on the double slit).

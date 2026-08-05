@@ -105,10 +105,21 @@ export {
   cleanMarks,
   fitDrawing,
   markBounds,
+  prepareMarks,
   repairLabels,
   MAX_MARKS,
 } from './drawing.js';
 export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
+export type { DrawOneOptions } from './draw-anthropic.js';
+/* The measurement in front of the drawing critic's gate, and the critic itself. Exported
+ * because what decides whether a drawing needs a model is worth being able to run on its
+ * own — `markcheck.mts` is that, and it needs no key. */
+export { auditDrawing, defectLines, defectScore, defectSummary } from './draw-audit.js';
+export type { Defect, DefectKind } from './draw-audit.js';
+export { reviseDrawing, FIX_VERSION } from './draw-critic.js';
+export type { Revision } from './draw-critic.js';
+export { inkOf, markInk, ADRIFT } from './draw-geom.js';
+export type { Ink } from './draw-geom.js';
 export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';
 export {
   PRESETS,
@@ -245,6 +256,7 @@ export type {
   EditOptions,
   EditReport,
   CompileOptions,
+  DrawPreview,
   FormatOptions,
   LessonEditReport,
   LessonInput,

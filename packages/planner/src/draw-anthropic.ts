@@ -31,8 +31,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
+import { auditDrawing } from './draw-audit.js';
+import { fixTag, reviseDrawing } from './draw-critic.js';
+import { prepareMarks } from './drawing.js';
 import { drawingJsonSchema } from './schema.js';
-import type { LessonOptions } from './types.js';
+import type { DrawPreview, LessonOptions } from './types.js';
 
 const log = logger('planner:drawing:anthropic');
 
@@ -139,20 +142,142 @@ async function writeCached(key: string, marks: Mark[]): Promise<void> {
   }
 }
 
+/**
+ * The corrected drawing, cached beside the original rather than over it.
+ *
+ * Two files per drawing, on purpose. The author's own attempt keeps the name it has always
+ * had — so a cache built before the correction pass existed is still every bit of work it
+ * always was, and improving the critic costs one call per picture rather than two. And a
+ * *rejected* correction is written here too, holding the original's marks: the second call
+ * would fail the same way as the first, and a picture is not worth paying for twice.
+ *
+ * The name carries `fixTag()`, so changing the instructions a correction is made under
+ * invalidates the corrections and nothing else — and it carries the mode, so the
+ * `INKCAST_DRAW_FIX=all` experiment and the gated default never read each other's answers.
+ */
+function fixFile(key: string): string {
+  const mode = revisesEverything() ? '-all' : '';
+  return path.join(cacheDir('drawings'), `${key}.${fixTag()}${mode}.json`);
+}
+
+async function readFix(key: string): Promise<Mark[] | undefined> {
+  try {
+    const parsed = z.array(MarkSchema).safeParse(JSON.parse(await readFile(fixFile(key), 'utf8')));
+    return parsed.success && parsed.data.length ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeFix(key: string, marks: Mark[]): Promise<void> {
+  try {
+    await mkdir(cacheDir('drawings'), { recursive: true });
+    await writeFile(fixFile(key), `${JSON.stringify(marks)}\n`, 'utf8');
+  } catch (err) {
+    log.debug('could not cache the corrected drawing', err);
+  }
+}
+
 /* -------------------------------------------------------------------- calls */
 
-/** Draw one instruction. `undefined` when there is no client, no schema, or no answer. */
+/** Options for one drawing. `preview` is what makes the correction pass a visual one. */
+export type DrawOneOptions = {
+  model?: string;
+  context?: string;
+  preview?: DrawPreview;
+  /** Default `true`. `INKCAST_DRAW_FIX=0` turns the correction pass off for a whole run. */
+  revise?: boolean;
+};
+
+function revisionEnabled(opts: DrawOneOptions): boolean {
+  if (process.env.INKCAST_DRAW_FIX === '0') return false;
+  return opts.revise !== false;
+}
+
+/**
+ * Whether a drawing is looked at even when nothing is measurably wrong with it.
+ *
+ * Off by default, and the default is a deliberate trade rather than a shortcut. The gate is
+ * arithmetic, so it sees the defects arithmetic can see — labels, bounds, wrapping — and it
+ * is blind to the ones it cannot: the benzene ring whose double bonds were drawn as chords
+ * across the middle audits perfectly clean. The literature's ablation is about *geometry*,
+ * which is exactly what the gate cannot measure, so an unconditional pass would find more.
+ * It would also double the cost of the lane on every video, including the drawings that
+ * were already right.
+ *
+ * `INKCAST_DRAW_FIX=all` is that experiment, one environment variable away: run the sheet
+ * both ways and compare the frames before deciding this should be the default.
+ */
+function revisesEverything(): boolean {
+  return process.env.INKCAST_DRAW_FIX === 'all';
+}
+
+/**
+ * Draw one instruction, then look at it and correct it.
+ *
+ * `undefined` when there is no client, no schema, or no answer. The correction pass can
+ * only ever improve the result or leave it alone (see `draw-critic.ts`), so a drawing that
+ * cannot be corrected is still the drawing that was composed.
+ */
 export async function drawOne(
   instruction: string,
-  opts: { model?: string; context?: string } = {},
+  opts: DrawOneOptions = {},
 ): Promise<Mark[] | undefined> {
   const key = drawKey(instruction);
-  const cached = await readCached(key);
-  if (cached?.length) {
-    log.debug(`drawing served from the cache: "${instruction.slice(0, 60)}"`);
-    return cached;
+  const short = instruction.slice(0, 60);
+
+  // Only when corrections are wanted. `revise: false` means "the drawing as it was
+  // composed", so serving a cached correction would answer a different question — and it
+  // would quietly break the one tool that shows what the correction pass is worth, which
+  // compares the two by asking for each in turn (`pipeline/src/drawsheet.mts`).
+  const fixed = revisionEnabled(opts) ? await readFix(key) : undefined;
+  if (fixed) {
+    log.debug(`corrected drawing served from the cache: "${short}"`);
+    return fixed;
   }
 
+  let marks = await readCached(key);
+  if (marks?.length) log.debug(`drawing served from the cache: "${short}"`);
+  else marks = await compose(instruction, key, opts);
+  if (!marks?.length) return undefined;
+
+  return (await correct(marks, instruction, key, opts)) ?? marks;
+}
+
+/**
+ * The correction pass, gated twice: on something being measurably wrong (inside
+ * `reviseDrawing`) and on a client being available at all.
+ */
+async function correct(
+  marks: Mark[],
+  instruction: string,
+  key: string,
+  opts: DrawOneOptions,
+): Promise<Mark[] | undefined> {
+  if (!revisionEnabled(opts)) return undefined;
+  if (!revisesEverything() && !auditDrawing(prepareMarks(marks)).length) return undefined;
+  const c = await anthropicClient();
+  const schema = await drawingJsonSchema();
+  if (!c || !schema) return undefined;
+  const revision = await reviseDrawing(marks, {
+    client: c,
+    model: opts.model ?? drawModel(),
+    schema,
+    ...(opts.preview ? { preview: opts.preview } : {}),
+    instruction,
+    ...(revisesEverything() ? { always: true } : {}),
+  });
+  if (!revision) return undefined;
+  await writeFix(key, revision.marks);
+  return revision.marks;
+}
+
+/** One drawing, composed from nothing. Cached under the author's own key. */
+async function compose(
+  instruction: string,
+  key: string,
+  opts: DrawOneOptions,
+): Promise<Mark[] | undefined> {
   const c = await anthropicClient();
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
@@ -240,7 +365,7 @@ const CONCURRENCY = 4;
 export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Promise<number> {
   const work = drawable(lesson);
   if (!work.length) return 0;
-  const model = drawModel(opts as { drawModel?: string });
+  const model = drawModel(opts);
   log.info(`drawing ${work.length} picture${work.length === 1 ? '' : 's'} with ${model}`);
 
   let done = 0;
@@ -253,6 +378,8 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
       const marks = await drawOne(job.intent.describe, {
         model,
         context: job.step.narration,
+        ...(opts.drawPreview ? { preview: opts.drawPreview } : {}),
+        ...(opts.reviseDrawings === undefined ? {} : { revise: opts.reviseDrawings }),
       });
       if (marks?.length) {
         job.intent.marks = marks;
@@ -261,6 +388,12 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, work.length) }, worker));
-  log.info(`${done}/${work.length} drawings composed`);
+  const wrong = work.filter(
+    (job) => job.intent.marks?.length && auditDrawing(prepareMarks(job.intent.marks)).length,
+  ).length;
+  log.info(
+    `${done}/${work.length} drawings composed` +
+      (wrong ? `, ${wrong} still measurably imperfect` : ', none measurably wrong'),
+  );
   return done;
 }

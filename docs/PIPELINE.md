@@ -342,6 +342,24 @@ a model doing arithmetic is a model getting arithmetic wrong non-reproducibly.
 Two LLM calls, one optional classifier, four deterministic stages. Everything a test
 can pin is code; the model is used only where taste and language are the product.
 
+**The drawing lane is the one place a model draws, and it is split along the same line.**
+A composed drawing (`Mark`s, see `docs/research/drawing.md`) is authored by one focused
+model call per picture. Then:
+
+| Step    | Implementation                                                          | Why there                                                                                    |
+| ------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| repair  | **Deterministic** (`planner/src/drawing.ts`)                            | Sliding a name off a stroke is geometry, and free.                                           |
+| audit   | **Deterministic** (`planner/src/draw-audit.ts`)                         | Which drawings are provably wrong is arithmetic. It is also the gate on the next row's cost. |
+| correct | **LLM, with vision** (`planner/src/draw-critic.ts`)                     | Only for a drawing the audit found wanting. It is shown its own render and asked to fix it.  |
+| accept  | **Deterministic** — re-audit, and reject a revision that measures worse | Otherwise the loop changes drawings rather than improving them.                              |
+
+The render the model is shown comes from `pipeline/src/draw-preview.ts`, because the
+planner has no renderer and must not acquire one — the same seam as `illustrations`. Two
+measurements that pay for the split: the repair pass alone takes the cache's defect score
+from 713 to 110, and the correction pass is called on about a third of drawings rather than
+all of them. Two frames that shaped it are in `STATUS.md` under the same date; the rule they
+produced is that **a measurement a fix can game is a measurement that will be gamed**.
+
 ## The two ink modes
 
 `crisp` and `sketch` are properties of an asset, not of a build. They coexist in one

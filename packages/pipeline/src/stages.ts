@@ -17,7 +17,7 @@
  * literal.
  */
 
-import type { Lesson, OnProgress, Storyboard, StoryboardMeta } from '@inkcast/core';
+import type { Element, Lesson, OnProgress, Storyboard, StoryboardMeta } from '@inkcast/core';
 import { StageError } from './errors.js';
 import type { StageName } from './progress.js';
 
@@ -54,6 +54,13 @@ export type LessonStageOptions = FormatOptions & {
   brief?: string;
   /** True when an image provider is configured; lets the brief offer `illustration`. */
   illustrations?: boolean;
+  /**
+   * How to render a drawing so the drawing author can be shown its own work.
+   *
+   * The planner cannot make one of these — rendering is Chromium and roughjs, which it
+   * depends on neither of — so the pipeline passes one down. See `draw-preview.ts`.
+   */
+  drawPreview?: (marks: unknown[]) => Promise<Uint8Array | undefined>;
   onProgress?: OnProgress;
   force?: boolean;
 };
@@ -122,11 +129,33 @@ type VoiceModule = {
 };
 
 type VisualsModule = {
-  resolveVisuals(sb: Storyboard, dir: string, opts?: StageOpts): Promise<unknown>;
+  resolveVisuals(sb: Storyboard, dir: string, opts?: StageOpts): Promise<Storyboard>;
+};
+
+/** A still session, as `@inkcast/render` offers it. See `render/src/still.ts`. */
+export type StillSession = {
+  capture(sb: Storyboard, dir: string, opts?: { t?: number }): Promise<Uint8Array>;
+  close(): Promise<void>;
 };
 
 type RenderModule = {
   render(sb: Storyboard, dir: string, opts?: StageOpts): Promise<{ videoPath: string }>;
+  /** One frame without an encode. `undefined` when Chromium is not installed. */
+  openStills(): Promise<StillSession | undefined>;
+};
+
+/**
+ * The part of the drawing lane the pipeline drives directly: marks into elements.
+ *
+ * Needed because the pipeline is what owns the renderer, and the drawing critic's preview
+ * has to compile a drawing the same way the compiler will (`planner/src/drawing.ts`) or it
+ * would be showing the model a picture the film is not going to draw.
+ */
+type DrawingModule = {
+  buildDrawing(
+    marks: unknown[],
+    ctx: { id: string; box: { x: number; y: number; w: number; h: number } },
+  ): Element[];
 };
 
 type StagePackage = {
@@ -205,7 +234,12 @@ export async function loadVisuals(): Promise<VisualsModule> {
 }
 
 export async function loadRender(): Promise<RenderModule> {
-  return (await load('render', ['render'])) as unknown as RenderModule;
+  return (await load('render', ['render', 'openStills'])) as unknown as RenderModule;
+}
+
+/** The drawing compiler, for the critic's preview. Reported against the lesson stage. */
+export async function loadDrawing(): Promise<DrawingModule> {
+  return (await load('lesson', ['buildDrawing'])) as unknown as DrawingModule;
 }
 
 /**

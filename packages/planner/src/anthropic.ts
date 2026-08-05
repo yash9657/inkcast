@@ -26,7 +26,30 @@ const TOOL = 'emit_storyboard';
 
 type ContentBlock = { type: string; name?: string; input?: unknown; text?: string };
 type MessageResponse = { content: ContentBlock[]; stop_reason?: string | null };
-export type Message = { role: 'user' | 'assistant'; content: string };
+
+/** A picture in a message: what lets the drawing lane show a model its own render. */
+export type ImagePart = {
+  type: 'image';
+  source: { type: 'base64'; media_type: 'image/png'; data: string };
+};
+export type TextPart = { type: 'text'; text: string };
+
+/**
+ * One turn. `content` is a plain string for every text-only call — which is all of them
+ * except the drawing critic, the only place a model is shown pixels.
+ */
+export type Message = {
+  role: 'user' | 'assistant';
+  content: string | (TextPart | ImagePart)[];
+};
+
+/** A PNG as the content block the Messages API wants. */
+export function imagePart(png: Uint8Array): ImagePart {
+  return {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') },
+  };
+}
 type CreateBody = {
   model: string;
   max_tokens: number;

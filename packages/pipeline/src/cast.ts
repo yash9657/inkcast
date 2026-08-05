@@ -56,6 +56,7 @@ import {
 } from '@inkcast/core';
 import { costOf, type CostReport } from './cost.js';
 import { degradations, formatDegradation, type Degradation } from './degrade.js';
+import { openDrawPreview } from './draw-preview.js';
 import { inStage, StageError } from './errors.js';
 import {
   assetFingerprint,
@@ -398,7 +399,14 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   }
 
   const brief = briefFor(input);
+  // The renderer, handed to the drawing author so a picture with something measurably wrong
+  // with it can be shown to the model that drew it and corrected (`draw-preview.ts`). The
+  // planner has no renderer and must not acquire one, so the stage that has all three
+  // passes it down. Lazy in every direction: nothing loads and no browser launches unless
+  // a drawing is actually found wanting.
+  const drawing = openDrawPreview(metaOverrides);
   const lessonOpts: LessonStageOptions = {
+    drawPreview: drawing.preview,
     ...format,
     maxSeconds: targetSec,
     ...(input.audience === undefined ? {} : { audience: input.audience }),
@@ -464,11 +472,17 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     } else {
       lesson = await run.time('lesson', async () => {
         run.bus.stage('lesson', 4, `${adapter} lesson author · target ${targetSec}s`);
-        const written = await planner.teachLesson(lessonInput, lessonOpts);
-        // Validate here rather than trusting the stage: everything downstream
-        // reads required fields, and a malformed lesson should fail in the stage
-        // that produced it.
-        return parseLesson(written);
+        try {
+          const written = await planner.teachLesson(lessonInput, lessonOpts);
+          // Validate here rather than trusting the stage: everything downstream
+          // reads required fields, and a malformed lesson should fail in the stage
+          // that produced it.
+          return parseLesson(written);
+        } finally {
+          // Chromium outlives the stage that opened it unless it is told not to, and a
+          // stage that fails is the case that matters.
+          await drawing.close();
+        }
       });
       await saveLessonFile(run.dir, lesson);
       await markFresh(run.dir, cacheSlot('lesson'), key);

@@ -24,6 +24,8 @@ export type { PageOptions, PreviewOptions } from './html.js';
 export { compilePlan, cueFraction, sceneDuration } from './compile.js';
 export type { CompileOptions } from './compile.js';
 export { chromiumAvailable, CHROMIUM_HINT } from './browser.js';
+export { captureStill, openStills } from './still.js';
+export type { StillOptions, StillSession } from './still.js';
 export { ensureFfmpeg, probeMedia, probeDuration } from './ffmpeg.js';
 export type { MediaInfo } from './ffmpeg.js';
 export { resolveFont, fontSearchPaths } from './font.js';

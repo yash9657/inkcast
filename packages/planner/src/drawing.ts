@@ -39,6 +39,20 @@
 import type { ArrowElement, Element, Mark, ShapeElement, TextElement } from '@inkcast/core';
 import { DRAW_H, DRAW_W, logger } from '@inkcast/core';
 import { round } from './curves.js';
+import {
+  ADRIFT,
+  type Ink,
+  clipToBox,
+  contentBounds,
+  inkDistance,
+  inkHitsBox,
+  inkOf,
+  labelBox,
+  markBounds,
+  overlapArea,
+  union,
+  waypoints,
+} from './draw-geom.js';
 import type { Box, Point } from './elements.js';
 import { FONT, makeArrow, makeShape, makeText, measureText } from './elements.js';
 import { makePath } from './figures.js';
@@ -50,64 +64,9 @@ export const MAX_MARKS = 40;
 
 type Fit = { s: number; ox: number; oy: number };
 
+export { markBounds } from './draw-geom.js';
+
 /* ------------------------------------------------------------------ geometry */
-
-/**
- * The `[x, y]` pairs of a mark, as points, dropping anything malformed.
- *
- * The schema says "an array of arrays of numbers" because a zod tuple compiles to a
- * tool schema the API rejects, so pair-ness is checked here — once, at the only place
- * the waypoints are read.
- */
-function waypoints(m: Mark): Point[] {
-  return (m.points ?? [])
-    .filter((p) => Array.isArray(p) && p.length >= 2)
-    .map((p) => ({ x: p[0] as number, y: p[1] as number }))
-    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-}
-
-/** The corners a mark occupies on the drawing canvas, before fitting. */
-export function markBounds(m: Mark): Box | undefined {
-  const pts = waypoints(m);
-  if (pts.length >= 2) {
-    const xs = pts.map((p) => p.x);
-    const ys = pts.map((p) => p.y);
-    return {
-      x: Math.min(...xs),
-      y: Math.min(...ys),
-      w: Math.max(1, Math.max(...xs) - Math.min(...xs)),
-      h: Math.max(1, Math.max(...ys) - Math.min(...ys)),
-    };
-  }
-  if (m.kind === 'label') {
-    // A label is placed by its centre, and its extent is the words themselves. Estimated
-    // in drawing units at the same advance ratio the board uses, so the collision check
-    // below is about the space the text will really take.
-    const size = m.size ?? 30;
-    const text = m.text ?? '';
-    const w = Math.max(size, text.length * size * 0.52);
-    return { x: (m.x ?? 0) - w / 2, y: (m.y ?? 0) - size * 0.7, w, h: size * 1.4 };
-  }
-  if (m.w !== undefined && m.h !== undefined && m.x !== undefined && m.y !== undefined) {
-    return { x: m.x, y: m.y, w: Math.max(1, m.w), h: Math.max(1, m.h) };
-  }
-  return undefined;
-}
-
-function union(boxes: Box[]): Box | undefined {
-  if (!boxes.length) return undefined;
-  const x = Math.min(...boxes.map((b) => b.x));
-  const y = Math.min(...boxes.map((b) => b.y));
-  const r = Math.max(...boxes.map((b) => b.x + b.w));
-  const b2 = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x, y, w: Math.max(1, r - x), h: Math.max(1, b2 - y) };
-}
-
-function overlap(a: Box, b: Box, pad = 0): boolean {
-  return (
-    a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad
-  );
-}
 
 /**
  * Uniform scale and offset that puts the drawing's own content in the middle of `box`.
@@ -117,12 +76,7 @@ function overlap(a: Box, b: Box, pad = 0): boolean {
  * empty. Clamped to 1.6× so a two-mark drawing is not blown up into a poster.
  */
 export function fitDrawing(marks: Mark[], box: Box): Fit {
-  const content = union(marks.map(markBounds).filter((b): b is Box => b !== undefined)) ?? {
-    x: 0,
-    y: 0,
-    w: DRAW_W,
-    h: DRAW_H,
-  };
+  const content = contentBounds(marks) ?? { x: 0, y: 0, w: DRAW_W, h: DRAW_H };
   const s = Math.min(1.6, Math.min(box.w / content.w, box.h / content.h));
   return {
     s,
@@ -138,8 +92,20 @@ const at = (fit: Fit, x: number, y: number): Point => ({
 
 /* -------------------------------------------------------------------- repair */
 
+/** The eight ways out of a crowded spot, nearest first. */
+const RINGS = [
+  [0, -1],
+  [0, 1],
+  [-1, 0],
+  [1, 0],
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1],
+] as const;
+
 /**
- * Move labels off each other, and off the small ink they are burying.
+ * Move labels off each other, and off the ink they are lying across.
  *
  * The failure an author reliably makes in one pass, because it is placing twenty marks by
  * coordinate with nothing to look at: the words land on the picture and on each other. On
@@ -150,66 +116,91 @@ const at = (fit: Fit, x: number, y: number): Point => ({
  *
  * - **A label never overlaps another label.** Always, no exceptions: two names on top of
  *   each other are unreadable and are never what anyone meant.
- * - **A label avoids only the ink it would bury.** Not every mark — the *containing*
- *   shapes. A heart outline, a ramp, a barrier: their bounding boxes cover most of the
- *   drawing, so treating them as obstacles makes every position "busy", the search fails,
- *   and the first version of this gave up and left the label exactly where it was. That is
- *   why the frames still showed collisions after it ran. Ink smaller than a fifth of the
- *   drawing is a part worth not covering; anything bigger is the thing being labelled,
- *   and a name sitting inside its own diagram is normal on a whiteboard.
+ * - **A label avoids the ink it would lie across, and not the space a shape encloses.**
+ *   A name in the middle of a heart outline is ordinary whiteboard practice; a name lying
+ *   along an arrow is not. Telling those apart needs to know where the pen went rather
+ *   than what box the mark occupies, which is what `draw-geom.ts` answers — a rect is
+ *   four edges, an arrow is its line, and only hatching and scattered dots fill an area.
+ *   The previous version could only compare boxes, so it approximated the distinction
+ *   with an area cap: ink under a fifth of the drawing is an obstacle, anything larger is
+ *   a container. That got the containers right and every long arrow, gap line and leader
+ *   wrong, which is why the frames still showed labels crowding arrows after it ran.
  *
- * Candidate positions spiral out in eight directions rather than four, and a label may
- * leave the canvas bounds by a margin, because the drawing is fitted by content afterwards
- * — a label pushed just outside simply makes the fitted picture slightly smaller.
+ * ## Why it scores candidates instead of taking the first free one
+ *
+ * Because the previous version could fail, and its failure was silent: eight rings times
+ * eight directions of "is this spot completely free", and if none was, it left the label
+ * exactly where the author put it and returned as if it had done something. On a crowded
+ * drawing that is the common case, not the edge case.
+ *
+ * So every candidate is scored and the best one wins. A drawing with nowhere clean to put
+ * a name gets the *least bad* position rather than the authored one, ties go to staying
+ * put, and a label already clear of everything scores zero and cannot be beaten.
+ *
+ * ## What the weights are for, and the mistake they were tuned out of
+ *
+ * The first scored version weighted displacement at almost nothing, and across the 41
+ * cached drawings it duly removed every label collision — by throwing labels up to 180
+ * units off the canvas, where they named nothing and shrank the fitted picture to make
+ * room for them. `markcheck.mts` measured that as it happened: 713 raw down to 48, and
+ * all 48 were labels the repair itself had marooned. That is the old failure in a new
+ * costume, so **moving a name is expensive here**: about 100 units of displacement costs
+ * the same as lying across one mark, a candidate outside the canvas is not considered at
+ * all, and a name that would end up too far from any ink to be naming it is charged as if
+ * it were a collision.
+ *
+ * The point of that tuning is that this pass is *not* the whole fix. It nudges; the model
+ * revises (`draw-anthropic.ts`), and `draw-audit.ts` decides which drawings need it. A
+ * mechanical pass that mangles a drawing to satisfy a checker has made the picture worse
+ * and the number better.
  */
 export function repairLabels(marks: Mark[]): Mark[] {
-  const all = marks.map(markBounds).filter((b): b is Box => b !== undefined);
-  const area = (b: Box): number => b.w * b.h;
-  const canvas = union(all);
-  const budget = canvas ? area(canvas) * 0.2 : Infinity;
-  const ink = marks
-    .filter((m) => m.kind !== 'label')
-    .map(markBounds)
-    .filter((b): b is Box => b !== undefined && area(b) <= budget);
-
+  const ink: Ink[] = inkOf(marks.filter((m) => m.kind !== 'label'));
   const placed: Box[] = [];
-  const free = (b: Box): boolean =>
-    !placed.some((o) => overlap(b, o, 8)) && !ink.some((o) => overlap(b, o, 6));
+  // A label may sit slightly outside the canvas — the drawing is fitted by its content,
+  // so a name just over the edge only makes the picture slightly smaller — but not far
+  // outside, which is a caption drifting away from its own drawing.
+  const margin = 0.04;
+
+  /** Lower is better. A collision justifies a move; nothing else does. */
+  const cost = (b: Box, from: Box): number => {
+    const onLabels = placed.reduce((n, o) => n + (overlapArea(b, o) > 0 ? 1 : 0), 0);
+    const onInk = ink.reduce((n, k) => n + (inkHitsBox(k, b, 6) ? 1 : 0), 0);
+    const centre = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    const nearest = ink.reduce((d, k) => Math.min(d, inkDistance(k, centre)), Infinity);
+    const adrift = ink.length && nearest > ADRIFT ? 1 : 0;
+    const moved = Math.hypot(b.x - from.x, b.y - from.y);
+    return onLabels * 1000 + onInk * 50 + adrift * 50 + moved * 0.5;
+  };
 
   return marks.map((m) => {
     if (m.kind !== 'label') return m;
-    const b = markBounds(m);
-    if (!b) return m;
-    if (free(b)) {
-      placed.push(b);
-      return m;
-    }
-    const step = Math.max(20, b.h * 0.8);
-    for (let ring = 1; ring <= 8; ring++) {
-      for (const [dx, dy] of [
-        [0, -1],
-        [0, 1],
-        [-1, 0],
-        [1, 0],
-        [-1, -1],
-        [1, -1],
-        [-1, 1],
-        [1, 1],
-      ] as const) {
-        const moved = { ...b, x: b.x + dx * step * ring, y: b.y + dy * step * ring };
-        const inside =
-          moved.x >= -DRAW_W * 0.3 &&
-          moved.y >= -DRAW_H * 0.3 &&
-          moved.x + moved.w <= DRAW_W * 1.3 &&
-          moved.y + moved.h <= DRAW_H * 1.3;
-        if (!inside || !free(moved)) continue;
-        placed.push(moved);
-        log.debug(`label "${m.text ?? m.id}" moved clear of what it landed on`);
-        return { ...m, x: moved.x + moved.w / 2, y: moved.y + moved.h / 2 };
+    const home = labelBox(m);
+    let best = home;
+    let bestCost = cost(home, home);
+    if (bestCost > 0) {
+      const step = Math.max(20, home.h * 0.8);
+      for (let ring = 1; ring <= 8 && bestCost > 0; ring++) {
+        for (const [dx, dy] of RINGS) {
+          const moved = { ...home, x: home.x + dx * step * ring, y: home.y + dy * step * ring };
+          const inside =
+            moved.x >= -DRAW_W * margin &&
+            moved.y >= -DRAW_H * margin &&
+            moved.x + moved.w <= DRAW_W * (1 + margin) &&
+            moved.y + moved.h <= DRAW_H * (1 + margin);
+          if (!inside) continue;
+          const c = cost(moved, home);
+          if (c < bestCost) {
+            best = moved;
+            bestCost = c;
+          }
+        }
       }
     }
-    placed.push(b);
-    return m;
+    placed.push(best);
+    if (best === home) return m;
+    log.debug(`label "${m.text ?? m.id}" moved clear of what it landed on`);
+    return { ...m, x: best.x + best.w / 2, y: best.y + best.h / 2 };
   });
 }
 
@@ -235,7 +226,7 @@ function isTitle(m: Mark, canvas: Box | undefined): boolean {
 
 /** Marks worth drawing: real geometry, no self-titling, no duplicates, capped. */
 export function cleanMarks(marks: Mark[]): Mark[] {
-  const canvas = union(marks.map(markBounds).filter((b): b is Box => b !== undefined));
+  const canvas = contentBounds(marks);
   const seen = new Set<string>();
   const out: Mark[] = [];
   for (const m of marks) {
@@ -251,6 +242,22 @@ export function cleanMarks(marks: Mark[]): Mark[] {
     if (out.length >= MAX_MARKS) break;
   }
   return out;
+}
+
+/**
+ * The marks that will actually be drawn, from the marks the author placed.
+ *
+ * One function because three callers have to agree on it: the builder below, the audit
+ * that decides whether a drawing needs a model's attention, and the preview a model is
+ * shown. An audit of raw marks would report collisions this pass is about to fix for
+ * free, and a preview of raw marks would show the model a drawing nobody will ever see.
+ *
+ * Idempotent, which is what makes it safe to run over a revision that has already been
+ * through it: cleaning keeps what it kept, and a label already clear of everything is
+ * scored zero and left alone.
+ */
+export function prepareMarks(marks: Mark[]): Mark[] {
+  return repairLabels(cleanMarks(marks));
 }
 
 /* ------------------------------------------------------------------ building */
@@ -434,35 +441,6 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
   }
 }
 
-/** Liang–Barsky, enough of it to trim a hatch line to the region it fills. */
-function clipToBox(a: Point, b: Point, box: Box): [Point, Point] | undefined {
-  let t0 = 0;
-  let t1 = 1;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const tests: [number, number][] = [
-    [-dx, a.x - box.x],
-    [dx, box.x + box.w - a.x],
-    [-dy, a.y - box.y],
-    [dy, box.y + box.h - a.y],
-  ];
-  for (const [p, q] of tests) {
-    if (p === 0) {
-      if (q < 0) return undefined;
-      continue;
-    }
-    const r = q / p;
-    if (p < 0 && r > t1) return undefined;
-    if (p > 0 && r < t0) return undefined;
-    if (p < 0 && r > t0) t0 = r;
-    if (p > 0 && r < t1) t1 = r;
-  }
-  return [
-    { x: a.x + t0 * dx, y: a.y + t0 * dy },
-    { x: a.x + t1 * dx, y: a.y + t1 * dy },
-  ];
-}
-
 /**
  * A composed drawing, fitted into `box` and ready for the board.
  *
@@ -473,7 +451,7 @@ function clipToBox(a: Point, b: Point, box: Box): [Point, Point] | undefined {
  * to be spoken while it is still being drawn.
  */
 export function buildDrawing(marks: Mark[], ctx: { id: string; box: Box }): Element[] {
-  const clean = repairLabels(cleanMarks(marks));
+  const clean = prepareMarks(marks);
   if (!clean.length) return [];
   const fit = fitDrawing(clean, ctx.box);
   const out: Element[] = [];

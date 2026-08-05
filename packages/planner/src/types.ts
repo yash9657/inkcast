@@ -5,8 +5,23 @@
  * structural: headings and lists in the source are a free outline, and the
  * heuristic planner leans on them heavily.
  */
-import type { Lesson, StageOptions } from '@inkcast/core';
+import type { Lesson, Mark, StageOptions } from '@inkcast/core';
 import type { PresetName } from './presets.js';
+
+/**
+ * Renders a drawing as the board will draw it, so the model that composed it can look.
+ *
+ * The seam exists because of the package graph, and it is worth stating why rather than
+ * routing around it. Rendering means roughjs, real font metrics and Chromium — the visuals
+ * and render stages — and the planner depends on neither and must not start: the planner
+ * is the stage that has to work with no browser installed at all. So the caller that
+ * already has a renderer passes one in, exactly as `illustrations` is how the caller tells
+ * the lesson stage that an image provider exists.
+ *
+ * Returns `undefined` when a picture cannot be produced. That is never an error — a
+ * drawing revised without a render is weaker, not broken.
+ */
+export type DrawPreview = (marks: Mark[]) => Promise<Uint8Array | undefined>;
 
 /** One heading and the body text that belongs to it. */
 export type SourceSection = {
@@ -108,6 +123,20 @@ export type LessonOptions = StageOptions &
      * what may not exist.
      */
     illustrations?: boolean;
+    /** Claude model id for the drawing author. Overrides `INKCAST_DRAW_MODEL`. */
+    drawModel?: string;
+    /**
+     * How to render a drawing so the drawing author can be shown its own work.
+     *
+     * Supplied by whoever has a renderer — in practice `@inkcast/pipeline`. Without it the
+     * correction pass still runs, from the measurements alone, which is weaker.
+     */
+    drawPreview?: DrawPreview;
+    /**
+     * Whether a drawing with something measurably wrong with it gets a correction call.
+     * Default `true`; `INKCAST_DRAW_FIX=0` turns it off for a whole run.
+     */
+    reviseDrawings?: boolean;
     /** Project directory. When given, `lesson.json` is cached there. */
     dir?: string;
   };

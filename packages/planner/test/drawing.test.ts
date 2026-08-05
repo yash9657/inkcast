@@ -10,6 +10,7 @@ import {
   repairLabels,
   MAX_MARKS,
 } from '../src/drawing.js';
+import { auditDrawing } from '../src/draw-audit.js';
 
 const BOX = { x: 100, y: 200, w: 800, h: 400 };
 
@@ -126,6 +127,58 @@ test('a label is moved off small ink, and left alone inside the shape it names',
     mark({ id: 'name', kind: 'label', x: 450, y: 250, text: 'the heart', size: 30 }),
   ];
   assert.deepEqual(repairLabels(inside)[1], inside[1]);
+});
+
+test('a label is moved off a long arrow, which a bounding box could never see', () => {
+  // The case the area cap got wrong every time it mattered. An arrow across the drawing has
+  // a bounding box covering the drawing, so the old rule — ink under a fifth of the drawing
+  // is an obstacle — classified it as scenery and left every label lying on it. The frames
+  // showed labels crowding arrows for three sessions because of it.
+  const onALeader = [
+    mark({
+      id: 'flow',
+      kind: 'arrow',
+      points: [
+        [60, 60],
+        [940, 500],
+      ],
+    }),
+    mark({ id: 'name', kind: 'label', x: 500, y: 280, text: 'blood flow', size: 30 }),
+  ];
+  const moved = repairLabels(onALeader)[1] as Mark;
+  assert.notDeepEqual(moved, onALeader[1], 'the label was left lying along the arrow');
+  assert.deepEqual(auditDrawing([onALeader[0] as Mark, moved]), []);
+});
+
+test('a repair never throws a label off the canvas to make a number better', () => {
+  // Measured, and the reason the weights are what they are. The first scored version
+  // weighted displacement at almost nothing: across the 41 cached drawings it removed every
+  // label collision by flinging labels up to 180 units off the canvas, where they named
+  // nothing and shrank the fitted picture to make room for them. 713 raw down to 48, and
+  // all 48 were labels the repair itself had marooned.
+  const crowded: Mark[] = [
+    ...Array.from({ length: 12 }, (_, i) =>
+      mark({
+        id: `line-${i}`,
+        kind: 'line',
+        points: [
+          [40, 40 + i * 40],
+          [960, 40 + i * 40],
+        ],
+      }),
+    ),
+    mark({ id: 'name', kind: 'label', x: 500, y: 280, text: 'somewhere in here', size: 30 }),
+  ];
+  const placed = repairLabels(crowded).find((m) => m.kind === 'label') as Mark;
+  const box = markBounds(placed)!;
+  assert.ok(
+    box.x >= -DRAW_W * 0.05 && box.x + box.w <= DRAW_W * 1.05,
+    `the label was pushed to ${box.x.toFixed(0)}..${(box.x + box.w).toFixed(0)}, outside the canvas`,
+  );
+  assert.ok(
+    box.y >= -DRAW_H * 0.05 && box.y + box.h <= DRAW_H * 1.05,
+    `the label was pushed to ${box.y.toFixed(0)}..${(box.y + box.h).toFixed(0)}, outside the canvas`,
+  );
 });
 
 test("the drawing's own title is dropped before it reaches the board", () => {

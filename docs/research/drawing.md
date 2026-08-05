@@ -126,12 +126,63 @@ instead of a list of topics`. The load-bearing design decisions:
 5. **`illustration` is narrowed** to what it is genuinely better at: a living thing, a
    person, a real place — where likeness is the point and structure is not.
 
+## 5b. The feedback loop, built and measured (2026-08-05)
+
+The loop §6 called for is in: `draw-audit.ts` measures, `draw-critic.ts` shows the drawing
+back to the model that drew it, `pipeline/src/draw-preview.ts` renders it. What the
+literature promised held up, and two things it does not talk about turned out to matter
+more than the loop itself.
+
+**Arithmetic first, judgement second.** Before any model is called, the drawing that will
+actually be drawn is measured: names on names, names across strokes, words too long for
+their line, ink off the canvas, a name too far from any mark to be naming it. Across the 41
+drawings then in the machine-wide cache that measurement fell from a defect score of 713 to
+110 through mechanical repair alone — no calls, no model — and only the residue is worth a
+call. The gate is why the pass costs one extra call on about a third of drawings rather
+than one on every drawing.
+
+**Where the win actually came from.** Not from the model. It came from teaching the repair
+pass what ink _is_: a rect is four edges, an arrow is its line, and only shading covers an
+area (`draw-geom.ts`). The previous pass compared bounding boxes and approximated the
+container/part distinction with an area cap, which got every long arrow, gap line and
+leader wrong. That change is free, local, and did most of the work.
+
+**Two ways to make the number better and the picture worse**, both caught by looking at
+frames, both now recorded in tests:
+
+1. The first scored repair weighted displacement at nearly nothing, so it cleared every
+   collision by throwing labels up to 180 units off the canvas. 713 → 48, and all 48 were
+   labels the repair had marooned.
+2. The audit counted hatching as ink, so `N` and `S` inside a hatched bar magnet measured
+   as two defects. The correction moved both letters out of the magnet and into the field
+   lines below, where they named nothing, and scored zero for it.
+
+A shaded region is now something you may write **on** and still be **near**. That is the
+whole fix, and it is the shape of the general lesson: **a measurement that a fix can game
+is a measurement that will be gamed.**
+
+**The gate's blind spot, stated plainly.** The audit is arithmetic, and the paper's ablation
+is about _geometry_. A benzene ring whose double bonds are drawn as chords across the middle
+audits perfectly clean and is never looked at. `INKCAST_DRAW_FIX=all` runs the unconditional
+pass for exactly that experiment; it is not the default because it doubles the lane's cost
+on drawings that were already right.
+
+**Result on the twelve-subject sheet** (`pipeline/src/drawsheet.mts`, which now holds the
+subjects so the breadth test stops being rebuilt from memory): 12/12 draw, 10/12 measure
+clean, 4 were dirty as composed and 2 of those were corrected. The heart's septum moved out
+of the wrong ventricle and onto a leader; the knee's correction measured worse and was
+rejected, which is the veto doing its job.
+
 ## 6. What is still open
 
-- **The feedback loop is not built.** Both the paper's ablation and the skill ecosystem say
-  rendering the drawing and showing it back to the model is what fixes layout. We have the
-  renderer and the model has vision. This is the next real quality step, and it is the one
-  the frames argue for: labels still crowd each other.
+- **A correction gets one attempt.** The loop the paper describes is iterative; ours calls
+  once, keeps the result only if it does not measure worse, and caches the outcome either
+  way. The two subjects still measuring dirty are ones where a second look would plausibly
+  land.
+- **Nothing measures whether a drawing teaches.** Tangled wavefronts, a septum leader
+  pointing at the outer wall, double bonds drawn as chords: all invisible to arithmetic and
+  all visible in a frame. A judge pass — a model scoring the render against the instruction
+  — is the obvious next lane, and is a different thing from a correction pass.
 - **Part-level cueing is unused.** Every mark now has a name on the board, and nothing yet
   cues `damp-gap` to the words "the damp gap", highlights a part while it is discussed, or
   animates one part of a drawing. The IR supports all three (`enter.cue`, `EmphasisElement`,
