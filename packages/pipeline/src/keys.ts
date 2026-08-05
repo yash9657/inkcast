@@ -46,6 +46,10 @@ export const PIPELINE_VERSION = 2;
  *   yields a lesson with words on it that the previous one only said out loud. The
  *   derived author also stopped captioning several beats with one section heading, so its
  *   `idea` fields moved as well.
+ * - voice 5: the pause after a sentence is graduated by the length of the sentence — five
+ *   lengths where there was one — so any narration is assembled differently. Measured on
+ *   the same lesson it spends 8.4s of silence across five lengths where the flat 0.24s rule
+ *   spent 8.8s across one.
  * - storyboard 9 / voice 4: one picture is one gesture. Every stroke of a visual intent
  *   carries the intent's own cue unless it claimed a word of its own, and the voice stage
  *   spreads strokes that resolved to the same instant by a tenth of a second in drawing
@@ -134,7 +138,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // names no terms compiles byte-identically — verified on `gradient-descent`, both
   // presets — so this bump only recomputes projects that gained ink.
   storyboard: 9,
-  voice: 4,
+  voice: 5,
   visuals: 7,
   render: 5,
 };

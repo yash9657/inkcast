@@ -863,3 +863,112 @@ keyed lesson names its own terms and does not need the heuristic at all.
 **Nothing here was measured on a model-authored lesson**, because there is still no key
 on this machine. Both shipped lessons are hand-authored. The brief and the revision pass
 teach the idiom, and that is untested.
+
+# The first keyed render, and what it exposed, 2026-08-05
+
+The first video generated through the studio with real keys, and the first time anything
+here was judged as a _video_ rather than as a set of artefacts. It was reported as hard to
+follow, oddly paced, and out of sync — "sometimes it draws multiple things really fast".
+Every one of those turned out to be mechanical, measurable and wrong in the code rather
+than a matter of taste. `projects/f70a4904eb30` is the render; its `pipeline.json` records
+what ran.
+
+## Which providers actually ran
+
+    lesson   anthropic/claude-opus-5   $0.0641   ✅ the lesson is good
+    voice    kokoro/af_heart           free      ❌ an ElevenLabs key was configured
+    images   fal (selected)            $0.00     — never called: zero asset elements
+
+Two of the three were not the user's mistake.
+
+**The ElevenLabs key was never reached.** The voice chain was ordered local-first and
+Kokoro is always available, so the paid provider was never tried, and nothing warned. The
+old selection rule asked whether the _voice id_ looked local — and the default `af_heart`
+does — but an id names a voice, not a provider.
+
+**fal was configured and had nothing to do.** Gradient descent asks for a hillside, fog, a
+figure, six plots and one equation, all of which are drawn locally for free. The
+storyboard contains **no asset elements at all**, so the illustration lane was never
+entered. The topic that needs generated artwork is the one with objects in it; this was
+not it. Still unmeasured, therefore, and still item 1 of the handoff.
+
+## The lesson was good; the trimmer destroyed it
+
+Claude wrote ten beats forming a single chain, `anchor → step1 → … → step5`.
+`adaptLesson` fitted it to 120s by deleting **step1 and step2** — the beat that turns the
+hillside into a graph, and the beat that defines the word _slope_ — because it ranked
+beats by word overlap with the objective and those two talk about dials and steepness.
+`remapDerivations` then rewired step3 to derive from the anchor, so the result passed
+`critiqueLesson`. The rendered video went from a figure standing in fog straight to "if
+the slope is positive, subtract it from your dial", introducing neither word.
+
+`derivedFrom` had recorded the dependency all along. It is binding now: `droppableIds`
+only offers beats nothing surviving derives from, and when nothing is droppable the video
+runs long and says so in a warning. The splice is kept as a canary that warns if it ever
+fires again.
+
+The estimate was also flattering itself — 2.5 words a second, the _target speaking rate_,
+against 2.2 delivered — so it cut two beats to reach 120s and produced 131s anyway. It is
+measured now, counts the outro, and the standard target is 150s, which is what both
+shipped lessons honestly need (116s and 134s). The model is briefed in **words**, which it
+can count; it had written 341 for a "120 second" brief.
+
+## The drawing was never in sync, and now is
+
+`packages/pipeline/src/vocabcheck.mts` has a sibling: `synccheck.mts` prints every
+element against the word being spoken as it appears.
+
+    before   49 elements: 6 land in a silence, 10 land on the same frame as the one before
+    after    50 elements: 3 land in a silence,  0
+
+The lesson asked for **one** picture on **one** cue. The compiler exploded it into nine
+strokes and invented a cue for each from the rarest words of each sentence, so the fog of
+a foggy hillside landed on "Somewhere below there's a valley" and the figure's legs on the
+word "down". Now a builder records why a stroke exists — fog exists because the
+instruction said fog — so it lands on that word when the narration says it, and anything
+without a word of its own inherits the intent's cue. `spreadGesture` then staggers strokes
+that resolved to the same instant by 0.1s in storyboard order, which is drawing order:
+a shared cue becomes a gesture, and nothing is drawn before what it sits on.
+
+    s0   0.60s hillside -> "on a hillside"    1.42s fog -> "in fog"    2.72s figure -> "thick you"
+
+## The pauses were flat, not excessive
+
+35 pauses in two minutes, one every 3.5 seconds, **all of them 0.24s** — because good
+spoken teaching is written in short sentences and every one was treated as a full stop. The
+gap is graduated by the length of the sentence that ended: 8.4s of silence across five
+lengths, where the flat rule spent 8.8s across one. Less total silence, more shape.
+
+A first cut made every sentence of seven words or more a landing, which put in 19 long
+pauses and pushed the delivered rate _below_ the 140–160 band. The fix for a flat rhythm is
+not a slower one; that iteration is in the comment on `GAP_BY_WORDS`.
+
+## Gates
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects ·
+`pnpm -r test` **599 pass, 0 fail** (595 → 599).
+
+`sbhash`: `gradient-descent` at the standard preset is byte-identical through all of it;
+at `short` it keeps one more beat than before. `longitude` at standard is byte-identical
+and no longer loses a beat to a flattering estimate.
+
+## What is deliberately not done
+
+**The recap still redraws.** The lesson says "return to the foggy hillside" and the
+compiler draws a second hillside in a new panel, twelve strokes, while the original is
+still on the board. `findReuse` only lets a hook or anchor beat annotate an existing
+drawing; extending that to the recap is the next real win for both density and sync.
+
+**Three strokes still land in a silence**, all within 0.1s of the word that cues them —
+the gesture stagger pushing the tail of a group just past its word. Visible only in the
+measurement, not on screen.
+
+**The `dominant` clamp fires three times** on this lesson: the model cues a beat's main
+picture on a late phrase, and the voice stage holds it to 15% of the beat so the frame is
+not empty while the idea is spoken. The warning tells the author to cue the figure on an
+opening phrase. That is a brief improvement waiting to be made, not a bug.
+
+**Nothing here has been judged as a video since the fix.** The measurements are all on
+recompiled artefacts and a locally re-narrated audio track. The next keyed render is the
+verification, and it should be a topic with objects in it so the fal lane is finally
+exercised.

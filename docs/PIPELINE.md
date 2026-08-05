@@ -799,6 +799,36 @@ plot, so `cycle` drew the Calvin cycle as a sine wave of value against time.
 and vetoes the match; `describesAPlot` stops the compiler drawing its fallback parabola,
 labelled `w` and `loss`, for an intent that describes no plot at all.
 
+**12. Delivery: the words, the pauses and the strokes are one clock.** ✅ **DONE.** The
+first keyed render exposed four defects that a viewer felt as "I can't follow it" and
+"nothing is in sync", and all four were mechanical rather than aesthetic.
+
+- **`derivedFrom` is binding.** The trimmer deleted two beats of a five-link chain to fit
+  120s — the beat that turns the hillside into a graph and the beat that defines _slope_ —
+  and then rewired the survivors so the wreckage validated. `droppableIds` in
+  `planner/src/presets.ts` now only offers beats nothing derives from; when nothing is
+  droppable the video runs long and says so. _Done when:_ a chain lesson loses its free end
+  and never its middle, at every preset. Pinned by test.
+- **The length estimate is measured, not assumed.** 2.2 words a second, from a real render's
+  narration audio, against the 2.5 that was the _target speaking rate_; the outro belongs to
+  the preset so the estimate can count it. The standard target rises to 150s, which is what
+  both shipped lessons honestly need. The model is briefed in **words**, which it can count.
+- **One picture is one gesture.** A visual intent's strokes carry the intent's own cue unless
+  they claimed a word of their own (fog on the word _fog_), and `spreadGesture` in
+  `voice/src/cue.ts` staggers strokes that resolved to the same instant by 0.1s in drawing
+  order. _Done when:_ `synccheck.mts` reports no stroke landing on the same frame as
+  another — 10 before, 0 after, on the same lesson.
+- **Pauses land where something ended.** Four gap lengths chosen by what was just said
+  (clause, short sentence in a run, a sentence that lands, a question) instead of 0.24s
+  after every sentence, which put 35 uniform pauses into two minutes.
+
+**13. A paid key is used.** ✅ **DONE.** `ELEVENLABS_API_KEY` was configured and ignored:
+the voice chain was ordered local-first, Kokoro is always available, so the key was never
+reached and the run reported `kokoro/af_heart` without a warning. A present key now orders
+the chain cloud-first with Kokoro directly behind it, and `kokoro:` / `local:` on the voice
+id is how you refuse it. The pipeline's provider report reads the same rule, because a
+report that disagrees with the stage is worse than no report.
+
 ## Still open
 
 - **Frame fill on a document is 17%, against 47.6% on the benchmark.** Measured with

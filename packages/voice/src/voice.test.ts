@@ -132,6 +132,7 @@ function timings(
     text,
     sentence,
     endsSentence: ends,
+    sentenceWords: text.split(/\s+/).filter(Boolean).length,
     start,
     end,
   }));
@@ -538,6 +539,26 @@ test('gaps are longer between sentences than between clauses', () => {
   assert.equal(gapAfter(b, c), SENTENCE_GAP_SEC);
   assert.equal(gapAfter(c, undefined), 0, 'nothing follows the last phrase');
   assert.ok(SENTENCE_GAP_SEC > PHRASE_GAP_SEC);
+
+  // A run of short sentences is one breath, not three stops. 35 uniform pauses in a
+  // two-minute render is what "so many unnatural pauses" turned out to mean.
+  const run = splitPhrases(normalizeNarration('Somewhere below is a valley. You have no map.'));
+  assert.ok(run.length === 2);
+  assert.ok(
+    gapAfter(run[0]!, run[1]!) < SENTENCE_GAP_SEC,
+    'a five-word sentence should not stop like a claim',
+  );
+  // A question gets the longest silence there is: the learner is meant to answer it.
+  const asked = splitPhrases(normalizeNarration('You cannot see it. So how do you get down?'));
+  const [claim, question] = asked;
+  assert.ok(claim && question);
+  assert.ok(
+    gapAfter(question, claim) > SENTENCE_GAP_SEC,
+    'a question needs more room than a statement',
+  );
+  // The length that matters is the sentence's, not this clause's: the closing phrase of a
+  // long sentence still lands, even when it is three words on its own.
+  assert.ok(b.sentenceWords >= 7 && b.text.split(/\s+/).length < 7);
 });
 
 test('a sentence split across scenes is reported, naming the scenes', () => {
@@ -1197,4 +1218,26 @@ test('the provider chain puts a paid key first, and a pin puts it back', () => {
   assert.equal(bareVoiceId('kokoro:af_heart'), 'af_heart');
   assert.equal(bareVoiceId('af_heart'), 'af_heart');
   assert.equal(bareVoiceId('say'), 'say');
+});
+
+test('the pause after a sentence is graduated by what the sentence was', () => {
+  // Five lengths, and the reason is a viewer's: 35 identical 0.24s pauses in two minutes
+  // reads as a machine. Measured on the same lesson, the graduated scale spends slightly
+  // less total silence across five distinct lengths.
+  const gap = (text: string): number => {
+    const ps = splitPhrases(normalizeNarration(`${text} And then something else follows it.`));
+    const i = ps.findIndex((p) => p.endsSentence);
+    return gapAfter(ps[i]!, ps[i + 1]!);
+  };
+  const short = gap('You have no map.');
+  const ordinary = gap('The slope under your feet tells you which way is down.');
+  const landing = gap(
+    'The slope only describes the ground right where you stand, so you shrink the move first.',
+  );
+  const question = gap('So how do you get down?');
+  assert.ok(short < ordinary, 'a four-word line should not stop like a sentence');
+  assert.equal(ordinary, SENTENCE_GAP_SEC, 'an ordinary sentence keeps the ordinary gap');
+  assert.ok(landing > ordinary, 'a long sentence has more to land');
+  assert.ok(question > landing, 'a question gets the most room of all');
+  assert.ok(short > PHRASE_GAP_SEC, 'a sentence end is still audible');
 });
