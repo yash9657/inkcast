@@ -24,6 +24,7 @@ import { curveY, dataToCanvas, descend, fitYDomain, round, slopeAt, stepPath } f
 import type { Box, Point } from './elements.js';
 import { makeArrow } from './elements.js';
 import { ballPath, chevronPath } from './figures.js';
+import { shorten, wordCount } from './text.js';
 
 /* ----------------------------------------------------------- numeric hints */
 
@@ -306,6 +307,29 @@ function pick(text: string, table: AxisRule[], fallback?: string): string | unde
   return fallback;
 }
 
+/**
+ * The author naming both axes outright: "a plot of charge remaining against time".
+ *
+ * Worth reading before any keyword table, because it is the one case where there is
+ * nothing to infer — the instruction says what is on each axis, in the learner's words.
+ * The tables below can only label what someone thought to add to them, and a lesson
+ * about a battery found no rule for charge and got `output`.
+ */
+const STATED =
+  /\b(?:plot|graph|curve|chart)s? of ([^,.:;]{2,40}?)\s+(?:against|versus|vs\.?|over)\s+([^,.:;]{2,30}?)(?=[,.:;]|$)/i;
+
+function stated(text: string): { x?: string; y?: string } {
+  const m = STATED.exec(text);
+  if (!m) return {};
+  const tidy = (s: string): string | undefined => {
+    const short = shorten(s.trim().replace(/^(?:the|a|an)\s+/i, ''), 3);
+    return short && wordCount(short) <= 3 ? short.toLowerCase() : undefined;
+  };
+  const y = tidy(m[1] as string);
+  const x = tidy(m[2] as string);
+  return { ...(x ? { x } : {}), ...(y ? { y } : {}) };
+}
+
 export function axisLabels(
   text: string,
   fallback: { x?: string; y?: string } = {},
@@ -314,8 +338,9 @@ export function axisLabels(
   y?: string;
 } {
   const out: { x?: string; y?: string } = {};
-  const x = pick(text, X_WORDS, fallback.x);
-  const y = pick(text, Y_WORDS, fallback.y);
+  const said = stated(text);
+  const x = said.x ?? pick(text, X_WORDS, fallback.x);
+  const y = said.y ?? pick(text, Y_WORDS, fallback.y);
   if (x) out.x = x;
   if (y) out.y = y;
   return out;
@@ -490,7 +515,13 @@ const descentSteps: Recipe = {
  */
 const tangentSlope: Recipe = {
   name: 'tangent',
-  match: /tangent|slope|steep|gradient|derivative|minus sign|downhill|which way/i,
+  // `steep` on its own is gone, and the reason is the same one that runs through this
+  // file: a comparative is not a request for a tangent. "a straight line falling from
+  // 3000 to 0, and a **steeper** straight line rising" is two lines about a battery, and
+  // it was drawn as a parabola with a tangent on it, labelled `loss` — gradient descent's
+  // picture and gradient descent's vocabulary, in a lesson about charge. "how steep"
+  // stays, because that phrasing really is asking about a slope at a point.
+  match: /tangent|slope|how steep|gradient|derivative|minus sign|downhill|which way/i,
   build(ctx, hints, text) {
     const bowl = deriveBowl(hints);
     const at = bowl.focus;
