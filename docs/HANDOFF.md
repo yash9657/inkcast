@@ -290,6 +290,14 @@ note `$NF`, because lines carry a package prefix.
    catalogues of one number**, the same pathology as items 9 and 10 below, and the cheapest
    real fix on this list: make one of them import the other. Older than the drawing lane —
    the same `lesson.json` compiled either side of this session differs in zero text fields.
+   0a. **A name written on _dense_ hatching is hard to read** — `electron stuck`, `cathode` and
+   `graphite` in the keyed film, each written inside a narrow heavily-hatched strip. This is
+   the deliberate cost of the audit treating shading as writable-on, and that decision should
+   not simply be reversed: the version that treated hatching as an obstacle got `N` and `S`
+   moved out of a bar magnet into the field lines, which is worse. The fix is on the other
+   side — break or lighten the hatching behind a label (roughjs can clip), or let the author
+   place the name against the region's edge rather than in it. A wide hatched pole with one
+   letter in it reads fine; a narrow strip with two words in it does not.
    0b. **A caption cut to the preset's word budget lands mid-phrase.** "A charged battery is
    lithium held on the wrong" — nine words, `captionWords: 9`. `shorten()` in `text.ts` was
    written to avoid exactly this and its `DANGLING` list misses a trailing adjective. The

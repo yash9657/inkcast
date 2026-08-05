@@ -1300,3 +1300,10 @@ only label coordinates moved):
    precisely to avoid this and its `DANGLING` list does not catch a trailing adjective. The
    deeper fix is for the lesson author to write a caption that fits rather than for the
    compiler to cut a sentence written for another purpose.
+
+The pulled-back recap frame is the best single argument for the lane: **eight distinct
+diagrams for one lesson**, all legible at that zoom, each labelled in the same hand. It also
+shows the honest cost of the shading decision above — `electron stuck` and `cathode`, written
+inside narrow heavily-hatched strips, are hard to read. That is the price of not moving names
+off shading, and the magnet is why the price is worth paying; the fix belongs on the hatching,
+not on the label. Item 0a of the handoff.
