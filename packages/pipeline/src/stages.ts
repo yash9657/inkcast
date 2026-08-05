@@ -52,6 +52,8 @@ export type LessonStageOptions = FormatOptions & {
   audience?: string;
   objective?: string;
   brief?: string;
+  /** True when an image provider is configured; lets the brief offer `illustration`. */
+  illustrations?: boolean;
   onProgress?: OnProgress;
   force?: boolean;
 };

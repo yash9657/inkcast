@@ -404,6 +404,11 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     ...(input.audience === undefined ? {} : { audience: input.audience }),
     ...(input.objective === undefined ? {} : { objective: input.objective }),
     ...(brief === undefined ? {} : { brief }),
+    // What the drawing lanes can actually do, decided once in `providers.ts` and told to
+    // the author. A model that is not told about the illustration lane asks for an `icon`
+    // for every concrete object, and the icon lane never calls the generator — so a
+    // configured key drew nothing at all on a keyed render.
+    illustrations: provs.images.cloud,
     onProgress: run.bus.child('lesson'),
     force: run.force,
   };

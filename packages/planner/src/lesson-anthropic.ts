@@ -125,7 +125,12 @@ The compiler recognises these, and the words in **bold** are what select them, s
 - **path** — freeform ink with no axes: a **hillside**, a **figure** standing on it, **fog**, three **steps** down it, a **bowl**, a container **blob**.
 - **motion** — something that moves. Pair it with a plot in the same beat and the moving thing follows that curve.
 - **diagram** — a flow or a list of peers. Write the nodes: "input → encoder → output".
-- **icon** — one simple concrete object.
+- **icon** — one simple concrete object that a symbol set would already have: a clock, a leaf, a battery, an arrow. Drawn from a curated library or matched against a standard icon set, so it is instant and free — and generic. Do not reach for it to draw something specific.
+${
+  opts.illustrations
+    ? '- **illustration** — a specific thing no icon set contains: "a chloroplast with stacked thylakoid discs inside it", "Odysseus lashed to the mast of his ship", "a pendulum clock with its escapement exposed". This calls a text-to-image model and traces the result into hand-drawn outlines, and an image generator IS configured for this run, so use it wherever the beat is about a real object, place or person. Describe the subject and nothing else — one centred thing, no scene, no background, no caption in the picture — because it is drawn as flat line art on a white board.'
+    : '- (there is no image generator configured for this run, so anything you cannot make from a plot, a path, a diagram or an icon will end up as a lettered card. Prefer a **diagram** of named parts or a **path** you describe stroke by stroke over asking for a picture of a specific object.)'
+}
 - **text** — an equation or a phrase that must be written out verbatim. Use sparingly; the picture should carry the idea.
 Use one visual per beat, two at most. A beat with three competing pictures teaches nothing.
 

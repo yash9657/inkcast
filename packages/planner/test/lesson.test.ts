@@ -739,3 +739,20 @@ test('an initialism spoken and never written anywhere is a critique failure', ()
     'the recap may introduce nothing, but it must not say a word no cell carries',
   );
 });
+
+/* --------------------------------------------------------- what the brief offers */
+
+test('the brief offers the illustration lane only when a generator exists', async () => {
+  // The defect this closes cost a whole render. `resolveAsset` calls the image generator
+  // for `kind: 'illustration'` and never for `icon`, and the brief listed the kinds "the
+  // compiler recognises" without mentioning illustration — so a keyed run asked for an
+  // icon for every concrete object and the configured key drew nothing at all.
+  const schema = await lessonJsonSchema();
+  assert.ok(schema, 'zod-to-json-schema must be installed for this test');
+  const kinds = (schema.properties as Record<string, { properties?: Record<string, unknown> }>).hook
+    ?.properties?.visuals as { items?: { properties?: { kind?: { enum?: string[] } } } };
+  assert.ok(
+    kinds?.items?.properties?.kind?.enum?.includes('illustration'),
+    'the schema has always allowed it; only the brief was silent',
+  );
+});

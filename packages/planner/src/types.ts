@@ -93,6 +93,21 @@ export type LessonOptions = StageOptions &
     objective?: string;
     /** Extra direction for the lesson author (tone, emphasis, constraints). */
     brief?: string;
+    /**
+     * Whether an image generator is configured, so the brief may offer `illustration`.
+     *
+     * The lesson stage has to know, and cannot find out for itself: detection lives in
+     * `@inkcast/visuals`, which the planner does not depend on and should not start. The
+     * caller that already resolved the provider passes it down.
+     *
+     * Offering a lane that is not there is the failure this closes. Without a key an
+     * `illustration` degrades to the icon set and then to a lettered card, so telling the
+     * model to ask for one would trade a matched icon for a letter in a box — which is why
+     * the brief stayed silent about the lane and, on a keyed run, kept steering every
+     * concrete object to `icon`. Same principle as the generated cast pose: do not offer
+     * what may not exist.
+     */
+    illustrations?: boolean;
     /** Project directory. When given, `lesson.json` is cached there. */
     dir?: string;
   };

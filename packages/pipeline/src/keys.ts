@@ -46,6 +46,11 @@ export const PIPELINE_VERSION = 2;
  *   yields a lesson with words on it that the previous one only said out loud. The
  *   derived author also stopped captioning several beats with one section heading, so its
  *   `idea` fields moved as well.
+ * - lesson 6: the teaching brief describes the `illustration` lane, and only when an image
+ *   provider is configured. It listed the kinds "the compiler recognises" and omitted the
+ *   one that calls a generator, so a keyed render asked for an `icon` for every concrete
+ *   object — and the icon lane never generates anything. The same document therefore yields
+ *   a different lesson depending on whether a key is present, which is the point.
  * - voice 5: the pause after a sentence is graduated by the length of the sentence — five
  *   lengths where there was one — so any narration is assembled differently. Measured on
  *   the same lesson it spends 8.4s of silence across five lengths where the flat 0.24s rule
@@ -126,7 +131,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 5,
+  lesson: 6,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
