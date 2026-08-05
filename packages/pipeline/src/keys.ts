@@ -46,6 +46,13 @@ export const PIPELINE_VERSION = 2;
  *   yields a lesson with words on it that the previous one only said out loud. The
  *   derived author also stopped captioning several beats with one section heading, so its
  *   `idea` fields moved as well.
+ * - storyboard 9 / voice 4: one picture is one gesture. Every stroke of a visual intent
+ *   carries the intent's own cue unless it claimed a word of its own, and the voice stage
+ *   spreads strokes that resolved to the same instant by a tenth of a second in drawing
+ *   order — so a hillside, its fog and the figure on it arrive as one action on the words
+ *   that name them, instead of nine strokes scattered across the beat by a guessed cue.
+ *   Both move because the timing is decided by the pair: the compiler says which strokes
+ *   belong together, the voice stage says when.
  * - lesson 5 / storyboard 8: `derivedFrom` is binding. The trimmer may only drop a beat no
  *   surviving beat derives from, so a lesson is never rewired to make an incoherent cut
  *   validate; the length estimate is calibrated to what a render actually delivers (2.2
@@ -126,8 +133,8 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // which adds elements and takes that row's height off the figure area. A lesson that
   // names no terms compiles byte-identically — verified on `gradient-descent`, both
   // presets — so this bump only recomputes projects that gained ink.
-  storyboard: 8,
-  voice: 3,
+  storyboard: 9,
+  voice: 4,
   visuals: 7,
   render: 5,
 };

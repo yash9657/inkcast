@@ -51,7 +51,12 @@ import { resolveSceneCues } from './cue.js';
 import type { CueResolution } from './cue.js';
 import { openAligner, requestedAlign } from './align.js';
 import type { AlignMode } from './align.js';
-import { openVoiceChain, requestedProvider } from './providers/index.js';
+import {
+  bareVoiceId,
+  openVoiceChain,
+  pinnedProvider,
+  requestedProvider,
+} from './providers/index.js';
 import type { VoiceProviderId, WordTiming } from './providers/types.js';
 import { SAY_NOT_FOR_PUBLISHING } from './providers/system.js';
 import { TEACHING_WPM_MAX, TEACHING_WPM_MIN, TEACHING_WPM_TARGET } from './voices.js';
@@ -334,8 +339,10 @@ export async function narrate(
   const total = out.scenes.length;
 
   const chain = openVoiceChain({
-    preferred: requestedProvider(opts.provider),
-    requestedVoice,
+    // An explicit `--provider` first, then a `kokoro:`/`elevenlabs:` prefix on the voice
+    // id, then whatever the environment implies (a key means the paid voice).
+    preferred: requestedProvider(opts.provider) ?? pinnedProvider(requestedVoice),
+    requestedVoice: bareVoiceId(requestedVoice),
     log,
     onDownload: (note) =>
       report(opts, { stage: 'voice', pct: 1, note: `downloading model · ${note}` }),

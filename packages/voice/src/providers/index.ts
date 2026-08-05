@@ -30,9 +30,9 @@ export { parseSayVoices, pickSayVoice } from './system.js';
 export { alignmentToWords } from './elevenlabs.js';
 
 /**
- * Default order. Kokoro first (local, free, best quality of the free options),
- * `system` as the offline safety net, ElevenLabs only if a key exists, and timed
- * silence as the never-crash floor.
+ * Order with no cloud key: Kokoro first (local, free, best of the free options),
+ * `system` as the offline safety net, ElevenLabs — which will refuse for want of a key —
+ * and timed silence as the never-crash floor.
  */
 export const DEFAULT_CHAIN: readonly VoiceProviderId[] = [
   'kokoro',
@@ -40,6 +40,59 @@ export const DEFAULT_CHAIN: readonly VoiceProviderId[] = [
   'elevenlabs',
   'silence',
 ];
+
+/** Order when a key exists. Same links, ElevenLabs first; local still catches a failure. */
+const KEYED_CHAIN: readonly VoiceProviderId[] = ['elevenlabs', 'kokoro', 'system', 'silence'];
+
+/**
+ * The chain for this environment, and the one place "which voice do you get" is decided.
+ *
+ * **A present `ELEVENLABS_API_KEY` wins.** It did not until now, and the reason it did not
+ * was invisible: the chain was ordered local-first and Kokoro is always available, so a
+ * user who pasted an ElevenLabs key got the 82M-parameter local model and a `pipeline.json`
+ * that said `kokoro/af_heart`. Nothing was broken and nothing was reported; the key was
+ * simply never reached. Someone who supplies a paid key has said what they want.
+ *
+ * Kokoro stays directly behind it, so a rate limit, an expired key or an outage demotes to
+ * a real voice rather than to silence — which is the property the chain exists for.
+ *
+ * Pin the local one with a `kokoro:` or `local:` prefix on the voice id when you want free
+ * delivery *despite* a key. See `pinnedProvider`.
+ */
+export function defaultChain(env: NodeJS.ProcessEnv = process.env): VoiceProviderId[] {
+  return env.ELEVENLABS_API_KEY ? [...KEYED_CHAIN] : [...DEFAULT_CHAIN];
+}
+
+/** Provider prefixes on a voice id, which pin the choice whatever the environment says. */
+const PINS: Record<string, VoiceProviderId> = {
+  elevenlabs: 'elevenlabs',
+  kokoro: 'kokoro',
+  local: 'kokoro',
+  say: 'system',
+  system: 'system',
+};
+
+/**
+ * The provider a voice id pins, if it names one: `kokoro:af_heart`, `elevenlabs:Rachel`.
+ *
+ * The escape hatch that makes the keyed default safe. Without it, storing a key would mean
+ * paying for every render with no way to say "this one is free" short of unsetting an
+ * environment variable.
+ */
+export function pinnedProvider(voiceId: string | undefined): VoiceProviderId | undefined {
+  if (!voiceId) return undefined;
+  const at = voiceId.indexOf(':');
+  // A bare provider name pins too: `--voice say` has always meant the system voice, and
+  // before this it merely *reported* as one while the chain quietly used Kokoro.
+  const head = (at > 0 ? voiceId.slice(0, at) : voiceId).toLowerCase();
+  return PINS[head];
+}
+
+/** A voice id with any provider prefix removed, as the provider itself wants it. */
+export function bareVoiceId(voiceId: string): string {
+  const at = voiceId.indexOf(':');
+  return at > 0 && PINS[voiceId.slice(0, at).toLowerCase()] ? voiceId.slice(at + 1) : voiceId;
+}
 
 export type ProviderHooks = {
   /** Fired while model weights download, so a long first run shows progress. */
@@ -70,10 +123,14 @@ export function requestedProvider(explicit?: string): VoiceProviderId | undefine
   return undefined;
 }
 
-/** Preferred provider first, then everything else in the default order. */
-export function chainFor(preferred?: VoiceProviderId): VoiceProviderId[] {
-  if (!preferred) return [...DEFAULT_CHAIN];
-  return [preferred, ...DEFAULT_CHAIN.filter((id) => id !== preferred)];
+/** Preferred provider first, then everything else in this environment's order. */
+export function chainFor(
+  preferred?: VoiceProviderId,
+  env: NodeJS.ProcessEnv = process.env,
+): VoiceProviderId[] {
+  const order = defaultChain(env);
+  if (!preferred) return order;
+  return [preferred, ...order.filter((id) => id !== preferred)];
 }
 
 export type ActiveProvider = {

@@ -13,6 +13,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { bareVoiceId, defaultChain, pinnedProvider } from './providers/index.js';
 
 import { narrate, sceneAudioPath, sceneTimingPath, NARRATION_FILE } from './narrate.js';
 import { measureDuration, readClipSamples, writeClipFromParts } from './audio.js';
@@ -1172,4 +1173,28 @@ test('a cue containing an initialism still finds its words', () => {
     'tee',
     'pee',
   ]);
+});
+
+test('the provider chain puts a paid key first, and a pin puts it back', () => {
+  // `active()` walks this order and Kokoro is always available, so the order *is* the
+  // decision. Local-first meant an ElevenLabs key was never reached.
+  assert.deepEqual(defaultChain({}), ['kokoro', 'system', 'elevenlabs', 'silence']);
+  assert.deepEqual(defaultChain({ ELEVENLABS_API_KEY: 'el' } as NodeJS.ProcessEnv), [
+    'elevenlabs',
+    'kokoro',
+    'system',
+    'silence',
+  ]);
+  // Kokoro stays directly behind the cloud, so an outage demotes to a real voice.
+  assert.equal(defaultChain({ ELEVENLABS_API_KEY: 'el' } as NodeJS.ProcessEnv)[1], 'kokoro');
+
+  // A pin overrides the environment, and the provider still gets a bare voice id.
+  assert.equal(pinnedProvider('kokoro:af_heart'), 'kokoro');
+  assert.equal(pinnedProvider('local:af_heart'), 'kokoro');
+  assert.equal(pinnedProvider('elevenlabs:Rachel'), 'elevenlabs');
+  assert.equal(pinnedProvider('say'), 'system');
+  assert.equal(pinnedProvider('af_heart'), undefined, 'a voice name is not a provider');
+  assert.equal(bareVoiceId('kokoro:af_heart'), 'af_heart');
+  assert.equal(bareVoiceId('af_heart'), 'af_heart');
+  assert.equal(bareVoiceId('say'), 'say');
 });

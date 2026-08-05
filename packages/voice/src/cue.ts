@@ -281,6 +281,22 @@ export const MIN_TRAVEL = 0.18;
 const TRAVEL_LEAD = 0.06;
 
 /**
+ * Seconds between two strokes of one gesture.
+ *
+ * The parts of a picture that share a cue are meant to arrive *together*, and together
+ * does not mean simultaneously: a person draws a hillside, then the fog across it, then
+ * the figure on it, in quick succession. Resolving each part to the identical instant
+ * makes the picture appear as a paste, and a measured render showed three step-marks and
+ * four limbs of a figure each landing on one frame.
+ *
+ * A tenth of a second is fast enough to read as one action and slow enough to read as
+ * drawing. It is applied in storyboard order, which is also drawing order — a figure
+ * cannot stand on a slope that has not been drawn — so the pass below doubles as the
+ * guarantee that an overlay never precedes the thing it annotates.
+ */
+export const GESTURE_STEP_SEC = 0.1;
+
+/**
  * Point a moving element's cue at the *movement* rather than at its arrival.
  *
  * For everything else a cue answers "when does this appear". For an element with
@@ -422,7 +438,52 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
     }
   }
 
+  spreadGesture(scene, opts.narrationSec, resolved);
   return { resolved, warnings };
+}
+
+/**
+ * Draw strokes that resolved to the same moment as one gesture, in drawing order.
+ *
+ * Every element is visited in storyboard order and pushed to at least `GESTURE_STEP_SEC`
+ * after the one before it. Two things fall out of that single rule:
+ *
+ *  - **A shared cue becomes a gesture.** The compiler gives every stroke of one picture
+ *    the same cue on purpose (see `planner/src/compile.ts`), so this is what turns "these
+ *    nine strokes belong to the words *a hillside in fog*" into a hillside being drawn.
+ *  - **Nothing is drawn before what it sits on.** Storyboard order is drawing order, so a
+ *    tangent cannot precede its curve even if its cue lands earlier in the sentence.
+ *
+ * It only ever moves an element *later*, and never past the end of the narration.
+ *
+ * **Only elements that actually resolved take part.** An element whose cue matched nothing
+ * keeps the fraction its author gave it, and is left out of the chain entirely: a guessed
+ * time has no business pushing a real one around.
+ */
+function spreadGesture(
+  scene: Scene,
+  narrationSec: number,
+  resolved: readonly CueResolution[],
+): void {
+  if (!(narrationSec > 0) || !resolved.length) return;
+  const step = GESTURE_STEP_SEC / narrationSec;
+  const byId = new Map(resolved.map((r) => [r.elementId, r]));
+  let previous = -Infinity;
+  for (const el of scene.elements) {
+    if (!byId.has(el.id)) continue;
+    const at = el.enter.at;
+    const moved = at <= previous ? Math.min(0.995, previous + step) : at;
+    previous = moved;
+    if (moved === at) continue;
+    el.enter.at = round3(moved);
+    if (el.motion) {
+      const span = Math.max(MIN_TRAVEL, el.motion.to - el.motion.from);
+      const from = Math.min(Math.max(el.motion.from, moved + TRAVEL_LEAD), 0.97 - span);
+      el.motion = { ...el.motion, from: round3(from), to: round3(Math.min(0.99, from + span)) };
+    }
+    const record = byId.get(el.id);
+    if (record) record.at = round3(moved);
+  }
 }
 
 function clamp(v: number, a: number, b: number): number {

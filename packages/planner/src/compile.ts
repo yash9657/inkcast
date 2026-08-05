@@ -685,13 +685,24 @@ function buildBeat(ctx: BeatContext): Element[] {
       box,
       hostPlotId: lastPlotId,
       existing: elements,
+      cues: cueOf,
     });
     for (const el of made) {
       if (el.type === 'plot') lastPlotId = el.id;
       elements.push(el);
     }
-    const first = made[0];
-    if (first && intent.cue) cueOf.set(first.id, intent.cue);
+    // One picture, one moment. Every stroke of this intent that did not claim a word of
+    // its own is drawn on the intent's cue, so the parts of a drawing arrive together as
+    // a gesture instead of being scattered across the beat by a guess.
+    //
+    // This is the join the shipped render got wrong. The lesson asked for one picture —
+    // "a hillside, a figure, thick fog" — on one cue, and the compiler exploded it into
+    // nine strokes and invented a cue for each: the fog landed on a sentence about a
+    // valley, two strokes landed in the silence between sentences, and the figure's legs
+    // arrived on the word "down". The author's single cue was thrown away.
+    if (intent.cue) {
+      for (const el of made) if (!cueOf.has(el.id)) cueOf.set(el.id, intent.cue);
+    }
   });
 
   /* --- a recap with no visuals still gets the chain drawn --- */
@@ -867,6 +878,16 @@ type IntentContext = BeatContext & {
   /** A plot already built in this beat, for a `motion` intent to ride. */
   hostPlotId?: string;
   existing: Element[];
+  /**
+   * `element id -> the phrase it should be drawn on`, written by the builders.
+   *
+   * A builder knows something the compiler cannot recover afterwards: *why* a stroke
+   * exists. `buildFreeform` draws fog because the instruction said "fog", so the fog
+   * belongs on the word **fog** if the narration says it. Recording that here is what
+   * replaced guessing a cue per element out of the narration's rarest words — which put
+   * the fog of a foggy hillside on the phrase "Somewhere below there's a valley".
+   */
+  cues: Map<string, string>;
 };
 
 function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
@@ -963,6 +984,21 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
     return el;
   };
 
+  /**
+   * Draw this part on the word that asked for it, when the narration says that word.
+   *
+   * The parts of a freeform drawing exist *because* of words in the instruction — fog
+   * because it said fog, a figure because it said figure — so each part has a natural
+   * moment, and it is the moment the narrator says the same thing. Anything with no such
+   * word joins the intent's own cue, so it arrives with the drawing rather than at a
+   * guessed point of its own.
+   */
+  const onWord = (el: Element, words: RegExp): Element => {
+    const m = words.exec(ctx.step.narration);
+    if (m?.[0]) ctx.cues.set(el.id, m[0]);
+    return el;
+  };
+
   if (BOWL.test(text) && !HILL.test(text)) {
     out.push(timed(bowlPath(ctx.id, inset(box, 12)), 0.08));
     return out;
@@ -987,7 +1023,7 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
   if (annotate) {
     log.debug(`beat ${ctx.index} annotates the hill drawn as "${remembered.id}"`);
   } else {
-    out.push(timed(hillPath(ctx.id, hillBox), 0.08));
+    out.push(onWord(timed(hillPath(ctx.id, hillBox), 0.08), /\bhill\w*|\bslope\b|\bground\b/i));
     // Remembered for the beat that turns it into a plot, and for any later beat
     // that wants to stand another figure on the same slope.
     if (ctx.role === 'hook' || ctx.role === 'anchor') {
@@ -996,7 +1032,7 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
   }
   if (FOG.test(text)) {
     fogPaths(`${ctx.id}_fog`, box, ctx.preset.vertical ? 2 : 3).forEach((el, k) =>
-      out.push(timed(el, 0.2 + k * 0.04)),
+      out.push(onWord(timed(el, 0.2 + k * 0.04), /\bfog\w*|\bmist\w*|\bcloud\w*/i)),
     );
   }
   if (FIGURE.test(text) || /you\b/i.test(ctx.step.narration)) {
@@ -1009,7 +1045,7 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
     // The strokes of one figure arrive together: a head, then a spine, then legs,
     // over about a tenth of the beat, which is how a person draws a person.
     walkerPaths(`${ctx.id}_you`, feet, height, 1).forEach((el, k) =>
-      out.push(timed(el, 0.34 + k * 0.025)),
+      out.push(onWord(timed(el, 0.34 + k * 0.025), /\byou\b|\byou'?re\b|\bfigure\b|\bstand\w*/i)),
     );
   }
   if (STEPS.test(text)) {
@@ -1020,7 +1056,7 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
       const to = hillPoint(hillBox, t);
       const step = chevronPath(`${ctx.id}_step${k}`, from, to);
       step.enter = { at: round(0.5 + k * 0.14, 3), duration: 0.5, style: 'draw' };
-      out.push(step);
+      out.push(onWord(step, /\bsteps?\b|\bstride\w*|\brepeat\w*|\bagain\b/i));
     });
   }
 
