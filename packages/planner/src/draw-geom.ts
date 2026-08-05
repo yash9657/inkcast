@@ -151,12 +151,12 @@ const grow = (b: Box, pad: number): Box => ({
 });
 
 /** Whether a pen stroke from `a` to `b` passes through `box` (inflated by `pad`). */
-export function segHitsBox(a: Point, b: Point, box: Box, pad = 0): boolean {
+function segHitsBox(a: Point, b: Point, box: Box, pad = 0): boolean {
   return clipToBox(a, b, grow(box, pad)) !== undefined;
 }
 
 /** Distance from a point to a segment, for "does this label name anything?" */
-export function pointSegDist(p: Point, a: Point, b: Point): number {
+function pointSegDist(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const len2 = dx * dx + dy * dy;

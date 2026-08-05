@@ -132,7 +132,18 @@ try {
   console.log(`keys: the vault could not be read (${String(err)}) — using the environment`);
 }
 
-const planner = (await loadLessonStage()) as unknown as {
+const stage = await loadLessonStage();
+const NEEDED = ['drawOne', 'auditDrawing', 'defectScore', 'defectSummary', 'prepareMarks'];
+const missing = NEEDED.filter(
+  (fn) => typeof (stage as unknown as Record<string, unknown>)[fn] !== 'function',
+);
+if (missing.length) {
+  // `loadLessonStage` checks the lesson contract, not the drawing lane's, so this tool
+  // checks what it actually calls rather than failing later with a TypeError.
+  console.error(`@inkcast/planner does not export ${missing.join(', ')} — the lane moved.`);
+  process.exit(1);
+}
+const planner = stage as unknown as {
   drawOne(
     instruction: string,
     opts: {
