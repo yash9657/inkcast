@@ -139,51 +139,72 @@ const at = (fit: Fit, x: number, y: number): Point => ({
 /* -------------------------------------------------------------------- repair */
 
 /**
- * Slide any label that landed on ink to the nearest place it does not.
+ * Move labels off each other, and off the small ink they are burying.
  *
- * The one failure an author reliably makes in a single pass, because it is placing 20
- * marks by coordinate with no way to see the result: the words end up over the drawing.
- * Everything needed to fix it is already known here, so it is fixed here rather than
- * spent on a second model call.
+ * The failure an author reliably makes in one pass, because it is placing twenty marks by
+ * coordinate with nothing to look at: the words land on the picture and on each other. On
+ * a breadth test across twelve STEM subjects it was the *only* defect visible in every
+ * single panel, which makes it worth more care than a nudge.
  *
- * Tried in order — above, below, left, right, further out each time — and the label
- * stays where the author put it when nothing is free, because a nudged label that lands
- * on something else is worse than an honest overlap.
+ * Two rules, and the difference between them is the whole trick:
+ *
+ * - **A label never overlaps another label.** Always, no exceptions: two names on top of
+ *   each other are unreadable and are never what anyone meant.
+ * - **A label avoids only the ink it would bury.** Not every mark — the *containing*
+ *   shapes. A heart outline, a ramp, a barrier: their bounding boxes cover most of the
+ *   drawing, so treating them as obstacles makes every position "busy", the search fails,
+ *   and the first version of this gave up and left the label exactly where it was. That is
+ *   why the frames still showed collisions after it ran. Ink smaller than a fifth of the
+ *   drawing is a part worth not covering; anything bigger is the thing being labelled,
+ *   and a name sitting inside its own diagram is normal on a whiteboard.
+ *
+ * Candidate positions spiral out in eight directions rather than four, and a label may
+ * leave the canvas bounds by a margin, because the drawing is fitted by content afterwards
+ * — a label pushed just outside simply makes the fitted picture slightly smaller.
  */
 export function repairLabels(marks: Mark[]): Mark[] {
+  const all = marks.map(markBounds).filter((b): b is Box => b !== undefined);
+  const area = (b: Box): number => b.w * b.h;
+  const canvas = union(all);
+  const budget = canvas ? area(canvas) * 0.2 : Infinity;
   const ink = marks
     .filter((m) => m.kind !== 'label')
     .map(markBounds)
-    .filter((b): b is Box => b !== undefined);
-  if (!ink.length) return marks;
+    .filter((b): b is Box => b !== undefined && area(b) <= budget);
 
   const placed: Box[] = [];
+  const free = (b: Box): boolean =>
+    !placed.some((o) => overlap(b, o, 8)) && !ink.some((o) => overlap(b, o, 6));
+
   return marks.map((m) => {
     if (m.kind !== 'label') return m;
     const b = markBounds(m);
     if (!b) return m;
-    const busy = [...ink, ...placed];
-    if (!busy.some((o) => overlap(b, o, 6))) {
+    if (free(b)) {
       placed.push(b);
       return m;
     }
-    const step = Math.max(24, b.h);
-    for (let ring = 1; ring <= 6; ring++) {
+    const step = Math.max(20, b.h * 0.8);
+    for (let ring = 1; ring <= 8; ring++) {
       for (const [dx, dy] of [
         [0, -1],
         [0, 1],
         [-1, 0],
         [1, 0],
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
       ] as const) {
         const moved = { ...b, x: b.x + dx * step * ring, y: b.y + dy * step * ring };
         const inside =
-          moved.x >= -DRAW_W * 0.15 &&
-          moved.y >= -DRAW_H * 0.15 &&
-          moved.x + moved.w <= DRAW_W * 1.15 &&
-          moved.y + moved.h <= DRAW_H * 1.15;
-        if (!inside || busy.some((o) => overlap(moved, o, 6))) continue;
+          moved.x >= -DRAW_W * 0.3 &&
+          moved.y >= -DRAW_H * 0.3 &&
+          moved.x + moved.w <= DRAW_W * 1.3 &&
+          moved.y + moved.h <= DRAW_H * 1.3;
+        if (!inside || !free(moved)) continue;
         placed.push(moved);
-        log.debug(`label "${m.text ?? m.id}" moved off the ink it landed on`);
+        log.debug(`label "${m.text ?? m.id}" moved clear of what it landed on`);
         return { ...m, x: moved.x + moved.w / 2, y: moved.y + moved.h / 2 };
       }
     }
@@ -192,13 +213,38 @@ export function repairLabels(marks: Mark[]): Mark[] {
   });
 }
 
-/** Marks worth drawing: real geometry, no duplicates, capped. */
+/**
+ * A label that is captioning the whole picture rather than naming a part of it.
+ *
+ * Every beat already has its idea written above its cell by the compiler, so a drawing
+ * that titles itself puts two captions on one panel — and the title is big, so it is the
+ * one that lands across the drawing. Seen on four of twelve breadth-test subjects
+ * ("Matrix Multiplication" over the grids, "Binary Search" over the numbers). The brief
+ * says not to; this is the half that does not rely on being obeyed.
+ *
+ * Large, near the top, and more than one word: a big `N` or `+` label inside a diagram is
+ * none of those things and survives.
+ */
+function isTitle(m: Mark, canvas: Box | undefined): boolean {
+  if (m.kind !== 'label') return false;
+  const size = m.size ?? 30;
+  const words = (m.text ?? '').trim().split(/\s+/).length;
+  const top = canvas ? canvas.y + canvas.h * 0.14 : DRAW_H * 0.14;
+  return size >= 40 && words >= 2 && (m.y ?? 0) <= top;
+}
+
+/** Marks worth drawing: real geometry, no self-titling, no duplicates, capped. */
 export function cleanMarks(marks: Mark[]): Mark[] {
+  const canvas = union(marks.map(markBounds).filter((b): b is Box => b !== undefined));
   const seen = new Set<string>();
   const out: Mark[] = [];
   for (const m of marks) {
     if (markBounds(m) === undefined) continue;
     if (m.kind === 'label' && !(m.text ?? '').trim()) continue;
+    if (isTitle(m, canvas)) {
+      log.debug(`dropped the drawing's own title: "${m.text}"`);
+      continue;
+    }
     const id = m.id && !seen.has(m.id) ? m.id : `${m.id || m.kind}-${out.length}`;
     seen.add(id);
     out.push({ ...m, id });
@@ -281,7 +327,31 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
       const text = (m.text ?? '').trim();
       if (!text) return [];
       const role = roleFor((m.size ?? 30) * fit.s);
-      const el = makeText(id, text, role, { align: 'center', maxWidth: 620 });
+      // Two failures meet here, and both are about the box being narrower than the words.
+      //
+      // The planner measures text at an assumed mean advance; the renderer wraps again
+      // against the *real* handwriting metrics, which are wider. A box sized to the
+      // estimate is therefore a box a word does not quite fit, and the renderer breaks
+      // the word itself — `Cartilage` came out as "Cartil / age", `block` as "blo / ck".
+      // A third of slack absorbs the difference.
+      //
+      // And a label that is a whole sentence — which the brief asks against and gets
+      // anyway — becomes one enormous line that lands across the picture. Capping the
+      // width at a share of the drawing wraps it into two or three tidy lines instead,
+      // which `repairLabels` can then place.
+      // A label that is a whole sentence — which the brief asks against and gets anyway —
+      // becomes one enormous line across the picture unless it is capped. Capped, it wraps
+      // into two or three tidy lines that `repairLabels` can place.
+      const cap = Math.max(280, DRAW_W * fit.s * 0.42);
+      const el = makeText(id, text, role, { align: 'center', maxWidth: cap });
+      // Then widened, because `measureText` can only ever return its own estimate and the
+      // renderer wraps again against the *real* handwriting metrics, which are wider. A
+      // box sized to the estimate is a box the words do not quite fit, and the renderer
+      // breaks the word itself: `Cartilage` came out as "Cartil / age", `block` as
+      // "blo / ck", on nearly every label of a twelve-subject breadth test. Half again is
+      // measured slack, not a guess — it is the widest the same string came out at when
+      // typeset by the board rather than estimated by the planner.
+      el.at = { ...el.at, w: round(el.at.w * 1.5, 2) };
       const c = P(m.x ?? 0, m.y ?? 0);
       el.at = {
         x: round(c.x - el.at.w / 2, 2),

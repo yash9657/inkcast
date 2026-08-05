@@ -87,24 +87,61 @@ test('a drawing is fitted into its box by its own content, uniformly', () => {
   );
 });
 
-test('a label that lands on ink is moved off it', () => {
-  const on = [
-    mark({ id: 'block', kind: 'rect', x: 100, y: 100, w: 400, h: 300 }),
-    mark({ id: 'name', kind: 'label', x: 300, y: 250, text: 'inside the block', size: 30 }),
+test('two labels never overlap each other', () => {
+  // The defect that showed up in every panel of the twelve-subject breadth test, and the
+  // one that is never what anyone meant: two names written on top of each other.
+  const stacked = [
+    mark({ id: 'outline', kind: 'rect', x: 0, y: 0, w: 900, h: 500 }),
+    mark({ id: 'a', kind: 'label', x: 400, y: 250, text: 'right atrium', size: 30 }),
+    mark({ id: 'b', kind: 'label', x: 410, y: 255, text: 'bicuspid valve', size: 30 }),
   ];
-  const [, moved] = repairLabels(on);
-  assert.ok(moved, 'the label vanished');
-  const before = markBounds(on[1] as Mark)!;
-  const after = markBounds(moved as Mark)!;
-  assert.notDeepEqual([after.x, after.y], [before.x, before.y], 'the label was left on the ink');
-  // Off the block, not merely nudged within it.
-  const block = markBounds(on[0] as Mark)!;
+  const out = repairLabels(stacked);
+  const a = markBounds(out[1] as Mark)!;
+  const b = markBounds(out[2] as Mark)!;
+  const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+  assert.ok(apart, 'two labels were left on top of each other');
+});
+
+test('a label is moved off small ink, and left alone inside the shape it names', () => {
+  const onAPart = [
+    mark({ id: 'outline', kind: 'rect', x: 0, y: 0, w: 900, h: 500 }),
+    mark({ id: 'valve', kind: 'ellipse', x: 400, y: 220, w: 60, h: 60 }),
+    mark({ id: 'name', kind: 'label', x: 430, y: 250, text: 'valve', size: 30 }),
+  ];
+  const moved = repairLabels(onAPart)[2] as Mark;
+  const after = markBounds(moved)!;
+  const part = markBounds(onAPart[1] as Mark)!;
   const clear =
-    after.y + after.h <= block.y ||
-    after.y >= block.y + block.h ||
-    after.x + after.w <= block.x ||
-    after.x >= block.x + block.w;
-  assert.ok(clear, 'the label is still on top of the block');
+    after.y + after.h <= part.y ||
+    after.y >= part.y + part.h ||
+    after.x + after.w <= part.x ||
+    after.x >= part.x + part.w;
+  assert.ok(clear, 'the label is still burying the part it names');
+
+  // But the big containing outline is not an obstacle. Treating it as one makes every
+  // position busy, the search fails, and the label is left exactly where it started —
+  // which is why the first version of this repaired nothing on a real drawing.
+  const inside = [
+    mark({ id: 'outline', kind: 'rect', x: 0, y: 0, w: 900, h: 500 }),
+    mark({ id: 'name', kind: 'label', x: 450, y: 250, text: 'the heart', size: 30 }),
+  ];
+  assert.deepEqual(repairLabels(inside)[1], inside[1]);
+});
+
+test("the drawing's own title is dropped before it reaches the board", () => {
+  // The beat's idea is already written above the cell, so a self-titled drawing puts two
+  // captions on one panel — and the title, being the biggest mark, lands across the
+  // picture. Four of twelve breadth-test subjects did this.
+  const titled = cleanMarks([
+    mark({ id: 'grid', kind: 'rect', x: 100, y: 200, w: 600, h: 300 }),
+    mark({ id: 'title', kind: 'label', x: 400, y: 40, text: 'Matrix Multiplication', size: 48 }),
+    mark({ id: 'n-pole', kind: 'label', x: 150, y: 40, text: 'N', size: 48 }),
+  ]);
+  assert.deepEqual(
+    titled.map((m) => m.id),
+    ['grid', 'n-pole'],
+    'a big one-word label inside a diagram is not a title',
+  );
 });
 
 test('a label with nothing under it is left exactly where the author put it', () => {
