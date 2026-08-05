@@ -79,8 +79,13 @@ all. The correction pass is called on about a third of drawings.
 **Not proven: that a clean audit means a good drawing.** Benzene audits clean with its
 double bonds drawn as chords across the ring. See "the gate's blind spot" below.
 
-**Not judged: a full keyed render.** Everything is drawings, stills and audits. The board
-has been seen in frames; the _video_ has not, since the drawing lane landed.
+**The keyed render has been watched.** `cast "How a lithium-ion battery charges"` → 1:42,
+ten scenes, $0.57, and **zero assets**: every picture in the film came from the drawing lane,
+with the image provider configured and never needed. Ten drawings, defect score 66 → 2, nine
+of ten clean. The beat the image generator once returned as "two empty rectangles" now draws
+as two hatched electrodes across a gap with lithium packed into one. It also showed two
+defects older than this session — see items 0 and 0b under known defects, and open
+`projects/try/out.mp4` before you believe either is cosmetic.
 
 ## The work, in order
 
@@ -277,6 +282,19 @@ note `$NF`, because lines carry a package prefix.
 
 ## Known defects, ranked by what a viewer notices
 
+0. **Text is clipped mid-word, and the cause is two type scales.** `empty stack` rendered as
+   `empty stac` in the keyed film. The planner sizes a text box from `FONT` in
+   `planner/src/elements.ts` (caption 22, label 27) and the renderer draws it at `TYPE_SCALE`
+   in `core/src/camera.ts` (caption 26, label 32) — 18% bigger, every role. The 1.5× slack in
+   `drawing.ts` hides it for most strings and the longest ones lose their last letter. **Two
+   catalogues of one number**, the same pathology as items 9 and 10 below, and the cheapest
+   real fix on this list: make one of them import the other. Older than the drawing lane —
+   the same `lesson.json` compiled either side of this session differs in zero text fields.
+   0b. **A caption cut to the preset's word budget lands mid-phrase.** "A charged battery is
+   lithium held on the wrong" — nine words, `captionWords: 9`. `shorten()` in `text.ts` was
+   written to avoid exactly this and its `DANGLING` list misses a trailing adjective. The
+   deeper fix is a lesson author that writes a caption that fits, rather than a compiler that
+   cuts a sentence written for another purpose.
 1. **Nothing measures whether a drawing teaches.** Benzene's double bonds are chords across
    the ring; the heart's septum leader points at the outer wall; the double slit's
    wavefronts tangle. All audit clean. Item 1.

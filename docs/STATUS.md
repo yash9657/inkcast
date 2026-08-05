@@ -1267,3 +1267,36 @@ can see and a viewer can.
   font: mean advance 0.521 of cap height against the planner's 0.52, so the estimate is
   sound — but two long names 30 units apart render visibly tight without measuring as a
   collision (`incoming plane waves` beside `barrier` on the double slit).
+
+## The keyed render, watched at last (same date)
+
+The drawing lane had never been seen as video. It has now:
+`cast "How a lithium-ion battery charges" --project try` → **1:42, 1920×1080, 10 scenes,
+$0.57**, stages `lesson 144.8s · storyboard 0.0s · voice 41.1s · visuals 0.1s · render 49.4s`.
+
+**Zero assets.** Every picture in the film came from the drawing lane; the illustration lane
+was configured (`art fal`) and was not needed once.
+
+**The drawings hold up on a real lesson.** `markcheck.mts projects/try/lesson.json`: ten
+drawings, defect score **66 → 2**, nine of ten clean, the tenth a label 23 units past the
+right edge that content-fitting absorbs. The beat that the image generator once rendered as
+"two empty rectangles" — two stacks facing each other across a gap, one thing crossing it —
+now draws as two hatched electrodes, a gap, an arrow across it and packed lithium dots, every
+label clear of ink and of every other label.
+
+**Two defects a viewer notices immediately, both older than this session** (proven: the same
+`lesson.json` compiled under `c0775ec` and under this commit differs in **zero** text fields —
+only label coordinates moved):
+
+1. **Text is clipped, not wrapped, and the cause is two type scales.** `empty stack` rendered
+   as `empty stac`. The planner sizes a text box from `FONT` in `planner/src/elements.ts`
+   (caption 22) and the renderer draws it at `TYPE_SCALE` in `core/src/camera.ts`
+   (caption 26) — 18% bigger, for all five roles. The 1.5× slack in `drawing.ts` absorbs it
+   for most strings and the longest ones lose their last letter. This is the third instance of
+   the pathology already listed twice in the handoff (`sketch.ts` versus roughjs, two
+   `doubleWell` catalogues): **two catalogues of one number.**
+2. **A caption shortened to the preset's word budget lands mid-phrase.** "A charged battery is
+   lithium held on the wrong" — nine words, `captionWords: 9`. `shorten()` in `text.ts` exists
+   precisely to avoid this and its `DANGLING` list does not catch a trailing adjective. The
+   deeper fix is for the lesson author to write a caption that fits rather than for the
+   compiler to cut a sentence written for another purpose.
