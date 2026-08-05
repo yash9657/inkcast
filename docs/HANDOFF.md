@@ -1,8 +1,10 @@
-# Handoff — 2026-08-05 (later) · the lanes are honest, the pictures are not structural
+# Handoff — 2026-08-05 (later still) · the board can draw now
 
 Session state, not design. `PIPELINE.md` is the durable architecture, `STATUS.md` the
-verification record, `docs/research/golpo-ux.md` the competitor teardown. **Read §2 of that
-teardown before you plan anything.**
+verification record. **`docs/research/drawing.md` is the one to read before touching a
+drawing lane** — it is the research and the experiment behind everything below, and it
+exists so the next session does not re-derive it. `docs/research/golpo-ux.md` is the
+competitor teardown.
 
 ## The goal, stated once
 
@@ -10,166 +12,140 @@ teardown before you plan anything.**
 Bring your own key, and open weights all the way down so someone with no money still gets a
 real video. Nothing below changes that.
 
-## Where the last session left it, and what changed
+## What changed, and why it is the whole architecture
 
-The complaint was that the board writes text and draws badly. The cause was that
-`buildFreeform` answered every instruction it did not recognise with a hillside, and the
-brief advertised that lane's six shapes as if they were examples. **Both are fixed** —
-three commits, `f41c726`, `c8d0c15`, `6af3981`. `pnpm lint` clean · `pnpm -r typecheck` 0
-errors across 9 projects · `pnpm -r test` **606 pass / 0 fail**.
+The user asked the right question: _is a folder of hand-written drawing rules a crude way
+to build this, given it can never cover every topic?_ It is, and the answer was not to
+extend the lists.
 
-- `drawsAsFreeform` asks _whether_ the path lane can draw an instruction; `PART` still
-  asks _which_ of six shapes. Anything else goes to `buildFallback` — a diagram when it
-  names short parts in a flow, an illustration otherwise.
-- The brief says `path` draws **exactly six things** and names them, and says
-  `illustration` is the normal choice for any concrete object, place, person or structure.
-- No stick figure from the word "you"; no hillside dragged in under a lone figure; a
-  `motion` intent with no plot to ride now draws the scene it moves through.
-- `steep` no longer selects the tangent recipe, and an axis the instruction states
-  outright ("a plot of **charge remaining** against **time**") beats both keyword tables.
-- `drawcheck.mts` runs the visuals stage alone with keys, so a generated drawing can be
-  looked at for $0.003 instead of a $0.45 render.
+Every lane answered **"which of the things I already know is this?"** — six freeform
+shapes, twelve plot recipes, a symbol set. Last session made those lanes honest about what
+they cannot draw. This session removed the need: **eight marks** — box, ellipse, line,
+freehand stroke, arrow, written label, hatching, scattered dots — composed by the model
+into any drawing at all. A topic space cannot be enumerated; a mark space can, because
+composition has no ceiling.
 
-**Both shipped lessons compile byte-identically across all of it** (`sbhash`, both
-presets). The change is only visible where the old code was inventing.
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**614 pass / 0 fail**. Commits `cd72eab` (the lane) and `d31ca5c` (the research).
 
-## The measurement that matters now
+- `Mark` and `DRAW_W`/`DRAW_H` in `core/src/lesson.ts` — the vocabulary and the canvas.
+- `planner/src/drawing.ts` — marks → elements, pure and tested. Fit, and label repair.
+- `planner/src/draw-anthropic.ts` — the author: one focused call per picture, in parallel,
+  cached machine-wide by the hash of its instruction _and the brief_.
+- The teaching brief makes `draw` the normal choice and narrows `illustration` to
+  likeness — a living thing, a person, a real place.
 
-I paid for one lesson-stage round trip on the same topic as the last render
-(`projects/3872fbc14e6f`, $0.06, no voice, no render — see "how to verify" below). **This
-is the test of the brief**, and it passed:
+**A mark compiles to an ordinary element.** A stroke is a `PathElement`, a box a
+`ShapeElement`, a label a `TextElement`. Nothing downstream changed: roughening, cueing,
+stroke-by-stroke reveal, camera, `persist` are all inherited. That is why a change this
+large touched no renderer code, and it is why **the sync work already done applies to
+drawings for free.**
 
-    asked for, before:  5 path · 2 motion · 1 diagram · 1 plot · 1 illustration
-    asked for, now:     6 illustration · 3 diagram · 1 text · ZERO path
+## The measurement
 
-    board, before:  1 asset · 11 path · 13 text   (11 hills, bowls, fog, a walker)
-    board, now:     6 asset ·  3 diagram · 13 text
-    board, on the OLD lesson recompiled:  9 asset · 2 path · 12 text
+Same battery lesson, every picture switched to the new lane
+(`scratchpad/redraw.mts` → `sbjson` → `drawcheck` → `frames`):
 
-Not one compiler warning: every intent went to the lane the author asked for.
+    before (image lane)   1 asset  · 11 path (hills, fog, a walker) · 13 text
+    now   (drawing lane)  43 path · 49 shape · 25 arrow · 63 text · 0 images
 
-**Then I generated all six drawings and looked at them, and that is where the good news
-stops.** Fourteen images now exist across the two lessons. Roughly a third are good, a
-third are generic, a third are wrong — and the split is not random:
+**9/9 drawings composed, 0 compiler warnings, 0 image generations** — the whole video
+draws itself for the price of text tokens, in 25 seconds, in parallel. Frames were
+rendered and looked at: labelled electrodes, a soaked gap with ions crossing it and
+electrons stopped at it, a wire looping through a phone. Both shipped lessons compile
+byte-identically at both presets.
 
-- **Objects come back well.** Two battery cells, one with a level line. Two hatched
-  electrode stacks with a damp gap between them — the exact picture the old lane drew as a
-  parabola. A wire looping through a bulb between two stacks.
-- **Structure and relation come back wrong.** "Two parallel sheets with a gap; circles with
-  plus marks crossing freely while plain dots stop dead at the edge" came back as **two
-  empty rectangles with a couple of x's floating in them**. "A nucleus with two dots close
-  in and one lone dot far out" is a circle with two dots in it. The _relationship_ — which
-  is the entire idea of the beat — does not survive.
-- **Two rules already went into the brief from the first eight images**, and both worked:
-  the new drawings carry no invented lettering (the old ones had `+e> --` and two labels
-  both reading "full"), because the brief now forbids asking for a word inside a picture,
-  and no drawing tries to show a before and an after at once.
+Two capabilities no image model has, both visible in those frames: **it can spell** (the
+fourteen generated illustrations measured earlier came back carrying `+e> --`), and **it
+can draw a relation** (the image model's version of that same beat was two empty
+rectangles).
 
 ## The work, in order
 
-### 1. Structure needs its own primitives. Start here.
+### 1. Show the drawing to the model that drew it
 
-This is the old handoff's item 2, and the evidence it asked for is now in front of you.
-A generated image draws _a thing_. It cannot draw _these two things, in this relation_,
-and it cannot animate one part of what it drew. That is most of a STEM or process lesson.
+The single highest-value thing left, and both the literature and our own frames say so.
+`drawing.md` §3: the paper's ablation is that removing canvas feedback degrades geometry;
+the working Excalidraw agents all render, look, and fix. Our remaining defects are exactly
+that class — labels crowding each other, a duplicate label, a leader line across the
+picture. `repairLabels` fixes the mechanical half already; the rest needs eyes.
 
-Two facts point the same way. The images fail exactly on relation. And **the model, told
-that `path` cannot draw a circuit, now asks for a `diagram`** — three of ten beats, e.g.
-`right sheet → wire out the top → phone → wire back in → left sheet`. Our diagram lane
-(`makeDiagram`) draws labelled boxes joined by arrows, so those three beats put _more words_
-on the board. Four of ten beats on the new lesson have no drawing at all.
+We have the renderer (`frames.mts` draws a storyboard in ~76ms a frame) and the model has
+vision. Render the drawing alone, hand it back with its own marks, ask for corrections.
+One extra call per picture, and only when a cheap geometric check says something is wrong.
 
-A small compositional set would cover them, deterministically and for nothing per render:
-a labelled box, a stack of layers, a region with contents, a labelled arrow between two
-named things, a particle that travels a named path. `plots.ts` is the model for how to
-build a lane that derives real geometry from an instruction's own numbers and words.
+_Done when:_ on the battery lesson, no label overlaps ink or another label, and you have
+looked at the frames.
 
-_Done when:_ on `projects/3872fbc14e6f/lesson.json`, the three `diagram` beats draw a
-circuit rather than three captions in boxes, and `fillcheck` is up rather than down.
+### 2. Cue the parts, and let the drawing drive the narration
 
-### 2. One entity, one drawing, forever
+Every mark is now a named element on the board — `b4_v0_damp-gap`, `b4_v0_ion-1` — and
+nothing uses that yet. Three things the IR already supports and the drawing lane just made
+reachable:
 
-The battery lesson mints **five separate drawings of the same two stacks**, one per beat,
-each generated independently and each different. That is the competitor's own admitted
-defect (`golpo-ux.md` §5.2, still "(Beta)" on their $999/mo tier) and our structural answer
-to it already exists — `assets[]` keyed by a stable id with a locked seed, resolved once.
+- **Cue a part to its own words.** `enter.cue` per element: the gap is drawn on "the damp
+  gap", the ion on "a lithium ion crosses". Today the whole drawing shares the intent's
+  one cue and is spread evenly across the beat.
+- **Highlight while discussing.** `EmphasisElement` targets an element id. A later beat can
+  circle `damp-gap` instead of drawing a second picture of it.
+- **Move a part.** `motion` on one mark — the ion actually crossing the gap as it is
+  described.
 
-It is unreachable from a lesson: nothing in the schema lets a beat say "the picture from
-beat 2, again". **`cast` + `character` already does exactly this for people** — declare
-once, reference by id, one asset per pose. Generalising that to subjects is a small schema
-addition with a large payoff, and it also cuts the image bill.
+This is the user's other half arriving from the drawing side: _once we know what we are
+drawing, we can plan the script, the cadence and the pauses around it._ The lesson author
+writes narration and marks in the same run — it can be told to name the parts in the
+narration and cue them.
 
-### 3. The board is sparse, and it is now the loudest visual defect
+### 3. Reuse a drawing across beats
 
-`fillcheck`: 31.0% before, 29.7% on the same lesson recompiled, **25.8%** on the new one.
-Both falls are honest — an asset element is a _square_ centred in a cell where a hillside
-spanned the cell's whole width, and a diagram of two nodes is mostly air. The benchmark is
-48%. Two fixes, both changing every board: a two-column cell (words beside the drawing), or
-framing the ink rather than the cell — the second argues with a deliberate decision in
-`regions.ts` that one cell is the tightest shot there is. `buildAsset` sizing
-(`min(w,h) * 0.82`) is the cheap half of it.
+Caching makes two identical instructions the same picture. Nothing lets beat 7 say "the
+drawing from beat 2, with the arrow reversed" — so a lesson still redraws its subject per
+beat, and the recap redraws it again. `cast`/`character` is the shape of the fix for
+people; the same idea for subjects is a small schema addition.
 
-### 4. Story, cadence and the space between cuts
+### 4. Density, now that drawings fill the cell honestly
 
-Untouched this session, and still the user's other half. The levers, all cheap:
+`fillcheck` 20.0% against a 48% benchmark. The canvas is landscape and a drawn beat gives
+its caption 26% of the cell instead of 40%, which helped; what is left is the cell grid
+itself — a two-column cell (words beside the picture) or framing the ink rather than the
+cell. `regions.ts` deliberately decided one cell is the tightest shot there is; that
+decision is now the binding constraint.
 
-- **The hook works.** Do not rewrite that part of the brief.
-- **A beat that asks a question should hold on a nearly-empty board.** The next beat's
-  picture is drawn from the start of its own narration, so the answer often appears before
-  it is spoken. The reveal order across a cut is unexamined.
-- **Camera transitions are 0.45s inside a region, 0.95s between, 1.3s for the recap**, and
-  nothing varies them by role. A cut into a misconception should not feel like a cut to the
-  next step.
-- **The `dominant` clamp fires** whenever the model cues a beat's main picture on a late
-  phrase. Either brief for an opening cue, or draw the picture in stages.
+### 5. Story, cadence, and the space between cuts
 
-### 5. The voice bill, which is the largest line
+Untouched, and now better positioned: item 2 is what makes it tractable. The levers are
+still the reveal order across a cut, camera transitions that never vary by role, and the
+`dominant` clamp.
 
-ElevenLabs charged **$0.3835 for 110 seconds** — $0.21/min, past the `$0.20/min` target the
-README quotes, and 86% of that render's cost. `eleven_flash_v2_5` is about half the price at
-similar quality for narration; the model id is a constant in
-`voice/src/providers/elevenlabs.ts`. Also an honest-reporting bug: `pipeline.json` records
-`elevenlabs/af_heart`, the _requested_ id, not the stock voice the adapter resolved it to.
+### 6. The voice bill
+
+ElevenLabs at **$0.21/min** is past the target the README quotes and was 86% of the last
+render's cost. `eleven_flash_v2_5` is about half the price at similar quality;
+`voice/src/providers/elevenlabs.ts`. Also: `pipeline.json` records the _requested_ voice
+id, not the one the adapter resolved to.
 
 ## How to verify a change cheaply
 
 Ten tools, cheapest first. **Use the first one that can see your change.**
 
-1. **`packages/pipeline/src/vocabcheck.mts`** — terms spoken vs written.
-2. **`packages/pipeline/src/synccheck.mts <projectDir>`** — every element against the word
-   being spoken. Needs a project the voice stage has run over.
-3. **`packages/pipeline/src/sbhash.mts <lesson…>`** — storyboard hash, both presets. The
-   only tool that sees a planner change on the shipped lessons.
-4. **`packages/pipeline/src/sbjson.mts <doc|lesson> <outDir>`** — a `storyboard.json` from
-   anything, with no key.
-5. **`packages/pipeline/src/drawcheck.mts <dir>`** — new. Resolves the visuals stage alone
-   over a storyboard on disk, with the keyvault hydrated, so the illustration lane really
-   draws. One image per asset (~$0.003 on fal) instead of a whole render. Writes
-   `storyboard.resolved.json`; copy it over `storyboard.json` to point `frames.mts` at it.
-   **Then open `assets/illustrations/*.png` and actually look.**
-6. **`packages/visuals/src/geomhash.mts`** — what the visuals stage resolves.
-7. **`packages/render/src/planhash.mts`** — what the renderer will draw, timing excluded.
-8. **`packages/visuals/src/libsheet.mts`** — the only way to look at a library asset or rig.
-9. **`packages/render/src/frames.mts <projectDir> <outDir> [seconds…]`** — ~76ms a frame.
-   **Both false plots fixed this session were found here, not by reading code.**
-10. **`packages/render/src/fillcheck.mts <storyboard.json>`** — mean content fill. A
-    regression check, not a target: it counts bounding boxes, so it can be gamed.
+1. **`vocabcheck.mts`** — terms spoken vs written.
+2. **`synccheck.mts <projectDir>`** — every element against the word being spoken.
+3. **`sbhash.mts <lesson…>`** — storyboard hash, both presets, both shipped lessons.
+4. **`sbjson.mts <doc|lesson> <outDir>`** — a `storyboard.json` from anything, no key.
+5. **`drawcheck.mts <dir>`** — the visuals stage alone, keys hydrated. For the _image_ lane
+   it generates; for the drawing lane it just resolves, free.
+6. **`geomhash.mts`** / 7. **`planhash.mts`** — what visuals resolves, what render draws.
+7. **`libsheet.mts`** — a library asset or rig.
+8. **`frames.mts <projectDir> <outDir> [seconds…]`** — ~76ms a frame. **Every defect fixed
+   in the last two sessions was found here, not by reading code.** Copy
+   `storyboard.resolved.json` over `storyboard.json` first.
+9. **`fillcheck.mts`** — mean content fill. A regression check, not a target.
 
-Tools 3, 6 and 7 take a stash diff:
+**To test a brief or lane change without paying for a render**, call `designLesson` (the
+lesson stage alone, ~$0.06 against $0.45) or `drawLesson` on a lesson you already have —
+`scratchpad/redraw.mts` in this session's scratchpad does exactly that, and is ten lines.
 
-    npx tsx <tool> <targets> > /tmp/after.txt
-    git stash push -u && git status --short          # confirm the tree is CLEAN
-    npx tsx <tool> <targets> > /tmp/before.txt
-    git stash pop
-    diff /tmp/before.txt /tmp/after.txt
-
-**To test a brief change without paying for a render**, call `designLesson` from
-`@inkcast/pipeline` — the lesson stage alone, one model round trip, about $0.06 against
-$0.45 for the full run — and print the `kind` of every visual. That is how the brief change
-above was verified, and it is a ten-line script. The vault hydrates the same way
-`drawcheck.mts` does it.
-
-A full keyed render, when you need one:
+A full keyed render:
 
     node apps/cli/bin/inkcast.mjs cast "How a lithium-ion battery charges" --project try
 
@@ -177,88 +153,73 @@ Drop `--json`; it silences stderr and a clean log then proves nothing.
 
 ## Traps
 
-**This repo is `inkcast`, at `~/code/inkcast`.** Sessions have been launched in the sibling
-`finito` checkout. No remote — `git log` tells you where you are.
+**This repo is `inkcast`, at `~/code/inkcast`.** No remote — `git log` tells you where.
 
-**A keyword table answers "which", never "whether".** Three instances have now been fixed
-by the same separation: `worthPlotting` (is a plot appropriate at all), `drawsAsFreeform`
-(can this lane draw it at all), and `steep` selecting a tangent for a beat comparing two
-straight lines. Assume the fourth exists. `PART`, `RECIPES`, `Y_WORDS`, the lucide match and
-`nodesFrom` are all tables of this shape.
+**Read `docs/research/` before designing anything.** Three sessions have now paid for
+skipping it. `drawing.md` is the newest and the most load-bearing.
 
-**An author states things the tables cannot infer.** `axisLabels` reads "a plot of X against
-Y" ahead of any vocabulary list, because the instruction says outright what the tables can
-only guess. Look for the same opportunity everywhere a table has a fallback.
+**A keyword table answers "which", never "whether"** — and the deeper version, which this
+session is the answer to: _a table of subjects cannot be completed at all._ If you find
+yourself adding an entry so one more topic works, you are on the wrong axis.
 
-**The brief's examples are read as examples.** Anywhere it lists what a lane can do, it must
-say whether the list is exhaustive. `path` is now explicit that six is all there is; check
-`plot`'s recipe list and `icon` before trusting them.
+**A zod tuple breaks the tool schema.** `z.tuple([number, number])` compiles to draft-07
+`items: [...]`, which the Messages API rejects as an invalid `input_schema` — every call
+400s. `Mark.points` is `number[][]` for that reason and pair-ness is checked in code.
 
-**An image model cannot spell, and cannot draw a change.** Any prompt asking for a word
-inside the picture comes back as scribble, and "the same thing drawn twice, before and
-after" comes back as one muddled frame. Both are briefed against now; do not undo them.
+**`elements` sometimes comes back as a JSON string**, twice in eighteen calls, and the
+retry does not fix it because the model does not recognise it as an error. Parsed rather
+than rejected.
 
-**A lane the brief does not name will not be used.** `illustration` was absent from the
-brief for the whole project's life, so a configured image key drew nothing on any topic.
+**A brief is part of its own cache key.** `drawKey` hashes `DRAW_BRIEF` itself; a cache
+that survived a brief change would serve drawings composed for a canvas that no longer
+exists.
 
-**`git stash -u` takes your untracked measurement tool with it.** Every tool above is
+**Roughjs hachure at dot scale is one line.** Small filled circles come out as rings —
+dots are drawn small and heavily stroked instead.
+
+**A path with `points` is splined; a path with `d` is verbatim.** An angular stroke must go
+in as `d` or Catmull-Rom rounds its corners into a wave.
+
+**`git stash -u` takes your untracked measurement tool with it.** Every committed tool is
 committed for that reason.
 
-**A stage that starts reading another stage's output has gained a cache input.** See
-`renderFingerprint` folding in `visualsFingerprint`.
+**`pnpm -r test | tail` lies.** `awk '/# pass [0-9]+$/ {p+=$NF}'` — note `$NF`.
 
-**Words-per-minute read off a whole scene is not the speech rate** — `narrationSec` includes
-the sentence gaps. `DELIVERED_WPS` (2.2) is the measured figure.
+**`pnpm lint` is `prettier --check .`** — a hard gate, `docs/*.md` included.
 
-**`pnpm -r test | tail` lies.** Redirect and sum with `awk '/# pass [0-9]+$/ {p+=$NF}'` —
-note `$NF`, because lines carry a package prefix. Eight test-bearing packages.
+**Stage versions** `lesson@8, storyboard@11, voice@5, visuals@7, render@5` in
+`packages/pipeline/src/keys.ts`.
 
-**`pnpm lint` is `prettier --check .`** — a hard gate, `examples/*.lesson.json` and every
-`docs/*.md` included.
-
-**Stage versions** are `lesson@7, storyboard@10, voice@5, visuals@7, render@5` in
-`packages/pipeline/src/keys.ts`, which explains when to bump and when not to.
-
-**`teach <topic> --lesson <file>` silently ignores the file.** Use `cast`.
-
-**`seed: 0` means "no seed" in roughjs** — `baseOptions` nudges it to 1; do not remove.
+**`seed: 0` means "no seed" in roughjs** — `baseOptions` nudges it to 1.
 
 ## Known defects, ranked by what a viewer notices
 
-1. **A generated image cannot draw a relation.** Two sheets with something crossing one gap
-   and blocked at another comes back as two empty rectangles. Item 1.
-2. **A `diagram` beat is captions in boxes.** The model now asks for diagrams where it used
-   to ask for ink, and three of ten beats on the newest lesson are labelled rectangles.
-3. **The same subject is redrawn differently every beat.** Five drawings of two stacks.
-   Item 2.
-4. **The board is sparse** — 25.8% fill against a 48% benchmark. Item 3.
-5. **The recap redraws its picture** in a fresh panel while the original is still on the
-   board. `findReuse` only lets a hook or anchor beat annotate an existing drawing.
-6. **No open-weight path for the lesson or the image stage.** The premise of the project. An
-   OpenAI-compatible endpoint (Ollama/vLLM/LM Studio) behind `lesson-anthropic.ts`'s forced
-   tool call, and a local diffusion path behind `detectImageProvider()`.
-7. **`render/src/sketch.ts` is a second hand.** Mulberry32 against the visuals stage's
-   roughjs for path/shape/arrow/diagram/emphasis/text; those SVGs are written and never
-   read. Unifying redraws half of every board — a visual decision. `PIPELINE.md` step 10.
+1. **Labels crowd each other inside a drawing.** `repairLabels` moves a label off _ink_;
+   two labels can still stack, and near-duplicate labels get placed twice. Item 1.
+2. **A drawing is drawn evenly across its beat**, not cued part by part to the words that
+   name each part. Item 2.
+3. **The board is sparse** — 20% fill against a 48% benchmark. Item 4.
+4. **A subject is redrawn per beat** rather than referred to. Item 3.
+5. **The recap redraws its picture** in a fresh panel while the original is still up.
+6. **No open-weight path for the lesson stage.** The drawing lane is now the _closest_ — it
+   is a text model emitting JSON, so a local model could serve it. Untested.
+7. **`render/src/sketch.ts` is a second hand** — Mulberry32 against the visuals stage's
+   roughjs. Unifying redraws half of every board.
 8. **The planner and visuals disagree about `doubleWell`** — two catalogues of one curve.
-9. **The lucide lane is confidently wrong for an unmatched subject** —
-   `odysseus-tied-the-mast` matches `presentation`.
-10. **Emphasis lands on a clause, not a word.** The clip is assembled per clause.
-11. **`coreInsight` is validated and read by nothing.** No multi-line equations.
+9. **Emphasis lands on a clause, not a word.**
+10. **`coreInsight` is validated and read by nothing.** No multi-line equations.
 
 ## What has NOT been judged
 
-**No full keyed render has run since the change.** Everything above is a compile, a
-visuals-only resolve, and frames — deliberately, because that is $0.08 instead of $0.90 for
-two lessons. The board has been seen in stills and the drawings one by one; the _video_ has
-not. Do that once item 1 lands, so the render pays for a real change rather than for a
-measurement you can take for six cents.
+**No full keyed render has run since the drawing lane landed.** Everything above is a
+compile, a visuals resolve and stills — deliberately, because that is cents rather than
+dollars. The board has been seen in frames; the _video_ has not. Do that after item 1, so
+the render pays for a real change.
 
 ## The one thing to hold on to
 
-The pedagogy stage is not the problem and has not been for three sessions. The routing is
-no longer the problem either: the author now asks for the right lane on every beat of a
-fresh lesson. What is left is that we have exactly two ways to draw — a plot, and whatever
-an image model returns for a sentence — and neither of them can draw _two things and the
-relationship between them_, which is what almost every explanation is made of. **Build the
-lane that draws structure.**
+The pedagogy was never the problem. The routing was fixed last session. What was left was
+that we had exactly two ways to draw — a plot, and whatever an image model returned for a
+sentence — and neither could draw two things and the relationship between them. Now the
+board composes its own pictures out of marks, labels its own parts, and every part has a
+name. **The next win is not a new lane. It is using the names.**

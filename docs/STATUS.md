@@ -1099,3 +1099,50 @@ Found by rendering frames of the new board, not by reading code.
   `charge remaining` now.
 
 Both shipped lessons stay byte-identical across both plot changes.
+
+# The drawing lane: marks instead of topics, 2026-08-05 (later still)
+
+`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+**614 pass / 0 fail** (was 606; eight new tests for `drawing.ts`).
+
+Full reasoning in `docs/research/drawing.md`. The numbers:
+
+## The experiment
+
+Four subjects — a battery cross-section, a battery circuit, a ship heading for rocks, a
+chloroplast — one `claude-opus-5` call each, forced onto an eight-mark vocabulary, 12–17s
+each. **All four legible, two textbook-quality.** The circuit drew the wire through the
+bulb, the ion crossing the gap, an ✗ on the electron's path and the words "e- CANNOT
+CROSS" — the exact beat the image model had returned as two empty rectangles.
+
+## The lane, measured on the battery lesson
+
+Every picture pointed at the new lane, then compiled, resolved and rendered to frames:
+
+    before (image lane)   1 asset · 11 path (hills, fog, a walker) · 13 text · 90 words
+    now   (drawing lane)  43 path · 49 shape · 25 arrow · 63 text · 0 images
+
+**9/9 drawings composed, 0 compiler warnings, 0 image generations**, 25 seconds wall clock
+for the set (four in flight), cached machine-wide by instruction hash so a re-render is
+free. Both shipped lessons compile byte-identically at both presets — neither has a `draw`
+intent.
+
+Frame fill 20.0%, up from 17.2% on the first cut of the lane after two fixes the frames
+forced (the canvas is landscape rather than 4:3, and a drawn beat gives its caption 26% of
+the cell instead of 40%), still well short of the 48% benchmark. That is now the cell grid
+rather than the pictures.
+
+## What the frames showed, and what was fixed from them
+
+- **Dots drew as rings.** A roughjs hachure fill at dot scale is one line across the
+  middle. Dots are small and heavily stroked now, and read as solid.
+- **A third of every cell was blank.** A drawing authored 4:3 fits a 2.4:1 figure box by
+  height. The canvas is 1000×560 and the text zone shrinks for a drawn beat.
+- **`elements` comes back as a JSON string** twice in eighteen calls; the retry does not
+  fix it, because the model does not recognise it as an error. Parsed rather than rejected.
+- **A zod tuple makes the tool schema invalid** — draft-07 `items: [...]` — and every call
+  400s. `Mark.points` is `number[][]`.
+
+Still open and visible in the frames: labels crowd each other, and near-duplicate labels
+get placed twice. That is the feedback loop the literature says is where the quality is,
+and it is item 1 of the handoff.
