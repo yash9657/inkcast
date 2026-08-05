@@ -908,9 +908,10 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
         log.warn(
           `beat ${ctx.index} asked for a plot of "${describe}", which names no quantity`,
           'a plot needs something measurable and something it varies against — drawing it ' +
-            'as a diagram instead. Say what is on each axis, or ask for a different kind.',
+            'as the thing it describes instead. Say what is on each axis, or ask for a ' +
+            'different kind.',
         );
-        return buildDiagram(describe, ctx);
+        return buildFallback(describe, ctx);
       }
       // The one plot that is not drawn but *grown*: it takes the anchor's box so the
       // axes appear around the shape already there, and names it so the renderer can
@@ -960,22 +961,82 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
 
 /* ------------------------------------------------------------------ freeform */
 
-const HILL = /hill|hillside|mountain|terrain|slope of|walk(?:ing)? down|foggy|landscape/i;
-const BOWL = /bowl|valley|u[- ]shape|basin|dip|cross[- ]section/i;
-const CONTAINER = /blob|cloud|container|group|everything inside|circle around/i;
-const FIGURE = /figure|person|walker|hiker|someone|you (?:are|stand)|standing/i;
-const FOG = /fog|mist|cloud|cannot see|can't see|blind/i;
-const STEPS = /steps?|stride|footstep|one step at a time|repeat/i;
+/**
+ * The entire vocabulary of the `path` lane, one regex per shape it can make.
+ *
+ * There are six, and there is no seventh: `figures.ts` holds a hillside, a bowl, a
+ * container blob, a stick figure, fog and a chevron stride, so a `path` intent that
+ * names none of them has asked for something this lane cannot draw. The regexes are
+ * deliberately tighter than the ones they replace, because those were answering the
+ * wrong question — see `drawsAsFreeform`.
+ */
+const PART = {
+  hill: /\bhill(?:side|s)?\b|\bmountain(?:side|s)?\b|\bslopes?\b|\bterrain\b|\blandscape\b|\bdownhill\b|\buphill\b/i,
+  bowl: /\bbowls?\b|\bbowl[- ]shaped\b|\bvalleys?\b|\bbasins?\b|\bu[- ]shaped?\b/i,
+  container:
+    /\bblobs?\b|\bcontainers?\b|\bcircled? around\b|\beverything inside\b|\bgrouped together\b/i,
+  figure:
+    /\bstick figures?\b|\bfigures?\b|\bpersons?\b|\bpeople\b|\bwalkers?\b|\bhikers?\b|\bstanding\b/i,
+  fog: /\bfog\w*\b|\bmist\w*\b/i,
+  steps: /\bsteps?\b|\bstrides?\b|\bfootsteps?\b|\bone step at a time\b/i,
+} as const;
+
+type FreeformParts = Record<keyof typeof PART, boolean>;
+
+function freeformParts(describe: string): FreeformParts {
+  return {
+    hill: PART.hill.test(describe),
+    bowl: PART.bowl.test(describe),
+    container: PART.container.test(describe),
+    figure: PART.figure.test(describe),
+    fog: PART.fog.test(describe),
+    steps: PART.steps.test(describe),
+  };
+}
+
+/**
+ * Whether the `path` lane can draw this instruction at all.
+ *
+ * The question this file kept failing to ask. `PART` answers *which* of six shapes an
+ * instruction wants; it was also being read as *whether* freeform ink was the right
+ * lane, which it cannot answer — every instruction that matched nothing fell through to
+ * a hillside. So a battery lesson asking for "a left rectangular stack and a right
+ * rectangular stack with a damp gap between them" got terrain, and so did a ship heading
+ * for the rocks. Same shape as `worthPlotting` in `./plots.ts`, and the same fix.
+ *
+ * A base shape (hillside, bowl, blob) qualifies, and so does a figure or fog, which are
+ * drawable on their own. `steps` alone does not: chevrons need a slope to walk down, and
+ * "the three steps of glycolysis" is a process, not a hillside.
+ */
+export function drawsAsFreeform(describe: string): boolean {
+  const p = freeformParts(describe);
+  return p.hill || p.bowl || p.container || p.figure || p.fog;
+}
 
 /**
  * Freeform ink: the escape hatch that lets a lesson open with something concrete.
  *
  * Keyword-driven on purpose — a hillside, a walker, fog and three steps down are
  * the vocabulary an anchor actually needs, and each one is real geometry rather
- * than a placeholder rectangle.
+ * than a placeholder rectangle. What it is *not* is a general drawing lane: an
+ * instruction naming none of the six goes to `buildFallback` rather than being
+ * approximated by terrain.
+ *
+ * Matched on the drawing instruction alone. Reading the beat's `idea` and narration too
+ * is how a stick figure ended up in a lithium-ion misconception — the narration said
+ * "you" — and how any beat that mentioned a hill in passing acquired one.
  */
 function buildFreeform(describe: string, ctx: IntentContext): Element[] {
-  const text = `${describe} ${ctx.step.idea}`;
+  if (!drawsAsFreeform(describe)) {
+    log.warn(
+      `beat ${ctx.index} asked for freeform ink: "${describe}"`,
+      'the path lane draws six shapes — a hillside, a bowl, a container blob, a stick ' +
+        'figure, fog, and steps down a slope — and nothing else, so this would come out as ' +
+        'a hillside. Drawing it with a lane that can draw the thing itself instead.',
+    );
+    return buildFallback(describe, ctx);
+  }
+  const parts = freeformParts(describe);
   const box = ctx.box;
   const out: Element[] = [];
 
@@ -999,17 +1060,19 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
     return el;
   };
 
-  if (BOWL.test(text) && !HILL.test(text)) {
+  if (parts.bowl && !parts.hill) {
     out.push(timed(bowlPath(ctx.id, inset(box, 12)), 0.08));
     return out;
   }
-  if (CONTAINER.test(text) && !HILL.test(text)) {
+  if (parts.container && !parts.hill) {
     out.push(timed(blobPath(ctx.id, inset(box, 16), ctx.index + 1), 0.08));
     return out;
   }
 
-  // Default to a hillside: it is the shape almost every "concrete before
-  // abstract" anchor reaches for, and the one the loss curve later becomes.
+  // A hillside, when the instruction asks for one — and when it asks for strides
+  // without one, because a chevron walks *down* something and there has to be a slope
+  // under it. A lone figure or lone bank of fog gets no terrain: inventing a hillside
+  // under every freeform intent is the defect this lane is being cured of.
   //
   // If the setup already drew one, this beat annotates *that* hill rather than
   // drawing a second one beside it. Two hillsides side by side is the failure this
@@ -1017,12 +1080,15 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
   // and a fresh drawing silently tells the learner it is a different hill.
   const remembered = ctx.memory.anchor;
   const annotate = ctx.annotatesEarlier && remembered !== undefined;
-  const hillBox: Box = annotate
+  const wantsHill = parts.hill || parts.steps;
+  const hillBox: Box | undefined = annotate
     ? remembered.box
-    : { x: box.x + 8, y: box.y + box.h * 0.12, w: box.w - 16, h: box.h * 0.74 };
+    : wantsHill
+      ? { x: box.x + 8, y: box.y + box.h * 0.12, w: box.w - 16, h: box.h * 0.74 }
+      : undefined;
   if (annotate) {
     log.debug(`beat ${ctx.index} annotates the hill drawn as "${remembered.id}"`);
-  } else {
+  } else if (hillBox) {
     out.push(onWord(timed(hillPath(ctx.id, hillBox), 0.08), /\bhill\w*|\bslope\b|\bground\b/i));
     // Remembered for the beat that turns it into a plot, and for any later beat
     // that wants to stand another figure on the same slope.
@@ -1030,16 +1096,19 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
       ctx.memory.anchor = { id: ctx.id, box: hillBox, ink: [] };
     }
   }
-  if (FOG.test(text)) {
+  if (parts.fog) {
     fogPaths(`${ctx.id}_fog`, box, ctx.preset.vertical ? 2 : 3).forEach((el, k) =>
       out.push(onWord(timed(el, 0.2 + k * 0.04), /\bfog\w*|\bmist\w*|\bcloud\w*/i)),
     );
   }
-  if (FIGURE.test(text) || /you\b/i.test(ctx.step.narration)) {
-    // A walker stands *up* from the hill, so the space above their feet is the
-    // real constraint — sized off the box alone they would grow out of the cell
-    // and collide with the beat above.
-    const feet = hillPoint(hillBox, 0.18);
+  if (parts.figure) {
+    // A walker stands *up* from whatever they are standing on — the hillside if there
+    // is one, the floor of the cell otherwise — so the space above their feet is the
+    // real constraint: sized off the box alone they would grow out of the cell and
+    // collide with the beat above.
+    const feet = hillBox
+      ? hillPoint(hillBox, 0.18)
+      : { x: box.x + box.w * 0.5, y: box.y + box.h * 0.9 };
     const headroom = Math.max(40, (feet.y - box.y) / 0.9);
     const height = Math.min(150, box.h * 0.3, headroom);
     // The strokes of one figure arrive together: a head, then a spine, then legs,
@@ -1048,7 +1117,7 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
       out.push(onWord(timed(el, 0.34 + k * 0.025), /\byou\b|\byou'?re\b|\bfigure\b|\bstand\w*/i)),
     );
   }
-  if (STEPS.test(text)) {
+  if (parts.steps && hillBox) {
     // Three strides down the hill, each drawn on its own cue: feel, step, repeat.
     const ts = [0.34, 0.5, 0.66];
     ts.forEach((t, k) => {
@@ -1071,6 +1140,49 @@ function buildFreeform(describe: string, ctx: IntentContext): Element[] {
   return out;
 }
 
+/* ------------------------------------------------------- the drawing of last resort */
+
+/**
+ * Whether an instruction names *parts in a relationship* rather than one thing to draw.
+ *
+ * Asked when a lane has refused an intent and something else has to draw it. A flow of
+ * named nodes is a diagram; a described object is a picture, and what separates them is
+ * that the pieces of a diagram are short *names*. "input → encoder → output" is three
+ * names. "Harrison standing on a deck, sextant raised to a sun overhead" is a scene that
+ * a splitting node extractor happily turned into two labelled boxes — two captions where
+ * the beat asked for a drawing.
+ *
+ * So the separator alone does not decide it, which is the same mistake in miniature as
+ * the one this whole change is about: "the same cross-section twice, **then** an arrow to
+ * the second" contains a flow word and is still a picture. Every piece has to be short
+ * enough to be a label.
+ */
+export function readsStructural(describe: string): boolean {
+  const clean = stripMarkdown(describe);
+  const body = clean.includes(':') ? clean.slice(clean.indexOf(':') + 1) : clean;
+  const parts = body
+    .split(/\s*(?:→|->|=>|\bthen\b|\bfollowed by\b|[;,])\s*/i)
+    .map((s) => s.replace(/^(?:a|an|the)\s+/i, '').trim())
+    .filter(Boolean);
+  return parts.length >= 2 && parts.every((p) => wordCount(p) <= 3);
+}
+
+/**
+ * What draws an instruction the lane it was addressed to cannot draw.
+ *
+ * Named parts go to the diagram lane; anything else goes to the illustration lane,
+ * which is the only lane that can draw a specific thing — a battery cross-section, a
+ * ship, a chloroplast. It mints an entity and routes nothing: the single asset router
+ * in the visuals stage decides between the curated library, a generated drawing, a
+ * matched icon and, last, a lettered card, and it is the only place that knows which of
+ * those are available on this machine.
+ */
+function buildFallback(describe: string, ctx: IntentContext): Element[] {
+  return readsStructural(describe)
+    ? buildDiagram(describe, ctx)
+    : buildAsset(describe, 'illustration', ctx);
+}
+
 /* ------------------------------------------------------------------ diagrams */
 
 /** Node labels out of a drawing instruction: "A → B → C", or a comma list. */
@@ -1087,14 +1199,10 @@ export function nodesFrom(describe: string, max = 6): string[] {
 
 function buildDiagram(describe: string, ctx: IntentContext): Element[] {
   const labels = nodesFrom(describe);
-  if (labels.length < 2) {
-    const el = makeText(ctx.id, shorten(stripMarkdown(describe), 12), 'body', {
-      maxWidth: ctx.box.w,
-      align: 'center',
-    });
-    el.at = centre(el.at, ctx.box);
-    return [el];
-  }
+  // One node is not a diagram, it is a subject — so draw the subject. Writing it out as
+  // a centred line of body text is how a beat that asked for a picture ended up as one
+  // more caption on a board that already has too many.
+  if (labels.length < 2) return buildAsset(describe, 'illustration', ctx);
   const ordered = /→|->|=>|\bthen\b|\bstep\b|first|finally|pipeline|flow/i.test(describe);
   const nodes = labels.map((label, k) => ({ id: `n${k}`, label }));
   const edges = ordered ? nodes.slice(1).map((n, k) => ({ from: nodes[k]!.id, to: n.id })) : [];
@@ -1185,6 +1293,12 @@ function slugOf(describe: string): string {
  * the ball really does follow the loss surface, at the x values gradient descent
  * actually produces. Otherwise it travels across the figure box, which is enough
  * for "a token flows through the pipeline".
+ *
+ * "Otherwise" used to mean a lone chevron sliding across empty board. A motion
+ * instruction almost always describes a scene *and* the movement in it — "the two stacks
+ * with a wire looping over the top through a bulb; electrons travel along the wire" — so
+ * when the beat has drawn nothing else, the scene is drawn first and the mover travels
+ * over it. A dot moving across nothing is not a picture of a circuit.
  */
 function buildMotion(describe: string, ctx: IntentContext): Element[] {
   const host = ctx.existing.find((el) => el.id === ctx.hostPlotId && el.type === 'plot');
@@ -1204,6 +1318,10 @@ function buildMotion(describe: string, ctx: IntentContext): Element[] {
     const mover = rebuilt.find((el) => el.motion !== undefined);
     if (mover) return [mover];
   }
+  // Anything already drawn in this beat is the scene the mover moves through; if there
+  // is nothing, the instruction is the only description of the scene there will be.
+  const drawn = ctx.existing.some((el) => el.type !== 'text' && el.type !== 'equation');
+  const scene = drawn ? [] : buildFallback(describe, { ...ctx, id: `${ctx.id}_scene` });
   const from = { x: ctx.box.x + ctx.box.w * 0.08, y: ctx.box.y + ctx.box.h * 0.28 };
   const to = { x: ctx.box.x + ctx.box.w * 0.92, y: ctx.box.y + ctx.box.h * 0.72 };
   const mover = chevronPath(ctx.id, from, to);
@@ -1214,7 +1332,7 @@ function buildMotion(describe: string, ctx: IntentContext): Element[] {
     easing: 'ease',
     trail: true,
   };
-  return [mover];
+  return [...scene, mover];
 }
 
 /* -------------------------------------------------------------------- timing */

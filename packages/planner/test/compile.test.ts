@@ -8,7 +8,14 @@ import {
   lessonBeats,
   parseStoryboard,
 } from '@inkcast/core';
-import { compileLesson, findReuse, planVocabulary, updateLine } from '../src/compile.js';
+import {
+  compileLesson,
+  drawsAsFreeform,
+  findReuse,
+  planVocabulary,
+  readsStructural,
+  updateLine,
+} from '../src/compile.js';
 import { deriveCues, cueResolves } from '../src/cues.js';
 import { curveY, descend, evalFn, fitYDomain, slopeAt } from '../src/curves.js';
 import type { Box } from '../src/elements.js';
@@ -477,6 +484,33 @@ test('recipes are selected by the drawing instruction, not by chatter', () => {
   assert.equal(recipeFor('a bell curve'), 'gaussian');
   assert.equal(recipeFor('an s-curve of probability'), 'sigmoid');
   assert.equal(recipeFor('something with no keywords at all'), 'bowl');
+
+  // A comparative is not a request for a tangent. This one was live: a battery lesson
+  // asked for "a straight line falling from 3000 to 0, and a steeper straight line
+  // rising", and `steep` in the tangent recipe drew a parabola with a tangent on it.
+  assert.equal(
+    recipeFor('a straight line falling from 3000 at hour zero, and a steeper line rising'),
+    'linear',
+  );
+  assert.equal(recipeFor('the bowl, and how steep it is where the ball sits'), 'tangent');
+});
+
+test('an axis the instruction names outright beats the keyword table', () => {
+  // The tables can only label what someone thought to add to them, and nobody had added
+  // charge — so a battery's discharge curve came out labelled `output`.
+  assert.deepEqual(axisLabels('A plot of charge remaining against time: a straight line', {}), {
+    x: 'time',
+    y: 'charge remaining',
+  });
+  assert.deepEqual(axisLabels('a curve of adoption against price, rising to the right', {}), {
+    x: 'price',
+    y: 'adoption',
+  });
+  // Nothing stated, so the table and then the recipe's own defaults still decide.
+  assert.deepEqual(axisLabels('a bowl-shaped loss curve', { x: 'w', y: 'loss' }), {
+    x: 'w',
+    y: 'loss',
+  });
 });
 
 test('a plot belongs where there is a quantity, not where a word matched', () => {
@@ -627,6 +661,82 @@ test('a learning rate is not mistaken for the vertical axis', () => {
   for (const plot of plots(worked)) {
     assert.notEqual(plot.yLabel, 'rate', 'the worked example plots loss, not a learning rate');
   }
+});
+
+/* --------------------------------------------- the path lane draws six things */
+
+test('drawsAsFreeform answers "can this lane draw it", not "which shape"', () => {
+  // The six, in the words a lesson actually uses.
+  assert.ok(drawsAsFreeform('a drawn hillside falling to a valley on the right'));
+  assert.ok(drawsAsFreeform('a bowl-shaped basin with a ball high on the left'));
+  assert.ok(drawsAsFreeform('a container blob with everything inside it'));
+  assert.ok(drawsAsFreeform('a figure standing on the slope'));
+  assert.ok(drawsAsFreeform('thick fog drifting across'));
+
+  // And the instructions that used to come out as terrain. `cross-section` was in the
+  // bowl keyword table, so a battery was drawn as a parabola; everything else fell
+  // through to the default hillside.
+  assert.ok(!drawsAsFreeform('Cross-section: a left rectangular stack and a right one'));
+  assert.ok(!drawsAsFreeform("a ship's outline heading toward jagged rocks"));
+  assert.ok(!drawsAsFreeform('a chloroplast with stacked thylakoid discs inside it'));
+  // Strides need a slope to walk down, so `steps` alone is a process, not a picture.
+  assert.ok(!drawsAsFreeform('the three steps of glycolysis, repeated'));
+});
+
+test('readsStructural separates named parts from a described scene', () => {
+  assert.ok(readsStructural('input → encoder → output'));
+  assert.ok(readsStructural('a list of: sunlight, water, carbon dioxide'));
+  // A flow word inside a described picture is not a flow. This is the same mistake in
+  // miniature as a keyword table deciding whether a lane applies at all.
+  assert.ok(!readsStructural('the same cross-section twice, then an arrow to the second'));
+  assert.ok(!readsStructural('Harrison standing on a deck, sextant raised to a sun overhead'));
+});
+
+test('a path intent the lane cannot draw becomes a drawing, not a hillside', () => {
+  const l = structuredClone(lesson);
+  const describe =
+    'Cross-section: a left rectangular stack and a right rectangular stack drawn as ' +
+    'hatched blocks, with a narrow damp gap between them';
+  l.steps[0]!.visuals = [{ describe, kind: 'path' }];
+  const board = compileLesson(l, {});
+  const scene = board.scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  // No terrain, and no caption standing in for the picture either.
+  assert.ok(!scene.elements.some((el) => el.type === 'path'), 'freeform ink was drawn anyway');
+  const asset = scene.elements.find((el) => el.type === 'asset');
+  assert.ok(asset, 'the beat drew nothing at all');
+  const minted = board.assets.find((a) => a.id === (asset.type === 'asset' ? asset.assetId : ''));
+  assert.ok(minted, 'the element references an asset that was never minted');
+  assert.equal(minted.kind, 'illustration');
+  assert.match(minted.prompt ?? '', /rectangular stack/);
+});
+
+test('a stick figure needs a figure in the instruction, not the word "you"', () => {
+  const l = structuredClone(lesson);
+  // The lithium-ion misconception in miniature: a beat about something else entirely,
+  // whose narration happens to address the learner directly.
+  l.steps[0]!.visuals = [{ describe: 'a bowl with a ball resting at the bottom', kind: 'path' }];
+  l.steps[0]!.narration = 'You would think the ball has stopped for good. It has not.';
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(!scene.elements.some((el) => el.id.includes('_you_')), 'a walker appeared uninvited');
+});
+
+test('a motion intent with nothing to ride still draws the scene it describes', () => {
+  const l = structuredClone(lesson);
+  l.steps[0]!.visuals = [
+    { describe: 'two electrode stacks joined by a wire looping through a bulb', kind: 'motion' },
+  ];
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(
+    scene.elements.some((el) => el.motion !== undefined),
+    'nothing moves',
+  );
+  assert.ok(
+    scene.elements.some((el) => el.type === 'asset'),
+    'the mover travels across nothing',
+  );
 });
 
 /* ------------------------------------------- the abstraction arriving in place */

@@ -120,6 +120,16 @@ export const PIPELINE_VERSION = 2;
  *   input to the render here, and an input outside the key is this file's whole
  *   cautionary tale.
  *
+ * - lesson 7 / storyboard 10: the `path` lane tells the truth about itself, on both sides
+ *   of the seam. The brief now states that freeform ink can draw exactly six shapes and
+ *   nothing else, so a keyed lesson asks for an `illustration` where it used to ask for
+ *   ink; and the compiler stops answering every unmatched instruction with a hillside,
+ *   routing it to the lane that can draw the thing instead. Both move because both sides
+ *   of one decision moved: what an author is told the lane can do, and what the lane does
+ *   when asked for something else. `gradient-descent` compiles byte-identically at both
+ *   presets — every path intent it has really is one of the six — and `longitude`'s ship
+ *   stops being a hillside.
+ *
  * Character rigs (step 5) deliberately did **not** bump anything, and the reasoning is
  * worth keeping because the rule above looks like it demands one. The test is whether the
  * stage produces a different artefact *for identical inputs*, and it does not: no existing
@@ -131,7 +141,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 6,
+  lesson: 7,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -142,7 +152,10 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // which adds elements and takes that row's height off the figure area. A lesson that
   // names no terms compiles byte-identically — verified on `gradient-descent`, both
   // presets — so this bump only recomputes projects that gained ink.
-  storyboard: 9,
+  // 10: an instruction the `path` lane cannot draw is no longer approximated by terrain
+  // — it goes to the illustration lane, or to a diagram when it names short parts. A
+  // lesson whose path intents are all within the six shapes compiles byte-identically.
+  storyboard: 10,
   voice: 5,
   visuals: 7,
   render: 5,
