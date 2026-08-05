@@ -275,8 +275,9 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       fps: opts.fps ?? 30,
       style: opts.style ?? 'marker',
       voice: opts.voice ?? 'af_heart',
-      // Long enough that the final board is still on screen after the last word.
-      outroSec: preset.vertical ? 1 : 1.6,
+      // Long enough that the final board is still on screen after the last word. The
+      // preset owns it, because the length estimate has to be able to count it.
+      outroSec: preset.outroSec,
     },
     canvas: board.canvas,
     assets: assets.list(),

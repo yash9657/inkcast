@@ -13,8 +13,10 @@
  */
 import type { StoryboardMeta, TextElement } from '@inkcast/core';
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { critiqueLesson, lessonBeats } from '@inkcast/core';
+import { critiqueLesson, lessonBeats, logger } from '@inkcast/core';
 import { keywords, sentences, wordCount } from './text.js';
+
+const log = logger('planner:presets');
 
 export type PresetName = 'standard' | 'short' | 'square';
 
@@ -38,15 +40,44 @@ export type Preset = {
   vertical: boolean;
   /** Extra silence after every beat, on top of what the lesson asked for. */
   holdBonus: number;
-  /** Narration pace. 2.5 w/s ≈ 150 wpm — teaching pace, not summarising pace. */
+  /**
+   * Narration pace used for *estimating*, in words a second.
+   *
+   * Not the same number as the speaking rate the voice stage targets: this one has to
+   * predict a finished video, gaps and all. See `DELIVERED_WPS` and `lessonSeconds`.
+   */
   wordsPerSecond: number;
+  /**
+   * Seconds the finished board stays on screen after the last word.
+   *
+   * Lived as a literal in the compiler and was therefore invisible to the length
+   * estimate, which is exactly the shape of bug this file just paid for.
+   */
+  outroSec: number;
 };
+
+/**
+ * Words a second a finished render actually delivers.
+ *
+ * Measured, not chosen: 272 words across 122.5s of narration audio in
+ * `projects/f70a4904eb30`, at the standard preset with the default local voice. The
+ * teaching *rate* is 140–160 wpm (see `CADENCE`), and this is lower than all of it because
+ * it also carries the gap the voice stage puts after every sentence. Re-measure it with
+ * `vocabcheck`-style arithmetic over any project's `audio/*.timing.json` if the phrase
+ * gaps or the cadence rates change.
+ */
+export const DELIVERED_WPS = 2.2;
 
 export const PRESETS: Record<PresetName, Preset> = {
   standard: {
     name: 'standard',
     aspect: '16:9',
-    maxSeconds: 120,
+    // 150s, raised from 120 once the estimate stopped flattering itself. Two reasons, and
+    // the second is the honest one. A landscape explainer at two and a half minutes is
+    // normal for the genre; and 120 was chosen when running for free was the headline,
+    // then quietly enforced by deleting beats. Both shipped lessons are 116s and 134s of
+    // real speech, so 120 could not hold either without cutting — see `droppableIds`.
+    maxSeconds: 150,
     maxPerRegion: 4,
     visualsPerBeat: 3,
     maxBeats: 14,
@@ -55,7 +86,8 @@ export const PRESETS: Record<PresetName, Preset> = {
     captionWords: 9,
     vertical: false,
     holdBonus: 0.15,
-    wordsPerSecond: 2.5,
+    wordsPerSecond: DELIVERED_WPS,
+    outroSec: 1.6,
   },
   short: {
     name: 'short',
@@ -69,7 +101,8 @@ export const PRESETS: Record<PresetName, Preset> = {
     captionWords: 6,
     vertical: true,
     holdBonus: 0.1,
-    wordsPerSecond: 2.5,
+    wordsPerSecond: DELIVERED_WPS,
+    outroSec: 1,
   },
   square: {
     name: 'square',
@@ -83,7 +116,8 @@ export const PRESETS: Record<PresetName, Preset> = {
     captionWords: 7,
     vertical: false,
     holdBonus: 0.12,
-    wordsPerSecond: 2.5,
+    wordsPerSecond: DELIVERED_WPS,
+    outroSec: 1,
   },
 };
 
@@ -113,11 +147,30 @@ export function resolvePreset(opts: PresetInput = {}): Preset {
 
 /* ---------------------------------------------------------------- narration */
 
-/** Estimated wall-clock length of a lesson: speech plus deliberate silence. */
-export function lessonSeconds(lesson: Lesson, wordsPerSecond = 2.5): number {
-  return lessonBeats(lesson).reduce(
-    (t, b) => t + wordCount(b.step.narration) / wordsPerSecond + b.step.hold,
-    0,
+/**
+ * Estimated wall-clock length of a lesson: speech, deliberate silence, and the outro.
+ *
+ * **Calibrated against a measured render, because the assumed rate was costing beats.**
+ * The old default of 2.5 words a second is the *target* speaking rate (150 wpm) and it is
+ * not what a finished video delivers: the voice stage puts a gap after every sentence, and
+ * a beat of eight short sentences spends real time in those gaps. Measured on
+ * `projects/f70a4904eb30` — 272 words, 122.5s of narration audio — delivery is **2.2 words
+ * a second**, 12% slower than assumed.
+ *
+ * That gap had teeth. The estimate said a ten-beat lesson fitted in 120s once two beats
+ * were cut; the render came out at 131s. So the trimmer damaged the lesson *and* missed
+ * the target it damaged it for. An honest estimate cuts less by cutting from a true
+ * starting point, and `droppableIds` now decides what may go.
+ *
+ * Takes the whole preset rather than a rate because the outro is part of the video, and
+ * `maxSeconds` is compared against something a viewer would time with a stopwatch.
+ */
+export function lessonSeconds(lesson: Lesson, pace: Preset | number = DELIVERED_WPS): number {
+  const wps = typeof pace === 'number' ? pace : pace.wordsPerSecond;
+  const outro = typeof pace === 'number' ? 0 : pace.outroSec;
+  return (
+    outro +
+    lessonBeats(lesson).reduce((t, b) => t + wordCount(b.step.narration) / wps + b.step.hold, 0)
   );
 }
 
@@ -214,6 +267,55 @@ function stepScores(lesson: Lesson): number[] {
 }
 
 /**
+ * Which beats it is *legal* to drop, and this is the rule that matters most in this file.
+ *
+ * A shipped render is the reason it exists. Claude wrote a ten-beat gradient-descent
+ * lesson whose beats formed one chain — `anchor → step1 → step2 → step3 → step4 → step5`
+ * — and the trimmer, fitting it to 120 seconds, deleted **step1 and step2**: the beat that
+ * turns the hillside into a graph, and the beat that defines the word *slope*. It chose
+ * them because it ranked beats by how many words they shared with the objective sentence,
+ * and those two talk about dials and steepness while the objective says "subtracts the
+ * slope". So the video went from a figure standing in fog straight to "if the slope is
+ * positive, subtract it from your dial", with neither *slope* nor *dial* ever introduced.
+ * Unfollowable, and correctly reported as such.
+ *
+ * `derivedFrom` had said so all along. The lesson schema makes every beat name what it
+ * follows from, `critiqueLesson` rejects a forward reference, and then the trimmer deleted
+ * antecedents without reading the field — and `remapDerivations` rewrote the survivors'
+ * references so the result still *validated*. The bookkeeping was updated until the
+ * deletion looked legal.
+ *
+ * So: a beat may be dropped only when nothing that survives derives from it.
+ *
+ *  - **The spine is never dropped.** The hook, the anchor, the worked example and the
+ *    recap, as before.
+ *  - **A `step` or the `misconception` may go**, if no surviving beat names it.
+ *  - **The recap's references do not count as dependencies.** It retraces the argument and
+ *    adds nothing, so a beat only the recap mentions is still droppable — otherwise
+ *    almost nothing ever is, since a good recap names most of the lesson.
+ *
+ * When nothing is droppable and the lesson still overruns, that is reported and the video
+ * runs long. A followable lesson at 140 seconds is worth more than a 120-second one with
+ * two links missing, and that is a deliberate product decision rather than a fallback.
+ */
+function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>): Set<string> {
+  const beats = lessonBeats(lesson).filter((b) => !doomed.has(b.id));
+  /** Ids some surviving beat derives from. The recap is excluded: see above. */
+  const needed = new Set<string>();
+  for (const { step, role } of beats) {
+    if (role === 'recap') continue;
+    for (const ref of step.derivedFrom) needed.add(ref);
+  }
+  const out = new Set<string>();
+  for (const { role, id } of beats) {
+    if (role !== 'step' && role !== 'misconception') continue;
+    if (needed.has(id)) continue;
+    out.add(id);
+  }
+  return out;
+}
+
+/**
  * Fit a lesson to a preset: trim each beat, then drop beats until the estimate
  * lands inside the target runtime.
  *
@@ -223,45 +325,66 @@ function stepScores(lesson: Lesson): number[] {
  * objective go first, then the misconception, and only then a step that matters.
  */
 export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
-  const shaped: Lesson = {
+  const trimmed: Lesson = {
     ...lesson,
     hook: trimStep(lesson.hook, preset, 'hook'),
     anchor: trimStep(lesson.anchor, preset),
     steps: lesson.steps.map((s) => trimStep(s, preset)),
     recap: trimStep(lesson.recap, preset),
   };
-  if (lesson.worked) shaped.worked = trimStep(lesson.worked, preset, 'worked');
-  if (lesson.misconception) shaped.misconception = trimStep(lesson.misconception, preset);
+  if (lesson.worked) trimmed.worked = trimStep(lesson.worked, preset, 'worked');
+  if (lesson.misconception) trimmed.misconception = trimStep(lesson.misconception, preset);
 
   const scores = stepScores(lesson);
-  const order = shaped.steps
-    .map((_, i) => i)
-    .sort((a, b) => (scores[a] ?? 0) - (scores[b] ?? 0) || b - a);
+  /** Objective score for a beat id, so one comparator covers steps and the misconception. */
+  const scoreOf = (id: string): number => {
+    const m = /^step(\d+)$/.exec(id);
+    // The misconception loses to every step: it is a caveat on the argument rather than a
+    // link in it, which is the same order the previous implementation used.
+    return m ? (scores[Number(m[1]) - 1] ?? 0) : -1;
+  };
 
-  const overBudget = () =>
-    lessonBeats(shaped).length > preset.maxBeats ||
-    lessonSeconds(shaped, preset.wordsPerSecond) > preset.maxSeconds;
+  /** Ids cut so far, in original-lesson id space — `derivedFrom` refers to those. */
+  const doomed = new Set<string>();
+  /** The lesson as it currently stands, for measuring and for the dependency rule. */
+  const withoutDoomed = (): Lesson => {
+    const out: Lesson = {
+      ...trimmed,
+      steps: trimmed.steps.filter((_, k) => !doomed.has(`step${k + 1}`)),
+    };
+    if (doomed.has('misconception')) delete out.misconception;
+    return out;
+  };
 
-  // Steps first, weakest for the objective first, but always keep at least one.
-  const doomed = new Set<number>();
-  for (const i of order) {
-    if (!overBudget()) break;
-    if (shaped.steps.length - doomed.size <= 1) break;
-    doomed.add(i);
-    shaped.steps = lesson.steps.map((s) => trimStep(s, preset)).filter((_, k) => !doomed.has(k));
-  }
-  if (overBudget() && shaped.misconception) delete shaped.misconception;
-  if (overBudget() && shaped.worked && shaped.steps.length > 1) {
-    // A worked example is worth more than one more step, so sacrifice the step.
-    // `doomed` indexes the *original* steps, so the survivor list has to be
-    // recomputed rather than indexed off the already-filtered array.
-    const survivors = lesson.steps.map((_, k) => k).filter((k) => !doomed.has(k));
-    const last = survivors[survivors.length - 1];
-    if (last !== undefined) {
-      doomed.add(last);
-      shaped.steps = lesson.steps.map((s) => trimStep(s, preset)).filter((_, k) => !doomed.has(k));
+  const overBudget = (l: Lesson) =>
+    lessonBeats(l).length > preset.maxBeats || lessonSeconds(l, preset) > preset.maxSeconds;
+
+  let shaped = withoutDoomed();
+  while (overBudget(shaped)) {
+    // At least one step always survives: the schema requires it, and a lesson with no
+    // steps is not a lesson.
+    const stepsLeft = shaped.steps.length;
+    const candidates = [...droppableIds(trimmed, doomed)].filter(
+      (id) => !(stepsLeft <= 1 && id.startsWith('step')),
+    );
+    if (!candidates.length) {
+      const seconds = Math.round(lessonSeconds(shaped, preset));
+      log.warn(
+        `this lesson needs about ${seconds}s and the ${preset.name} target is ${preset.maxSeconds}s`,
+        'every remaining beat is one another beat derives from, so nothing more can be cut ' +
+          'without breaking the chain — the video runs long instead. Ask the author for ' +
+          'shorter beats if the length matters more than the argument.',
+      );
+      break;
     }
+    // Weakest for the objective first; among equals, the later beat, as before.
+    candidates.sort((a, b) => scoreOf(a) - scoreOf(b) || b.localeCompare(a));
+    const victim = candidates[0]!;
+    doomed.add(victim);
+    log.debug(`dropped ${victim} to fit ${preset.maxSeconds}s — nothing derives from it`);
+    shaped = withoutDoomed();
   }
+
   // Ids are positional, so anything dropped above renumbered the survivors.
   remapDerivations(shaped, lesson, doomed);
   return shaped;
@@ -276,12 +399,14 @@ export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
  * `step1` and its reference to the old `step1` now points at itself. "step1 derives
  * from step1" reads as a logic bug rather than the renumbering artefact it is.
  *
- * A dropped beat is spliced out rather than forgotten: if B follows from A and A is
- * cut, B now follows from whatever A followed from. That keeps the chain honest at
- * whatever length the budget allows, which is the whole point of dropping by pedagogy
- * rather than by position.
+ * The splice below — if B follows from A and A is cut, B now follows from whatever A
+ * followed from — **should now be unreachable**, and that is a stronger guarantee than
+ * the splice ever was. `droppableIds` only offers beats no surviving beat derives from,
+ * so no reference can dangle in the first place. It is kept as a canary rather than
+ * deleted: if it ever fires, the drop rule has been loosened and a lesson is being
+ * rewired to make a broken cut validate, which is exactly the failure that shipped.
  */
-function remapDerivations(shaped: Lesson, original: Lesson, doomed: Set<number>): void {
+function remapDerivations(shaped: Lesson, original: Lesson, doomed: ReadonlySet<string>): void {
   /** Antecedents of every beat in the *original* lesson, by its original id. */
   const antecedents = new Map<string, string[]>();
   for (const { step, id } of lessonBeats(original)) antecedents.set(id, step.derivedFrom);
@@ -291,7 +416,7 @@ function remapDerivations(shaped: Lesson, original: Lesson, doomed: Set<number>)
   if (shaped.misconception) rename.set('misconception', 'misconception');
   let next = 1;
   original.steps.forEach((_, k) => {
-    if (!doomed.has(k)) rename.set(`step${k + 1}`, `step${next++}`);
+    if (!doomed.has(`step${k + 1}`)) rename.set(`step${k + 1}`, `step${next++}`);
   });
 
   /** Surviving ids a reference resolves to, following dropped beats through. */
@@ -299,6 +424,16 @@ function remapDerivations(shaped: Lesson, original: Lesson, doomed: Set<number>)
     const kept = rename.get(id);
     if (kept) return [kept];
     if (seen.has(id)) return [];
+    // The canary. Reaching here means a beat that something derives from was dropped,
+    // which `droppableIds` exists to prevent — and rewiring the survivor is precisely how
+    // an incoherent cut used to end up passing validation.
+    if (!seen.size) {
+      log.warn(
+        `a beat "${id}" that another beat derives from was dropped`,
+        'splicing the reference so the lesson still validates, which is the behaviour that ' +
+          'shipped an unfollowable video — `droppableIds` should have refused this cut',
+      );
+    }
     seen.add(id);
     return (antecedents.get(id) ?? []).flatMap((ref) => resolve(ref, seen));
   };

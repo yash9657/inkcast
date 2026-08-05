@@ -235,8 +235,15 @@ test('the short preset is a different lesson, not a crop', () => {
   const long = adaptLesson(shipped, PRESETS.standard);
   const short = adaptLesson(shipped, PRESETS.short);
   assert.ok(lessonBeats(short).length < lessonBeats(long).length, 'vertical drops beats');
-  const seconds = lessonSeconds(short, PRESETS.short.wordsPerSecond);
-  assert.ok(seconds >= 40 && seconds <= 60, `${seconds}s is outside the 45–60s window`);
+  // Materially shorter, from fewer beats and a tighter word budget per beat.
+  const seconds = lessonSeconds(short, PRESETS.short);
+  assert.ok(seconds < lessonSeconds(long, PRESETS.standard) * 0.75, `${seconds}s is not a short`);
+  // But NOT 60s, and that is deliberate. This lesson was authored for landscape, and a
+  // nine-beat chain cannot be squeezed into a minute without deleting a link — which is
+  // what used to happen. A real 60s vertical is a lesson *authored* at 60 seconds: the
+  // model is given the word budget for the preset it is writing for. Squeezing an existing
+  // one overruns and says so, because a followable 80s short beats an incoherent 60s one.
+  assert.ok(seconds > PRESETS.short.maxSeconds, 'this assertion documents the overrun');
   for (const { step, role } of lessonBeats(short)) {
     assert.ok(step.visuals.length <= 1, `${role} draws ${step.visuals.length} visuals`);
   }
@@ -273,24 +280,48 @@ test('dropping a beat does not leave a derivation pointing at the wrong one', ()
   }
 });
 
-test('a dropped beat is spliced out of the chain, not forgotten', () => {
-  // If B follows from A and A is cut, B follows from whatever A followed from. The
-  // chain stays honest at whatever length the budget allows.
-  const four = {
+test('a beat something derives from is never dropped', () => {
+  // The regression this exists for, and it shipped: Claude wrote a ten-beat gradient
+  // descent lesson as one chain, the trimmer fitted it to 120s by deleting step1 and
+  // step2 — the beat that turns the hillside into a graph and the beat that defines the
+  // word *slope* — and `remapDerivations` then rewired step3 to derive from the anchor so
+  // the wreckage validated. The rendered video went from a figure in fog straight to "if
+  // the slope is positive, subtract it from your dial", with neither word introduced.
+  //
+  // A chain of five steps, each deriving from the last, and far too long for any preset.
+  const chain = {
     ...shipped,
-    steps: [
-      { ...shipped.steps[0]!, from: 'given' as const, derivedFrom: [] },
-      { ...shipped.steps[1]!, from: 'derived' as const, derivedFrom: ['step1'] },
-      { ...shipped.steps[2]!, from: 'derived' as const, derivedFrom: ['step2'] },
-      { ...shipped.steps[3]!, from: 'derived' as const, derivedFrom: ['step3'] },
-    ],
+    steps: [0, 1, 2, 3, 4].map((k) => ({
+      ...shipped.steps[Math.min(k, shipped.steps.length - 1)]!,
+      idea: `Link ${k + 1}`,
+      narration:
+        `Link number ${k + 1} of the argument, stated at enough length that this lesson ` +
+        `cannot possibly fit inside the runtime target of any preset. It exists only to ` +
+        `be measured, and it says nothing that a learner would want or would remember.`,
+      from: k === 0 ? ('given' as const) : ('derived' as const),
+      derivedFrom: k === 0 ? [] : [`step${k}`],
+    })),
   };
-  const short = adaptLesson(four, PRESETS.short);
-  const kept = short.steps.length;
-  assert.ok(kept < 4, 'the vertical preset drops steps, or this proves nothing');
-  // Whatever survived, the last surviving step still traces back to the first one.
-  const last = short.steps[kept - 1]!;
-  if (kept > 1) assert.deepEqual(last.derivedFrom, [`step${kept - 1}`]);
+
+  for (const name of ['standard', 'short', 'square'] as const) {
+    const shaped = adaptLesson(chain, PRESETS[name]);
+    const ids = new Set(lessonBeats(shaped).map((b) => b.id));
+    // Something was cut — otherwise this proves nothing.
+    assert.ok(shaped.steps.length < 5, `${name}: nothing was dropped`);
+    // What survives is a prefix of the chain: links are cut from the free end only, so
+    // the argument still starts where it started and every antecedent is present.
+    for (const { step, id } of lessonBeats(shaped)) {
+      for (const ref of step.derivedFrom) {
+        assert.ok(ids.has(ref), `${name}: ${id} derives from "${ref}", which was dropped`);
+      }
+    }
+    assert.equal(shaped.steps[0]!.idea, 'Link 1', `${name}: the chain lost its head`);
+    assert.deepEqual(
+      shaped.steps.map((x) => x.idea),
+      shaped.steps.map((_, k) => `Link ${k + 1}`),
+      `${name}: the surviving links are not contiguous from the start`,
+    );
+  }
 });
 
 test('an explicit aspect overrides the preset it implies', () => {

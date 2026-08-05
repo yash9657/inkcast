@@ -46,6 +46,13 @@ export const PIPELINE_VERSION = 2;
  *   yields a lesson with words on it that the previous one only said out loud. The
  *   derived author also stopped captioning several beats with one section heading, so its
  *   `idea` fields moved as well.
+ * - lesson 5 / storyboard 8: `derivedFrom` is binding. The trimmer may only drop a beat no
+ *   surviving beat derives from, so a lesson is never rewired to make an incoherent cut
+ *   validate; the length estimate is calibrated to what a render actually delivers (2.2
+ *   words a second, not the 2.5 target) and counts the outro; and the standard target rises
+ *   to 150s, which is what both shipped lessons honestly need. `lesson` moves with it
+ *   because the teaching brief now states the budget in *words* — a number the model can
+ *   count — so the same document yields a different lesson.
  * - lesson 4 / storyboard 7: a plot has to be about a quantity that varies, not about a
  *   passage that happened to contain a shape keyword — so the derived author stops asking
  *   for axes where there is nothing to measure, and the compiler stops drawing the
@@ -108,7 +115,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 4,
+  lesson: 5,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -119,7 +126,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // which adds elements and takes that row's height off the figure area. A lesson that
   // names no terms compiles byte-identically — verified on `gradient-descent`, both
   // presets — so this bump only recomputes projects that gained ink.
-  storyboard: 7,
+  storyboard: 8,
   voice: 3,
   visuals: 7,
   render: 5,

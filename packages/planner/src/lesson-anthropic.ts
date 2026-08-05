@@ -16,6 +16,7 @@
 import type { Lesson } from '@inkcast/core';
 import { Lesson as LessonSchema, critiqueLesson, logger, report } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
+import { DELIVERED_WPS } from './presets.js';
 import { lessonJsonSchema } from './schema.js';
 import type { LessonOptions, SourceDoc } from './types.js';
 
@@ -94,7 +95,7 @@ NAME THE MISCONCEPTION
 
 NARRATION
 - Spoken English at about 150 words per minute. Contractions. Short clauses. Whole sentences only — never a fragment, never a sentence continued into the next beat.
-- Roughly 18–42 words per beat. The whole lesson must fit in about ${Math.round(seconds)} seconds of speech including silences.
+- Roughly 18–42 words per beat. **The whole lesson gets about ${Math.round(seconds * DELIVERED_WPS)} words, total, across every beat.** That is the real budget: it is ${Math.round(seconds)} seconds at the pace this narrator actually speaks, silences included. Count them. A lesson that runs long is not trimmed gently — a beat gets dropped, and the only beats that *can* be dropped are the ones nothing else derives from, so overrunning costs you your own last step.
 - Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.
 - \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation. Note that \`cadence\` below sets a floor and a ceiling on it, so a beat marked \`punchy\` will not be given a long pause however much you ask for.
 
