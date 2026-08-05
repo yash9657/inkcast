@@ -972,3 +972,55 @@ opening phrase. That is a brief improvement waiting to be made, not a bug.
 recompiled artefacts and a locally re-narrated audio track. The next keyed render is the
 verification, and it should be a topic with objects in it so the fal lane is finally
 exercised.
+
+# The battery render: all three keys live, and the board still cannot draw, 2026-08-05
+
+`projects/1d80720ea373` — "How a Lithium-Ion Battery Charges and Discharges", 110s, with
+`anthropic/claude-opus-5`, `elevenlabs` and `fal` all reached for the first time. $0.445,
+of which voice was $0.38. Reported as still extremely bad: mostly text on the board, very
+little drawing, and what is drawn is poor.
+
+Correct, and the cause is one lane.
+
+## What worked
+
+Sync, measured with `synccheck.mts`: **0 elements land in a silence, 0 land on the same
+frame as the one before** (was 6 and 10). The vocabulary strip writes terms as they are
+spoken. The trimmer kept all ten beats. Frame fill 31%, up from 17%.
+
+**The lesson is good.** The hook: _"A full phone battery and a dead one weigh exactly the
+same. Nothing went in. Nothing came out. So what actually changed inside?"_ The anchor
+opens the cell and finds two stacks with a damp gap between them, "like a sponge holds
+water". Ten beats, one clean chain, `problems: []`.
+
+## What failed
+
+The lesson asked for **5 `path`, 2 `motion`, 1 `diagram`, 1 `plot`, 1 `illustration`**. The
+board received **13 text, 11 path, 1 asset, 1 plot, 1 arrow** — 90 written words against
+306 spoken.
+
+Every `path` instruction was specific: _"Cross-section: a left rectangular stack and a
+right rectangular stack drawn as hatched blocks, with a damp gap between them"_. The `path`
+lane's entire vocabulary is six regexes taken from the gradient-descent lesson — hill,
+bowl, container, figure, fog, steps. **`cross-section` is a term in the `BOWL` regex**, so
+a battery was drawn as a parabola; everything else fell through to the default hillside.
+And `/you\b/` in the _narration_ draws a stick figure, which is why a walker stands in the
+misconception beat of a video about lithium ions.
+
+Eleven of eleven path elements on that board are terrain. The text dominates because text
+is the only lane that reliably renders what a beat is about.
+
+`illustration` — the lane that can draw anything — ran **once**, for the hook, at $0.003.
+The model used `path` for the nine beats of content because the brief advertises `path` as
+"freeform ink: a hillside, a figure, fog, three steps, a bowl, a blob". Those read as
+examples. They are the complete implementation.
+
+## What this means
+
+The pedagogy stage has not been the bottleneck for two sessions. The drawing lane is. The
+next session's first move is item 1 of `HANDOFF.md`: state what `path` can actually do,
+route every other concrete drawing to the illustration lane, and then _look at ten
+generated drawings_ — one image is not a measurement, and that lane has never been judged
+at scale. `docs/research/golpo-ux.md` §2 says the competitor's whole answer to "draw any
+topic" is generated images under a style preset, which is the lane we have and have not
+used.
