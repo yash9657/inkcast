@@ -26,6 +26,39 @@ const DEFAULT_MODEL = 'eleven_multilingual_v2';
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
 const FALLBACK_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
+/**
+ * Delivery, pinned per request rather than inherited from the voice.
+ *
+ * Every stock and cloned voice carries its own stored settings, set by whoever made it
+ * and changeable from a web UI this repo has never seen. Left unsent, they are what
+ * speaks — so the same lesson, the same key and the same voice id can deliver
+ * differently on two machines, and no cache key here can know. Sending them makes the
+ * render a function of this file.
+ *
+ * The values are chosen for a *teacher*, and the one that matters is `stability`. It
+ * trades consistency against emotional range, and a scene here is not one generation but
+ * ten clause-length ones concatenated: an expressive setting re-rolls that range on every
+ * clip, so the pitch and pace of one sentence shift between its own clauses. That is
+ * heard as strain rather than as expression. `style` is exaggeration on top of it and is
+ * off for the same reason — an explanation is delivered calmly or it is performed, and a
+ * performance is what makes a hard idea harder to hold on to.
+ */
+const VOICE_SETTINGS = {
+  stability: 0.55,
+  similarity_boost: 0.75,
+  style: 0,
+  use_speaker_boost: true,
+} as const;
+
+/**
+ * Bumped when anything above changes the audio for an unchanged phrase.
+ *
+ * The stage's cache key hashes the narration, the voice and the pacing — everything it
+ * owns. It cannot see a delivery decision made inside an adapter, so a change here would
+ * otherwise serve clips recorded under the old one for the life of the project.
+ */
+export const DELIVERY_SIGNATURE = 'el/v2:context+pinned-settings';
+
 /** Preferred stock voices per Kokoro voice family (accent + gender). */
 const PREFERENCES: Record<string, readonly string[]> = {
   af: ['Rachel', 'Sarah', 'Jessica', 'Aria', 'Matilda'],
@@ -135,12 +168,18 @@ export function createElevenLabsProvider(): VoiceProvider {
   };
 
   const body = (req: SynthesisRequest): string => {
-    const settings: Record<string, unknown> = {};
+    const settings: Record<string, unknown> = { ...VOICE_SETTINGS };
     if (req.speed !== 1) settings.speed = Math.max(0.7, Math.min(1.2, req.speed));
     return JSON.stringify({
       text: req.text,
       model_id: process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL,
-      ...(Object.keys(settings).length ? { voice_settings: settings } : {}),
+      voice_settings: settings,
+      // The neighbours, so a clause is read as the middle of a sentence rather than as
+      // a sentence. Documented by the provider for exactly this — concatenating several
+      // generations — and it is context only: neither string is spoken, and the audio
+      // that comes back is still just `text`. See `SynthesisRequest`.
+      ...(req.previousText ? { previous_text: req.previousText } : {}),
+      ...(req.nextText ? { next_text: req.nextText } : {}),
     });
   };
 

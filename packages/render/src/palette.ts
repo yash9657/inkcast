@@ -8,6 +8,7 @@
  * colour carries all the structure, and a single accent per scene marks things
  * up. No rainbow boards.
  */
+import type { Tone } from '@inkcast/core';
 import type { PenArt, StyleName } from './types.js';
 
 export type Palette = {
@@ -21,6 +22,23 @@ export type Palette = {
    * and the accent only ever marks things up.
    */
   accent: string;
+  /**
+   * The second marker, for the one job the accent cannot do: being told apart from
+   * itself.
+   *
+   * Still not a palette to choose from. There is no third, and the pair is fixed for the
+   * whole film exactly as the accent is — what it buys is the drawing where two things
+   * have to be distinguished from each other and *both* are what the beat is about: the
+   * ion going one way and the electron going the other, the before against the after.
+   * One ink draws those as a tangle no arrangement fixes.
+   *
+   * Warm against the accent's cool, and that is the whole reason for the hue. Blue and
+   * orange is the one pair that survives the common forms of colour blindness, so the
+   * distinction the drawing rests on is still legible to the roughly one viewer in twelve
+   * who cannot see red against green — and it stays legible in greyscale, because the two
+   * differ in value as well as in hue.
+   */
+  contrast: string;
 };
 
 const COLOR: Palette = {
@@ -29,6 +47,7 @@ const COLOR: Palette = {
   inkSoft: '#5a6472',
   grid: 'rgba(27,35,46,0.055)',
   accent: '#2f6fed',
+  contrast: '#c2410c',
 };
 
 const MONO: Palette = {
@@ -37,10 +56,33 @@ const MONO: Palette = {
   inkSoft: '#646d7a',
   grid: 'rgba(27,35,46,0.05)',
   accent: '#39434f',
+  // Mono has no hue to spend, so the pair separates by value instead. Lighter than the
+  // accent rather than darker: the accent still has to read as the marked-up thing.
+  contrast: '#8b93a0',
 };
 
 export function paletteFor(mode: 'mono' | 'color'): Palette {
   return mode === 'mono' ? MONO : COLOR;
+}
+
+/**
+ * The ink a `Tone` names, on this board.
+ *
+ * The single place the IR's four semantic names become colours — the same seam the rest
+ * of this module exists for. `muted` is the soft ink the caption already uses, which is
+ * what makes "already explained" look like what it is without inventing a fifth value.
+ */
+export function toneInk(pal: Palette, tone: Tone | undefined): string {
+  switch (tone) {
+    case 'accent':
+      return pal.accent;
+    case 'contrast':
+      return pal.contrast;
+    case 'muted':
+      return pal.inkSoft;
+    default:
+      return pal.ink;
+  }
 }
 
 /**

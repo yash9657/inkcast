@@ -427,6 +427,24 @@
       textEl.setAttribute('font-size', f(size));
       textEl.setAttribute('fill', prim.color);
       textEl.setAttribute('text-anchor', anchor);
+      // A halo of paper, painted UNDER the glyphs, so a name written across ink stays
+      // readable. `paint-order: stroke fill` is what makes it a knockout rather than an
+      // outline — the stroke goes down first and the fill covers its inner half, so the
+      // letterforms are unchanged and what the halo eats is the ink behind them.
+      //
+      // This is the other side of a decision made in the planner and worth keeping: the
+      // audit treats shading as something you may write ON, because the version that
+      // treated it as an obstacle shoved `N` and `S` out of a bar magnet and into the
+      // field lines, which is worse. That decision costs legibility exactly here —
+      // `electron stuck`, `cathode` and `graphite` were each written inside a narrow
+      // heavily-hatched strip in a shipped film and none of them could be read. Clearing
+      // the ink behind the words pays the cost without moving a single label.
+      //
+      // Invisible on blank board, which is why it is unconditional: paper on paper.
+      textEl.setAttribute('paint-order', 'stroke fill');
+      textEl.setAttribute('stroke', plan.paper);
+      textEl.setAttribute('stroke-width', f(size * 0.17));
+      textEl.setAttribute('stroke-linejoin', 'round');
       textEl.textContent = str;
       host.appendChild(textEl);
 

@@ -1,3 +1,36 @@
+# Handoff — 2026-08-06 · the drawing keeps up with the sentence
+
+> **Read this box first, then the 08-05 handoff below it, which is otherwise still
+> accurate.** One session has happened since: the parts of a drawing now land on the words
+> that name them, marks can carry one of four inks, and the voice is synthesised with the
+> sentence around it. Full record and every number in `STATUS.md` under **2026-08-06**.
+>
+> **What changed, and where.**
+>
+> - **`planner/src/draw-cues.ts`** (new) — a cue per mark, from the mark's own name found
+>   verbatim in that beat's narration; unnamed marks interpolate between the named ones.
+>   Wired in at `buildDrawing` and registered in `compile.ts` so the intent's blanket cue no
+>   longer overwrites it. Item 2 of the list below, done.
+> - **`core`: `Tone`** (`ink`/`accent`/`contrast`/`muted`) on `Mark` and `ElementBase`,
+>   `toneInk()` in `render/src/palette.ts`. **Optional, never defaulted** — a default writes
+>   `"tone":"ink"` onto every element and breaks the byte-identical compile.
+> - **`page/runtime.js`** — text is painted with a paper halo under the glyphs, so a name
+>   across ink is legible. **Known defect 0a below is fixed**, without moving any label.
+> - **`voice`** — `previous_text`/`next_text` per phrase, pinned voice settings, and the
+>   scene cache key is now one closure instead of two copies that had already drifted.
+> - **`DRAW_BRIEF` is `draw/v2`** — LEGIBILITY and COLOUR sections. The brief is in
+>   `drawKey`, so **every cached drawing re-authors on the next keyed run.** Budget for it.
+>
+> **Two new tools**, both free and both in the list of twelve below: **`tandemcheck.mts`**
+> (does the drawing keep up with the beat — the measurement that named the sync defect and
+> then caught a regression in its own fix) and **`tonesheet.mts`** (the four inks, drawn
+> toned and stripped, to be looked at).
+>
+> **What is not proven:** no keyed render has happened since. The renderer's half of colour
+> is proven end to end from hand-authored marks; whether the _author_ uses tone well and
+> sparingly is unmeasured, and the legibility brief is unmeasured. That is the first thing
+> to do — `drawsheet.mts` over the twelve subjects, then watch a film.
+
 # Handoff — 2026-08-05 · the board looks at what it drew
 
 You are picking this up cold. Everything you need is here or named here. Read
@@ -190,6 +223,17 @@ from the repo root with `npx tsx <path>`.
     Copy `storyboard.resolved.json` over `storyboard.json` first so it draws real ink.
 12. `packages/render/src/fillcheck.mts <storyboard.json>` — mean content fill. A regression
     check, not a target: it counts bounding boxes, so it can be gamed.
+13. `packages/pipeline/src/tandemcheck.mts <projectDir>` — **does the drawing keep up with
+    the beat.** Recompiles from the project's own `lesson.json` and resolves cues against
+    its _measured_ timings, so a planner change is re-measured against real speech with no
+    key and no re-render. Reports dead board before the first stroke, first stroke to last,
+    and how many distinct moments the beat's elements resolved to. Use it and not
+    `synccheck.mts` for anything about _when_ a picture is drawn — synccheck checks each
+    stroke against its own word and reported the shipped film's worst sync defect as 209
+    elements, 0 in a silence, because they were all correctly cued to one phrase.
+14. `packages/pipeline/src/tonesheet.mts <outDir>` — the four inks on a drawing built to
+    need them, rendered twice: as authored, and with every tone stripped. Free, no key.
+    **Open both.** Whether two flows crossing one space are legible is not a number.
 
 Tools 4, 8 and 9 take a stash diff:
 

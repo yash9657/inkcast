@@ -23,6 +23,28 @@ export type SynthesisRequest = {
   /** Provider-native voice id, produced by `resolveVoice`. */
   voice: string;
   /**
+   * The narration on either side of `text`, for engines that can read it.
+   *
+   * **Context, never content.** These are not spoken and do not appear in the returned
+   * audio: they tell an engine where in a sentence this clip sits, so it can choose an
+   * intonation contour that continues from what came before and leads into what comes
+   * after. Nothing else in the request changes.
+   *
+   * This exists because of how the stage synthesises: a scene is cut into clauses and
+   * each clause is its own generation (see `phrase.ts` — it is the only way to know
+   * *when* a phrase is spoken without a forced aligner). An engine handed four words
+   * with no context has no way to know they are the middle of a thought, so it reads
+   * them as a complete utterance: a fresh onset, a terminal fall, and its own pitch
+   * range. Ten of those concatenated is a voice that lands hard on every clause and
+   * resets between them — the flat, effortful delivery that has to be worked at to
+   * follow. Handing over the neighbours costs nothing and no extra audio, and it is
+   * the difference between one person talking and ten clips of them.
+   *
+   * Providers that cannot use them ignore them.
+   */
+  previousText?: string;
+  nextText?: string;
+  /**
    * Multiplier on the provider's natural rate, already corrected for the voice's
    * measured baseline by the voice stage. 1 = natural.
    */

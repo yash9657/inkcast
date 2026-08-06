@@ -907,8 +907,19 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   // strokes has already answered the question every lane below is guessing at, and the
   // guess cannot beat the answer.
   if (intent.marks?.length) {
-    const drawn = buildDrawing(intent.marks, { id: ctx.id, box: ctx.box });
-    if (drawn.length) return drawn;
+    const drawn = buildDrawing(intent.marks, {
+      id: ctx.id,
+      box: ctx.box,
+      narration: ctx.step.narration,
+    });
+    if (drawn.length) {
+      // A part that found its own words keeps them. Registering the cue here is what
+      // stops the blanket assignment below from replacing it with the intent's single
+      // cue — which is the right answer for a picture whose parts the narration never
+      // names, and the wrong one for the thirty-mark cross-section it was measured on.
+      for (const el of drawn) if (el.enter.cue) ctx.cues.set(el.id, el.enter.cue);
+      return drawn;
+    }
     log.warn(
       `beat ${ctx.index} carries ${intent.marks.length} marks that draw nothing`,
       'falling back to the lane its kind names',

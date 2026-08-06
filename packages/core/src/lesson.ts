@@ -85,6 +85,12 @@ export const Mark = z.object({
   count: z.number().optional(),
   /** `hatch`: degrees, 0 = horizontal. */
   angle: z.number().optional(),
+  /**
+   * Which ink draws this mark. See `Tone` in `./storyboard.ts` for what each one means
+   * and for the rule they are held to — a second colour has to be telling two things
+   * apart, not decorating one.
+   */
+  tone: z.enum(['ink', 'accent', 'contrast', 'muted']).optional(),
 });
 export type Mark = z.infer<typeof Mark>;
 

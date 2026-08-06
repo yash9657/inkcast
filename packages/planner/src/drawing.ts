@@ -39,6 +39,7 @@
 import type { ArrowElement, Element, Mark, ShapeElement, TextElement } from '@inkcast/core';
 import { DRAW_H, DRAW_W, logger } from '@inkcast/core';
 import { round } from './curves.js';
+import { cueMarks } from './draw-cues.js';
 import {
   ADRIFT,
   type Ink,
@@ -449,19 +450,34 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
  * is given a fraction of the beat so the picture builds instead of appearing. The last
  * mark lands at 0.72 rather than at the end, because the words that name a picture have
  * to be spoken while it is still being drawn.
+ *
+ * Given the beat's `narration`, each mark also claims the words that name it (see
+ * `./draw-cues.ts`), so the picture advances with the sentence instead of arriving on one
+ * phrase of it. The fractions above stay as the fallback for a cue that cannot be found,
+ * which is what the voice stage needs when a drawing names nothing the narrator says.
  */
-export function buildDrawing(marks: Mark[], ctx: { id: string; box: Box }): Element[] {
+export function buildDrawing(
+  marks: Mark[],
+  ctx: { id: string; box: Box; narration?: string },
+): Element[] {
   const clean = prepareMarks(marks);
   if (!clean.length) return [];
   const fit = fitDrawing(clean, ctx.box);
+  const cues = ctx.narration ? cueMarks(clean, ctx.narration) : [];
   const out: Element[] = [];
   clean.forEach((m, i) => {
     const slug = m.id.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || `m${i}`;
+    const cue = cues[i];
     for (const el of buildMark(m, `${ctx.id}_${slug}`, fit)) {
       el.enter = {
         ...el.enter,
         at: round(0.06 + (i / Math.max(1, clean.length)) * 0.66, 3),
+        ...(cue ? { cue } : {}),
       };
+      // `ink` is what an element without a tone already draws in, so it is not recorded:
+      // every element carrying a redundant field is a storyboard that differs from the
+      // one before it in nothing but noise.
+      if (m.tone && m.tone !== 'ink') el.tone = m.tone;
       out.push(el);
     }
   });

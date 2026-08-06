@@ -59,6 +59,7 @@ import {
 } from './providers/index.js';
 import type { VoiceProviderId, WordTiming } from './providers/types.js';
 import { SAY_NOT_FOR_PUBLISHING } from './providers/system.js';
+import { DELIVERY_SIGNATURE } from './providers/elevenlabs.js';
 import { TEACHING_WPM_MAX, TEACHING_WPM_MIN, TEACHING_WPM_TARGET } from './voices.js';
 import { CLIP_SAMPLE_RATE, CLIP_SIGNATURE, findSpeechBounds } from './wav.js';
 
@@ -181,6 +182,51 @@ function carriesEmphasis(phrase: string, emphasis: readonly string[]): boolean {
 }
 
 /**
+ * How much narration on either side of a phrase is offered as context.
+ *
+ * Enough to place the clause inside its sentence and the sentence inside its beat, and
+ * no more: what an engine does with this is choose an intonation contour, and a
+ * paragraph of it is neither more informative than a sentence nor free — it is billed
+ * as input on every clause of every scene.
+ */
+const CONTEXT_CHARS = 300;
+
+/**
+ * The words either side of `phrases[i]`, for an engine that can read them.
+ *
+ * Whole phrases, not a character slice: a fragment cut mid-word ("…the elect") is worse
+ * context than none, because it is not language. Taken from the same already-normalised
+ * text the clips are made of, so what the engine is told came before really is what the
+ * listener will have just heard.
+ */
+function neighbours(
+  phrases: readonly Phrase[],
+  i: number,
+): { previousText?: string; nextText?: string } {
+  const take = (parts: string[], fromEnd: boolean): string | undefined => {
+    const kept: string[] = [];
+    let budget = CONTEXT_CHARS;
+    for (const part of fromEnd ? [...parts].reverse() : parts) {
+      if (part.length > budget) break;
+      budget -= part.length + 1;
+      if (fromEnd) kept.unshift(part);
+      else kept.push(part);
+    }
+    return kept.length ? kept.join(' ') : undefined;
+  };
+  return {
+    previousText: take(
+      phrases.slice(0, i).map((p) => p.text),
+      true,
+    ),
+    nextText: take(
+      phrases.slice(i + 1).map((p) => p.text),
+      false,
+    ),
+  };
+}
+
+/**
  * Synthesise one scene phrase by phrase and assemble the clip.
  *
  * Each phrase is generated into a scratch file, decoded, and trimmed to its real
@@ -212,6 +258,7 @@ async function synthesizeScene(
       const stressed = carriesEmphasis(phrase.text, ctx.emphasis);
       const result = await ctx.chain.synthesize({
         text: phrase.text,
+        ...neighbours(phrases, i),
         speed: stressed ? round3(ctx.speed * EMPHASIS_SLOWDOWN) : ctx.speed,
         targetWpm: stressed ? Math.round(ctx.targetWpm * EMPHASIS_SLOWDOWN) : ctx.targetWpm,
         language: ctx.language,
@@ -400,23 +447,30 @@ export async function narrate(
         ? clamp(round3(userSpeed * (sceneWpm / active.naturalWpm)), 0.5, 2)
         : userSpeed;
 
-      const inputHash = hash(
-        text,
-        active.id,
-        active.voice,
-        speed,
-        sceneWpm,
-        padSec,
-        scene.hold,
-        phraseSplit,
-        alignMode,
-        phrases.length,
-        // Emphasis changes the audio — a phrase carrying it is slowed and given a
-        // longer beat after it — so it belongs in the key or a re-emphasised lesson
-        // reuses the clip that ignored it.
-        scene.emphasis.join('|'),
-        CLIP_SIGNATURE,
-      );
+      const sceneKey = (id: string, voice: string, rate: number): string =>
+        hash(
+          text,
+          id,
+          voice,
+          rate,
+          sceneWpm,
+          padSec,
+          scene.hold,
+          phraseSplit,
+          alignMode,
+          phrases.length,
+          // Emphasis changes the audio — a phrase carrying it is slowed and given a
+          // longer beat after it — so it belongs in the key or a re-emphasised lesson
+          // reuses the clip that ignored it.
+          scene.emphasis.join('|'),
+          CLIP_SIGNATURE,
+          // How the clip is *delivered*, which the stage does not otherwise own: an
+          // adapter decides the voice settings and whether the engine is told what
+          // surrounds a clause, and both change the audio for narration that never moved.
+          DELIVERY_SIGNATURE,
+        );
+
+      const inputHash = sceneKey(active.id, active.voice, speed);
       sceneHashes.push(inputHash);
 
       // Progress is emitted before the work so the UI shows the scene being spoken.
@@ -463,23 +517,13 @@ export async function narrate(
         const finalSpeed = finalActive.naturalWpm
           ? clamp(round3(userSpeed * (sceneWpm / finalActive.naturalWpm)), 0.5, 2)
           : userSpeed;
-        // Same shape as the key above, and it has to stay that way: this is the one
-        // that is written after a provider swap, so a field added there and missed
-        // here would silently mark a clip fresh under the wrong inputs.
-        const finalHash = hash(
-          text,
-          finalActive.id,
-          finalActive.voice,
-          finalSpeed,
-          sceneWpm,
-          padSec,
-          scene.hold,
-          phraseSplit,
-          alignMode,
-          phrases.length,
-          scene.emphasis.join('|'),
-          CLIP_SIGNATURE,
-        );
+        // The same key, re-taken against the provider that actually spoke — not a second
+        // copy of it. Two copies is what this was, and the warning not to let them drift
+        // was not enough: a delivery field added above and missed here marked every clip
+        // stale on the next run, because the hash written to disk could no longer match
+        // the one looked up. The only field that may differ between the two calls is the
+        // provider, which is the entire point of re-taking it.
+        const finalHash = sceneKey(finalActive.id, finalActive.voice, finalSpeed);
         sceneHashes[i] = finalHash;
         await writeFile(timingAbs, JSON.stringify(timing, null, 2));
         await markFresh(dir, cacheKey, finalHash);

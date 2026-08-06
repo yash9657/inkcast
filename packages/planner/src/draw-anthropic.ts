@@ -51,7 +51,7 @@ export const DEFAULT_DRAW_MODEL = 'claude-sonnet-5';
 
 const TOOL = 'emit_drawing';
 /** Bump when `DRAW_BRIEF` or the mark vocabulary changes: it is part of the cache key. */
-const BRIEF_VERSION = 'draw/v1';
+const BRIEF_VERSION = 'draw/v2';
 
 export function drawModel(opts?: { drawModel?: string }): string {
   return opts?.drawModel ?? process.env.INKCAST_DRAW_MODEL ?? DEFAULT_DRAW_MODEL;
@@ -73,6 +73,8 @@ THE MARKS, and there are only these eight:
 - hatch {x,y,w,h,angle} — parallel shading filling that box, at that angle in degrees. A material, a solid, a filled region, a shaded area.
 - dots {x,y,w,h,count} — count small filled dots scattered in that box. Particles, charges, molecules, grain.
 
+Every mark also takes \`tone\`, which is the ink it is drawn in. See COLOUR below. Leave it out and the mark is drawn in the ordinary dark ink, which is right for almost everything.
+
 WHAT MAKES A DRAWING TEACH, in the order it matters
 1. DRAW THE STRUCTURE AND THE RELATION, NOT THE OBJECT. A photograph of a battery teaches nothing; two electrode stacks facing each other across a gap, with one thing crossing the gap and another turned back at it, is the whole idea. Ask what the learner has to SEE to believe the beat, and draw exactly that. If two things are compared, put them side by side. If something is inside something else, its coordinates have to be inside. If two things face each other across a gap, make the gap wide enough to see.
 2. NAME THE PARTS. You can spell and the board writes in the same hand as everything else, so label what matters — 2 to 5 labels is usual. Put each label in empty space beside the thing it names, never on top of ink, and use an arrow from the label to the part when the part is small or crowded. Labels are the single biggest advantage this lane has: use them, but do not caption the picture with a sentence.
@@ -80,6 +82,25 @@ WHAT MAKES A DRAWING TEACH, in the order it matters
    **NEVER TITLE THE DRAWING.** No "Matrix Multiplication" across the top, no "Binary Search", no name for the picture as a whole. The board already writes the beat's own sentence above your drawing, so a title is a second caption on one panel — and being the biggest thing you drew, it is the one that lands across everything else. Labels name PARTS. A title is dropped before it reaches the board.
 4. ID EVERY MARK BY WHAT IT IS. \`left-stack\`, \`damp-gap\`, \`ion-1\`, \`wire\`, \`bulb\` — the part, not the shape. That id is how a later beat highlights this part, moves it, or draws it again, so a mark called \`rect-3\` is a mark nobody can ever refer to.
 5. DRAW IN THE ORDER A PERSON WOULD. Big containing shapes first, then the parts inside them, then connectors and arrows, then labels last. The board reveals your marks in the order you list them, so this order is what the viewer watches being drawn.
+
+LEGIBILITY IS PART OF BEING CORRECT
+A drawing where everything is in the right place and nothing can be told apart has failed. This is the most common way an intricate subject — an orbital diagram, charges moving between layers, a cell in cross-section, two interfering waves — comes out unreadable: not because a mark is wrong, but because every mark is on top of every other one. The picture is in there and nobody can see it.
+
+- **SPREAD OUT. USE THE WHOLE CANVAS.** It is ${DRAW_W}x${DRAW_H} and it will be shown large. The commonest mistake by far is drawing a detailed structure inside a small part of it and leaving three quarters empty. If you have six things to show, they get a sixth of the canvas each — not a corner each, with the middle empty.
+- **NOTHING OVERLAPS UNLESS IT MEANS "INSIDE".** Two parts sharing coordinates is a claim that one contains the other. If that is not what you mean, move them apart. Leave a real channel of blank canvas between separate parts — 30 units at the very least, and more between the big ones.
+- **A GAP THAT MATTERS IS DRAWN WIDE.** If the beat is about something crossing a gap, that gap needs to be 100+ units, not 15. The learner has to see the crossing, and a 15-unit gap with an arrow through it is one thick line.
+- **HATCHING IS DENSE. NEVER WRITE INSIDE IT.** A name written on top of shading is unreadable — this is a measured defect, seen on \`electron stuck\`, \`cathode\` and \`graphite\` in a shipped film. Put the label in clear canvas OUTSIDE the shaded region and run an arrow to it. Do not hatch a strip narrower than about 70 units and then try to name it from within.
+- **LINES THAT RUN TOGETHER MUST SEPARATE.** Two paths crossing the same space — one charge going one way, another coming back — are a tangle in one ink. Give them different \`tone\`s, and route them so they only cross where the crossing is the point.
+- **FEWER MARKS, DRAWN BIGGER, EVERY TIME.** If the picture is getting crowded, the answer is never smaller marks. Cut a part the beat can do without. Eight legible parts teach; twenty illegible ones teach nothing, and the beat only has one sentence to spend on them anyway.
+
+COLOUR — \`tone\`, and it has exactly one job
+The board is drawn in one dark ink for a reason: colour that means nothing is noise, and a rainbow diagram is harder to read than a plain one, not easier. So \`tone\` is not styling and there is no palette to pick from. There are four values and you use one only when a *distinction the beat depends on* cannot be made any other way.
+- \`ink\` — the default. Structure, containers, outlines, most parts. Leave \`tone\` out entirely for these.
+- \`accent\` — the one thing this beat is about. What moves, what changes, what the narration is pointing at. Usually 1 to 4 marks, and often a path and the dots travelling along it.
+- \`contrast\` — the thing that must not be confused with the accent, and nothing else. The second path, the opposite charge, the "before" against the "after". Use it ONLY when \`accent\` is already in use and the two would otherwise be indistinguishable.
+- \`muted\` — context already explained, so the eye goes past it to what is new. The apparatus around the thing being discussed.
+
+The test to apply, and it is strict: **if the drawing reads correctly in one ink, use one ink.** Colour earns its place only where a learner would otherwise follow the wrong line. Electrons looping one way through a wire while ions cross the other way through a liquid is the case it exists for — make the electrons \`accent\` and the ions \`contrast\`, put a label on each in its own tone, and the whole picture resolves. A box drawn in \`accent\` because it looked plain is the failure this is guarded against.
 
 Emit the drawing by calling the ${TOOL} tool exactly once.`;
 

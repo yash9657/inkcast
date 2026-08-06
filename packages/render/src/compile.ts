@@ -44,7 +44,7 @@ import type { SceneFraming } from '@inkcast/core';
 import { cumulativeLengths, easeFn, flattenPathData, pointAtLength, rectContains } from './geom.js';
 import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
-import { TYPE_SCALE, inkStyle, paletteFor, penArt } from './palette.js';
+import { TYPE_SCALE, inkStyle, paletteFor, penArt, toneInk } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
 import { curveTrace, plotArea, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
@@ -902,7 +902,10 @@ function primsFor(el: Element, ctx: Ctx): PlanPrim[] {
 function textPrims(el: TextElement, ctx: Ctx): PlanPrim[] {
   const role: TextRole = el.role;
   const size = TYPE_SCALE[role] * ctx.type;
-  const color = role === 'caption' ? ctx.pal.inkSoft : ctx.pal.ink;
+  // A caption is soft by role. Otherwise the tone decides — which is what lets the name
+  // of a part be written in the same ink as the part, so a drawing with two flows in it
+  // says which label belongs to which without a leader line to every one of them.
+  const color = role === 'caption' ? ctx.pal.inkSoft : toneInk(ctx.pal, el.tone);
   return [textPrim(el.text, el.at, size, color, el.align, 'middle')];
 }
 
@@ -948,6 +951,7 @@ function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
  */
 function pathPrims(el: PathElement, ctx: Ctx, rng: Rng, alpha: number | undefined): PlanPrim[] {
   const width = ctx.sw * el.weight;
+  const stroke = toneInk(ctx.pal, el.tone);
   const out: PlanPrim[] = [];
   let poly: Pt[] = [];
 
@@ -971,9 +975,9 @@ function pathPrims(el: PathElement, ctx: Ctx, rng: Rng, alpha: number | undefine
 
   if (el.points && el.points.length >= 2) {
     const d = sketchAlong(rng, ctx.st, poly, { amp: 0.9, closed: el.closed });
-    if (d) out.push(...geoms([d], ctx.pal.ink, width, alpha));
+    if (d) out.push(...geoms([d], stroke, width, alpha));
   } else if (el.d) {
-    out.push(...geoms([el.d], ctx.pal.ink, width, alpha));
+    out.push(...geoms([el.d], stroke, width, alpha));
   } else {
     log.warn(`path "${el.id}" has neither points nor d — nothing to draw`);
   }
@@ -984,7 +988,8 @@ function shapePrims(el: ShapeElement, ctx: Ctx, rng: Rng, alpha: number | undefi
   const { st, sw } = ctx;
   const accent = ctx.pal.accent;
   const box = el.at;
-  const stroke = el.shape === 'circle-highlight' ? accent : ctx.pal.ink;
+  // A highlight ring is an accent by definition; anything else takes the tone it carries.
+  const stroke = el.shape === 'circle-highlight' ? accent : toneInk(ctx.pal, el.tone);
   const out: PlanPrim[] = [];
 
   // Hachure fill first so the outline lands on top of it.
@@ -1132,7 +1137,7 @@ function arrowPrims(el: ArrowElement, ctx: Ctx, rng: Rng, alpha: number | undefi
     from,
     to,
     el.curve,
-    ctx.pal.ink,
+    toneInk(ctx.pal, el.tone),
     ctx.sw * 0.9,
     alpha,
   );

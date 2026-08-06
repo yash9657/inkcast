@@ -1307,3 +1307,140 @@ shows the honest cost of the shading decision above — `electron stuck` and `ca
 inside narrow heavily-hatched strips, are hard to read. That is the price of not moving names
 off shading, and the magnet is why the price is worth paying; the fix belongs on the hatching,
 not on the label. Item 0a of the handoff.
+
+---
+
+## The drawing keeps up with the sentence — 2026-08-06
+
+Written against the working tree on `visuals-morph-density`. Three complaints, all from
+watching the film rather than reading the code: the drawing and the narration do not happen
+together, an intricate diagram collapses into itself, and the voice is hard to follow.
+
+**`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+646 pass / 0 fail** (up from 636; ten new in `planner/test/draw-cues.test.ts`). Both shipped
+lessons compile byte-identically at both presets — `sbhash.mts` diff is empty. Every cached
+drawing audits identically before and after: `markcheck.mts cache` is unchanged at
+**1080 raw → 146 kept** across 71 drawings, which is what it should be, because none of this
+touches what gets drawn.
+
+### 1. The drawing was arriving on one word of its beat
+
+`synccheck.mts` could not see this and it is worth understanding why. It checks each stroke
+against the word being spoken as it lands, and by that measure the shipped film was **perfect
+— 209 elements, 0 in a silence**. Every stroke was cued to a phrase of its own narration.
+They were cued to the _same_ phrase. In the recap, thirty elements resolved to one cue and
+were then stepped 0.1s apart by `spreadGesture`, so the board sat empty for six seconds of a
+ten-second beat and then drew the whole cell in the last three.
+
+The cause is one line in `compile.ts`: an intent's cue was handed to every element it made.
+That is right for a hillside, its fog and the figure on it — three strokes of one gesture,
+and scattering them was a defect fixed two sessions ago — and it is the opposite of right for
+a thirty-mark cross-section.
+
+**`planner/src/draw-cues.ts`** is the fix, and it is possible only because `DRAW_BRIEF`
+already insists every mark is named after its part. A mark called `damp-gap`, in a beat that
+says "across the damp gap", is not a coincidence to score — it is an answer. Named marks
+anchor to their own words; the rest are placed _between_ the anchors in proportion to their
+position in drawing order, so a hatch one mark behind its box lands one step behind its box.
+None of it is cached with the drawing: `drawKey` is the instruction alone so two lessons share
+a picture, and a cue is a quotation from one beat.
+
+**`pipeline/src/tandemcheck.mts`** is the new measurement — it recompiles from the project's
+own `lesson.json` and resolves cues against the project's _measured_ timings, so a planner
+change is re-measured against real speech with no key and no re-render.
+
+| `projects/try`, 10 beats, 198 drawn elements   | before  | after   |
+| ---------------------------------------------- | ------- | ------- |
+| mean lead (dead board before the first stroke) | **36%** | **6%**  |
+| mean span (first stroke to last)               | **38%** | **73%** |
+| distinct moments                               | 86%     | **97%** |
+| cues that did not resolve                      | 4       | **0**   |
+
+**The tool caught a regression in its own fix, and that is the point of it.** The first
+version had an unnamed mark join the gesture in front of it. Beat s1's opening stroke is
+`graphite-outline`, the only "graphite" in that beat is two sentences later in "called
+graphite", and the forward-only search dragged the first stroke to 61% and took twenty-two
+marks with it — the exact defect, reproduced by its fix. `DRIFT` is the answer: a name spoken
+more than a quarter of the beat out of step with the mark's turn in the drawing is a different
+mention of the same word, not that mark's cue.
+
+### 2. Colour, for the one thing one ink cannot draw
+
+`Tone` — `ink` (default, and absent from the JSON), `accent`, `contrast`, `muted` — on `Mark`
+and on `ElementBase`, mapped to inks by `toneInk()` in `render/src/palette.ts`. `contrast` is
+`#c2410c` against the accent's `#2f6fed`: warm against cool is the one pair that survives the
+common forms of colour blindness, and the two differ in value so it holds in greyscale.
+
+Optional rather than defaulted, deliberately — a default writes `"tone":"ink"` onto every
+element of every storyboard and breaks the byte-identical compile of two pinned lessons.
+
+**`pipeline/src/tonesheet.mts` draws the case twice, toned and stripped.** Look at both. Two
+flows crossing one space — ions through the liquid, electrons the long way round the wire —
+are legible in two inks and are a tangle in one, and no audit can measure that. The brief now
+holds the author to a strict test: _if the drawing reads correctly in one ink, use one ink._
+
+`DRAW_BRIEF` also gained a LEGIBILITY section, which is the other half of "everything collapses
+into each other": use the whole canvas, nothing overlaps unless it means "inside", a gap that
+matters is drawn wide, never write inside hatching, and fewer marks drawn bigger every time.
+`BRIEF_VERSION` is `draw/v2`; the brief is in `drawKey` so every drawing re-authors.
+
+**Known defect 0a is fixed, and not by moving anything.** Text is now painted with a paper
+halo under the glyphs (`paint-order: stroke fill` in `page/runtime.js`), so a name written
+across ink knocks the ink out behind itself. This is the right side of the trade the audit
+made: shading stays writable-on — the version that treated it as an obstacle moved `N` and `S`
+out of a bar magnet into the field lines — and the legibility that decision cost is paid back
+in the renderer. Invisible on blank board, so it is unconditional. No plan or schema change:
+the runtime already had `plan.paper`.
+
+### 3. The voice was ten clips of a person, not a person
+
+**Every clause was synthesised as its own generation with no idea what surrounded it.** That
+is forced by `phrase.ts` — measuring a phrase is the only way to know when it is spoken
+without a forced aligner — but an engine handed four words in isolation reads them as a
+complete utterance: fresh onset, terminal fall, its own pitch range. Ten of those concatenated
+is the flat, effortful delivery that has to be worked at to follow.
+
+`previous_text`/`next_text` are documented by the provider for exactly this ("improve the
+speech's continuity when concatenating together multiple generations"), cost no extra audio
+and are never spoken. `narrate.ts` now hands over the neighbouring phrases of the same scene,
+whole phrases only and capped at 300 characters a side. Within-scene on purpose: cross-scene
+context would make every scene's cache depend on the one before it, and a scene boundary is a
+real pause anyway.
+
+Voice settings are also **pinned per request** rather than inherited. Every stock and cloned
+voice carries stored settings changeable from a web UI this repo has never seen, so the same
+lesson, key and voice id could deliver differently on two machines with no cache key able to
+know. `stability: 0.55` matters most: a scene is ten clause-length generations, and an
+expressive setting re-rolls its range on each one, so pitch and pace shift between clauses of
+one sentence. `DELIVERY_SIGNATURE` is in the scene key, because the stage cannot otherwise
+see a delivery decision made inside an adapter.
+
+**A cache test caught a real bug here.** The scene key existed twice — once for the lookup and
+once re-taken after a possible provider swap — with a comment warning not to let them drift.
+The warning was not enough: `DELIVERY_SIGNATURE` went into one and not the other, and every
+clip went stale on every run. Both are now one closure, `sceneKey(id, voice, rate)`, so the
+only thing that can differ is the provider, which is the whole reason it is re-taken.
+
+The **pacing was left alone.** `phrase.ts` records that a previous attempt to slow delivery
+pushed the rate below the teaching band and made it worse; the naturalness defect was the
+stitching, not the tempo.
+
+### 4. Plain language, in the brief
+
+The lesson prompt's NARRATION section gained a block on writing for the ear, with the rule
+stated the way round it actually works: **the more difficult the idea, the simpler the language
+carrying it must be.** Everyday words, one clause one thing, subject first, under fifteen words
+and mostly nearer eight, numbers spelled as spoken, no throat-clearing. This is heard once,
+aloud, with nothing to re-read — a listener decoding the sentence has stopped thinking about
+the subject, and elaborate phrasing on a hard idea hands over two problems at once.
+
+### What is still true, and what to do next
+
+- **Nothing measures whether a drawing teaches.** Unchanged, and still item 1 of the handoff.
+  `tonesheet.mts` and `tandemcheck.mts` are both measurements of _form_.
+- **Neither the tone nor the legibility brief has been through a keyed render.** The renderer's
+  half is proven end to end by `tonesheet.mts` from hand-authored marks; whether the author
+  _uses_ tone well, and uses it sparingly, is unmeasured. Run `drawsheet.mts` over the twelve
+  subjects and count how many reach for colour — the brief's strict test says most should not.
+- **`tandemcheck.mts` measures one project.** The numbers above are `projects/try`. Any other
+  project the voice stage has run over will do; there is only one on this machine.

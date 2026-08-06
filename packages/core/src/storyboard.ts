@@ -179,10 +179,50 @@ export const Morph = z.object({
   retires: z.array(z.string()).default([]),
 });
 
+/**
+ * Which ink draws an element, named by what it is *for*.
+ *
+ * The board's rule has always been one ink for structure and one accent to mark things
+ * up, and the reason is worth keeping in view: a hue per scene, or per element, is how a
+ * whiteboard turns into a rainbow that carries no information at all. This does not
+ * relax that rule — it is four names, closed, and every one of them has to earn its use
+ * by telling two things apart that the learner would otherwise confuse.
+ *
+ * The case it exists for is the one a single ink genuinely cannot draw. In a beat where
+ * an electron loops one way round a circuit while a lithium ion crosses the other way,
+ * both paths are lines, both cross the same gap, and in one colour they are a tangle —
+ * the picture is *there* and it does not teach, because the whole idea is that these two
+ * things go different ways. That is not decoration; it is the distinction the beat is
+ * about, and there is no arrangement of one ink that makes it.
+ *
+ * - `ink` — the default, and what almost everything is. Structure: containers, parts,
+ *   outlines, the drawing itself.
+ * - `accent` — the one thing this beat is about. What moves, what changes, what the
+ *   narration is pointing at.
+ * - `contrast` — the thing that must not be confused with the accent, and only that.
+ *   The second path, the opposing charge, the "before" against the "after".
+ * - `muted` — context that has already been explained and is now scaffolding, so the
+ *   eye goes past it to what is new.
+ *
+ * The renderer maps these onto the board's palette; nothing upstream names a colour.
+ */
+export const Tone = z.enum(['ink', 'accent', 'contrast', 'muted']);
+export type Tone = z.infer<typeof Tone>;
+
 const ElementBase = {
   id: z.string(),
   at: Box,
   enter: Enter.default({}),
+  /**
+   * Which ink draws this. Absent is the structural ink.
+   *
+   * Optional rather than defaulted, and that is load-bearing: a default would write
+   * `"tone":"ink"` onto every element of every storyboard on disk, which changes the
+   * compiled bytes of two lessons that are pinned to compile identically and every
+   * hash any tool takes of them — a schema change masquerading as a content change.
+   * Absent means absent, and the renderer reads it as the ink it always used.
+   */
+  tone: Tone.optional(),
   /**
    * Whether the element survives past its own scene.
    *

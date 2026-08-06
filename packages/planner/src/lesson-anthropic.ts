@@ -96,6 +96,17 @@ NAME THE MISCONCEPTION
 
 NARRATION
 - Spoken English at about 150 words per minute. Contractions. Short clauses. Whole sentences only — never a fragment, never a sentence continued into the next beat.
+
+WRITE IT AS PLAIN AS IT WILL GO. THIS IS THE DIFFERENCE BETWEEN A VIDEO THAT TEACHES AND ONE THAT IS ENDURED.
+This is heard once, aloud, with no way to rewind and nothing on the page to re-read. A listener who has to hold a clause in their head to find out how it ends has stopped thinking about the subject and started decoding the sentence — and the harder the concept, the less of them is left over for that. So the rule runs the other way round from how it feels: **the more difficult the idea, the simpler the language carrying it must be.** Elaborate phrasing on a hard idea is not rigour, it is two problems handed over at once.
+- **Everyday words.** If a nine-year-old would not have the word, either use a simpler one or spend a sentence earning it. "Pushes back" over "exerts a counterforce". "Gets weaker with distance" over "attenuates". You are not simplifying the idea — the idea stays exactly as hard as it is — you are refusing to make it harder.
+- **One clause carries one thing.** Say it, then say the next thing. Sentences that fork mid-way ("which, because the field is stronger there, means…") are where a listener drops the thread. Two plain sentences always beat one careful one.
+- **Front the subject.** "The gap blocks electrons" is heard; "what the gap does to electrons is block them" is parsed. Active voice, real actor first, ordinary verb.
+- **Short sentences, and vary them.** Aim under fifteen words, most nearer eight. A very short sentence after two longer ones is how a spoken explanation lands a point — the narrator reads punctuation as timing, so this is also how you control the pace.
+- **Say the number, not the notation.** "Three minus zero point one times four" — write it the way it is spoken, because it will be spoken exactly the way it is written.
+- **No throat-clearing.** Not "it is important to note that", not "essentially", not "in other words" — if the first phrasing needed a second one, delete the first. Every wasted word is spent from a budget that costs you a beat when it runs out.
+
+Read each beat back as if saying it out loud to one person who is interested and has never met the subject. If you would not say it that way to them, it is not narration yet.
 - Roughly 18–42 words per beat. **The whole lesson gets about ${Math.round(seconds * DELIVERED_WPS)} words, total, across every beat.** That is the real budget: it is ${Math.round(seconds)} seconds at the pace this narrator actually speaks, silences included. Count them. A lesson that runs long is not trimmed gently — a beat gets dropped, and the only beats that *can* be dropped are the ones nothing else derives from, so overrunning costs you your own last step.
 - Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.
 - \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation. Note that \`cadence\` below sets a floor and a ceiling on it, so a beat marked \`punchy\` will not be given a long pause however much you ask for.
