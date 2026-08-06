@@ -1548,6 +1548,21 @@ priced at eight strokes and only a solid obstacle is; the weights that stop a la
 marooned off the canvas are untouched. Verified in the frame — "Left bundle branch" was
 lying across the heart's left border and now sits in clear board with its leader extended.
 
+### Four of eight underlays were lost in silence, and the lane looked fine
+
+Drawings are composed four at a time. `openDrawUnderlay` guarded its browser launch with a
+`let opened = true` set _before_ the launch resolved, so every caller but the first got an
+unopened browser — `undefined`, which this code cannot tell apart from "no Chromium
+installed". They took the non-fatal path and their beats were drawn with no picture at all.
+**Four of the first real lesson's eight underlays, gone, with no warning and the other four
+perfect.** Memoise the promise, not a flag; `illustrationRaster` does exactly that two files
+away and says why in a comment. 8 of 8 after.
+
+The general shape is worth more than the fix: **a lazy singleton behind a boolean is a race
+whenever the thing it guards is awaited**, and here it degraded into a documented,
+non-fatal, silent fallback — the most expensive kind of bug to have, because the feature
+appears to work.
+
 ### The lane was finished, correct, and never used
 
 **This is the most useful thing in this section.** With every part of the lane working and a

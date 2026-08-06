@@ -27,7 +27,7 @@
 >   because the brief's caution was louder than its case. Nothing in the repo measures that
 >   gap.
 > - **A good drawing is not evidence that the author is good.** The loop has two model calls
->   in it. The composite that proved this lane worked was the *critic's* work — as composed,
+>   in it. The composite that proved this lane worked was the _critic's_ work — as composed,
 >   its marks were nowhere near the organ — and the cache keeps both, so you can always find
 >   out which call did it. `<key>.json` is as composed, `<key>.<fixTag>.json` as corrected.
 >
@@ -240,12 +240,16 @@ records the _requested_ voice id, not the one the adapter resolved to.
 
 ## How to verify a change cheaply
 
-Twelve tools, cheapest first. **Use the first one that can see your change.** All are run
+Fifteen tools, cheapest first. **Use the first one that can see your change.** All are run
 from the repo root with `npx tsx <path>`.
 
 1. `packages/planner/src/markcheck.mts cache` — every cached drawing, audited before and
    after mechanical repair. **The cheapest thing that can see a drawing-lane change**: no
-   key, no network, no browser, ~50 ms. Also takes `<lesson.json>` files.
+   key, no network, no browser, ~50 ms. Also takes `<lesson.json>` files. **It cannot see a
+   hybrid drawing honestly** — a cache file is marks and nothing else, so the picture those
+   marks annotate is not there, and names deliberately placed in the clear board beside it
+   read as `label-adrift`. Use it as a regression check on the drawings that predate the
+   hybrid lane, and `underlaysheet.mts` for the ones that do not.
 2. `packages/pipeline/src/vocabcheck.mts` — terms spoken vs written.
 3. `packages/pipeline/src/synccheck.mts <projectDir>` — every element against the word
    being spoken. Needs a project the voice stage has run over.
