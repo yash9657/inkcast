@@ -209,12 +209,22 @@ export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
   /** Lower is better. A collision justifies a move; nothing else does. */
   const cost = (b: Box, from: Box): number => {
     const onLabels = placed.reduce((n, o) => n + (overlapArea(b, o) > 0 ? 1 : 0), 0);
-    const onInk = ink.reduce((n, k) => n + (inkHitsBox(k, b, 6) ? 1 : 0), 0);
+    const hit = ink.filter((k) => inkHitsBox(k, b, 6));
+    const onInk = hit.filter((k) => !k.solid).length;
+    // A generated picture is priced eight times a crossed stroke, and the difference is
+    // the difference between the two obstacles. Crossing one arrow is untidy and a name
+    // written across a traced organ is illegible, full stop — but escaping a picture that
+    // occupies a third of the board costs 200-odd units of displacement, and at the ink
+    // rate the arithmetic says a collision is the cheaper of the two. It is not. This is
+    // the only obstacle worth crossing the board to avoid, so it is the only one priced
+    // to. Escaping is always possible: the picture is placed inside `UNDERLAY_AREA`
+    // precisely so there is clear board on either side for the names to reach.
+    const onSolid = hit.filter((k) => k.solid).length;
     const centre = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     const nearest = ink.reduce((d, k) => Math.min(d, inkDistance(k, centre)), Infinity);
     const adrift = ink.length && nearest > ADRIFT ? 1 : 0;
     const moved = Math.hypot(b.x - from.x, b.y - from.y);
-    return onLabels * 1000 + onInk * 50 + adrift * 50 + moved * 0.5;
+    return onLabels * 1000 + onSolid * 400 + onInk * 50 + adrift * 50 + moved * 0.5;
   };
 
   return marks.map((m) => {

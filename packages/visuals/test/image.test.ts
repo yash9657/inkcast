@@ -53,6 +53,23 @@ test('extractPathData pulls every path out of a vectoriser svg', () => {
   assert.deepEqual(extractPathData('<svg></svg>'), []);
 });
 
+test('a traced path is placed where its own translate says, not at the origin', () => {
+  // vtracer writes every path relative to its own origin and carries the real position
+  // in a transform. Reading `d` alone stacked every part of an illustration on one
+  // point — the anatomical heart the hybrid lane is built for came back as six paths all
+  // starting `M0 0`, five of them interior details that landed in a smudge.
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">' +
+    '<path d="M0 0 L10 0 L10 10 Z" fill="#000" transform="translate(100,40)"/>' +
+    '<path d="M0 0 L4 0" fill="#000" transform="translate(0,0)"/>' +
+    '</svg>';
+  const [moved, untouched] = extractPathData(svg);
+  assert.equal(moved, 'M100,40L110,40L110,50Z');
+  // A zero translate is left exactly as it was written, so nothing is re-serialised for
+  // no reason and the common case is byte-for-byte what it always was.
+  assert.equal(untouched, 'M0 0 L4 0');
+});
+
 test('vectorisation degrades to undefined when the native module is absent', async () => {
   // Not a real PNG on purpose: either the optional native dep is missing (we
   // warn and return undefined) or it is present and rejects the input — both
