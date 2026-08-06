@@ -165,8 +165,18 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // lesson whose path intents are all within the six shapes compiles byte-identically.
   // 11: marks compile to elements, and a beat carrying a drawing gives its words less of
   // the cell. A lesson with no marks is unaffected, both shipped ones included.
-  storyboard: 11,
-  voice: 5,
+  // 12: every mark of a drawing claims the words that name it, instead of the whole
+  // drawing sharing the intent's one cue — so a beat's elements carry different cues and
+  // different fallback fractions. Marks may also carry a `tone`. A lesson with no marks
+  // compiles byte-identically; both shipped ones verified with `sbhash`, both presets.
+  storyboard: 12,
+  // 6: a clause is synthesised with the narration either side of it handed to the engine
+  // as context, and the delivery settings are pinned per request rather than inherited
+  // from whatever the voice has stored. Both change the audio for narration that never
+  // moved. Also the first release in which the cloud provider declares a speaking rate,
+  // so the stage's "140-160 wpm" correction applies to it at all — a measured render came
+  // out at 185 wpm with the correction silently skipped.
+  voice: 6,
   visuals: 7,
   render: 5,
 };

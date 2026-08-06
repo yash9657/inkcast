@@ -59,6 +59,28 @@ const VOICE_SETTINGS = {
  */
 export const DELIVERY_SIGNATURE = 'el/v2:context+pinned-settings';
 
+/**
+ * Words per minute this provider **delivers** at `speed: 1`.
+ *
+ * Without a number here the voice stage skips its rate correction entirely — `speed`
+ * stays at 1 and "140–160 wpm for teaching" becomes a target nothing aims at. That is
+ * what was happening: a nine-beat lesson on the cardiac conduction system came out at
+ * **185 wpm**, a fifth faster than the top of the band, and the stage could only notice
+ * afterwards and warn. Every Kokoro voice has carried a measured baseline since the voice
+ * audit; the cloud provider was added later and never got one.
+ *
+ * Measured the same way theirs were, which is the only way the two are comparable: the
+ * rate delivered through the *real* phrase pipeline — per-phrase synthesis, edge
+ * trimming, clause and sentence gaps — and not from one raw call. `narrate()` reports
+ * exactly this quantity at the end of every run, which is where the number comes from.
+ *
+ * One measurement of one voice, and that is its honest limit: ElevenLabs voices differ
+ * from each other more than Kokoro's do, and a cloned voice could be anywhere. It is
+ * still far better than the 1.0 it replaces, and the stage keeps warning when the
+ * delivered rate misses the band — so a voice this is wrong for reports itself.
+ */
+export const ELEVENLABS_BASELINE_WPM = 185;
+
 /** Preferred stock voices per Kokoro voice family (accent + gender). */
 const PREFERENCES: Record<string, readonly string[]> = {
   af: ['Rachel', 'Sarah', 'Jessica', 'Aria', 'Matilda'],
@@ -200,6 +222,10 @@ export function createElevenLabsProvider(): VoiceProvider {
 
     async voices() {
       return (await loadCatalogue()).map((v) => v.name);
+    },
+
+    naturalWpm() {
+      return ELEVENLABS_BASELINE_WPM;
     },
 
     async resolveVoice(requested: string) {

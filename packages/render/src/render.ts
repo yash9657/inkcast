@@ -38,8 +38,11 @@ const log = logger('render');
  *
  * 4: board accumulation and the derived camera, plot/path/motion, cue-accurate
  * entry, holds, and text that fits by binary search instead of overflowing.
+ * 5: an element's `tone` selects its ink, and every glyph is painted over a halo of
+ * paper so a name written across shading stays readable. The halo is unconditional and
+ * therefore touches every frame that has ever had text on it, which is all of them.
  */
-const RENDER_VERSION = 4;
+const RENDER_VERSION = 5;
 
 type Segment = { index: number; from: number; to: number; poster: number | null };
 
