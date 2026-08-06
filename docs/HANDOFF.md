@@ -1,9 +1,31 @@
-> ## → If you were sent here to build the hybrid drawing lane, read **`HANDOFF-HYBRID.md`** first.
+> ## The hybrid drawing lane is built. `HANDOFF-HYBRID.md` is now history, not a job.
 >
-> It is the current job and it is self-contained: an image for a real object's _form_,
-> composed marks for its _parts and their names_. The mechanism is already proven —
-> `pipeline/src/underlaysheet.mts`, and open `/tmp/ul/composite.png` — and none of it is
-> wired up. Come back here for the architecture and the traps.
+> An image for a real object's _form_, composed marks for its _parts and their names_. Run
+> it and look:
+>
+>     npx tsx packages/pipeline/src/underlaysheet.mts \
+>       "a human heart, anatomical, external front view, whole organ with great vessels" \
+>       "Draw a bold line from the AV node down the septum, splitting into left and right \
+>        bundle branches reaching the apex. Mark the SA node high in the right atrium. Label each." \
+>       /tmp/ul
+>
+> **Open `/tmp/ul/composite.png`.** That is the board as the film draws it, through every
+> real transform. One image call, one authoring call, everything cached after.
+>
+> Full record in `STATUS.md` under **the hybrid drawing lane — 2026-08-06, later**. Three
+> things worth carrying even if you never touch this lane again:
+>
+> - **An `illustration` asset is vectorised and redrawn in the board's own hand, not
+>   pasted.** Two bugs older than this work lived in that path — traced paths ignored their
+>   own `translate`, and an asset is authored in a nominal square viewBox before being
+>   scaled into its element's box. Both are fixed; both were invisible in the code.
+> - **The library lane resolves ahead of the illustration lane and matches on the prompt.**
+>   "A human heart, anatomical" matched _human_ and drew a stick figure with "Bundle of His"
+>   pointing at it.
+> - **A capability is not shipped when it works. It is shipped when the stage that has to
+>   ask for it actually asks.** The finished lane went through a full keyed render unused,
+>   because the brief's caution was louder than its case. Nothing in the repo measures that
+>   gap.
 
 # Handoff — 2026-08-06 · the drawing keeps up with the sentence
 
@@ -100,6 +122,15 @@ Then the board **looks at what it drew**:
 - **`planner/src/draw-anthropic.ts`** — the author, the gate, and two cache files per
   drawing: `<key>.json` (as composed) and `<key>.<fixTag>.json` (as corrected, or the
   original when the correction lost, so nothing is paid for twice).
+- **`planner/src/underlay.ts`** — the hybrid lane's placement rules: the region a generated
+  subject may occupy, where its traced ink lands on the canvas, and the asset id and prompt
+  both sides must agree on. **Everything in it exists so two sides cannot disagree about one
+  number** — a text-to-image model is not a function, and marks aimed at a picture that
+  landed anywhere else look exactly like a model that cannot aim.
+- **`pipeline/src/draw-underlay.ts`** — the other seam, `drawUnderlay`. Generates the raster,
+  traces it to find where its ink really is, and renders **the board the author is shown**:
+  that ink at the box it will occupy, on a canvas the size the author composes on. Not the
+  raw raster — see the file for why that difference is the whole lane.
 - **`pipeline/src/draw-preview.ts`** — the renderer, passed down as `drawPreview`. The
   planner has no browser and must not acquire one; same seam as `illustrations`.
 - **`render/src/still.ts`** — `openStills()` / `captureStill()`: one frame, no encode.
@@ -238,7 +269,11 @@ from the repo root with `npx tsx <path>`.
     `synccheck.mts` for anything about _when_ a picture is drawn — synccheck checks each
     stroke against its own word and reported the shipped film's worst sync defect as 209
     elements, 0 in a silence, because they were all correctly cued to one phrase.
-14. `packages/pipeline/src/tonesheet.mts <outDir>` — the four inks on a drawing built to
+14. `packages/pipeline/src/underlaysheet.mts "<subject>" "<instruction>" [outDir]` — **the
+    tool the hybrid lane is judged with**, and the cheapest thing that can see it at all:
+    one image call, one authoring call, and a `composite.png` that has been through every
+    transform the film uses. Every defect in that lane was found by opening it.
+15. `packages/pipeline/src/tonesheet.mts <outDir>` — the four inks on a drawing built to
     need them, rendered twice: as authored, and with every tone stripped. Free, no key.
     **Open both.** Whether two flows crossing one space are legible is not a number.
 
@@ -326,8 +361,10 @@ note `$NF`, because lines carry a package prefix.
 **`pnpm lint` is `prettier --check .`** — a hard gate, `examples/*.lesson.json` and every
 `docs/*.md` included.
 
-**Stage versions** are `lesson@8, storyboard@11, voice@5, visuals@7, render@5` in
-`packages/pipeline/src/keys.ts`, which explains when to bump and when not to.
+**Stage versions** are `lesson@10, storyboard@14, voice@6, visuals@8, render@5` in
+`packages/pipeline/src/keys.ts`, which explains when to bump and when not to. **The lesson
+brief is not in the lesson stage's cache key**, so a brief change is invisible without the
+bump — unlike `DRAW_BRIEF`, which is hashed into `drawKey` directly.
 
 **`teach <topic> --lesson <file>` silently ignores the file.** Use `cast`.
 
@@ -360,7 +397,10 @@ note `$NF`, because lines carry a package prefix.
 2. **A drawing is drawn evenly across its beat**, not cued part by part. Item 2.
 3. **Two of twelve still measure dirty** — the heart keeps one `label-on-ink`, the knee that
    plus an `off-canvas`, and the knee's correction measured worse and was rejected. Item 4.
-4. **No maths notation beyond Unicode.** Item 3.
+4. **No maths notation beyond Unicode.** Item 3, and now the top of the list: it is the
+   one thing Golpo is best at and we cannot do at all. `EquationElement` already typesets
+   TeX (`visuals/src/equation.ts`); one more `Mark.kind` closes maths, physics and
+   chemistry.
 5. **The board is sparse** — 20% fill against a 48% benchmark. Item 6.
 6. **A subject is redrawn per beat** rather than referred to. Item 5.
 7. **The recap redraws its picture** in a fresh panel while the original is still up.

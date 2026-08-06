@@ -1444,3 +1444,117 @@ the subject, and elaborate phrasing on a hard idea hands over two problems at on
   subjects and count how many reach for colour — the brief's strict test says most should not.
 - **`tandemcheck.mts` measures one project.** The numbers above are `projects/try`. Any other
   project the voice stage has run over will do; there is only one on this machine.
+
+## The hybrid drawing lane — 2026-08-06, later
+
+Written against `visuals-morph-density` at the commits listed below. An image for a real
+object's _form_, composed marks for its _parts and their names_ — the drawing neither lane
+can make alone, and the one thing on the Golpo list they could not copy, because their
+illustrations carry no addressable parts.
+
+The evidence for the lane was already in `docs/HANDOFF-HYBRID.md` and is not repeated here.
+What follows is what building it actually cost, which was mostly not what the handoff
+predicted.
+
+**`pnpm lint` clean · `pnpm -r typecheck` 0 errors across 9 projects · `pnpm -r test`
+653 pass / 0 fail** (up from 646: six in `planner/test/underlay.test.ts`, one in
+`visuals/test/image.test.ts`). Both shipped lessons compile byte-identically at both presets,
+every drawing cached before this work audits identically, and `tandemcheck.mts` on
+`projects/cardiac` is unchanged line for line.
+
+### What the handoff got right
+
+The mechanism. The author aims well at a picture it is shown, the seam is the same shape as
+`drawPreview`, and the compiler branch is where it said it would be. `buildDrawing` fitting
+by content bounds really was the thing that would bite: `fitCanvas` is the fix, and the
+picture is placed at that same transform's image of the measured ink box, so there is
+exactly one transform and nothing for two halves to disagree about.
+
+### What it got wrong, and this is the useful half
+
+**The handoff's alignment plan assumed the image is drawn as an image. It is not.** An
+`illustration` asset is vectorised and redrawn in the board's own hand — which is far better
+than pasting a raster, and it means the geometry passes through three more transforms than
+the plan accounted for. Three of them were wrong, and two were bugs older than this work:
+
+1. **`extractPathData` dropped `transform="translate(...)"`.** vtracer writes each path
+   relative to its own origin and carries the real position in an attribute the regex never
+   read, so every traced part was stacked at one point. The anatomical heart traces to six
+   paths all starting `M0 0`; five are interior details that landed in a smudge on the
+   aortic arch. It survived because the one path carrying most of the ink is usually much
+   the largest, so the union bounds barely move and the subject still looks roughly like
+   itself. The parts inside it do not.
+2. **An asset is authored in a nominal _square_ viewBox and then scaled into each element's
+   box.** That is right when nothing is aimed at it, and enough on its own to defeat
+   exactness: fitting a tall subject inside a square leaves the margin _inside the artwork_,
+   and it rides along. Measured: a heart that should have filled a 578-unit box drew 385
+   wide, every leader arrow reaching past it into blank board. `Asset.fit: 'exact'` authors
+   the artwork in a viewBox of its element's own shape, which makes the scale that follows
+   an identity.
+3. **The library lane resolves ahead of the illustration lane, and matched.** "A human
+   heart, anatomical, external front view" matched _human_ against the character library and
+   drew **a stick figure** with "SA node", "Bundle of His" and "Left bundle branch" pointing
+   at it. An exact asset may now only come from the lane that made the picture it was
+   measured from, and if that lane cannot answer it draws nothing rather than something
+   else.
+
+None of the three is visible in the code, in a type, or in any number the repo produces.
+All three were found by opening `composite.png`.
+
+### The overrun fixed itself
+
+8 of 22 marks fell outside the canvas in the experiment. The handoff proposed stating the
+bound twice, letting the audit fire, and not clamping. What actually fixed it was removing
+the arithmetic: the author is handed **the board** — the generated subject's ink, traced and
+drawn at the box it will really occupy, on a canvas of exactly the size it is composing on —
+rather than the raw raster plus a sentence about how to map fractions onto it. A feature a
+third of the way across the picture is at a third of the canvas, because the picture is the
+canvas. **17 marks placed, 0 outside.** The bound is still stated twice in the brief, and
+the audit still fires; neither had to do the work.
+
+### A name may not be written on the picture
+
+The handoff flagged that `repairLabels` cannot see the underlay and said to decide
+deliberately. It is fed in as an obstacle — and feeding it in changed nothing, which is the
+part worth recording. At the ordinary rate a collision costs 50 and escaping a picture that
+occupies a third of the board costs 200-odd units of displacement, so the arithmetic said
+stay put. That is right about an arrow and wrong about an organ: our own shading is
+deliberately writable-on, and the bar-magnet frame says that decision should stand, but a
+traced organ is interior detail at the density of the thing itself. A solid obstacle is now
+priced at eight strokes and only a solid obstacle is; the weights that stop a label being
+marooned off the canvas are untouched. Verified in the frame — "Left bundle branch" was
+lying across the heart's left border and now sits in clear board with its leader extended.
+
+### The lane was finished, correct, and never used
+
+**This is the most useful thing in this section.** With every part of the lane working and a
+paid image key configured, a full keyed render of _the cardiac conduction system_ — the
+lesson the lane was built for — produced **twelve `draw` intents, zero underlays, zero
+assets, and the valentine still in the film.** 2:41, $0.76, nothing broken. The author read
+the advice and declined it every time.
+
+The advice sat after the whole lane list, where the choice has already been made, and spent
+its last paragraph on exclusions ending "if you are unsure, leave it out". **A caution the
+model obeys everywhere is not caution, it is an off switch.** It now sits inside the `draw`
+bullet and leads with a question the author can answer about the object — would a learner
+recognise this thing if they saw the real one, and does its shape carry meaning — with the
+exclusions kept to one sentence. `lesson@10`, because the brief is not in the stage's cache
+key and without the bump the change is invisible.
+
+The general form is worth keeping: **a capability is not shipped when it works, it is
+shipped when the stage that has to ask for it actually asks.** Nothing between the two is
+measured by any tool in the repo, and the only thing that catches it is rendering the film
+and reading the lesson.
+
+### Tools
+
+`pipeline/src/underlaysheet.mts` is no longer a standalone experiment — it drives the real
+seam, the real author, the real compiler and the real visuals stage, and writes the
+composite the film would draw. One image call and one authoring call. It is the cheapest
+thing that can see this lane at all, and every defect above came out of it.
+
+### Stage versions
+
+`lesson@10, storyboard@14, voice@6, visuals@8, render@5`. `visuals` moves for the translate
+fix and the exact fit, either of which alone would justify it — every project with a
+generated illustration in it re-resolves, which is the point.
