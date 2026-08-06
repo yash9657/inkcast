@@ -1,3 +1,10 @@
+> ## → If you were sent here to build the hybrid drawing lane, read **`HANDOFF-HYBRID.md`** first.
+>
+> It is the current job and it is self-contained: an image for a real object's _form_,
+> composed marks for its _parts and their names_. The mechanism is already proven —
+> `pipeline/src/underlaysheet.mts`, and open `/tmp/ul/composite.png` — and none of it is
+> wired up. Come back here for the architecture and the traps.
+
 # Handoff — 2026-08-06 · the drawing keeps up with the sentence
 
 > **Read this box first, then the 08-05 handoff below it, which is otherwise still
