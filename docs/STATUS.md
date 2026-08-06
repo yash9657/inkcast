@@ -1501,16 +1501,39 @@ the plan accounted for. Three of them were wrong, and two were bugs older than t
 None of the three is visible in the code, in a type, or in any number the repo produces.
 All three were found by opening `composite.png`.
 
-### The overrun fixed itself
+### The overrun, and a composite that was not evidence of what it looked like
 
 8 of 22 marks fell outside the canvas in the experiment. The handoff proposed stating the
-bound twice, letting the audit fire, and not clamping. What actually fixed it was removing
-the arithmetic: the author is handed **the board** — the generated subject's ink, traced and
-drawn at the box it will really occupy, on a canvas of exactly the size it is composing on —
-rather than the raw raster plus a sentence about how to map fractions onto it. A feature a
-third of the way across the picture is at a third of the canvas, because the picture is the
-canvas. **17 marks placed, 0 outside.** The bound is still stated twice in the brief, and
-the audit still fires; neither had to do the work.
+bound twice, letting the audit fire, and not clamping. Handing the author **the board** —
+the traced subject drawn at the box it will really occupy, on a canvas the size it is
+composing on — produced a composite with 17 marks, none outside, every one on the organ.
+That was written up here as the overrun fixing itself. **It was not.**
+
+Checked afterwards against the cache, which keeps the drawing as composed beside the
+drawing as corrected: **as composed, those 17 marks spanned x 790..1680 on a canvas 1000
+wide and not one of them was on the organ.** The correction pass pulled them back to
+345..702 with 28 of 36 coordinates on the picture. The composite was the critic's work and
+the author had not aimed at all.
+
+That rescue is not a mechanism, it is luck, and the failure mode is precise: **the audit
+fires on ink leaving the canvas, not on a mark missing the thing it names.** A drawing whose
+marks are misaimed but comfortably inside 0..1000 trips nothing, is never sent to the
+critic, and ships. Three of the eight hybrid drawings in the first real render did exactly
+that — the SA node ripples drawn in clear board beside the heart, at x 600..970 against a
+picture at 328..672.
+
+The cause was one number. The board was rendered at `deviceScaleFactor: 2`, so a position
+read off the image had to be halved before it could be emitted, and the brief's "read your
+coordinates off the picture" was not literally true. At 1 it is: the image is 1000x560, one
+pixel is one canvas unit, and there is no conversion left to get wrong. Same subject, same
+instruction, **as composed and with no correction at all: 26 of 35 coordinates on the
+picture, nothing off canvas** — and the correction pass now measures its own revision as
+worse and rejects it.
+
+Two things to keep from this. **A drawing that came out well is not evidence that the stage
+you are testing works** — the loop has two model calls in it and the cache will tell you
+which one did the work. And **the audit still cannot see aim**, which is the same blind spot
+as benzene's chords and is now the most valuable thing left to measure in this lane.
 
 ### A name may not be written on the picture
 

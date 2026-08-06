@@ -26,6 +26,15 @@
 >   ask for it actually asks.** The finished lane went through a full keyed render unused,
 >   because the brief's caution was louder than its case. Nothing in the repo measures that
 >   gap.
+> - **A good drawing is not evidence that the author is good.** The loop has two model calls
+>   in it. The composite that proved this lane worked was the *critic's* work — as composed,
+>   its marks were nowhere near the organ — and the cache keeps both, so you can always find
+>   out which call did it. `<key>.json` is as composed, `<key>.<fixTag>.json` as corrected.
+>
+> **The one thing this lane still cannot measure is aim.** `draw-audit.ts` fires on ink
+> leaving the canvas, never on a mark missing the thing it names, so a drawing that is
+> misaimed but comfortably inside the canvas trips nothing and is never sent to the critic.
+> Same blind spot as benzene's chords, and now the most valuable thing left to measure here.
 
 # Handoff — 2026-08-06 · the drawing keeps up with the sentence
 

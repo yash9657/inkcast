@@ -75,27 +75,40 @@ export function openDrawUnderlay(dir: string): DrawUnderlayHandle {
     screenshot(o: { path?: string }): Promise<Buffer>;
     close(): Promise<void>;
   };
+  /**
+   * The browser, opened once — and it is **the promise that is memoised, not a flag.**
+   *
+   * Drawings are composed four at a time. A `let opened = true` guard set before the launch
+   * resolves hands every caller but the first an unopened browser, which is `undefined`,
+   * which is indistinguishable here from "no Chromium installed": they take the non-fatal
+   * path and their beats are quietly drawn without the picture. Measured on the first real
+   * lesson to use this lane — **four of eight underlays lost, in silence**, with the other
+   * four perfect, which is exactly what a race looks like and nothing like a bug.
+   *
+   * `illustrationRaster` memoises its promise for the same reason and says so in a comment.
+   */
   let browser: Browser | undefined;
-  let opened = false;
+  let launching: Promise<Browser | undefined> | undefined;
 
   const chrome = async (): Promise<Browser | undefined> => {
-    if (opened) return browser;
-    opened = true;
-    try {
-      // Reached the same way `still.ts` reaches it, and for the same reason: a static
-      // import of Playwright anywhere in this package pulls it into every `inkcast list`.
-      const { chromium } = (await import('playwright')) as unknown as {
-        chromium: { launch(): Promise<Browser> };
-      };
-      browser = await chromium.launch();
-    } catch (err) {
-      log.info(
-        'no Chromium, so a drawing cannot be composed on top of a generated picture — ' +
-          'pnpm exec playwright install chromium',
-      );
-      log.debug('could not launch a browser for the underlay', err);
-    }
-    return browser;
+    launching ??= (async () => {
+      try {
+        // Reached the same way `still.ts` reaches it, and for the same reason: a static
+        // import of Playwright anywhere in this package pulls it into every `inkcast list`.
+        const { chromium } = (await import('playwright')) as unknown as {
+          chromium: { launch(): Promise<Browser> };
+        };
+        browser = await chromium.launch();
+      } catch (err) {
+        log.info(
+          'no Chromium, so a drawing cannot be composed on top of a generated picture — ' +
+            'pnpm exec playwright install chromium',
+        );
+        log.debug('could not launch a browser for the underlay', err);
+      }
+      return browser;
+    })();
+    return launching;
   };
 
   const underlay: DrawUnderlay = async (prompt: string) => {
@@ -175,9 +188,12 @@ export function openDrawUnderlay(dir: string): DrawUnderlayHandle {
   return {
     underlay,
     async close() {
+      // Wait for a launch already in flight rather than racing it: closing before it
+      // resolves leaves a Chromium behind, and this runs in the stage's `finally`.
+      await launching?.catch(() => undefined);
       await browser?.close().catch(() => undefined);
       browser = undefined;
-      opened = true;
+      launching = Promise.resolve(undefined);
     },
   };
 }
