@@ -151,9 +151,16 @@ export function openDrawUnderlay(dir: string): DrawUnderlayHandle {
       '</div></body>';
     let page: Page | undefined;
     try {
+      // **One image pixel is one canvas unit, and that is the point.** At any other scale
+      // the author has to convert before it can emit a coordinate, and it is bad at it: at
+      // deviceScaleFactor 2 the same author, shown the same heart, composed 17 marks
+      // spanning x 790..1680 on a canvas 1000 wide with not one of them on the organ. The
+      // brief can say "read your coordinates off the picture" as often as it likes; this is
+      // what makes the sentence literally true. Detail beyond board resolution is not
+      // actionable anyway — this is the size the thing is actually drawn at.
       page = await b.newPage({
         viewport: { width: DRAW_W, height: DRAW_H },
-        deviceScaleFactor: 2,
+        deviceScaleFactor: 1,
       });
       await page.setContent(html);
       return await page.screenshot({});
