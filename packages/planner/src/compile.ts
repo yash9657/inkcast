@@ -973,6 +973,16 @@ function figureBoxes(area: Box, n: number, preset: Preset): Box[] {
 
 /* ------------------------------------------------------------ visual intents */
 
+/**
+ * Claims an element's cue slot while asking for no cue at all.
+ *
+ * The blanket assignment tests `has`, and the application tests truthiness, so an empty
+ * string means "this element has already been decided about, and the decision was a fixed
+ * fraction of the beat". The only thing that wants it is the hybrid lane's generated
+ * picture, which must be on the board before anything annotates it.
+ */
+const NO_CUE = '';
+
 type IntentContext = BeatContext & {
   id: string;
   box: Box;
@@ -1019,7 +1029,17 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
       // cue — which is the right answer for a picture whose parts the narration never
       // names, and the wrong one for the thirty-mark cross-section it was measured on.
       for (const el of drawn) if (el.enter.cue) ctx.cues.set(el.id, el.enter.cue);
-      return underlay ? [buildUnderlay(underlay, ctx), ...drawn] : drawn;
+      if (!underlay) return drawn;
+      const picture = buildUnderlay(underlay, ctx);
+      // **The form is not cued, and has to be exempted to stay that way.** Every element
+      // this intent makes that has not claimed a cue of its own is handed the intent's
+      // blanket cue further down, and the voice stage then overwrites `at` with wherever
+      // that phrase lands — which put the heart on the board at 0.150 of the beat instead
+      // of 0.02, and on one measured beat at 0.87, after every mark that annotates it.
+      // A leader arrow arriving before the thing it points at is the defect this element's
+      // early `at` exists to prevent, so `NO_CUE` claims the slot and asks for nothing.
+      ctx.cues.set(picture.id, NO_CUE);
+      return [picture, ...drawn];
     }
     log.warn(
       `beat ${ctx.index} carries ${intent.marks.length} marks that draw nothing`,

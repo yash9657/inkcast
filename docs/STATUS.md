@@ -1584,6 +1584,37 @@ shipped when the stage that has to ask for it actually asks.** Nothing between t
 measured by any tool in the repo, and the only thing that catches it is rendering the film
 and reading the lesson.
 
+### What the underlay costs the beat's timing, measured
+
+`tandemcheck.mts`, all four cardiac projects on this machine. `cardiac2` has no underlays
+and `cardiac4` has eight; they are different lessons on the same topic by the same author,
+so this is a comparison and not a controlled experiment.
+
+| project                      | lead | span | distinct | cues unresolved |
+| ---------------------------- | ---- | ---- | -------- | --------------- |
+| `cardiac` (before this work) | 5%   | 83%  | 93%      | 1               |
+| `cardiac2` (no underlays)    | 6%   | 78%  | 91%      | 0               |
+| `cardiac4` (eight underlays) | 13%  | 69%  | 88%      | **8**           |
+| `cardiac5` (same, `NO_CUE`)  | 8%   | 74%  | 88%      | **0**           |
+
+Most of that gap was a defect and is fixed — `cardiac5` is the same marks and the same
+narration with only the compiler changed. **The generated picture was being handed the
+intent's blanket cue** — every element that has not claimed a cue of its own gets one — and
+the voice stage then overwrote its `at`, so the heart landed at 0.150 of the beat instead of
+0.02, and on one beat at 0.87, _after every mark that annotates it_. A leader arrow arriving
+before the thing it points at is the whole reason that element has an early `at`. `NO_CUE`
+claims the slot and asks for nothing.
+
+What is left — 8% against 6%, 74% against 78% — is real, and is a property of the lane
+rather than a bug. `draw-cues.ts` finds a
+mark its own words by looking for the mark's name in the narration, and that works because
+`DRAW_BRIEF` insists a mark is named after its part. An annotating drawing names things the
+narration does not say — `sa-node-ripple-1`, `fibrous-ring-outline`, `av-node-leader` are
+honest ids and none of them is a phrase anybody speaks. So fewer marks anchor, more fall
+back to the blanket cue, and the beat draws in fewer distinct moments. **Naming a leader
+after the part it reaches rather than after itself is the obvious next move**, and it is a
+brief change, not a code change.
+
 ### Tools
 
 `pipeline/src/underlaysheet.mts` is no longer a standalone experiment — it drives the real
