@@ -164,7 +164,12 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 9,
+  // 10: the underlay advice moved into the `draw` bullet, where the lane is actually
+  // chosen, and leads with the case rather than with the exclusions. At 9 it sat after the
+  // lane list and ended "if you are unsure, leave it out", and a keyed render of the
+  // cardiac conduction system — the lesson the lane was built for, image key configured —
+  // came back with twelve `draw` intents and not one underlay.
+  lesson: 10,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.

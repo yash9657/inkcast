@@ -64,7 +64,7 @@ test('a traced path is placed where its own translate says, not at the origin', 
     '<path d="M0 0 L4 0" fill="#000" transform="translate(0,0)"/>' +
     '</svg>';
   const [moved, untouched] = extractPathData(svg);
-  assert.equal(moved, 'M100,40L110,40L110,50Z');
+  assert.equal(moved, 'M100 40 L110 40 L110 50 Z');
   // A zero translate is left exactly as it was written, so nothing is re-serialised for
   // no reason and the common case is byte-for-byte what it always was.
   assert.equal(untouched, 'M0 0 L4 0');

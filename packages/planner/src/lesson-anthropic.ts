@@ -58,27 +58,32 @@ export function lessonModel(opts?: { model?: string }): string {
 /**
  * The hybrid lane, offered to the lesson author only when an image provider is configured.
  *
- * Same rule as the `illustration` lane above and for the same measured reason: an intent
- * that asks for something the run cannot provide gets a worse picture than one that never
- * asked. Without a key an `underlay` is ignored and the beat is drawn in marks alone, which
- * is fine — but a model told the lane exists will write `describe` text that assumes the
- * form is already on the board ("mark the SA node high in the right atrium"), and a
- * composed drawing given that instruction with no picture under it draws nothing at all
- * where the heart should be.
+ * Same rule as the `illustration` lane and for the same measured reason: an intent that
+ * asks for something the run cannot provide gets a worse picture than one that never
+ * asked. Without a key an `underlay` is ignored and the beat is drawn in marks alone.
  *
- * The negative half of the rule carries most of the weight. The generator is good at the
- * likeness of a real thing and useless at everything else, so an underlay on an abstraction
- * puts a decorative picture behind a diagram and makes both harder to read.
+ * ## Why this reads the way it does
+ *
+ * The first version led with the trigger and then spent a paragraph on everything the lane
+ * must not be used for, ending "if you are unsure, leave it out". It was appended after the
+ * lane list, where a model has already chosen. On a full keyed render of *the cardiac
+ * conduction system* — the lesson this lane was built for, with a paid image key
+ * configured — the author wrote twelve `draw` intents and **not one underlay**, and the
+ * film has the valentine in it exactly as before.
+ *
+ * A caution the model obeys everywhere is not caution, it is an off switch. So the advice
+ * now sits inside the `draw` bullet, where the choice is actually made, and it leads with
+ * the case rather than the exclusions: the exclusions are still here, and they are one
+ * sentence rather than a paragraph with a moral. The lane cannot be gated on a keyword
+ * table — that is the wrong axis, and this file's own history says so — but a brief that
+ * asks a question the model can answer about *the object* is not a keyword table.
  */
 const UNDERLAY_ADVICE = `
-DRAW ON TOP OF A REAL OBJECT, WHEN THE OBJECT'S OWN SHAPE MATTERS
-A \`draw\` visual may also carry \`underlay\`: \`{"prompt": "<the object, as a picture>"}\`. The generator draws the object's FORM, and the illustrator then composes its marks looking at that picture — so the parts, the pathways and the NAMES land on a real anatomical heart instead of on a symmetrical cartoon of one. Neither half can do this alone: an image model cannot spell or name a part, and a composed drawing asked for a heart draws the valentine ❤️ from a text message.
-
-Write \`underlay.prompt\` as the OBJECT, not the beat's idea and not the annotation: "a human heart, anatomical, external front view, whole organ with great vessels". One centred subject, the view you want, no scene, no labels, no arrows — you are describing what an illustrator would draw before anyone wrote on it. \`describe\` still says what goes ON it.
-
-USE IT for a real physical thing whose actual shape a learner would recognise and whose shape carries meaning: an organ, a bone, a plant, an animal, an instrument, a tool, a machine, a piece of apparatus, a landmark.
-
-DO NOT USE IT for anything else, and this half matters more. No abstraction, no process, no comparison, no timeline, no graph, no flow, no hierarchy, no schematic, no cross-section of a made-up thing, no "the concept of X". Those have no true form for a generator to draw, so it invents a decorative one and you get a picture behind a diagram, both harder to read than either alone. Most beats of most lessons should have no \`underlay\`. If you are unsure, leave it out: a composed drawing on a blank board is the lane that always works.`;
+  A \`draw\` visual may also carry \`underlay\` — \`{"prompt": "<the object, as a picture>"}\` — and this is how you draw a REAL THING that has a real shape. An image generator draws the object's form; the illustrator then composes its marks **while looking at that picture**, so the parts, the pathways and the names land on a real anatomical heart instead of on a symmetrical cartoon of one. Neither half can do it alone: an image model cannot spell or name a part, and a composed drawing asked for a heart draws the valentine ❤️ from a text message.
+  ASK ONE QUESTION: would a learner recognise this thing if they saw the real one, and does its actual shape carry meaning? A heart, a kidney, a neuron, a bone, a leaf, a beetle, a violin, a jet engine, a lathe, a telescope, a cathedral — yes, every time. Set \`underlay\` on that beat. A structural lesson about a real object should use it on most of its beats, not one.
+  Write \`underlay.prompt\` as the OBJECT and nothing else: "a human heart, anatomical, external front view, whole organ with great vessels". One centred subject, the view you want, no scene, no labels, no arrows — what an illustrator would draw before anyone wrote on it. \`describe\` still says what goes ON it, and should be written as if the form is already there: "mark the SA node high in the right atrium, run the pathway down the septum".
+  The answer is no for anything with no true form to draw: an abstraction, a process, a comparison, a timeline, a graph, a flow, a hierarchy, a schematic, "the concept of X". Leave \`underlay\` out there and let the composed drawing have the board to itself.
+`;
 
 function teachingBrief(opts: LessonOptions, seconds: number): string {
   const audience = opts.audience ?? 'a curious beginner with no background in the subject';
@@ -158,7 +163,7 @@ Every beat needs at least one entry in \`visuals\`, and \`describe\` must say wh
 
 The compiler recognises these, and the words in **bold** are what select them, so use them literally. **\`draw\` is the normal choice** — read it first and reach for another kind only when that kind is plainly better:
 - **draw** — a composed drawing, made of boxes, ellipses, freehand strokes, arrows, hatching, scattered dots and written labels, placed one by one by an illustrator who reads your \`describe\` and nothing else. It can draw anything: a battery cut open, a chloroplast, a wire looping through a bulb, a ship heading for the rocks, two things side by side with an arrow between them. It is free, it is drawn in the same hand as the rest of the board, and it can spell — so it labels its own parts. Write \`describe\` as the picture you want, in the detail you would use telling a person what to put on a whiteboard: what the parts are, where they sit relative to each other, what crosses what, what is inside what. Say the RELATION, because the relation is what teaches: "two flat stacks facing each other across a narrow gap, a plus charge crossing the gap freely, an electron turned back at it and going the long way round through a wire and a bulb" is a drawing instruction. "A battery" is not.
-- **plot** — anything with axes. Say which shape and which overlays: **bowl**/**parabola**/**loss curve**; **tangent** at a point; **steps** of descent; **two wells** or **local minimum** for a second, shallower valley; **three plots** comparing **too small**, **too large** and **about right**; **sigmoid**; **bell curve**; **exponential**; **logarithm**; **sine wave**; **threshold**; **straight line**; **overfitting** (training versus unseen data); **supply and demand**.
+${opts.illustrations ? UNDERLAY_ADVICE : ''}- **plot** — anything with axes. Say which shape and which overlays: **bowl**/**parabola**/**loss curve**; **tangent** at a point; **steps** of descent; **two wells** or **local minimum** for a second, shallower valley; **three plots** comparing **too small**, **too large** and **about right**; **sigmoid**; **bell curve**; **exponential**; **logarithm**; **sine wave**; **threshold**; **straight line**; **overfitting** (training versus unseen data); **supply and demand**.
   Those named shapes are the ones it knows how to build; a plot that names none of them, and no quantity varying against anything, is not drawn as axes at all — it is handed to whichever lane can draw what you described. Put the numbers in the describe text and the drawn picture will be built from them: "w = 3, slope = +4, learning rate 0.1" derives a curve whose slope at w really is +4, and the drawn steps come from running the algorithm on it. Give real numbers whenever the beat has any.
 - **path** — freeform ink with no axes, and it can draw EXACTLY SIX THINGS: a **hillside**, a **bowl** (a valley, a basin), a container **blob**, a stick **figure**, **fog**, and **steps** down a slope. That list is not an example, it is the whole implementation. There is no seventh shape: this lane cannot draw a battery, a ship, a cell, a wire, a stack of layers or a cross-section of anything, and asking it for one gets you the drawing of that thing from another lane at best. Use \`path\` when the picture in your head really is terrain, a container, a person, fog or a walk downhill. Otherwise do not.
 - **motion** — something that moves. Pair it with a plot in the same beat and the moving thing follows that curve.
@@ -171,7 +176,6 @@ ${
 }
 - **text** — an equation or a phrase that must be written out verbatim. Use sparingly; the picture should carry the idea.
 Use one visual per beat, two at most. A beat with three competing pictures teaches nothing.
-${opts.illustrations ? UNDERLAY_ADVICE : ''}
 
 A STORY NEEDS A CAST, AND A CAST IS DECLARED ONCE
 When \`kind\` is \`narrative\`, fill in \`cast\`: who is in this, one entry each, with a stable \`id\`, the \`name\` your narration uses, and \`look\` in a few words. Then draw them by setting \`character\` on the visual — \`{"id": "<a cast id>", "pose": "<a pose>"}\` — instead of describing them again. Describing the same person per beat gets you a different person per beat; naming them makes it the same drawing, and naming the pose is what makes them move.

@@ -13,6 +13,14 @@ import { boxAt, fitCanvas, prepareMarks } from '../src/drawing.js';
 import { auditDrawing } from '../src/draw-audit.js';
 import { UNDERLAY_AREA, readInkBox, underlayAsset, underlayInkBox } from '../src/underlay.js';
 
+/** Marks carry schema defaults the tests do not care about. As `draw-audit.test.ts`. */
+const mark = (m: Partial<Mark> & { id: string; kind: Mark['kind'] }): Mark => ({
+  closed: false,
+  smooth: false,
+  dashed: false,
+  ...m,
+});
+
 test('a generated subject is placed by its ink, centred, and never stretched', () => {
   // The heart the lane was built on: 496x798 of a 1024 square, so a tall subject with a
   // wide white margin around it. It should come out full height and narrow, centred.
@@ -74,9 +82,9 @@ test('canvas fit uses the whole canvas, where content fit would rescale the mark
 test('a name may not be written on the generated picture', () => {
   const ink = underlayInkBox({ w: 496, h: 798 });
   const marks: Mark[] = [
-    { id: 'av-node', kind: 'ellipse', x: 480, y: 260, w: 24, h: 24 },
+    mark({ id: 'av-node', kind: 'ellipse', x: 480, y: 260, w: 24, h: 24 }),
     // Placed in the middle of the organ, where `inkOf` sees nothing at all.
-    { id: 'av-label', kind: 'label', x: 500, y: 300, text: 'AV node', size: 30 },
+    mark({ id: 'av-label', kind: 'label', x: 500, y: 300, text: 'AV node', size: 30 }),
   ];
 
   // Blind to the picture, this is free space and the label is left exactly where it was.
