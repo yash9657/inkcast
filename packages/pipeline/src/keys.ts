@@ -169,7 +169,12 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // drawing sharing the intent's one cue — so a beat's elements carry different cues and
   // different fallback fractions. Marks may also carry a `tone`. A lesson with no marks
   // compiles byte-identically; both shipped ones verified with `sbhash`, both presets.
-  storyboard: 12,
+  // 13: a beat is a card. Its `idea` is written as a heading two steps heavier than the
+  // caption it replaces, at `at: 0` before any ink, with a hand-drawn rule under it — and
+  // the camera holds that one cell instead of the union of every cell drawn so far in the
+  // region, so a beat four of four is no longer shown at a quarter size. Every scene's
+  // camera moves and every scene gains an element, both shipped lessons included.
+  storyboard: 13,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never

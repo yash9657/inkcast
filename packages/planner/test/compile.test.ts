@@ -173,13 +173,17 @@ test('beats share regions, and the board accumulates', () => {
   );
   assert.ok(perRegion.size >= 3 && perRegion.size <= 6, `${perRegion.size} regions`);
 
-  // Inside one region the camera pulls back as cells fill: the first beat is a
-  // close-up, later beats hold more of the panel.
+  // Every beat is a card: the camera holds that beat's own cell, at the same tightest
+  // shot, however many cells around it are already full. It used to pull back across the
+  // region as cells filled, which showed beat four of four at a quarter size — see
+  // `regions.ts` and `docs/research/golpo-video-craft.md`. Accumulation is still real:
+  // nothing is wiped, and the recap below is what collects on it.
   const build = sb.scenes.filter((s) => s.region === 'build');
   assert.ok(build.length >= 2);
-  assert.ok(
-    build[0]!.camera.zoom > build[build.length - 1]!.camera.zoom,
-    'the camera never pulled back',
+  assert.equal(
+    new Set(build.map((s) => s.camera.zoom)).size,
+    1,
+    `beats in one region should all be held at one card: ${build.map((s) => s.camera.zoom).join(', ')}`,
   );
   // The recap is the widest shot in the video.
   const recap = sceneFor(sb, 'recap');
@@ -701,8 +705,12 @@ test('a path intent the lane cannot draw becomes a drawing, not a hillside', () 
   const board = compileLesson(l, {});
   const scene = board.scenes.find((s) => s.narration === l.steps[0]!.narration);
   assert.ok(scene, 'the beat did not compile to a scene');
-  // No terrain, and no caption standing in for the picture either.
-  assert.ok(!scene.elements.some((el) => el.type === 'path'), 'freeform ink was drawn anyway');
+  // No terrain, and no caption standing in for the picture either. The title's own rule
+  // is a path and is not terrain, so it is excluded by id rather than by type.
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'path' && !el.id.endsWith('_rule')),
+    'freeform ink was drawn anyway',
+  );
   const asset = scene.elements.find((el) => el.type === 'asset');
   assert.ok(asset, 'the beat drew nothing at all');
   const minted = board.assets.find((a) => a.id === (asset.type === 'asset' ? asset.assetId : ''));

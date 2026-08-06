@@ -360,22 +360,41 @@ export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
     cellOf(beat) {
       return byBeat.get(beat)?.cell ?? regions[0]!.box;
     },
+    /**
+     * One beat, one card — and the recap over everything.
+     *
+     * This used to frame the union of every cell drawn so far in the region, so a beat
+     * four of four was shown at a quarter size with three finished cells around it. The
+     * argument for it was that the accumulated board *is* the summary. That argument is
+     * sound and it was being applied to the wrong shots: a viewer following beat four
+     * needs to read beat four, and the board as summary is a thing you want **once**, at
+     * the end, when there is a summary to look at.
+     *
+     * Measured against Golpo (`docs/research/golpo-video-craft.md`), which wipes between
+     * scenes and holds two to four big things centred on each one: ours was 23% frame
+     * fill with elements too small to read, and the pulled-back shots were where the
+     * whitespace was. Holding one cell is what makes a beat a card — the title at the
+     * top, the picture beneath it, filling the frame.
+     *
+     * **Recall is kept, and it is kept where it was actually earned.** A beat that
+     * annotates an earlier beat's drawing draws *into that beat's cell*, so framing "its
+     * own cell" frames the host's finished picture with the new ink arriving on top —
+     * the hillside becoming the loss curve still happens on screen, in one shot. Nothing
+     * is wiped either: the board still accumulates, the recap still pulls back over all
+     * of it, and that shot is now the only wide one in the film, which is what makes it
+     * land.
+     */
     cameraFor(beat, role) {
       const entry = byBeat.get(beat);
       if (!entry) return frame(wholeBoard, 0.9);
-      const drawn = entry.region.beats
-        .slice(0, entry.index + 1)
-        .map((b) => byBeat.get(b)?.cell)
-        .filter((b): b is Box => b !== undefined);
       // The recap earns the widest shot in the video: in landscape it holds the
       // whole board at once, which is the payoff for never having wiped it. In
       // vertical the board is a tall column, so pulling all the way back would
       // make it unreadable — the camera stays on the recap panel instead.
-      const box =
-        role === 'recap' && aspect !== '9:16'
-          ? wholeBoard
-          : unionBox(drawn.length ? drawn : [entry.cell]);
-      return frame(box, 0.9);
+      if (role === 'recap') {
+        return frame(aspect !== '9:16' ? wholeBoard : unionBox([entry.region.box]), 0.9);
+      }
+      return frame(entry.cell, 0.94);
     },
   };
 }

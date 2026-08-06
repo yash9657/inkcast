@@ -61,6 +61,7 @@ import {
   fogPaths,
   hillPath,
   hillPoint,
+  makePath,
   walkerPaths,
 } from './figures.js';
 import type { BeatRole } from './regions.js';
@@ -490,6 +491,49 @@ function weightUp(role: TextElement['role'], stressed: boolean): TextElement['ro
   return i > 0 ? TEXT_WEIGHT[i - 1]! : role;
 }
 
+/**
+ * The weight a beat's own name is written at.
+ *
+ * Two steps heavier than the caption it replaces, and clamped to `heading` rather than
+ * `title`: with the camera now holding one cell to the frame, a `title` set across the
+ * width of a card is enormous, and the words are meant to name the picture rather than
+ * to be the picture. `weightUp` still applies on top for a beat carrying emphasis, which
+ * is the one case that reaches `title`.
+ */
+function titleRole(preset: Preset, stressed: boolean): TextElement['role'] {
+  const i = TEXT_WEIGHT.indexOf(preset.captionRole);
+  const base = TEXT_WEIGHT[Math.max(1, i - 2)] ?? 'heading';
+  return weightUp(base, stressed);
+}
+
+/**
+ * The flourish under a title, as one hand-drawn stroke.
+ *
+ * A rule rather than a box or a border: it is drawn by the same pen, in the same pass,
+ * and the renderer's roughening makes it a line someone pulled under the words. It is
+ * what turns a line of text into a heading you have been *shown*, and it is the second
+ * half of the pattern every competing scene opens with — write the name, underline it,
+ * then draw.
+ *
+ * Sized to the words and not to the cell: a rule the full width of a card under three
+ * short words reads as a divider across the board rather than as an underline.
+ */
+function titleRule(id: string, title: TextElement): Element {
+  const w = Math.min(title.at.w, Math.max(120, title.at.w * 0.82));
+  const cx = title.at.x + title.at.w / 2;
+  const y = round(title.at.y + title.at.h + 10, 2);
+  const el = makePath(
+    id,
+    [
+      { x: round(cx - w / 2, 2), y },
+      { x: round(cx + w / 2, 2), y },
+    ],
+    { weight: 0.9 },
+  );
+  el.tone = 'accent';
+  return el;
+}
+
 function holdFor(
   step: LessonStep,
   role: BeatRole,
@@ -557,17 +601,23 @@ function buildBeat(ctx: BeatContext): Element[] {
     return stressed.some((e) => haystack.includes(e.toLowerCase()));
   };
 
-  /* --- the caption that names this cell --- */
+  /* --- the title that names this card --- */
+  //
+  // A beat announces itself before it draws anything. This was a small caption in the
+  // same weight as a note, and the film opened straight into ink with nothing telling a
+  // viewer what they were about to look at — the loudest complaint about the first
+  // watchable render, and the one thing every Golpo scene does that we did not do at all
+  // (`docs/research/golpo-video-craft.md`: the title is written first, then underlined,
+  // then the content is drawn beneath it).
+  //
+  // So it is a heading rather than a label, it is written at `at: 0` before any part of
+  // the picture, and `titleRule` below draws the flourish under it. The preset still owns
+  // how many words it may have; what changed is its weight, its order and its rule.
   const captionText = captionFor(step, role, preset);
-  const caption = makeText(
-    eid('idea'),
-    captionText,
-    weightUp(preset.captionRole, carries(captionText)),
-    {
-      maxWidth: cell.w,
-      align: 'center',
-    },
-  );
+  const caption = makeText(eid('idea'), captionText, titleRole(preset, carries(captionText)), {
+    maxWidth: cell.w,
+    align: 'center',
+  });
 
   /* --- text notes: the model's own text intents, plus worked arithmetic --- */
   const { notes, figures } = partition(step);
@@ -623,11 +673,23 @@ function buildBeat(ctx: BeatContext): Element[] {
     const h = round(t.at.h * scale, 2);
     t.at = { x: round(cell.x + (cell.w - t.at.w) / 2, 2), y: round(y, 2), w: t.at.w, h };
     y += h + 16 * scale;
-    // The caption names the cell from the start; a note is a line the narrator
-    // reaches later, so it is written when they get there rather than up front.
-    if (k > 0) t.enter = { ...t.enter, at: round(Math.min(0.8, 0.34 + (k - 1) * 0.12), 3) };
+    // The title names the card before anything is drawn under it, so it is pinned to the
+    // very start of the beat and given no cue — a cue would resolve it to whatever phrase
+    // it happened to match and put the name of the beat halfway through the beat. A note
+    // is a line the narrator reaches later, so it is written when they get there.
+    if (k === 0) t.enter = { ...t.enter, at: 0, style: 'write' };
+    else t.enter = { ...t.enter, at: round(Math.min(0.8, 0.34 + (k - 1) * 0.12), 3) };
     elements.push(t);
   });
+  // Underlined the moment the words are finished, before the picture starts — but not
+  // pushed yet. `buildIntent` is handed `elements` as the ink already on the board, and
+  // the lanes read it: a `motion` intent with nothing of its own looks there for
+  // something to travel along, and a rule is a `path`, so the mover rode the underline
+  // and the beat drew no scene at all. Furniture is not content, and the figure lanes
+  // must not be able to see it. Pushed below, once they have all run.
+  const rule = titleRule(eid('rule'), caption);
+  rule.enter = { ...rule.enter, at: 0.05, duration: 0.35 };
+  y += 14 * scale;
 
   /* --- the vocabulary, along the foot of the cell --- */
   //
@@ -735,7 +797,9 @@ function buildBeat(ctx: BeatContext): Element[] {
 
   // Last, so that a beat drawing nothing but words still counts as having nothing to
   // look at above: the vocabulary is what the narrator says, not the beat's picture.
-  elements.push(...termEls);
+  // The title's rule joins them here for the same reason — every count of "did this beat
+  // draw anything" above is a count of *content*, and furniture must not satisfy it.
+  elements.push(rule, ...termEls);
 
   for (const el of elements) {
     const wantedCue = cueOf.get(el.id);
