@@ -55,6 +55,31 @@ export function lessonModel(opts?: { model?: string }): string {
 
 /* -------------------------------------------------------------- the brief */
 
+/**
+ * The hybrid lane, offered to the lesson author only when an image provider is configured.
+ *
+ * Same rule as the `illustration` lane above and for the same measured reason: an intent
+ * that asks for something the run cannot provide gets a worse picture than one that never
+ * asked. Without a key an `underlay` is ignored and the beat is drawn in marks alone, which
+ * is fine — but a model told the lane exists will write `describe` text that assumes the
+ * form is already on the board ("mark the SA node high in the right atrium"), and a
+ * composed drawing given that instruction with no picture under it draws nothing at all
+ * where the heart should be.
+ *
+ * The negative half of the rule carries most of the weight. The generator is good at the
+ * likeness of a real thing and useless at everything else, so an underlay on an abstraction
+ * puts a decorative picture behind a diagram and makes both harder to read.
+ */
+const UNDERLAY_ADVICE = `
+DRAW ON TOP OF A REAL OBJECT, WHEN THE OBJECT'S OWN SHAPE MATTERS
+A \`draw\` visual may also carry \`underlay\`: \`{"prompt": "<the object, as a picture>"}\`. The generator draws the object's FORM, and the illustrator then composes its marks looking at that picture — so the parts, the pathways and the NAMES land on a real anatomical heart instead of on a symmetrical cartoon of one. Neither half can do this alone: an image model cannot spell or name a part, and a composed drawing asked for a heart draws the valentine ❤️ from a text message.
+
+Write \`underlay.prompt\` as the OBJECT, not the beat's idea and not the annotation: "a human heart, anatomical, external front view, whole organ with great vessels". One centred subject, the view you want, no scene, no labels, no arrows — you are describing what an illustrator would draw before anyone wrote on it. \`describe\` still says what goes ON it.
+
+USE IT for a real physical thing whose actual shape a learner would recognise and whose shape carries meaning: an organ, a bone, a plant, an animal, an instrument, a tool, a machine, a piece of apparatus, a landmark.
+
+DO NOT USE IT for anything else, and this half matters more. No abstraction, no process, no comparison, no timeline, no graph, no flow, no hierarchy, no schematic, no cross-section of a made-up thing, no "the concept of X". Those have no true form for a generator to draw, so it invents a decorative one and you get a picture behind a diagram, both harder to read than either alone. Most beats of most lessons should have no \`underlay\`. If you are unsure, leave it out: a composed drawing on a blank board is the lane that always works.`;
+
 function teachingBrief(opts: LessonOptions, seconds: number): string {
   const audience = opts.audience ?? 'a curious beginner with no background in the subject';
   return `You are the lesson stage of Inkcast. You do not write summaries, outlines, scripts or slide decks. You design ONE explanation that leaves a specific person able to do a specific thing, and you hand it over by calling the ${TOOL} tool exactly once.
@@ -146,6 +171,7 @@ ${
 }
 - **text** — an equation or a phrase that must be written out verbatim. Use sparingly; the picture should carry the idea.
 Use one visual per beat, two at most. A beat with three competing pictures teaches nothing.
+${opts.illustrations ? UNDERLAY_ADVICE : ''}
 
 A STORY NEEDS A CAST, AND A CAST IS DECLARED ONCE
 When \`kind\` is \`narrative\`, fill in \`cast\`: who is in this, one entry each, with a stable \`id\`, the \`name\` your narration uses, and \`look\` in a few words. Then draw them by setting \`character\` on the visual — \`{"id": "<a cast id>", "pose": "<a pose>"}\` — instead of describing them again. Describing the same person per beat gets you a different person per beat; naming them makes it the same drawing, and naming the pose is what makes them move.

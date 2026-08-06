@@ -57,6 +57,7 @@ import {
 import { costOf, type CostReport } from './cost.js';
 import { degradations, formatDegradation, type Degradation } from './degrade.js';
 import { openDrawPreview } from './draw-preview.js';
+import { openDrawUnderlay } from './draw-underlay.js';
 import { inStage, StageError } from './errors.js';
 import {
   assetFingerprint,
@@ -405,8 +406,13 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   // passes it down. Lazy in every direction: nothing loads and no browser launches unless
   // a drawing is actually found wanting.
   const drawing = openDrawPreview(metaOverrides);
+  // The other half of the drawing lane's seam: an intent that names a real object gets a
+  // generated picture of it to compose its marks on top of (`draw-underlay.ts`). Same
+  // laziness — no key, no vectoriser or no Chromium and the beat is drawn in marks alone.
+  const underlays = openDrawUnderlay(run.dir);
   const lessonOpts: LessonStageOptions = {
     drawPreview: drawing.preview,
+    drawUnderlay: underlays.underlay,
     ...format,
     maxSeconds: targetSec,
     ...(input.audience === undefined ? {} : { audience: input.audience }),
@@ -480,8 +486,9 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
           return parseLesson(written);
         } finally {
           // Chromium outlives the stage that opened it unless it is told not to, and a
-          // stage that fails is the case that matters.
-          await drawing.close();
+          // stage that fails is the case that matters. Both browsers, and neither may
+          // stop the other being closed.
+          await Promise.allSettled([drawing.close(), underlays.close()]);
         }
       });
       await saveLessonFile(run.dir, lesson);

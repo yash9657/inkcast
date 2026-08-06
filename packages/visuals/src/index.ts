@@ -225,6 +225,7 @@ export {
   illustrationRaster,
   resetIllustrationCache,
   resetImageProviderNotice,
+  tracedInkBox,
   vectoriseToInk,
   type IllustrationRaster,
   type ImageProvider,

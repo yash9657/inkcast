@@ -447,15 +447,96 @@ async function loadVectorizer(): Promise<{ vectorize: VectorizeFn; config: unkno
   return vectorizer;
 }
 
-const PATH_D_RE = /<path\b[^>]*\bd="([^"]+)"/g;
+const PATH_RE = /<path\b([^>]*)>/g;
+const D_RE = /\bd="([^"]+)"/;
+const TRANSLATE_RE = /\btransform="translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)"/;
 
-/** Pull the path data out of a vectoriser's SVG output. */
+/**
+ * Pull the path data out of a vectoriser's SVG output, each path placed where it belongs.
+ *
+ * **vtracer writes every path's coordinates relative to its own origin and carries the
+ * real position in a `transform="translate(x,y)"` attribute.** Reading `d` alone — which
+ * is what this did — stacks every traced part on one point. Measured on the anatomical
+ * heart the hybrid lane is built for: six paths, all six starting at `M0 0`, five of them
+ * small interior details that landed in a smudge on the aortic arch instead of scattered
+ * across the organ. It survived this long because the one path carrying most of the ink is
+ * usually much the largest, so the union bounds barely move and the subject still looks
+ * roughly like itself; the parts inside it do not.
+ *
+ * The translate is baked into the returned data rather than handed back beside it, because
+ * every caller wants one coordinate space and none of them wants to remember why.
+ */
 export function extractPathData(svg: string): string[] {
   const out: string[] = [];
-  PATH_D_RE.lastIndex = 0;
+  PATH_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = PATH_D_RE.exec(svg)) !== null) out.push(m[1] as string);
+  while ((m = PATH_RE.exec(svg)) !== null) {
+    const attrs = m[1] as string;
+    const d = D_RE.exec(attrs);
+    if (!d) continue;
+    const t = TRANSLATE_RE.exec(attrs);
+    if (!t) {
+      out.push(d[1] as string);
+      continue;
+    }
+    const e = Number(t[1]);
+    const f = Number(t[2]);
+    out.push(
+      e === 0 && f === 0
+        ? (d[1] as string)
+        : pathToString(transformSegs(parsePath(d[1] as string), { a: 1, b: 0, c: 0, d: 1, e, f })),
+    );
+  }
   return out;
+}
+
+/** One traced path, measured. */
+type TracedPath = { segs: ReturnType<typeof parsePath>; bbox: Box; area: number };
+
+/**
+ * A raster traced to measured paths, plus the box its ink occupies.
+ *
+ * One function because two callers must agree on it exactly: the lane that draws the ink,
+ * and the hybrid lane's seam, which reports where the subject will land so a drawing author
+ * can aim marks at it. Two implementations of "where is the ink" would put a leader arrow
+ * on empty board and look like the model being bad at aiming.
+ */
+async function traceImage(png: Buffer): Promise<{ paths: TracedPath[]; ink: Box } | undefined> {
+  const v = await loadVectorizer();
+  if (!v) return undefined;
+  let traced: string;
+  try {
+    traced = await v.vectorize(png, v.config);
+  } catch (err) {
+    log.warn('vectorisation failed', err);
+    return undefined;
+  }
+  const raw = extractPathData(traced);
+  if (raw.length === 0) {
+    log.warn('vectoriser produced no paths');
+    return undefined;
+  }
+  const paths = raw
+    .map((d) => {
+      const segs = parsePath(d);
+      const bbox = pointsBBox(samplePath(segs));
+      return { segs, bbox, area: bbox.w * bbox.h };
+    })
+    .filter((p) => p.area > 0);
+  if (paths.length === 0) return undefined;
+  return { paths, ink: unionBox(paths.map((p) => p.bbox)) };
+}
+
+/**
+ * Where a generated image's ink actually is, in the image's own pixel coordinates.
+ *
+ * The hybrid drawing lane needs this before it can brief anybody: a text-to-image model
+ * asked for "a human heart" returns a heart with a wide white margin around it, and the
+ * board draws the *ink*, not the frame. So the box the subject will occupy on the canvas
+ * is derived from this, and the author is shown a picture of exactly that.
+ */
+export async function tracedInkBox(png: Buffer): Promise<Box | undefined> {
+  return (await traceImage(png))?.ink;
 }
 
 /**
@@ -471,33 +552,12 @@ export async function vectoriseToInk(
   png: Buffer,
   box: Box,
   ctx: DrawContext,
-  opts: { maxPaths?: number } = {},
+  opts: { maxPaths?: number; fit?: 'contain' | 'exact' } = {},
 ): Promise<InkPath[] | undefined> {
-  const v = await loadVectorizer();
-  if (!v) return undefined;
-  let traced: string;
-  try {
-    traced = await v.vectorize(png, v.config);
-  } catch (err) {
-    log.warn('vectorisation failed', err);
-    return undefined;
-  }
-  const raw = extractPathData(traced);
-  if (raw.length === 0) {
-    log.warn('vectoriser produced no paths');
-    return undefined;
-  }
+  const traced = await traceImage(png);
+  if (!traced) return undefined;
+  const { paths: measured, ink: source } = traced;
 
-  const measured = raw
-    .map((d) => {
-      const segs = parsePath(d);
-      const bbox = pointsBBox(samplePath(segs));
-      return { segs, bbox, area: bbox.w * bbox.h };
-    })
-    .filter((p) => p.area > 0);
-  if (measured.length === 0) return undefined;
-
-  const source = unionBox(measured.map((p) => p.bbox));
   const minArea = source.w * source.h * 0.0006;
   const kept = measured
     .filter((p) => p.area >= minArea)
@@ -505,7 +565,11 @@ export async function vectoriseToInk(
     .slice(0, opts.maxPaths ?? 40);
   if (kept.length === 0) return undefined;
 
-  const m = fitMatrix(source, box, Math.min(box.w, box.h) * 0.04);
+  // `exact` is for an asset something else on the board is aimed at. The caller has
+  // already sized the box to this image's own ink — via `tracedInkBox`, the same trace —
+  // so the usual breathing room would shift the subject a few units out from under every
+  // leader arrow pointing at it. Nothing but the hybrid lane asks for it.
+  const m = fitMatrix(source, box, opts.fit === 'exact' ? 0 : Math.min(box.w, box.h) * 0.04);
   const paths: InkPath[] = [];
   kept.forEach((p, i) => {
     const d = pathToString(transformSegs(p.segs, m));
@@ -534,6 +598,8 @@ export async function illustrationPaths(args: {
   box: Box;
   ctx: DrawContext;
   seed?: number;
+  /** `exact` when the box was sized to this image's own ink and must not be padded. */
+  fit?: 'contain' | 'exact';
 }): Promise<{ paths: InkPath[]; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
@@ -542,7 +608,9 @@ export async function illustrationPaths(args: {
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
   });
   if (!raster) return undefined;
-  const paths = await vectoriseToInk(raster.png, args.box, args.ctx);
+  const paths = await vectoriseToInk(raster.png, args.box, args.ctx, {
+    ...(args.fit ? { fit: args.fit } : {}),
+  });
   if (!paths) return undefined;
   return { paths, raster: raster.rel, cached: raster.cached };
 }

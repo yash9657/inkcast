@@ -133,6 +133,43 @@ export const VisualIntent = z.object({
    * twice, and a human can move a stroke by editing JSON.
    */
   marks: z.array(Mark).optional(),
+  /**
+   * A generated picture of a real object, for the marks to be drawn **on top of**.
+   *
+   * The hybrid lane, and it exists because each half of the board is bad at exactly what
+   * the other half is good at. Measured on one beat, the same `describe` word for word:
+   * composed marks drew the conduction system correctly, labelled it, and drew it on a
+   * valentine ❤️; the image generator drew an anatomically real heart with great vessels
+   * and none of the conduction system in it, and could not have labelled it if it had —
+   * the prompt has to say "no text". So the image supplies the *form* of the thing and
+   * the marks supply its *parts and their names*.
+   *
+   * `prompt` names the object as an image generator should draw it — "a human heart,
+   * anatomical, external front view, whole organ with great vessels". Not the beat's
+   * idea, not the annotation: the object.
+   *
+   * Optional and never defaulted. Only for a real physical thing whose actual shape
+   * matters and a learner would recognise; an abstraction, a process or a comparison has
+   * no form to generate and is better off drawn entirely in marks.
+   */
+  underlay: z
+    .object({
+      prompt: z.string(),
+      /**
+       * Where that image's ink lands on the drawing canvas, `[x, y, w, h]`.
+       *
+       * Written by the drawing stage when it generates the image, never by the lesson
+       * author — it is measured from a trace of the image itself, because a generator
+       * returns its subject inside a wide white margin and the board draws the ink, not
+       * the frame. The marks were aimed at a picture of exactly this box, so it travels
+       * in `lesson.json` with them and a re-render needs no key and no network.
+       *
+       * An array rather than a tuple: `z.tuple` compiles to draft-07 `items: [...]`,
+       * which the Messages API rejects as an invalid `input_schema`.
+       */
+      inkBox: z.array(z.number()).length(4).optional(),
+    })
+    .optional(),
   /** Phrase from the narration this visual must land on. */
   cue: z.string().optional(),
   /**

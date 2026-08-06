@@ -30,10 +30,13 @@ import { DRAW_H, DRAW_W, Mark as MarkSchema, cacheDir, hash, logger } from '@ink
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { anthropicClient, callTool, errorDetail } from './anthropic.js';
+import type { Message } from './anthropic.js';
+import { anthropicClient, callTool, errorDetail, imagePart } from './anthropic.js';
 import { auditDrawing } from './draw-audit.js';
 import { fixTag, reviseDrawing } from './draw-critic.js';
 import { prepareMarks } from './drawing.js';
+import type { Box } from './elements.js';
+import { readInkBox } from './underlay.js';
 import { drawingJsonSchema } from './schema.js';
 import type { DrawPreview, LessonOptions } from './types.js';
 
@@ -104,6 +107,61 @@ The test to apply, and it is strict: **if the drawing reads correctly in one ink
 
 Emit the drawing by calling the ${TOOL} tool exactly once.`;
 
+/**
+ * The brief for a drawing composed **on top of a picture that is already there**.
+ *
+ * A different job from `DRAW_BRIEF`, not a variation on it. There the author invents a
+ * picture; here it is looking at one and adding what the picture cannot contain — internal
+ * structure, pathways, and above all names, which no image generator can put on a diagram
+ * because the prompt that makes an image traceable has to say "no text".
+ *
+ * ## The one sentence that does the work
+ *
+ * The attached image is the canvas. Not a reference, not a crop to be mapped through some
+ * ratio the model has to derive: the picture it is shown is the board, at the board's own
+ * dimensions, with the subject already drawn on it. Every coordinate it emits is therefore
+ * a coordinate it can *read off the picture*, which is what turned "the SA node is high in
+ * the right atrium" from a guess into an observation — measured, and it landed on the right
+ * atrium at the caval junction, anatomically correct and correctly aimed.
+ *
+ * The experiment that proved it (`pipeline/src/underlaysheet.mts`) briefed the box
+ * arithmetic instead — "the image occupies x=220..780, so a feature a fraction fx across is
+ * at 220 + fx*560" — and aim was already good. What that version got wrong was *range*: 8
+ * of 22 marks fell outside the canvas, the bundle branches running to y=720 on a board 560
+ * tall, because the model reasons in fractions and scales them wrong. Handing it the canvas
+ * itself removes the arithmetic that produced the error, and the bound is then stated twice
+ * more below, plainly, in units.
+ */
+const UNDERLAY_BRIEF = `You are annotating a drawing that is ALREADY ON THE BOARD.
+
+THE ATTACHED IMAGE IS THE BOARD ITSELF, at exactly the size you are drawing on: ${DRAW_W} wide and ${DRAW_H} tall, x right, y DOWN, origin top-left. The subject has already been drawn on it. What you see at a point in that image is at that point on your canvas — if a structure looks like it is a third of the way across and halfway down the picture, it is at x=${Math.round(DRAW_W / 3)}, y=${Math.round(DRAW_H / 2)}. Read your coordinates off the picture.
+
+STAY ON THE BOARD. Every x you emit is between 0 and ${DRAW_W}. Every y you emit is between 0 and ${DRAW_H}. **${DRAW_H}, not 1000** — the board is much wider than it is tall, and the commonest mistake here by far is running a line or a label off the bottom. That includes every point of a stroke or an arrow, and the whole extent of a box or a name, not just where it starts.
+
+DO NOT REDRAW THE SUBJECT. Its outline, its body, its overall form are already drawn and you cannot improve them. You are adding only what the image does not have and cannot have: internal structure, pathways, the relation between parts, and NAMES.
+
+AIM. An arrow pointing at a structure must point at where that structure IS in the picture in front of you, not where you would have put it. A mark that lands on blank board beside the subject is worse than no mark at all — it looks like a mistake, because it is one.
+
+THE MARKS, and there are only these eight:
+- rect {x,y,w,h} — a box. x,y is the TOP-LEFT corner.
+- ellipse {x,y,w,h} — the ellipse inscribed in that box. A node, a site, a region: draw it where it is.
+- line {points:[[x1,y1],[x2,y2]]} — one straight segment.
+- stroke {points:[[x,y],…], smooth?, closed?} — a freehand line through those points, and your main tool for a pathway that follows the shape of the thing. \`smooth: true\` curves through the points; leave it false for anything angular.
+- arrow {points:[[x,y],…]} — a line with a head on the LAST point. Two points is straight; three bends it through the middle one. This is your leader: from the name, to the thing.
+- label {x,y,text,size} — real handwriting. x,y is the CENTRE of the words. size 26–34.
+- hatch {x,y,w,h,angle} — parallel shading filling that box, at that angle in degrees.
+- dots {x,y,w,h,count} — count small filled dots scattered in that box.
+
+Every mark also takes \`tone\`: \`accent\` for the one thing this beat is about, \`contrast\` for the thing that must not be confused with it, \`muted\` for context. Leave it out for everything else — and if the drawing reads correctly in one ink, use one ink.
+
+NAMES GO IN THE CLEAR SPACE. The subject does not fill the board; there is empty canvas to the left and to the right of it. Put every label there and run an arrow from the label to the structure it names. A name written across the drawing is unreadable, whatever it says, and it hides the picture underneath it.
+
+ID EVERY MARK BY WHAT IT IS — \`av-node\`, \`left-bundle-branch\`, \`apex\` — the part, not the shape. That id is how the narration finds this mark and draws it on the words that name it, so a mark called \`ellipse-3\` is a mark nobody can cue.
+
+DRAW IN THE ORDER A PERSON WOULD: the pathway or structure first, then the parts along it, then the leaders, then the names.
+
+10 to 20 marks. Fewer marks drawn bigger, every time. Emit the drawing by calling the ${TOOL} tool exactly once.`;
+
 /* ------------------------------------------------------------------- schema */
 
 /**
@@ -135,12 +193,24 @@ const DrawingSchema = z.object({
  * picture, so a second video about batteries reuses the first one's cross-section — free,
  * instant, and identical, which is the entity-consistency problem solving itself.
  */
-export function drawKey(instruction: string): string {
+export function drawKey(instruction: string, underlay?: Uint8Array): string {
   // The brief itself is in the key, not just its version number. Every word of it
   // changes what comes back — the canvas dimensions most of all — and a cache that
   // survived a brief change would serve drawings composed for a canvas that no longer
   // exists, which is the subtlest possible way to make a fix look like it did nothing.
-  return hash(BRIEF_VERSION, DRAW_BRIEF, instruction.trim().toLowerCase()).slice(0, 16);
+  //
+  // And when there is an underlay, **the picture is in the key too, not just its prompt**.
+  // These marks were aimed at one specific image: a leader arrow reaching the septum is a
+  // true statement about that heart and a false one about the next heart the generator
+  // returns for the same words. Keying on the prompt alone would serve marks annotating a
+  // picture nobody can see any more — which on the board looks exactly like the model being
+  // bad at aiming, and is the one failure that would be diagnosed wrong.
+  return hash(
+    BRIEF_VERSION,
+    underlay ? UNDERLAY_BRIEF : DRAW_BRIEF,
+    instruction.trim().toLowerCase(),
+    underlay ? hash(Buffer.from(underlay).toString('base64')) : '',
+  ).slice(0, 16);
 }
 
 async function readCached(key: string): Promise<Mark[] | undefined> {
@@ -206,6 +276,13 @@ export type DrawOneOptions = {
   model?: string;
   context?: string;
   preview?: DrawPreview;
+  /**
+   * The board this drawing is composed on top of: `png` is the generated subject already
+   * drawn, at canvas size, and `box` is where its ink sits in canvas units. Switches the
+   * author to `UNDERLAY_BRIEF`, sends the picture ahead of the instruction, and makes the
+   * picture an obstacle every name has to keep off. See `./underlay.ts`.
+   */
+  underlay?: { png: Uint8Array; box: Box };
   /** Default `true`. `INKCAST_DRAW_FIX=0` turns the correction pass off for a whole run. */
   revise?: boolean;
 };
@@ -244,7 +321,7 @@ export async function drawOne(
   instruction: string,
   opts: DrawOneOptions = {},
 ): Promise<Mark[] | undefined> {
-  const key = drawKey(instruction);
+  const key = drawKey(instruction, opts.underlay?.png);
   const short = instruction.slice(0, 60);
 
   // Only when corrections are wanted. `revise: false` means "the drawing as it was
@@ -276,7 +353,9 @@ async function correct(
   opts: DrawOneOptions,
 ): Promise<Mark[] | undefined> {
   if (!revisionEnabled(opts)) return undefined;
-  if (!revisesEverything() && !auditDrawing(prepareMarks(marks)).length) return undefined;
+  const under = opts.underlay?.box;
+  if (!revisesEverything() && !auditDrawing(prepareMarks(marks, under), under).length)
+    return undefined;
   const c = await anthropicClient();
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
@@ -285,6 +364,7 @@ async function correct(
     model: opts.model ?? drawModel(),
     schema,
     ...(opts.preview ? { preview: opts.preview } : {}),
+    ...(opts.underlay ? { underlay: opts.underlay } : {}),
     instruction,
     ...(revisesEverything() ? { always: true } : {}),
   });
@@ -303,13 +383,21 @@ async function compose(
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
 
-  const ask = opts.context
-    ? `DRAW: ${instruction}\n\nThe beat this belongs to says: "${opts.context}"\nDraw only what the instruction asks for; the sentence is context for what matters in it.`
-    : `DRAW: ${instruction}`;
+  const ask = opts.underlay
+    ? `ANNOTATE THE ATTACHED BOARD: ${instruction}` +
+      (opts.context
+        ? `\n\nThe beat this belongs to says: "${opts.context}"\nAdd only what the instruction asks for; the sentence is context for what matters in it.`
+        : '')
+    : opts.context
+      ? `DRAW: ${instruction}\n\nThe beat this belongs to says: "${opts.context}"\nDraw only what the instruction asks for; the sentence is context for what matters in it.`
+      : `DRAW: ${instruction}`;
 
-  const messages: { role: 'user' | 'assistant'; content: string }[] = [
-    { role: 'user', content: ask },
-  ];
+  // The picture goes ahead of the instruction, the same message shape the critic already
+  // uses (`draw-critic.ts`): the model has to have looked before it reads what to do.
+  const first: Message = opts.underlay
+    ? { role: 'user', content: [imagePart(opts.underlay.png), { type: 'text', text: ask }] }
+    : { role: 'user', content: ask };
+  const messages: Message[] = [first];
   const short = instruction.slice(0, 60);
 
   // Two attempts, because the one failure mode seen in practice is a shape failure the
@@ -321,7 +409,7 @@ async function compose(
       raw = await callTool(
         c,
         opts.model ?? drawModel(),
-        DRAW_BRIEF,
+        opts.underlay ? UNDERLAY_BRIEF : DRAW_BRIEF,
         messages,
         schema,
         { name: TOOL, description: 'Emit the finished drawing as a list of marks.' },
@@ -331,7 +419,7 @@ async function compose(
       log.warn(`could not draw "${short}"`, errorDetail(err));
       return undefined;
     }
-    const parsed = DrawingSchema.safeParse(raw);
+    const parsed = DrawingSchema.safeParse(repairElements(raw));
     if (parsed.success) {
       await writeCached(key, parsed.data.elements);
       return parsed.data.elements;
@@ -348,6 +436,38 @@ async function compose(
     );
   }
   return undefined;
+}
+
+/**
+ * Repair the one corruption of `elements` that a re-ask cannot fix.
+ *
+ * `elements` arrives as a JSON *string* often enough that `DrawingSchema` parses rather
+ * than rejects it. On the underlay experiment it arrived as a string **and malformed** —
+ * `{"x":565,y":300}`, one opening quote missing — and showing that back to the model does
+ * not help, because it does not recognise it as an error: what it emitted, as it
+ * understands the emission, was correct. So the one corruption that actually occurs is
+ * repaired here and everything else still goes round the re-ask loop.
+ *
+ * Untouched unless it is both a string and unparseable, so a well-formed answer never goes
+ * near this.
+ */
+function repairElements(raw: unknown): unknown {
+  const list = (raw as { elements?: unknown } | undefined)?.elements;
+  if (typeof list !== 'string') return raw;
+  try {
+    JSON.parse(list);
+    return raw;
+  } catch {
+    /* the case this function is for */
+  }
+  const mended = list.replace(/([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)"\s*:/g, '$1"$2":');
+  try {
+    JSON.parse(mended);
+  } catch {
+    return raw;
+  }
+  log.debug('repaired a key that lost its opening quote in the emitted drawing');
+  return { ...(raw as object), elements: mended };
 }
 
 /** Beats in the order the lesson tells them, paired with the intents that want ink. */
@@ -370,6 +490,49 @@ function drawable(lesson: Lesson): { step: LessonStep; intent: VisualIntent }[] 
     }
   }
   return out;
+}
+
+/**
+ * The picture this intent is to be drawn on top of, generated, and recorded where it lands.
+ *
+ * `inkBox` is written back onto the intent — so `lesson.json` carries the geometry the
+ * marks were composed against and the compiler can put the image back exactly there with
+ * no key and no network — and it is *cleared first*, unconditionally, for every intent that
+ * asks for an underlay. The field is stage-owned and pruned from the lesson author's tool
+ * schema, but a lesson can also arrive from disk or from a hand edit, and a box left over
+ * from a picture this run did not generate would place an image the marks never saw.
+ *
+ * Everything about this is non-fatal. No image provider, no vectoriser, a failed
+ * generation: the intent keeps its marks and is drawn the way every drawing has always been
+ * drawn. That matters more than it looks — this lane is the one that needs a paid key, and
+ * a lesson that only works with one is not the lesson this project ships.
+ */
+async function underlayFor(
+  intent: VisualIntent,
+  opts: LessonOptions,
+): Promise<{ png: Uint8Array; box: Box } | undefined> {
+  const prompt = intent.underlay?.prompt?.trim();
+  if (!intent.underlay) return undefined;
+  delete intent.underlay.inkBox;
+  if (!prompt || !opts.drawUnderlay) return undefined;
+  let made: Awaited<ReturnType<NonNullable<LessonOptions['drawUnderlay']>>>;
+  try {
+    made = await opts.drawUnderlay(prompt);
+  } catch (err) {
+    log.warn(`could not generate the underlay "${prompt.slice(0, 60)}"`, errorDetail(err));
+    return undefined;
+  }
+  if (!made) {
+    log.info(`no underlay for "${prompt.slice(0, 60)}" — drawing it in marks alone`);
+    return undefined;
+  }
+  const box = readInkBox(made.inkBox);
+  if (!box) {
+    log.warn(`the underlay for "${prompt.slice(0, 60)}" came back without a usable box`);
+    return undefined;
+  }
+  intent.underlay.inkBox = made.inkBox;
+  return { png: made.png, box };
 }
 
 /** How many drawings are in flight at once. Politeness, not a rate limit. */
@@ -396,9 +559,11 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
       const i = next++;
       const job = work[i];
       if (!job) return;
+      const underlay = await underlayFor(job.intent, opts);
       const marks = await drawOne(job.intent.describe, {
         model,
         context: job.step.narration,
+        ...(underlay ? { underlay } : {}),
         ...(opts.drawPreview ? { preview: opts.drawPreview } : {}),
         ...(opts.reviseDrawings === undefined ? {} : { revise: opts.reviseDrawings }),
       });
@@ -409,9 +574,11 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, work.length) }, worker));
-  const wrong = work.filter(
-    (job) => job.intent.marks?.length && auditDrawing(prepareMarks(job.intent.marks)).length,
-  ).length;
+  const wrong = work.filter((job) => {
+    if (!job.intent.marks?.length) return false;
+    const under = readInkBox(job.intent.underlay?.inkBox);
+    return auditDrawing(prepareMarks(job.intent.marks, under), under).length > 0;
+  }).length;
   log.info(
     `${done}/${work.length} drawings composed` +
       (wrong ? `, ${wrong} still measurably imperfect` : ', none measurably wrong'),

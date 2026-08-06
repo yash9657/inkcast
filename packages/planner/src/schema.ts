@@ -27,8 +27,15 @@ const UNSUPPORTED = new Set([
   'markdownDescription',
 ]);
 
-/** Fields a later stage owns; the planner must not be asked to invent them. */
-const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg'];
+/**
+ * Fields a later stage owns; the planner must not be asked to invent them.
+ *
+ * `inkBox` is the newest and the clearest case: it is where a generated underlay's ink
+ * lands on the canvas, *measured from a trace of the image itself* by the drawing stage.
+ * A lesson author shown the field would fill it in, plausibly and wrongly, and the
+ * compiler would place a picture the marks were never aimed at.
+ */
+const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg', 'inkBox'];
 
 type Json = Record<string, unknown>;
 

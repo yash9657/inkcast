@@ -146,6 +146,15 @@ export async function resolveVisuals(
   const assetVisuals: Record<string, AssetVisual> = {};
   const assetHashes = new Map<string, string>();
 
+  // Where each asset is actually drawn, for the one kind that has to know: an `exact`
+  // asset is authored in a viewBox of its element's own shape rather than in the nominal
+  // square (see `assetViewBox`). First use wins, which is enough — the elements sharing an
+  // exact asset differ in size and never in shape.
+  const usedAt = new Map<string, Box>();
+  for (const scene of out.scenes)
+    for (const el of scene.elements)
+      if (el.type === 'asset' && !usedAt.has(el.assetId)) usedAt.set(el.assetId, el.at);
+
   for (const asset of out.assets) {
     const rel = `assets/${sanitiseId(asset.id)}.svg`;
     const key = `visuals:asset:${asset.id}`;
@@ -153,10 +162,14 @@ export async function resolveVisuals(
       // v3: the library lane resolves ahead of illustration and icon, so an asset
       // whose id or prompt now matches a curated drawing has different geometry for
       // identical storyboard inputs.
-      'asset/v3',
+      // v4: an asset may ask to meet its element's box exactly, which changes both the
+      // viewBox it is authored in and which lanes may answer for it.
+      'asset/v4',
       asset.id,
       asset.kind,
       asset.prompt ?? '',
+      asset.fit ?? '',
+      asset.fit === 'exact' ? aspectOf(usedAt.get(asset.id)) : '',
       asset.seed ?? '',
       asset.svg && asset.svg.includes('<svg') ? asset.svg : '',
       // Covers a version the reference did not pin and an alias table that moved;
@@ -195,6 +208,7 @@ export async function resolveVisuals(
       canvasHeight,
       provider,
       fontHref,
+      ...(asset.fit === 'exact' && usedAt.has(asset.id) ? { at: usedAt.get(asset.id) as Box } : {}),
     });
     assetVisuals[asset.id] = visual;
     asset.svg = visual.svg;
@@ -317,6 +331,35 @@ export async function resolveVisuals(
 
 let illustrationFallbackWarned = false;
 
+/** The shape of a box, to three places, for a cache key. */
+function aspectOf(box: Box | undefined): string {
+  return box && box.h > 0 ? (box.w / box.h).toFixed(3) : '';
+}
+
+/**
+ * The viewBox an asset's artwork is authored in.
+ *
+ * Square by default, because an asset is resolved **once** and then scaled into whatever
+ * box each element that references it has — so there is no one element's shape to honour.
+ *
+ * An `exact` asset is the exception, and it has to be, because that indirection is enough
+ * on its own to defeat the exactness. Fitting a tall subject inside a square leaves the
+ * margin *inside the artwork*, and scaling that square into a tall element box carries the
+ * margin along with it: measured on the first hybrid drawing, a heart that should have
+ * filled a 578-unit box was drawn 385 wide, and every leader arrow reached past it into
+ * blank board. So an exact asset is authored in a viewBox of its element's own shape, which
+ * makes the scale that follows an identity whatever `preserveAspectRatio` does with it.
+ *
+ * Two beats annotating the same subject share one asset, and that is still sound: each
+ * beat's box is the same measured ink box under a different uniform transform, so they
+ * differ in size and never in shape.
+ */
+function assetViewBox(at?: Box): Box {
+  if (!at || at.w <= 0 || at.h <= 0) return { x: 0, y: 0, w: NOMINAL_ASSET, h: NOMINAL_ASSET };
+  const s = NOMINAL_ASSET / Math.max(at.w, at.h);
+  return { x: 0, y: 0, w: at.w * s, h: at.h * s };
+}
+
 async function resolveAsset(args: {
   asset: Asset;
   dir: string;
@@ -326,10 +369,15 @@ async function resolveAsset(args: {
   canvasHeight: number;
   provider: string;
   fontHref?: string;
+  /** The box of an element using this asset. Only read for an `exact` fit. */
+  at?: Box;
 }): Promise<AssetVisual> {
   const { asset, dir, rel, style, font } = args;
   const seed = asset.seed ?? seedFrom('asset', asset.id);
-  const box: Box = { x: 0, y: 0, w: NOMINAL_ASSET, h: NOMINAL_ASSET };
+  const box: Box =
+    asset.fit === 'exact'
+      ? assetViewBox(args.at)
+      : { x: 0, y: 0, w: NOMINAL_ASSET, h: NOMINAL_ASSET };
   const ctx: DrawContext = { style, gen: createGenerator(style), seed };
 
   // A user-supplied inline SVG is authoritative — write it out untouched.
@@ -359,6 +407,18 @@ async function resolveAsset(args: {
   let icon: { slug: string; how: string } | undefined;
   let raster: string | undefined;
 
+  // An underlay is the one asset that may not be substituted. Its box was measured from
+  // a trace of one specific generated raster and a drawing's marks are aimed at what is
+  // in that raster, so any other picture — a curated drawing, an icon, a lettered card —
+  // is a different subject wearing the right coordinates, with leader arrows reaching
+  // into it and naming whatever happens to be there.
+  //
+  // This is not hypothetical. The first end-to-end run of the hybrid lane asked for "a
+  // human heart, anatomical, external front view, whole organ with great vessels",
+  // matched the word *human* against the character library, and drew a stick figure with
+  // "SA node", "Bundle of His" and "Left bundle branch" pointing at it.
+  const exact = asset.fit === 'exact';
+
   // 1. the library: drawings we chose, by path and version. First because it is the
   //    only lane whose output improves — everything below re-derives the same
   //    quality forever, so anything the library can answer, it should.
@@ -366,9 +426,11 @@ async function resolveAsset(args: {
   //    An entity with no `ref` still gets a look-up, on its id and then its prompt.
   //    That is what closes the no-key character gap: a planner minting `hiker` has
   //    no idea the library exists, and matching here means it does not need to.
-  const curated = asset.ref
-    ? { path: asset.ref.path, how: 'path' as const }
-    : matchLibrary({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
+  const curated = exact
+    ? undefined
+    : asset.ref
+      ? { path: asset.ref.path, how: 'path' as const }
+      : matchLibrary({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
   if (curated) {
     const ref: AssetRef = asset.ref ?? { path: curated.path };
     const drawn = await libraryPaths({ ref, box, ctx });
@@ -405,6 +467,10 @@ async function resolveAsset(args: {
         box,
         ctx,
         seed,
+        // An underlay's box was sized to this very image's ink by the planner, from the
+        // same trace, so it is already exactly right and padding it would slide the
+        // subject out from under the marks aimed at it.
+        ...(asset.fit ? { fit: asset.fit } : {}),
       });
       if (drawn) {
         items = pathItems(drawn.paths);
@@ -416,9 +482,22 @@ async function resolveAsset(args: {
     }
   }
 
+  // An underlay that could not be generated draws nothing at all, and that is the honest
+  // outcome: the marks on top of it still teach, and the alternative is a lettered card
+  // or a matched icon sitting in a box that was measured for something else, with named
+  // arrows pointing into it. Only reachable with the raster caches cleared and no key —
+  // the planner does not emit this element unless the picture was made and measured.
+  if (!items && exact) {
+    log.warn(
+      `the underlay "${asset.id}" could not be generated, so the beat's marks are drawn on ` +
+        'blank board — set FAL_KEY or REPLICATE_API_TOKEN, or re-run the lesson stage',
+    );
+    items = [];
+  }
+
   // 3. the offline fallback provider: a roughened lucide icon, matched on the id
   //    first. The library is the things we chose; this is the things we settle for.
-  if (!items) {
+  if (!items?.length && !exact) {
     const match = matchAsset({ id: asset.id, ...(asset.prompt ? { prompt: asset.prompt } : {}) });
     const found = iconPaths(term, box, ctx, match ? { slug: match.slug } : {});
     if (found) {
@@ -429,14 +508,14 @@ async function resolveAsset(args: {
   }
 
   // 4. last resort: a labelled card, still hand-drawn and still on-brand
-  if (!items) {
+  if (!items?.length && !exact) {
     items = letterCardItems(term, box, ctx, font, args.canvasHeight);
     lane = 'letter';
   }
 
   const written = writeElementSvg({
     id: asset.id,
-    items,
+    items: items ?? [],
     box,
     style,
     space: 'local',

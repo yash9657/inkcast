@@ -45,6 +45,7 @@ import {
   inkOf,
   labelBox,
   overlapArea,
+  underlayInk,
 } from './draw-geom.js';
 
 /**
@@ -102,11 +103,15 @@ const at = (b: Box): string => `(${round(b.x + b.w / 2)},${round(b.y + b.h / 2)}
  * output. Auditing raw marks would report collisions the free repair pass is about to fix
  * and then spend a model call on them.
  */
-export function auditDrawing(marks: Mark[]): Defect[] {
+export function auditDrawing(marks: Mark[], underlay?: Box): Defect[] {
   const out: Defect[] = [];
   const labels = marks.filter((m) => m.kind === 'label');
   const boxes = new Map(labels.map((m) => [m.id, labelBox(m)] as const));
-  const ink = inkOf(marks);
+  // The hybrid lane's generated picture is ink the audit has to know about, or a name
+  // written across the middle of a traced heart measures perfectly clean. It is also what
+  // stops `label-adrift` firing on the names this lane deliberately puts out at the sides:
+  // they are near the picture, which is the thing they name.
+  const ink = [...(underlay ? [underlayInk(underlay)] : []), ...inkOf(marks)];
 
   // 1. Labels on each other.
   for (let i = 0; i < labels.length; i++) {

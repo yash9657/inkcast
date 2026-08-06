@@ -21,7 +21,41 @@ import type { PresetName } from './presets.js';
  * Returns `undefined` when a picture cannot be produced. That is never an error — a
  * drawing revised without a render is weaker, not broken.
  */
-export type DrawPreview = (marks: Mark[]) => Promise<Uint8Array | undefined>;
+export type DrawPreview = (
+  marks: Mark[],
+  /**
+   * `underlay: true` renders the marks against the whole authoring canvas instead of
+   * fitting them to their own content bounds — the fit an annotated drawing gets on the
+   * real board. Without it the preview shown to the critic is in a different coordinate
+   * space from the picture the marks are annotating, and the two cannot be read together.
+   */
+  opts?: { underlay?: boolean },
+) => Promise<Uint8Array | undefined>;
+
+/**
+ * Generates the picture a drawing will be composed **on top of**, and says where it lands.
+ *
+ * The hybrid lane (`./underlay.ts`): an image for a real object's form, composed marks for
+ * its parts and their names. Same seam and the same reasoning as `DrawPreview` above —
+ * generating means an image provider, tracing means the vectoriser, and the planner
+ * depends on neither. The caller that already has both passes one in.
+ *
+ * `png` is the board **as the author will be shown it**: the traced ink of the generated
+ * image, drawn at `inkBox` on a blank `DRAW_W`x`DRAW_H` canvas. Not the raw raster. That
+ * costs one screenshot and buys the only thing that makes the lane work — the author is
+ * looking at the same coordinate space it is placing marks in, so "the SA node is high in
+ * the right atrium" is a reading of the picture rather than a guess about one.
+ *
+ * `inkBox` is `[x, y, w, h]` in that canvas's units, and is recorded in the lesson so the
+ * compiler can put the image back exactly there without a key or a network.
+ *
+ * `undefined` whenever a picture cannot be produced — no image key, no vectoriser, a
+ * provider error. Never an error: the beat falls back to marks alone, which is the drawing
+ * this lane has always made.
+ */
+export type DrawUnderlay = (
+  prompt: string,
+) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
 
 /** One heading and the body text that belongs to it. */
 export type SourceSection = {
@@ -132,6 +166,12 @@ export type LessonOptions = StageOptions &
      * correction pass still runs, from the measurements alone, which is weaker.
      */
     drawPreview?: DrawPreview;
+    /**
+     * How to generate the picture a drawing is composed on top of, for an intent that
+     * asks for one. Without it an `underlay` is ignored and the beat is drawn in marks
+     * alone — see `DrawUnderlay`.
+     */
+    drawUnderlay?: DrawUnderlay;
     /**
      * Whether a drawing with something measurably wrong with it gets a correction call.
      * Default `true`; `INKCAST_DRAW_FIX=0` turns it off for a whole run.

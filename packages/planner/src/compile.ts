@@ -27,6 +27,7 @@
 import type {
   Analogy,
   Asset,
+  AssetElement,
   Cadence,
   CastMember,
   DiagramElement,
@@ -50,7 +51,8 @@ import {
   sameTerm,
 } from '@inkcast/core';
 import { deriveCues, preferredCue } from './cues.js';
-import { buildDrawing } from './drawing.js';
+import { boxAt, buildDrawing, fitCanvas } from './drawing.js';
+import { readInkBox, underlayAsset } from './underlay.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
 import { FONT, makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
@@ -81,6 +83,8 @@ export const COMPILER_VERSION = 1;
 
 type Registry = {
   use(slug: string, prompt: string, kind: Asset['kind']): string;
+  /** A hybrid drawing's underlay: an illustration whose box is exact. See `buildUnderlay`. */
+  underlay(id: string, prompt: string): string;
   cast(ref: NonNullable<VisualIntent['character']>, cast: CastMember[]): string;
   list(): Asset[];
 };
@@ -101,6 +105,20 @@ function registry(): Registry {
         prompt,
         seed: seedOf(slug),
         source: kind === 'icon' ? 'builtin' : 'generated',
+      });
+    },
+
+    underlay(id, prompt) {
+      return mint(id, {
+        id,
+        kind: 'illustration',
+        prompt,
+        seed: seedOf(id),
+        source: 'generated',
+        // The marks on top of this were aimed at a picture measured into one exact box.
+        // Four percent of the visuals stage's usual breathing room is enough to take a
+        // leader arrow off the structure it names. See `Asset.fit`.
+        fit: 'exact',
       });
     },
 
@@ -135,6 +153,18 @@ function registry(): Registry {
 
     list: () => [...map.values()],
   };
+}
+
+/**
+ * The seed an asset id locks its artwork to.
+ *
+ * Exported because the hybrid lane's seam has to generate an underlay under the same seed
+ * the registry will mint for it — otherwise a project whose raster cache has been cleared
+ * regenerates a *different* picture, and the marks in `lesson.json` are left annotating one
+ * nobody can see any more.
+ */
+export function assetSeed(s: string): number {
+  return seedOf(s);
 }
 
 function seedOf(s: string): number {
@@ -971,10 +1001,17 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
   // strokes has already answered the question every lane below is guessing at, and the
   // guess cannot beat the answer.
   if (intent.marks?.length) {
+    // The picture these marks were composed on top of, if there is one. `inkBox` is
+    // written by the drawing stage from a trace of the image it generated, so its
+    // presence is also the evidence that a real image exists to place — an `underlay`
+    // with no box is a prompt nothing was ever generated for.
+    const ink = readInkBox(intent.underlay?.inkBox);
+    const underlay = intent.underlay && ink ? { ink, prompt: intent.underlay.prompt } : undefined;
     const drawn = buildDrawing(intent.marks, {
       id: ctx.id,
       box: ctx.box,
       narration: ctx.step.narration,
+      ...(underlay ? { underlay: true } : {}),
     });
     if (drawn.length) {
       // A part that found its own words keeps them. Registering the cue here is what
@@ -982,7 +1019,7 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
       // cue — which is the right answer for a picture whose parts the narration never
       // names, and the wrong one for the thirty-mark cross-section it was measured on.
       for (const el of drawn) if (el.enter.cue) ctx.cues.set(el.id, el.enter.cue);
-      return drawn;
+      return underlay ? [buildUnderlay(underlay, ctx), ...drawn] : drawn;
     }
     log.warn(
       `beat ${ctx.index} carries ${intent.marks.length} marks that draw nothing`,
@@ -1368,6 +1405,32 @@ function buildAsset(
   el.at = centre(el.at, ctx.box);
   el.enter = { ...el.enter, at: 0.08 };
   return [el];
+}
+
+/**
+ * The generated picture a beat's marks are drawn on top of, as the element that draws it.
+ *
+ * Two decisions live here and both are load-bearing.
+ *
+ * **One transform.** The element's box is the canvas fit's own picture of the box the
+ * marks were composed against — the same `Fit` `buildDrawing` used a line earlier, applied
+ * to the ink box the drawing stage measured. If the picture and the marks went through two
+ * transforms they would not line up, and every leader arrow would point a little way off
+ * the structure it names, which is the failure this whole lane is one long argument about.
+ * `fit: 'exact'` is the other half: it tells the visuals stage this box is not a suggestion.
+ *
+ * **It is drawn first, and almost immediately.** `at: 0.02` puts the form on the board
+ * before anything annotates it, because a leader arrow arriving before the thing it points
+ * at is a viewer watching an arrow point at nothing. The marks follow from 0.06, each on
+ * the words that name it.
+ */
+function buildUnderlay(underlay: { ink: Box; prompt: string }, ctx: IntentContext): AssetElement {
+  const { id, prompt } = underlayAsset(underlay.prompt);
+  const assetId = ctx.assets.underlay(id, prompt);
+  const el = makeAsset(`${ctx.id}_underlay`, assetId, 100);
+  el.at = boxAt(fitCanvas(ctx.box), underlay.ink);
+  el.enter = { ...el.enter, at: 0.02 };
+  return el;
 }
 
 function slugOf(describe: string): string {

@@ -138,6 +138,21 @@ export const PIPELINE_VERSION = 2;
  *   less caption above it. Neither shipped lesson has a `draw` intent, so both compile
  *   byte-identically at both presets.
  *
+ * - lesson 9 / storyboard 14 / visuals 8: the hybrid drawing lane. A `draw` intent may
+ *   carry an `underlay` — a generated picture of a real object — and its marks are then
+ *   composed by an author that has *looked at* that picture, so the same document yields a
+ *   different lesson and a different set of marks. The compiler emits the picture as an
+ *   asset element ahead of the marks and fits both through one transform instead of fitting
+ *   the marks by their own content bounds, so a beat carrying an underlay is a different
+ *   board. `visuals` moves for two reasons of its own, and either alone would justify it:
+ *   a traced illustration's paths now honour the `transform="translate(...)"` the
+ *   vectoriser writes on each one — they were all being stacked at a shared origin, which
+ *   put the small interior details of every generated picture in a smudge — and an asset
+ *   may ask to meet its box exactly rather than with the usual 4% of breathing room.
+ *   Neither shipped lesson has a `draw` intent, let alone an underlay, so both still
+ *   compile byte-identically; every project with a generated illustration in it re-resolves,
+ *   which is the point of the bump.
+ *
  * Character rigs (step 5) deliberately did **not** bump anything, and the reasoning is
  * worth keeping because the rule above looks like it demands one. The test is whether the
  * stage produces a different artefact *for identical inputs*, and it does not: no existing
@@ -149,7 +164,7 @@ export const PIPELINE_VERSION = 2;
  */
 export const STAGE_CODE_VERSION: Record<StageName, number> = {
   ingest: 1,
-  lesson: 8,
+  lesson: 9,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -174,7 +189,11 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // the camera holds that one cell instead of the union of every cell drawn so far in the
   // region, so a beat four of four is no longer shown at a quarter size. Every scene's
   // camera moves and every scene gains an element, both shipped lessons included.
-  storyboard: 13,
+  // 14: a drawing may be composed on top of a generated picture. The picture is emitted
+  // as an asset element before the marks, and a beat that has one fits its marks by the
+  // whole authoring canvas rather than by their own bounds — one transform, or the marks
+  // and the thing they annotate do not line up. A lesson with no underlay is unaffected.
+  storyboard: 14,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never
@@ -182,7 +201,9 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // so the stage's "140-160 wpm" correction applies to it at all — a measured render came
   // out at 185 wpm with the correction silently skipped.
   voice: 6,
-  visuals: 7,
+  // 8: a traced illustration's paths are placed where the vectoriser said they go, and an
+  // asset may ask for its box to be met exactly. See the note above.
+  visuals: 8,
   render: 5,
 };
 
@@ -234,6 +255,7 @@ export function assetFingerprint(
     prompt?: string;
     seed?: number;
     ref?: { path: string; version?: number; variant?: string; ink?: string };
+    fit?: string;
   },
   meta: { style: string; palette: string },
   provider: string,
@@ -244,6 +266,9 @@ export function assetFingerprint(
     asset.prompt ?? '',
     asset.seed ?? 0,
     asset.ref ?? '',
+    // `fit` decides where inside its box the artwork lands, so two assets identical in
+    // every other field are two different drawings on the board.
+    asset.fit ?? '',
     meta.style,
     meta.palette,
     provider,
@@ -278,7 +303,7 @@ export function visualsFingerprint(sb: Storyboard): string {
     sb.scenes.map((s) => s.elements.map(elementFingerprint)),
     // `ref` for the reason `assetFingerprint` explains: it decides which lane draws
     // the entity, and which version of the curated drawing that lane uses.
-    sb.assets.map((a) => [a.id, a.kind, a.prompt ?? '', a.seed ?? 0, a.ref ?? '']),
+    sb.assets.map((a) => [a.id, a.kind, a.prompt ?? '', a.seed ?? 0, a.ref ?? '', a.fit ?? '']),
     sb.meta.style,
     sb.meta.palette,
     sb.meta.aspect,

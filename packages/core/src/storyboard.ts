@@ -88,6 +88,21 @@ export const Asset = z.object({
   svg: z.string().optional(),
   /** Locked so regeneration stays visually identical. */
   seed: z.number().int().optional(),
+  /**
+   * How the resolved artwork meets its element's box. Absent means the usual: fit the
+   * ink inside the box with a little breathing room, centred.
+   *
+   * `exact` means the box *is* where this ink goes, to the unit. It exists for the
+   * hybrid drawing lane, where a generated picture of a real object carries composed
+   * marks naming its parts: the planner sized the box from a trace of this very image,
+   * so every leader arrow on the board is aimed at coordinates that only mean anything
+   * if the picture lands precisely there. Four percent of breathing room is enough to
+   * take an arrow off the structure it names.
+   *
+   * Optional and never defaulted — a default writes the field onto every asset of every
+   * storyboard on disk.
+   */
+  fit: z.enum(['contain', 'exact']).optional(),
   /** Provenance, for cache invalidation and attribution. */
   source: z.enum(['generated', 'builtin', 'user-upload', 'diagram', 'library']).optional(),
 });

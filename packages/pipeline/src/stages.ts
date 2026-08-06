@@ -60,7 +60,16 @@ export type LessonStageOptions = FormatOptions & {
    * The planner cannot make one of these — rendering is Chromium and roughjs, which it
    * depends on neither of — so the pipeline passes one down. See `draw-preview.ts`.
    */
-  drawPreview?: (marks: unknown[]) => Promise<Uint8Array | undefined>;
+  drawPreview?: (
+    marks: unknown[],
+    opts?: { underlay?: boolean },
+  ) => Promise<Uint8Array | undefined>;
+  /**
+   * How to generate the picture a drawing is composed on top of, for a beat that names a
+   * real object whose form matters. Needs an image provider, the vectoriser and Chromium,
+   * so it comes from here for the same reason `drawPreview` does. See `draw-underlay.ts`.
+   */
+  drawUnderlay?: (prompt: string) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
   onProgress?: OnProgress;
   force?: boolean;
 };
@@ -132,6 +141,23 @@ type VisualsModule = {
   resolveVisuals(sb: Storyboard, dir: string, opts?: StageOpts): Promise<Storyboard>;
 };
 
+/**
+ * The image lane, for the hybrid drawing lane's underlay (`draw-underlay.ts`).
+ *
+ * Separate from `VisualsModule` because it is loaded for a different reason: not to resolve
+ * a storyboard, but to generate one picture and measure where its ink is, before any
+ * storyboard exists.
+ */
+type ImageModule = {
+  illustrationRaster(args: {
+    id: string;
+    prompt: string;
+    dir: string;
+    seed?: number;
+  }): Promise<{ png: Buffer } | undefined>;
+  tracedInkBox(png: Buffer): Promise<{ x: number; y: number; w: number; h: number } | undefined>;
+};
+
 /** A still session, as `@inkcast/render` offers it. See `render/src/still.ts`. */
 export type StillSession = {
   capture(sb: Storyboard, dir: string, opts?: { t?: number }): Promise<Uint8Array>;
@@ -154,8 +180,20 @@ type RenderModule = {
 type DrawingModule = {
   buildDrawing(
     marks: unknown[],
-    ctx: { id: string; box: { x: number; y: number; w: number; h: number } },
+    ctx: {
+      id: string;
+      box: { x: number; y: number; w: number; h: number };
+      /** Fit the whole authoring canvas rather than the marks' own bounds. */
+      underlay?: boolean;
+    },
   ): Element[];
+};
+
+/** Where a hybrid drawing's generated picture goes on the canvas. See `planner/underlay.ts`. */
+type UnderlayModule = {
+  underlayAsset(prompt: string): { id: string; prompt: string };
+  underlayInkBox(ink: { w: number; h: number }): { x: number; y: number; w: number; h: number };
+  assetSeed(id: string): number;
 };
 
 type StagePackage = {
@@ -231,6 +269,20 @@ export async function loadVoice(): Promise<VoiceModule> {
 
 export async function loadVisuals(): Promise<VisualsModule> {
   return (await load('visuals', ['resolveVisuals'])) as unknown as VisualsModule;
+}
+
+/** The image lane on its own, for generating and measuring a drawing's underlay. */
+export async function loadImages(): Promise<ImageModule> {
+  return (await load('visuals', ['illustrationRaster', 'tracedInkBox'])) as unknown as ImageModule;
+}
+
+/** The underlay's placement rules, which the planner owns so both sides cannot drift. */
+export async function loadUnderlay(): Promise<UnderlayModule> {
+  return (await load('lesson', [
+    'underlayAsset',
+    'underlayInkBox',
+    'assetSeed',
+  ])) as unknown as UnderlayModule;
 }
 
 export async function loadRender(): Promise<RenderModule> {

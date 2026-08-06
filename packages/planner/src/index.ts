@@ -101,14 +101,21 @@ export {
 
 /* ------------------------------------------------------------- the drawing lane */
 export {
+  boxAt,
   buildDrawing,
   cleanMarks,
+  fitCanvas,
   fitDrawing,
   markBounds,
   prepareMarks,
   repairLabels,
   MAX_MARKS,
 } from './drawing.js';
+/* The hybrid lane's placement rules. Exported because the pipeline's seam has to generate
+ * an underlay under exactly the id, prompt, seed and box the compiler will place it at —
+ * see `./underlay.ts` for what a disagreement between the two would look like. */
+export { readInkBox, underlayAsset, underlayInkBox, UNDERLAY_AREA } from './underlay.js';
+export { assetSeed } from './compile.js';
 export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
 export type { DrawOneOptions } from './draw-anthropic.js';
 /* The measurement in front of the drawing critic's gate, and the critic itself. Exported

@@ -49,6 +49,7 @@ import {
   inkHitsBox,
   inkOf,
   labelBox,
+  underlayInk,
   markBounds,
   overlapArea,
   union,
@@ -83,6 +84,42 @@ export function fitDrawing(marks: Mark[], box: Box): Fit {
     s,
     ox: box.x + (box.w - content.w * s) / 2 - content.x * s,
     oy: box.y + (box.h - content.h * s) / 2 - content.y * s,
+  };
+}
+
+/**
+ * The whole authoring canvas onto `box`, uniformly — the fit for an annotated drawing.
+ *
+ * **Content fit is catastrophic for a drawing composed on top of a picture.** It rescales
+ * by where the marks happen to be, and the marks' coordinates are worth something only
+ * because they line up with an image that was placed by an entirely different rule. Twenty
+ * marks in the middle of the board would be blown up to fill the cell while the heart
+ * underneath them stayed where it was, and no amount of briefing the author would save it.
+ *
+ * So when there is an underlay, the marks and the image go through *this one transform* —
+ * the image is placed at this transform's picture of the box it was measured into, and
+ * nothing else scales anything. `underlaysheet.mts` sidesteps the same trap by compositing
+ * in flat SVG rather than through `openDrawPreview`, and says so in a comment.
+ *
+ * Uncapped, unlike `fitDrawing`: the 1.6x clamp is there to stop a two-mark drawing being
+ * blown up into a poster, and the canvas is never two marks.
+ */
+export function fitCanvas(box: Box): Fit {
+  const s = Math.min(box.w / DRAW_W, box.h / DRAW_H);
+  return {
+    s,
+    ox: box.x + (box.w - DRAW_W * s) / 2,
+    oy: box.y + (box.h - DRAW_H * s) / 2,
+  };
+}
+
+/** A box in authoring-canvas units, as the board will draw it under `fit`. */
+export function boxAt(fit: Fit, b: Box): Box {
+  return {
+    x: round(fit.ox + b.x * fit.s, 2),
+    y: round(fit.oy + b.y * fit.s, 2),
+    w: round(b.w * fit.s, 2),
+    h: round(b.h * fit.s, 2),
   };
 }
 
@@ -155,8 +192,14 @@ const RINGS = [
  * mechanical pass that mangles a drawing to satisfy a checker has made the picture worse
  * and the number better.
  */
-export function repairLabels(marks: Mark[]): Mark[] {
-  const ink: Ink[] = inkOf(marks.filter((m) => m.kind !== 'label'));
+export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
+  // The generated picture counts as ink, and as the one kind that cannot be written on.
+  // Without it a name landing in the middle of the organ scores as free space and is left
+  // exactly where it was — `inkOf` knows about marks and nothing else. See `underlayInk`.
+  const ink: Ink[] = [
+    ...(underlay ? [underlayInk(underlay)] : []),
+    ...inkOf(marks.filter((m) => m.kind !== 'label')),
+  ];
   const placed: Box[] = [];
   // A label may sit slightly outside the canvas — the drawing is fitted by its content,
   // so a name just over the edge only makes the picture slightly smaller — but not far
@@ -257,8 +300,8 @@ export function cleanMarks(marks: Mark[]): Mark[] {
  * through it: cleaning keeps what it kept, and a label already clear of everything is
  * scored zero and left alone.
  */
-export function prepareMarks(marks: Mark[]): Mark[] {
-  return repairLabels(cleanMarks(marks));
+export function prepareMarks(marks: Mark[], underlay?: Box): Mark[] {
+  return repairLabels(cleanMarks(marks), underlay);
 }
 
 /* ------------------------------------------------------------------ building */
@@ -458,11 +501,14 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
  */
 export function buildDrawing(
   marks: Mark[],
-  ctx: { id: string; box: Box; narration?: string },
+  ctx: { id: string; box: Box; narration?: string; underlay?: boolean },
 ): Element[] {
   const clean = prepareMarks(marks);
   if (!clean.length) return [];
-  const fit = fitDrawing(clean, ctx.box);
+  // Which fit, and it is the difference between a drawing and an annotation. See
+  // `fitCanvas`: content bounds are right for a picture that is only its own marks and
+  // wrong for one whose marks are aimed at something else on the board.
+  const fit = ctx.underlay ? fitCanvas(ctx.box) : fitDrawing(clean, ctx.box);
   const cues = ctx.narration ? cueMarks(clean, ctx.narration) : [];
   const out: Element[] = [];
   clean.forEach((m, i) => {

@@ -42,7 +42,9 @@ import {
   defectScore,
   defectSummary,
 } from './draw-audit.js';
+import { round } from './curves.js';
 import { prepareMarks } from './drawing.js';
+import type { Box } from './elements.js';
 import type { DrawPreview } from './types.js';
 
 const log = logger('planner:drawing:critic');
@@ -116,6 +118,16 @@ export type CriticOptions = {
   /** What the drawing was asked to be, so a correction knows what it is looking at. */
   instruction: string;
   /**
+   * The picture these marks are drawn on top of, when this is a hybrid drawing.
+   *
+   * Two things depend on it and both are silent failures without it. The audit has to
+   * count the generated picture as ink, or a name written across the middle of a traced
+   * heart measures perfectly clean and is never corrected. And the model has to be shown
+   * it, or it is being asked to move marks off an obstacle it cannot see — the render it
+   * is handed carries the marks alone, because that is all the drawing lane draws.
+   */
+  underlay?: { png: Uint8Array; box: Box };
+  /**
    * Look at the drawing even when nothing was measured wrong (`INKCAST_DRAW_FIX=all`).
    * The gate is arithmetic and geometry is not arithmetic — see `revisesEverything`.
    */
@@ -135,13 +147,18 @@ export async function reviseDrawing(
   // The marks that will actually be drawn, not the ones the author placed: the free
   // repair pass has already moved what it could, and a correction call spent on a defect
   // that no longer exists is a call spent on nothing.
-  const shown = prepareMarks(marks);
-  const defects = auditDrawing(shown);
+  const under = opts.underlay?.box;
+  const shown = prepareMarks(marks, under);
+  const defects = auditDrawing(shown, under);
   if (!defects.length && !opts.always) return undefined;
 
   const before = defectScore(defects);
   const short = opts.instruction.slice(0, 60);
-  const png = opts.preview ? await opts.preview(shown).catch(() => undefined) : undefined;
+  // Rendered in the same coordinate space as the underlay when there is one, so the two
+  // pictures the model is shown can be read against each other rather than guessed at.
+  const png = opts.preview
+    ? await opts.preview(shown, under ? { underlay: true } : {}).catch(() => undefined)
+    : undefined;
   if (!png) {
     // Worth saying out loud. The whole argument for this pass is that the model can see
     // what it drew; without the render it is being asked to fix coordinates from a list,
@@ -155,6 +172,13 @@ export async function reviseDrawing(
       ? 'The picture above is that drawing, rendered.'
       : 'No render is available this time, so work from the marks and the measurements alone.',
     '',
+    ...(opts.underlay
+      ? [
+          '',
+          `THERE IS ALREADY A PICTURE ON THIS BOARD, and the second image is it: a drawing of the subject occupying x=${round(opts.underlay.box.x)}..${round(opts.underlay.box.x + opts.underlay.box.w)}, y=${round(opts.underlay.box.y)}..${round(opts.underlay.box.y + opts.underlay.box.h)}. Your marks annotate it. Do NOT redraw it, do not write a name anywhere inside that box, and keep every arrow pointing at the structure it names in that picture. Both images are the same ${DRAW_W}x${DRAW_H} board at the same scale.`,
+        ]
+      : []),
+    '',
     `THE MARKS THAT DREW IT:\n${JSON.stringify(shown)}`,
     '',
     defects.length
@@ -165,7 +189,13 @@ export async function reviseDrawing(
         'asked for. If it does, emit it back unchanged.',
   ].join('\n');
 
-  const content: Message['content'] = png ? [imagePart(png), { type: 'text', text: body }] : body;
+  const content: Message['content'] = png
+    ? [
+        imagePart(png),
+        ...(opts.underlay ? [imagePart(opts.underlay.png)] : []),
+        { type: 'text' as const, text: body },
+      ]
+    : body;
   const messages: Message[] = [{ role: 'user', content }];
 
   let raw: unknown;
@@ -190,7 +220,7 @@ export async function reviseDrawing(
     return undefined;
   }
 
-  const after = defectScore(auditDrawing(prepareMarks(parsed.data.elements)));
+  const after = defectScore(auditDrawing(prepareMarks(parsed.data.elements, under), under));
   // **The score vetoes a regression; it does not adjudicate the drawing.** A revision is
   // kept unless it measures worse than what it replaced.
   //

@@ -39,7 +39,10 @@ const log = logger('pipeline:draw-preview');
  * every other stage signature in `stages.ts` is mirrored: nothing here may pull a stage
  * package in eagerly.
  */
-export type DrawPreview = (marks: unknown[]) => Promise<Uint8Array | undefined>;
+export type DrawPreview = (
+  marks: unknown[],
+  opts?: { underlay?: boolean },
+) => Promise<Uint8Array | undefined>;
 
 /**
  * The frame the drawing is previewed in, and the box it is fitted into.
@@ -102,11 +105,19 @@ export function openDrawPreview(meta: Partial<StoryboardMeta> = {}): DrawPreview
     return kit;
   };
 
-  const preview: DrawPreview = async (marks: unknown[]) => {
+  const preview: DrawPreview = async (marks: unknown[], opts = {}) => {
     const ready = await open();
     if (!ready) return undefined;
     const { still, dir, build } = ready;
-    const elements = build.buildDrawing(marks, { id: 'd', box: BOX });
+    // An annotated drawing is previewed against the whole authoring canvas, the way the
+    // compiler will lay it out — fitting it by its own content instead would show the
+    // critic a picture in a different coordinate space from the one the marks annotate,
+    // and the two images it is handed could not be read against each other.
+    const elements = build.buildDrawing(marks, {
+      id: 'd',
+      box: BOX,
+      ...(opts.underlay ? { underlay: true } : {}),
+    });
     if (!elements.length) return undefined;
 
     // Its own subdirectory per drawing: four of these run at once, the visuals stage

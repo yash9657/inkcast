@@ -184,12 +184,31 @@ function pointSegDist(p: Point, a: Point, b: Point): number {
  */
 export type Ink = {
   id: string;
-  kind: Mark['kind'];
+  kind: Mark['kind'] | 'underlay';
   /** The pen's path. An obstacle: words across it are words on the picture. */
   segs: [Point, Point][];
   /** A shaded area (`hatch`, `dots`). Not an obstacle — see above. */
   fill?: Box;
+  /** A filled region that IS an obstacle. Only the hybrid lane's underlay — see below. */
+  solid?: Box;
 };
+
+/**
+ * The generated picture a drawing is annotating, as ink a label must keep off.
+ *
+ * The one region on the board that is dense the whole way through. Our own shading is
+ * deliberately writable-on and that decision is load-bearing — the version of the audit
+ * that treated hatching as an obstacle moved `N` and `S` out of a bar magnet and into the
+ * field lines, which is worse — but the argument does not carry over. A traced anatomical
+ * drawing is not a light wash behind a name; it is interior detail at the density of the
+ * thing itself, and a name written on it is unreadable however good the paper halo is.
+ *
+ * So the whole box is an obstacle, and the labels go where the brief already tells the
+ * author to put them: the clear board on either side, with a leader reaching in.
+ */
+export function underlayInk(box: Box): Ink {
+  return { id: 'underlay', kind: 'underlay', segs: [], solid: box };
+}
 
 /** How finely an ellipse's perimeter is walked. Enough that a label cannot slip through. */
 const ELLIPSE_STEPS = 32;
@@ -272,15 +291,26 @@ export function inkOf(marks: Mark[]): Ink[] {
  * an obstacle moves names off the parts they belong to — see `Ink`.
  */
 export function inkHitsBox(ink: Ink, box: Box, pad = 0): boolean {
+  if (
+    ink.solid &&
+    overlapArea(ink.solid, {
+      x: box.x - pad,
+      y: box.y - pad,
+      w: box.w + pad * 2,
+      h: box.h + pad * 2,
+    }) > 0
+  )
+    return true;
   return ink.segs.some(([a, b]) => segHitsBox(a, b, box, pad));
 }
 
 /** Closest approach from a point to this mark, shaded regions included. */
 export function inkDistance(ink: Ink, p: Point): number {
-  let best = ink.fill
+  const area = ink.fill ?? ink.solid;
+  let best = area
     ? Math.hypot(
-        Math.max(ink.fill.x - p.x, 0, p.x - (ink.fill.x + ink.fill.w)),
-        Math.max(ink.fill.y - p.y, 0, p.y - (ink.fill.y + ink.fill.h)),
+        Math.max(area.x - p.x, 0, p.x - (area.x + area.w)),
+        Math.max(area.y - p.y, 0, p.y - (area.y + area.h)),
       )
     : Infinity;
   for (const [a, b] of ink.segs) best = Math.min(best, pointSegDist(p, a, b));
