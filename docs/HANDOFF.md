@@ -1,3 +1,16 @@
+> ## → Read **`docs/HANDOFF-PARITY.md`** first. It is the current job.
+>
+> A Golpo video of the same lesson, from the same one-sentence prompt, was read frame by
+> frame against ours. Theirs is 59s to our 2:45, its subject fills 60% of the frame to our
+> 12%, and it draws a labelled anatomical cross-section in semantic colour — **the thing
+> `docs/research/golpo-video-craft.md` says they do not attempt.** That claim is false and
+> the drawing lane's whole strategy was justified by it.
+>
+> The fix is smaller than it sounds: ask the image model for the _teaching figure_ instead
+> of the _object_, wipe the board instead of framing two cells of eleven, and let colour
+> mean something. The machinery is built and wired. Read `HANDOFF-PARITY.md` before you
+> write another line of drawing code.
+
 > ## The hybrid drawing lane is built. `HANDOFF-HYBRID.md` is now history, not a job.
 >
 > An image for a real object's _form_, composed marks for its _parts and their names_. Run

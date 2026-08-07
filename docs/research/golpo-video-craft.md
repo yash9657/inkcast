@@ -1,5 +1,19 @@
 # Golpo AI — what their videos actually look like
 
+> ## ⚠ The central claim of this document is FALSE. See `docs/HANDOFF-PARITY.md`.
+>
+> "What they do not draw at all: technical, structural, labelled diagrams" and "the space we
+> have been trying to occupy is genuinely unoccupied" are both wrong. Given a STEM anatomy
+> prompt, their system produces a labelled cutaway cross-section of the heart — chambers in
+> red and blue, the signal as an orange lightning bolt, `AV NODE` on a leader, `PAUSE` on a
+> wavy line across the junction — and it is better than ours. This document was written from
+> two videos in their public gallery that happened to be text-and-metaphor, and it
+> generalised from a sample of two.
+>
+> **The drawing lane's whole strategy was justified by that claim.** Everything below about
+> titles, wiping, colour and density is still accurate and still worth acting on; the
+> conclusion about what they cannot do is not.
+
 Researched 2026-08-06. **This is a different document from `golpo-ux.md`**, which is a
 product/IA/pricing teardown and says almost nothing about the videos. This one is about the
 craft: what is on the screen, how a scene is built, and what they can and cannot draw.
@@ -91,9 +105,15 @@ anything a learner would trace with a finger to follow how a thing works.
 
 So the space we have been trying to occupy — _draw the mechanism, name its parts, and land
 each part on the word that names it_ — **is genuinely unoccupied.** They have not solved it;
-they have declined it. Their `/guide` copy is honest about this: "clarity, precision, and
-educational usefulness over cinematic spectacle", "structural hierarchies — headers, bullet
-points, formulas".
+they have declined it.
+
+> **This paragraph is the false one.** They have not declined it. Two gallery films are not
+> a sample. See `HANDOFF-PARITY.md` — on a cardiac prompt they draw the mechanism, name its
+> parts with leaders, and do it in colour at twice our legibility. What is still ours alone
+> is that our parts are _addressable_: cued to the word that names them, highlightable
+> later, movable. Their figure is a picture. Their `/guide` copy is honest about this: "clarity, precision, and
+> educational usefulness over cinematic spectacle", "structural hierarchies — headers, bullet
+> points, formulas".
 
 That is the good news and it is also the trap. The space being open is worth nothing until
 we can draw in it well, and right now a medical lesson gets a valentine ❤️ where the heart
