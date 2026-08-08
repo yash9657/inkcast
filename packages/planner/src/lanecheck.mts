@@ -18,6 +18,11 @@
  * with a form and the ink lane for relations, quantities and change. That choice is a brief,
  * and a brief is unmeasured until something counts what it produced. Run this on a lesson
  * from a topic you have not tried and read the split before watching the film.
+ *
+ * The lane it reports is `<intent kind>+<underlay kind>` — `draw+figure`, `draw+form` — and
+ * that is a correction, not a flourish. It printed `draw+underlay` for both until the first
+ * time anyone gated on the answer, which made it exactly the failure this repository keeps
+ * recording: a check that exists, is run, and cannot see the thing it was built to see.
  */
 import { readFileSync } from 'node:fs';
 import { Lesson, type VisualIntent } from '@inkcast/core';
@@ -46,14 +51,23 @@ const beats: { name: string; visuals: VisualIntent[] }[] = [
 const lanes = new Map<string, number>();
 /** asset id → the distinct prompts that resolved to it. More than one is the old bug. */
 const byId = new Map<string, Set<string>>();
+/** Beats whose picture is the teaching figure itself, by name — the count Phase 1 gates on. */
+const figures: string[] = [];
 /** prompt → the beats that asked for it. More than one is reuse, which may be intended. */
 const byPrompt = new Map<string, string[]>();
 
 console.log(`${lesson.topic}\n`);
 for (const beat of beats) {
   for (const v of beat.visuals) {
-    const lane = v.underlay ? `${v.kind}+underlay` : v.kind;
+    // The underlay's own `kind` decides which of the two illustration lanes answers, and
+    // it is the whole question this tool exists to answer. Reporting `${v.kind}+underlay`
+    // — as this line did until the first film that needed the answer — collapses `figure`
+    // and `form` into one string, so a lesson with three figures and a lesson with none
+    // print identically. `kind` is optional in the schema and absent means `form`, so an
+    // unset field is reported as what it means rather than as a dash.
+    const lane = v.underlay ? `${v.kind}+${v.underlay.kind ?? 'form'}` : v.kind;
     lanes.set(lane, (lanes.get(lane) ?? 0) + 1);
+    if (v.underlay?.kind === 'figure') figures.push(beat.name);
     const prompt = v.underlay?.prompt;
     if (prompt === undefined) {
       console.log(`  ${beat.name.padEnd(14)} ${lane}`);
@@ -79,6 +93,11 @@ const pictures = [...byPrompt.keys()].length;
 const reused = [...byPrompt.entries()].filter(([, bs]) => bs.length > 1);
 console.log(
   `pictures: ${pictures} distinct prompt${pictures === 1 ? '' : 's'} over ${byId.size} asset id${byId.size === 1 ? '' : 's'}`,
+);
+console.log(
+  figures.length === 0
+    ? 'figures: none — every picture on this lesson is a form for marks to be composed on'
+    : `figures: ${figures.length} (${figures.join(', ')})`,
 );
 
 const collided = [...byId.entries()].filter(([, prompts]) => prompts.size > 1);
