@@ -85,6 +85,8 @@ type Registry = {
   use(slug: string, prompt: string, kind: Asset['kind']): string;
   /** A hybrid drawing's underlay: an illustration whose box is exact. See `buildUnderlay`. */
   underlay(id: string, prompt: string): string;
+  /** A colour teaching figure: shown as a raster, never traced. See `Asset.kind`. */
+  figure(id: string, prompt: string): string;
   cast(ref: NonNullable<VisualIntent['character']>, cast: CastMember[]): string;
   list(): Asset[];
 };
@@ -119,6 +121,20 @@ function registry(): Registry {
         // Four percent of the visuals stage's usual breathing room is enough to take a
         // leader arrow off the structure it names. See `Asset.fit`.
         fit: 'exact',
+      });
+    },
+
+    figure(id, prompt) {
+      return mint(id, {
+        id,
+        kind: 'figure',
+        prompt,
+        seed: seedOf(id),
+        source: 'generated',
+        // No `fit: 'exact'` here, and that is the difference. An underlay's box was
+        // measured from a trace of its own ink so that marks could be aimed into it; a
+        // figure carries its own mechanism, is never traced, and simply takes the space
+        // it is given. `figureRaster` centres the raster's real aspect inside that box.
       });
     },
 
@@ -1016,7 +1032,14 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
     // presence is also the evidence that a real image exists to place — an `underlay`
     // with no box is a prompt nothing was ever generated for.
     const ink = readInkBox(intent.underlay?.inkBox);
-    const underlay = intent.underlay && ink ? { ink, prompt: intent.underlay.prompt } : undefined;
+    const underlay =
+      intent.underlay && ink
+        ? {
+            ink,
+            prompt: intent.underlay.prompt,
+            ...(intent.underlay.kind ? { kind: intent.underlay.kind } : {}),
+          }
+        : undefined;
     const drawn = buildDrawing(intent.marks, {
       id: ctx.id,
       box: ctx.box,
@@ -1444,9 +1467,17 @@ function buildAsset(
  * at is a viewer watching an arrow point at nothing. The marks follow from 0.06, each on
  * the words that name it.
  */
-function buildUnderlay(underlay: { ink: Box; prompt: string }, ctx: IntentContext): AssetElement {
+function buildUnderlay(
+  underlay: { ink: Box; prompt: string; kind?: 'form' | 'figure' },
+  ctx: IntentContext,
+): AssetElement {
   const { id, prompt } = underlayAsset(underlay.prompt);
-  const assetId = ctx.assets.underlay(id, prompt);
+  // A figure and a form are two different assets resolved by two different lanes, and the
+  // kind has to travel from the lesson to the registry or the author's choice is discarded
+  // here in silence. Measured: a lesson that asked for two figures minted zero, because
+  // this line always said `underlay`.
+  const assetId =
+    underlay.kind === 'figure' ? ctx.assets.figure(id, prompt) : ctx.assets.underlay(id, prompt);
   const el = makeAsset(`${ctx.id}_underlay`, assetId, 100);
   el.at = boxAt(fitCanvas(ctx.box), underlay.ink);
   el.enter = { ...el.enter, at: 0.02 };

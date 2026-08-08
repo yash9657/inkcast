@@ -169,7 +169,12 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // lane list and ended "if you are unsure, leave it out", and a keyed render of the
   // cardiac conduction system — the lesson the lane was built for, image key configured —
   // came back with twelve `draw` intents and not one underlay.
-  lesson: 10,
+  // 11: `underlay` now carries a `kind`, and the brief makes the author choose between
+  // `form` (the object's shape, traced, with marks carrying the mechanism) and `figure`
+  // (the whole teaching diagram in colour, shown as a raster and never traced). The brief
+  // is not in this stage's cache key, so without this bump the new advice is invisible and
+  // every cached lesson keeps the old one-lane answer.
+  lesson: 11,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -205,10 +210,18 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // moved. Also the first release in which the cloud provider declares a speaking rate,
   // so the stage's "140-160 wpm" correction applies to it at all — a measured render came
   // out at 185 wpm with the correction silently skipped.
-  voice: 6,
+  // 7: the engine chooses its own phrase split. Kokoro has no context window, so it was
+  // being handed four-word clauses and rendering each one cold — hard onset, terminal fall,
+  // its own pitch range — and a scene was ten of those concatenated. That is the abrupt
+  // local delivery everyone had attributed to the model. Every cached clip is different
+  // audio for the same words, so they all have to go.
+  voice: 7,
   // 8: a traced illustration's paths are placed where the vectoriser said they go, and an
   // asset may ask for its box to be met exactly. See the note above.
-  visuals: 8,
+  // 9: the figure lane. An asset of kind `figure` resolves to an `<image>` wrapper rather
+  // than traced ink, and the illustration cache key now carries the image kind so a form
+  // and a figure of one subject cannot serve each other's picture.
+  visuals: 9,
   render: 5,
 };
 

@@ -381,7 +381,6 @@ export async function narrate(
     260,
   );
   const padSec = clamp(opts.padSec ?? envNumber('INKCAST_VOICE_PAD', 0.25), 0, 5);
-  const phraseSplit: PhraseSplit = opts.phraseSplit ?? 'clause';
   const alignMode = opts.align ?? requestedAlign();
   const total = out.scenes.length;
 
@@ -424,7 +423,6 @@ export async function narrate(
     for (let i = 0; i < total; i++) {
       const scene = out.scenes[i]!;
       const text = normalizeNarration(scene.narration);
-      const phrases = splitPhrases(text, { mode: phraseSplit });
       const rel = sceneAudioPath(i);
       const timingRel = sceneTimingPath(i);
       const abs = path.resolve(dir, rel);
@@ -433,6 +431,12 @@ export async function narrate(
 
       const active = await chain.active();
       lastProvider = active.id;
+      // The engine decides how much text it needs to sound like a person, because only it
+      // knows whether it can be told what surrounds a fragment. An explicit `--phrase-split`
+      // still wins; absent that, a local engine with no context window gets whole sentences
+      // rather than four-word clauses read cold. See `VoiceProvider.preferredSplit`.
+      const mode: PhraseSplit = opts.phraseSplit ?? active.preferredSplit ?? 'clause';
+      const phrases = splitPhrases(text, { mode });
       // This scene's own rate. `cadence` is the storyboard's single pacing decision —
       // it also fixed `scene.hold`, upstream — so a beat written to be delivered
       // quickly is spoken quickly *and* left quickly, rather than the two being set
@@ -456,7 +460,10 @@ export async function narrate(
           sceneWpm,
           padSec,
           scene.hold,
-          phraseSplit,
+          // The *effective* mode, not the requested one: a clip synthesised as clauses is
+          // different audio from the same words synthesised as sentences, and keying on the
+          // request would serve the choppy one forever after the provider changed its mind.
+          mode,
           alignMode,
           phrases.length,
           // Emphasis changes the audio — a phrase carrying it is slowed and given a

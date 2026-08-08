@@ -1,4 +1,25 @@
-> ## → Read **`docs/HANDOFF-PARITY.md`** first. It is the current job.
+> ## → Read **`docs/PLAN-GOLPO-PARITY.md`** first. It sequences everything below into six gated phases.
+>
+> Measured 2026-08-08, both films side by side: Golpo is 59.5s / 14.4% ink / 6 hues /
+> 3.2s silence; `cardiac8` is 174s / 5.0% / 1 hue / 26.8s silence — and its "ElevenLabs"
+> voice was actually **kokoro** (`af_heart`, 24 kHz, quota exhausted, silently billed
+> $0.43). Their labels are a text layer like ours; their density target is 14%, not 50%;
+> our sync machinery is fine. The five real gaps, in order: no film has ever contained a
+> figure, the board never wipes, 348 words where 145 do, the paid voice has never been
+> heard, and titles have no craft. The plan closes them one gated phase at a time.
+
+> ## → Read **`docs/PLAN-FIGURE-LANE.md`** second. Its items 0–2.5 are built; its items 4 and 7 are now Phases 2 and 3 of the plan above.
+>
+> `HANDOFF-PARITY.md` is right that we should ask the image model for the teaching figure
+> rather than the object. It is wrong that this is "a prompt and a brief, not an
+> architecture". Measured, with the frames committed under `docs/research/figure-lane/`:
+> our configured model (`flux/schnell`, 4 steps) **cannot** compose a figure however the
+> prompt is written, three stronger models produce Golpo's card on the first try, our binary
+> tracer erases a colour figure's arrows entirely, and two different underlay prompts
+> silently collide on one asset id — which is why seven of eight cardiac beats share one
+> external heart. Real ink coverage is **4.7% of pixels**, not the 21.6% `fillcheck` reports.
+
+> ## → Read **`docs/HANDOFF-PARITY.md`** second. Still accurate except where the plan says otherwise.
 >
 > A Golpo video of the same lesson, from the same one-sentence prompt, was read frame by
 > frame against ours. Theirs is 59s to our 2:45, its subject fills 60% of the frame to our

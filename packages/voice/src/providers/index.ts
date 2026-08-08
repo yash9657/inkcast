@@ -8,6 +8,7 @@
  * killing the pipeline.
  */
 import type { Logger } from '@inkcast/core';
+import type { PhraseSplit } from '../phrase.js';
 import { logger } from '@inkcast/core';
 import { createElevenLabsProvider } from './elevenlabs.js';
 import { createKokoroProvider } from './kokoro.js';
@@ -144,6 +145,13 @@ export type ActiveProvider = {
    * narration in the 140–160 wpm teaching band.
    */
   naturalWpm?: number;
+  /**
+   * How much text this engine needs at a time to sound like a person, when it says.
+   * Surfaced here because the voice stage splits a scene *before* it synthesises, and the
+   * split is the single biggest lever on whether the delivery flows or lands hard on every
+   * fragment. See `VoiceProvider.preferredSplit`.
+   */
+  preferredSplit?: PhraseSplit;
 };
 
 export type VoiceChain = {
@@ -195,7 +203,11 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
         }
         const voice = await provider.resolveVoice(opts.requestedVoice);
         const naturalWpm = provider.naturalWpm?.(voice);
-        current = { provider, active: { id, label: provider.label, voice, naturalWpm } };
+        const preferredSplit = provider.preferredSplit?.();
+        current = {
+          provider,
+          active: { id, label: provider.label, voice, naturalWpm, preferredSplit },
+        };
         log.info(`provider: ${provider.label} · voice ${voice}`);
         return current.active;
       } catch (err) {

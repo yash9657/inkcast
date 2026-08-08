@@ -1,5 +1,6 @@
 /** The one interface every TTS backend implements. */
 import type { Scene } from '@inkcast/core';
+import type { PhraseSplit } from '../phrase.js';
 
 /** Word timing as the Storyboard IR wants it. */
 export type WordTiming = NonNullable<Scene['words']>[number];
@@ -88,6 +89,21 @@ export type VoiceProvider = {
    * hoped for. Return `undefined` when the rate is not characterised.
    */
   naturalWpm?(voice: string): number | undefined;
+  /**
+   * The largest unit this engine needs in order to sound like a person.
+   *
+   * Prosody is a property of the whole utterance handed to the engine: intonation rises
+   * and falls across a sentence, and an engine given four words at a time has no sentence
+   * to shape. It renders each fragment cold — flat pitch, a hard onset, a hard stop — and
+   * the assembled scene is a run of abrupt little statements with silence between them.
+   * That is not a gap-length problem and no amount of gap tuning fixes it.
+   *
+   * `clause` is only safe for an engine that is *told* what surrounds the fragment
+   * (ElevenLabs takes `previous_text`/`next_text`, so it can shape a clause as part of the
+   * sentence it came from). A local engine with no context window must be given whole
+   * sentences. Return `undefined` to accept the caller's choice.
+   */
+  preferredSplit?(): PhraseSplit | undefined;
   synthesize(req: SynthesisRequest): Promise<SynthesisResult>;
   /** Release any cached handles. Must be safe to call twice. */
   dispose(): Promise<void>;

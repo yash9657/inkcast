@@ -71,7 +71,15 @@ export const AssetRef = z.object({
  */
 export const Asset = z.object({
   id: z.string().describe('stable slug, e.g. "rover" or "http-request"'),
-  kind: z.enum(['illustration', 'icon', 'diagram', 'image']),
+  /**
+   * Which lane draws it.
+   *
+   * `figure` is the odd one and the important one: a colour teaching picture, kept as a
+   * raster and revealed under a swept mask, because tracing it to ink would erase the hues
+   * that carry the teaching. Everything else is vectorised and redrawn in the board's own
+   * hand. See `docs/PLAN-FIGURE-LANE.md`.
+   */
+  kind: z.enum(['illustration', 'icon', 'diagram', 'image', 'figure']),
   /** Prompt used to synthesise the asset when it has no `svg` yet. */
   prompt: z.string().optional(),
   /**

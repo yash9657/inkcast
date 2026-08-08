@@ -1627,3 +1627,325 @@ thing that can see this lane at all, and every defect above came out of it.
 `lesson@10, storyboard@14, voice@6, visuals@8, render@5`. `visuals` moves for the translate
 fix and the exact fit, either of which alone would justify it — every project with a
 generated illustration in it re-resolves, which is the point.
+
+# 2026-08-06, later still — the figure lane, and the model nobody had priced
+
+Written against the working tree on branch `visuals-morph-density`. The job was to compare
+our cardiac film with Golpo's frame by frame and plan the gap away. The comparison is in
+`docs/PLAN-FIGURE-LANE.md`; the frames it rests on are committed under
+`docs/research/figure-lane/`, because the previous session's evidence was a signed URL that
+expired and could not be checked.
+
+## What was falsified
+
+`HANDOFF-PARITY.md` says to ask the image model for the teaching figure rather than the
+object, and closes: _"That is a prompt and a brief, not an architecture."_ **The direction is
+right and the cost is wrong.** Seven live image calls, about $0.12:
+
+- `fal-ai/flux/schnell` at 4 steps — the configured provider — returns an external heart for
+  a cutaway prompt **however the prompt is written**. Four variants, one variable at a time:
+  `docs/research/figure-lane/prompt-probe-schnell.png`. Loosening the negatives buys colour
+  and never buys the figure.
+- `flux/dev` (28 steps), `flux-pro/v1.1` and `nano-banana` each return the labelled cutaway —
+  four chambers, septum, red and blue vessels, orange conduction arrows through both
+  ventricles — on the first try: `model-probe.png`. **The competitor's advantage is a model
+  tier, not craft.**
+- A binary trace of such a figure **erases the orange arrows entirely**:
+  `binary-destroys-colour.png`. There is no tracer setting that recovers hue.
+
+## What was measured
+
+- **Real ink coverage is 4.7% of pixels** across the cardiac film (min 2.6%, max 7.5%), where
+  `fillcheck` reports 21.6% mean content fill. `fillcheck` unions bounding boxes, so an
+  outlined heart scores its whole box. The board is 95% paper. New tool: `inkstat.mts`.
+- **Two hues in the whole film**: 210° on every frame, 30° on five of seventeen at 1–7%.
+- **Two underlay prompts collided on one asset id.** `underlayAsset` slugged four words, so
+  "…external front view, whole organ" and "…external front view, coronal cut-open showing
+  both ventricles and the septum" were the same asset. The two beats that most needed to see
+  inside the heart annotated the outside of one, silently. The one coronal image that did get
+  its own id is used only by the recap, which is the frame nobody can read.
+- **`fill: true` does not fill.** It emits hachure at `opacity: 0.26` in `pal.accent`
+  whatever `tone` says, and `assetPrims` never calls `toneInk` at all. There is no code path
+  that puts a red region on the board.
+
+## What was built, and what it measures
+
+- **`underlayAsset` is total over its prompt** — `underlay-<slug4>-<hash8>`. Tested against
+  the two cardiac prompts. `sbhash` on both shipped lessons is byte-identical, so nothing
+  that does not use an underlay moved.
+- **`inkstat.mts`** (`render`) — pixel ink coverage and a hue census, over a film or a still.
+  No new dependency: ffmpeg is already required, and `-f rawvideo -pix_fmt rgb24` is the
+  whole mechanism. Cardiac film: `mean ink 4.7%  hues: 210° 21.0%  30° 1.4%`.
+- **`lanecheck.mts`** (`planner`) — which lane every beat chose, and whether each picture is
+  its own. Exits non-zero on a collision. On `projects/cardiac5/lesson.json`: 8 `draw+underlay`,
+  5 `draw`, **3 distinct prompts over 3 asset ids**, no collision.
+- **The figure lane** — `figurePrompt()` beside `illustrationPrompt()`, an `ImageKind` of
+  `form | figure` carrying its own model and step count (`INKCAST_FIGURE_MODEL` overrides),
+  the kind hashed into `illustrationKey` so a form and a figure of one subject cannot alias,
+  and `figureRaster()`, which wraps the PNG in an `<image>` SVG **and never traces it**.
+- **`figuresheet.mts`** (`pipeline`) — the tool the figure lane is judged with. One image
+  call, no authoring call, a `figure.png` through resolve, inline, the browser and the real
+  pen.
+
+## The lane works end to end, and here is the number
+
+`figuresheet.mts` on an AV-delay figure rendered a full-colour cutaway on the real board,
+colour intact, through every real transform.
+
+|                          | ink   | hues                |
+| ------------------------ | ----- | ------------------- |
+| figure lane, one card    | 17.2% | 0° 62.7% 210° 20.4% |
+| the shipped cardiac card | 5.3%  | 210° 8.2% 30° 1.0%  |
+
+**3.2× the ink, with colour carrying meaning rather than accenting it.** Still short of the
+plan's 25% target, and the frame says why: the raster is letterboxed inside its box and sits
+on a white card against warm paper, so the figure does not yet own the frame. Both are
+finish, not architecture.
+
+## What is NOT done, and it is the important half
+
+**Nothing asks for a figure yet.** The lesson brief still tells the author to write
+`underlay.prompt` as "the OBJECT and nothing else", `Asset.kind` has no `figure`, and the
+compiler cannot mint one. The lane is reachable only from `figuresheet.mts`. This is exactly
+the failure both handoffs name — _a capability is shipped when the stage that has to ask for
+it actually asks_ — and it is the next session's first job, together with the reveal mask
+(the raster currently fades rather than being drawn) and the white-card background.
+
+Stage versions are unchanged: `lesson@10, storyboard@14, voice@6, visuals@8, render@5`.
+**They must move before a keyed render means anything** — `lesson` for any brief change, and
+`visuals` for the kind in the illustration key.
+
+## The drawing half — `raster-reveal` is built
+
+`docs/STYLES.md` §1 specified it and nothing had implemented it. It exists now, in
+`page/runtime.js`, and `docs/research/figure-lane/raster-reveal-sweep.png` is it at four
+points across one reveal.
+
+A figure carries `data-ink-mode="raster-reveal"`, and the part collector turns its `<image>`
+into a **`sweep` part** instead of a `fade`: a `clipPath` holding a polygon whose edge runs
+top to bottom, tilted, wobbled by two out-of-phase sinusoids, marching left to right as the
+item's progress advances. The pen rides that edge, running up and down it four times as it
+crosses — the motion of filling something in rather than of ruling a line. The tilt, the
+wobble phase and the direction are hashed from the asset id, so two figures in one film do
+not sweep identically and the same figure sweeps identically on every re-render, which is
+what the file's determinism rule requires.
+
+Three defects found by looking, all fixed, all invisible in the code:
+
+- **A five-minute hang with no error.** `makeSweepPart` inserted its `<defs>` at the front
+  of `root` while `collectSvgParts` was iterating `root.children` — a **live** collection —
+  so the cursor slid back onto the image, which asked for another clip, forever. The defs is
+  appended now and the caller snapshots the list. Worth remembering the shape of it: a live
+  HTMLCollection mutated mid-walk hangs rather than throws.
+- **The white card.** Every raster is drawn on white and the paper is `#fcfbf9`, so the
+  picture arrived on a visible card. `mix-blend-mode: multiply` on the `<image>` fixes it
+  exactly — multiplying by white is the identity, so the card disappears and the grid dots
+  read through the picture.
+- **The letterbox.** `preserveAspectRatio` fitted a square raster inside a 1120×860 box, and
+  since both the mask and the pen work from the element's bounding box, the sweep spent a
+  fifth of its travel on empty margin and parked the nib off the picture. `figureRaster` now
+  reads the PNG's IHDR and emits the `<image>` at exactly the fitted rectangle.
+
+### Wired, but still not asked for
+
+`Asset.kind` takes `figure`; `VisualIntent.underlay.kind` takes `form | figure`; the
+compiler's registry mints a figure (no `fit: 'exact'` — a figure is never traced, so there
+is no measured ink box to meet); and `resolveAsset` has a figure lane that returns early,
+before the ink flow, because `writeElementSvg` would wrap strokes that do not exist.
+
+**The lesson brief still does not offer the choice**, so no film asks for a figure yet. That
+is the last link and it is one brief plus two version bumps — `lesson` 10 → 11 and `visuals`
+8 → 9. Neither has been made, deliberately: a brief change with no keyed render behind it is
+the thing this repo keeps shipping and then discovering nobody used.
+
+## The keyed render — the lane was offered and the author declined it
+
+`projects/cardiac6`, same prompt as `cardiac5`, full keyed run, $0.67.
+
+**The film was made and it does not use the figure lane.** `lanecheck` on its lesson:
+`draw+underlay 7 · draw 4 · diagram 1`, and every one of the seven underlays carries
+`"kind": "form"`. **Zero figures.** The visuals bill was $0.009 — schnell prices, which is
+the arithmetic proof that no figure model was ever called.
+
+|          | cardiac5 (before)     | cardiac6 (after)      |
+| -------- | --------------------- | --------------------- |
+| runtime  | 2:45                  | **2:56**              |
+| mean ink | 4.7%                  | **5.1%**              |
+| hues     | 210° 21.0% · 30° 1.4% | 210° 12.5% · 30° 1.9% |
+| figures  | —                     | **0 of 7**            |
+
+So this is the third time in this repo's history, and the second time in two sessions, that
+a finished lane went through a full keyed render unused. The pattern is now well enough
+evidenced to state plainly: **offering a capability in a brief does not cause it to be
+used.** `lesson@10`'s own note records the identical failure — "twelve `draw` intents and
+not one underlay" — and the fix that time was to move the advice to where the choice is
+actually made and lead with the case rather than the exclusions. The same medicine is
+needed here and was not applied: the `figure` bullet sits _second_, after `form`, inside an
+advice block that already argues hard for `form`, and it ends on its cost. An author reading
+it in order has been told to use `form` before it has finished describing `figure`.
+
+What to try next, in order of how much it would tell you:
+
+1. **Lead with `figure` and make `form` the exception**, not the reverse — and cut the cost
+   sentence, which reads as a warning and is doing more work than the $0.03 it saves.
+2. **Say when, not whether.** "A lesson about a real object should carry at least one
+   `figure` on the beat where the learner first has to see inside it" is a rule an author
+   can follow. "Choose this when what teaches is the whole picture" is a judgement it will
+   resolve conservatively every time.
+3. **Measure the brief, not the film.** `designLesson` is ~$0.06 against ~$0.67, and
+   `lanecheck` reads its output directly. Three brief variants cost less than one render.
+
+The lane itself is not implicated: `figuresheet.mts` renders it correctly, and nothing in
+this run failed. What failed is the sentence that had to ask for it.
+
+Two incidental findings from the run, both real and neither caused by this work: the lesson
+author failed schema validation twice before succeeding on the third attempt, and the
+ElevenLabs quota is exhausted (4 credits left), so the voice fell back to kokoro mid-run.
+
+## The voice, and the brief that finally asked
+
+**The local voice was choppy because of a default, not a model limit.** `narrate.ts` split
+every scene into clauses for _every_ provider — `opts.phraseSplit ?? 'clause'` — and kokoro
+has no context window at all: `generate(text, {voice, speed})` is its entire surface. So it
+was handed "the A V node." as a complete utterance and rendered it as one: hard onset,
+terminal fall, its own pitch range. Five cold starts in a three-sentence beat, spliced
+together with silence. That is the abrupt delivery, and no gap tuning could have fixed it.
+
+Measured on one real beat:
+
+    clause:   5 utterances — [The single doorway is the atrioventricular node,] [the A V node.]
+                             [It passes the signal on slowly,] [about a tenth of a second.] …
+    sentence: 3 utterances — whole sentences, commas rendered as prosody rather than splices
+
+`VoiceProvider.preferredSplit()` now lets the engine say what it needs; kokoro answers
+`sentence`; ElevenLabs keeps `clause` because it is _told_ its neighbours via
+`previous_text`/`next_text`. An explicit `--phrase-split` still wins. The **effective** mode
+is in the clip cache key, not the requested one, or every cached choppy clip would outlive
+the fix. `voice` 6 → 7.
+
+## The brief, reordered — and it worked
+
+`cardiac6`'s author chose `form` 7 times and `figure` 0. The bullet order was the cause:
+`figure` sat second, after a block already arguing for `form`, and closed on its cost.
+Reordered so `figure` leads, `form` is named the exception, and the cost sentence is
+replaced by a rule the author can follow. `cardiac7`'s lesson: **2 `figure`, 2 `form`.**
+
+**But it still minted zero figure assets**, and that was a second break in the same chain:
+`buildUnderlay` always called `ctx.assets.underlay(...)`, so the author's choice was
+discarded one function later in silence. Fixed — the kind now travels from `VisualIntent`
+through `buildUnderlay` to the registry.
+
+**One link is still open and it is known**: `buildUnderlay` only runs when `inkBox` is
+present, and `inkBox` is written by the drawing stage from a _trace_ of the generated image.
+A figure is never traced, so it has no ink box, so a figure intent still falls through. The
+figure lane needs its own seam in `draw-anthropic.ts` — generate, do not trace, and record
+the box the figure will occupy rather than the box its ink measured to. That is the next
+change, and it is the last one between the lane and a film.
+
+### The last link, closed
+
+`underlayFor` gated every underlay on a traced ink box. A figure has no trace, so every
+figure the author asked for fell through in silence — the third break in one chain, each
+one hidden behind the last. A figure now claims `figureBox()` and returns immediately: the
+visuals stage generates it when it resolves the asset, and nothing needs measuring because
+nothing is aimed into it.
+
+`FIGURE_AREA` is 840 of 1000 units wide against `UNDERLAY_AREA`'s 620. The split inverts
+because the roles do: a form leaves 190 units either side for the names that carry its
+mechanism; a figure carries its own, so the picture takes the board.
+
+**Verified end to end without a render**: `compileLesson` on `projects/cardiac7/lesson.json`
+— the first lesson whose author chose `figure` — emits **2 figure assets of 3**, with
+distinct ids and real teaching-figure prompts. `654 pass / 0 fail`, lint clean.
+
+What has _not_ happened is a film containing one. `cardiac7` was rendered before this fix
+and has the new voice and no figures. The next run is the one that would show both, and it
+is the first run where the whole chain is connected rather than three-quarters of it.
+
+## The real test — `cardiac8`, and a fourth break in the same chain
+
+The run happened. **3 figures asked for, 3 figures minted, 0 figures drawn**, and the
+failure is one this file already documented.
+
+    lane: library   underlay-cutaway-cross-section-human-heart-3d930244
+    lane: library   underlay-cutaway-cross-section-human-heart-ff8a7ad4
+    lane: library   underlay-cutaway-cross-section-human-heart-e1f9b1d8
+
+All three matched **_human_** in "cutaway cross-section of a human heart" against the
+character library and were drawn as stick figures. That is verbatim the failure recorded in
+`resolve.ts`'s own comment — the one `fit: 'exact'` exists to prevent — and it happened
+because the figure registry deliberately omitted `fit: 'exact'`, with a comment explaining
+that a figure has no measured ink box to meet. True, and irrelevant: `exact` is doing two
+jobs, and only one of them is about fitting. The other is **may this asset be substituted**,
+and the answer for a figure is no, for exactly the reason it is no for an underlay.
+
+Film: $0.71, 5.0% ink, one hue (210°), visuals bill $0.003 — one schnell image, which is the
+arithmetic proof no figure was generated.
+
+**Fixed and verified without another render.** `exact` is now
+`asset.fit === 'exact' || asset.kind === 'figure'`, the asset cache version is `asset/v5`
+because which lane may answer has changed, and re-resolving `cardiac8`'s own storyboard
+through `drawcheck.mts` gives:
+
+    lane: figure   ×3, three colour rasters generated, each wrapped as
+    <svg data-ink-mode="raster-reveal"><image href="…"/></svg>
+
+`654 pass / 0 fail`, lint clean.
+
+### The pattern, since it is now four for four
+
+Every break was a _different_ link, each hidden behind the last: the brief did not offer the
+choice; the brief offered it in an order that lost; `buildUnderlay` dropped the choice;
+`underlayFor` gated it on a trace; `resolveAsset` substituted a stick figure for it. Each
+was found only after fixing the one before, because each fix was verified at the point of
+change rather than along the whole path.
+
+**The cheap check that would have caught every one of them takes ten seconds and costs
+nothing**: compile a lesson and count the assets by kind, then resolve the visuals and count
+the lanes. Both are one command. Neither needs voice, a render, or a key beyond the image
+one. Run them before a `cast`, not after it.
+
+What is still unproven is the only thing that matters: **no film yet contains a figure.**
+The next `cast` is the first with the whole chain connected. Given the record, verify it at
+the storyboard and the visuals manifest before letting it reach the renderer.
+
+## The Golpo video was on disk the whole time — at `/tmp/golpo-cardiac.mp4`
+
+`HANDOFF-PARITY.md` says the comparison video is "deliberately recorded nowhere". **It was
+in `/tmp`**, 59.53s, encoder `Lavf61.1.100`, 1376×768. Two sessions have now reasoned about
+this film from a prose description while the file sat one `ls` away. It is copied into
+`docs/research/figure-lane/golpo-cardiac.mp4` with a contact sheet beside it, and that
+sentence in the handoff should be struck.
+
+The lesson is not "search harder". It is that **the doc asserted a fact about the world and
+was believed without a check that would have cost one command** — the same failure as
+`golpo-video-craft.md`'s "they do not attempt labelled diagrams", which was also false and
+also shaped a whole strategy.
+
+### Measured, both sides, for the first time
+
+|                      | Golpo                                                                 | ours (`cardiac8`) |
+| -------------------- | --------------------------------------------------------------------- | ----------------- |
+| runtime              | **59.5s**                                                             | 2:54              |
+| mean ink (`inkstat`) | **14.4%** (min 9.6%, max 24.6%)                                       | 5.0%              |
+| hues                 | **6** — 0° 29.7%, 210° 9.4%, 30° 8.9%, 180° 4.0%, 60° 3.6%, 330° 1.0% | 1 — 210° 12.5%    |
+
+**The density target was wrong.** `HANDOFF-PARITY.md` estimated their fill at "visibly ~50%+"
+and set 45% as the goal. The real figure is **14.4%**, and our own figure-lane card measures
+**17.2%** — already above their mean. The gap that remains is not density per card; it is
+that only a minority of our cards are figures, and that we take three times as long to say
+the same thing.
+
+### What the frames show that the write-up did not
+
+- A **"Golpo" watermark** sits on most frames.
+- Titles are a **text layer animated letter by letter** over the picture, not part of it —
+  visible mid-write as `E   R   F` in the opening card. So their labels spell for the same
+  reason ours do: they are not generated by the image model either.
+- In-figure labels (`ATRIA`, `AV NODE`, `BUNDLE OF HIS`) are **hand-lettered text with leader
+  lines**, exactly the division of labour the figure lane was built for — image carries the
+  mechanism, text layer carries the names.
+- Their board **does wipe**: every card is one centred subject.
+- Their frames are **not uniformly dense**. One is a small heart on an empty board and the
+  opener is a title with almost nothing under it. The 14.4% is a mean over sparse and dense
+  alike, which is why a single well-filled card of ours can beat it.

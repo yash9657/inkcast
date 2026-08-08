@@ -44,7 +44,7 @@ import {
   shapePaths,
 } from './geometry.js';
 import { iconPaths, iconsAvailable, matchAsset } from './icons.js';
-import { detectImageProvider, illustrationPaths } from './image.js';
+import { detectImageProvider, figureRaster, illustrationPaths } from './image.js';
 import { libraryFingerprint, libraryPaths, matchLibrary } from './library.js';
 import type { AssetVisual, ElementVisual, VisualManifest } from './manifest.js';
 import {
@@ -164,7 +164,10 @@ export async function resolveVisuals(
       // identical storyboard inputs.
       // v4: an asset may ask to meet its element's box exactly, which changes both the
       // viewBox it is authored in and which lanes may answer for it.
-      'asset/v4',
+      // v5: a `figure` is excluded from the library, icon and letter lanes, so an asset
+      // that previously resolved to a matched stick figure now resolves to a generated
+      // one. Same class of change as v3 and for the same reason: which lane may answer.
+      'asset/v5',
       asset.id,
       asset.kind,
       asset.prompt ?? '',
@@ -417,7 +420,14 @@ async function resolveAsset(args: {
   // human heart, anatomical, external front view, whole organ with great vessels",
   // matched the word *human* against the character library, and drew a stick figure with
   // "SA node", "Bundle of His" and "Left bundle branch" pointing at it.
-  const exact = asset.fit === 'exact';
+  //
+  // A figure is excluded for the same reason and by the same flag, even though its box is
+  // not measured from a trace: the substitution is what has to be prevented, not the
+  // fitting. Measured, and it is the exact failure above happening a second time — three
+  // figures asking for "cutaway cross-section of a human heart" all matched *human* against
+  // the character library and were drawn as stick figures, in a film that cost $0.71 and
+  // contains no cutaway at all.
+  const exact = asset.fit === 'exact' || asset.kind === 'figure';
 
   // 1. the library: drawings we chose, by path and version. First because it is the
   //    only lane whose output improves — everything below re-derives the same
@@ -444,6 +454,44 @@ async function resolveAsset(args: {
         how: curated.how,
         ...(drawn.pose ? { pose: drawn.pose } : {}),
       };
+    }
+  }
+
+  // 1b. the figure lane: a colour teaching picture, kept as a raster and swept in.
+  //
+  //     It returns early rather than joining the `items` flow below, because everything
+  //     below assumes ink — `writeElementSvg` would wrap traced strokes and report a
+  //     stroke length for the pen to follow, and a figure has neither. What it writes is
+  //     an `<image>`, and `data-ink-mode="raster-reveal"` is what tells the runtime to
+  //     sweep a mask across it instead of fading it in.
+  if (!items && asset.kind === 'figure') {
+    if (args.provider === 'none') {
+      log.warn(
+        `the figure "${asset.id}" needs an image key — set FAL_KEY or REPLICATE_API_TOKEN. ` +
+          'Drawing nothing rather than substituting a different picture.',
+      );
+    } else {
+      const drawn = await figureRaster({ id: asset.id, prompt: term, dir, box, seed });
+      if (drawn) {
+        await writeFile(path.resolve(dir, rel), `${drawn.svg}\n`);
+        return {
+          id: asset.id,
+          kind: asset.kind,
+          lane: 'figure',
+          svg: rel,
+          space: 'local',
+          viewBox: toViewBox({ x: 0, y: 0, w: box.w, h: box.h }),
+          // No strokes on purpose: there is nothing to dash along, and claiming a length
+          // would put the pen on a path that does not exist. The runtime sweeps a mask
+          // across the raster instead — see `data-ink-mode` in `page/runtime.js`.
+          strokes: [],
+          totalLength: 0,
+          seed,
+          ...(asset.prompt ? { prompt: asset.prompt } : {}),
+          raster: drawn.raster,
+        };
+      }
+      log.warn(`the figure "${asset.id}" could not be generated — the beat draws without it`);
     }
   }
 

@@ -115,6 +115,25 @@ test('an underlay asset is derived identically wherever it is derived', () => {
   assert.equal(a.prompt, prompt, 'the prompt goes through verbatim');
 });
 
+test('two prompts that read alike are still two assets', () => {
+  // Measured in `projects/cardiac5`: these two were asked for on different beats, both
+  // slugged to `underlay-human-heart-anatomical-external`, and the second silently
+  // annotated the first's picture — so the two beats that most needed to see inside the
+  // heart were drawn on the outside of one. The id has to be total over the prompt.
+  const outside = 'a human heart, anatomical, external front view, whole organ with great vessels';
+  const inside =
+    'a human heart, anatomical, external front view, coronal cut-open view showing ' +
+    'both ventricles and the septum';
+
+  assert.notEqual(underlayAsset(outside).id, underlayAsset(inside).id);
+  // And the readable stem survives, so a cache directory is still browsable by eye.
+  for (const p of [outside, inside]) {
+    assert.match(underlayAsset(p).id, /^underlay-human-heart-anatomical-external-[0-9a-f]{8}$/);
+  }
+  // A one-character change is a different picture, because it is a different prompt.
+  assert.notEqual(underlayAsset(outside).id, underlayAsset(`${outside}.`).id);
+});
+
 test('a recorded ink box is only believed when it is four usable numbers', () => {
   assert.deepEqual(readInkBox([10, 20, 30, 40]), { x: 10, y: 20, w: 30, h: 40 });
   assert.equal(readInkBox(undefined), undefined);

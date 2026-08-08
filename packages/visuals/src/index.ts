@@ -218,6 +218,8 @@ export {
   ILLUSTRATION_DIR,
   detectImageProvider,
   extractPathData,
+  figurePrompt,
+  figureRaster,
   generateIllustration,
   illustrationKey,
   illustrationPaths,
@@ -225,9 +227,11 @@ export {
   illustrationRaster,
   resetIllustrationCache,
   resetImageProviderNotice,
+  shapePrompt,
   tracedInkBox,
   vectoriseToInk,
   type IllustrationRaster,
+  type ImageKind,
   type ImageProvider,
 } from './image.js';
 

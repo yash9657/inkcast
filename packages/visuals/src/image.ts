@@ -56,11 +56,47 @@ const log = logger('visuals:image');
 export type ImageProvider = 'replicate' | 'fal' | 'none';
 
 /**
+ * What we are asking a raster for, and they are two different jobs.
+ *
+ * - `form` — the *shape* of a real thing, as line art, for the tracer to redraw in the
+ *   board's own hand with composed marks naming its parts. The lane that already exists.
+ * - `figure` — the beat's whole *teaching figure*, in colour: the view, the internal
+ *   structures, the pathway, the arrows. It is shown as a raster and never traced, because
+ *   a binary trace of a colour figure erases exactly the part that teaches.
+ *
+ * See `docs/PLAN-FIGURE-LANE.md`. The split is not stylistic: measured on 2026-08-06, a
+ * four-step model asked for a cutaway heart returns an external heart however the prompt is
+ * written, and a 28-step model returns the cutaway on the first try.
+ */
+export type ImageKind = 'form' | 'figure';
+
+/**
  * Flux-schnell class models: four denoising steps, cents per image, and by far
  * the best of the cheap tier at flat line art.
+ *
+ * The figure tier costs roughly ten times as much per image (~$0.025 against ~$0.003) and
+ * is worth it only where the picture carries the teaching, which is why the lane is chosen
+ * per beat rather than per film. `INKCAST_FIGURE_MODEL` overrides the endpoint without a
+ * code change — `fal-ai/nano-banana` is the marker-style pick and also cleared the bar.
  */
-const REPLICATE_MODEL = 'black-forest-labs/flux-schnell';
-const FAL_MODEL = 'fal-ai/flux/schnell';
+const MODELS: Record<Exclude<ImageProvider, 'none'>, Record<ImageKind, string>> = {
+  replicate: {
+    form: 'black-forest-labs/flux-schnell',
+    figure: 'black-forest-labs/flux-dev',
+  },
+  fal: {
+    form: 'fal-ai/flux/schnell',
+    figure: 'fal-ai/flux/dev',
+  },
+};
+
+/** Denoising steps. Schnell is *capped* at 4; the figure tier needs the full schedule. */
+const STEPS: Record<ImageKind, number> = { form: 4, figure: 28 };
+
+function modelFor(provider: Exclude<ImageProvider, 'none'>, kind: ImageKind): string {
+  const override = kind === 'figure' ? process.env.INKCAST_FIGURE_MODEL : undefined;
+  return override && override.trim().length > 0 ? override.trim() : MODELS[provider][kind];
+}
 
 /** Where cached rasters live, relative to the project directory. */
 export const ILLUSTRATION_DIR = 'assets/illustrations';
@@ -113,6 +149,35 @@ export function illustrationPrompt(prompt: string): string {
   );
 }
 
+/**
+ * Shape the prompt for a **teaching figure**, which is not shaped for the tracer at all.
+ *
+ * Every negative `illustrationPrompt` carries exists to protect a binary trace, and a
+ * figure is never traced — so shading, colour fills and interior structure are not merely
+ * allowed here, they are the point. What survives from the other prompt is the framing (one
+ * centred subject, whole subject in frame, plain background) and, above all, **no text**:
+ * lettering is the one limit that did not move. An image model still cannot spell, and
+ * names remain the mark layer's job, which is the half we are genuinely better at.
+ *
+ * "Hand-drawn educational diagram" rather than "photorealistic" or "3D render" is doing
+ * real work: it keeps the figure inside the board's own idiom, so a generated picture and a
+ * composed one can share a frame without looking like a collage.
+ */
+export function figurePrompt(prompt: string): string {
+  return (
+    `${prompt.trim()}, hand-drawn educational diagram in the style of a marker illustration ` +
+    'on white paper, clean confident outlines, flat semantic colour fills, clearly separated ' +
+    'parts, plain white background, no background scenery, no frame, ' +
+    'no text, no lettering, no labels, no captions, no watermark, ' +
+    'whole subject in frame not cropped'
+  );
+}
+
+/** The prompt shaping a raster of this kind goes through. */
+export function shapePrompt(prompt: string, kind: ImageKind): string {
+  return kind === 'figure' ? figurePrompt(prompt) : illustrationPrompt(prompt);
+}
+
 async function fetchJson(
   url: string,
   init: RequestInit,
@@ -158,12 +223,19 @@ function firstUrl(value: unknown): string | undefined {
  *
  * Input fields are exactly flux-schnell's schema. Two are easy to get wrong:
  * `output_format` defaults to **webp**, which the vectoriser cannot read, so png
- * is explicit; and `num_inference_steps` is capped at 4 on this model.
+ * is explicit; and `num_inference_steps` is capped at 4 on **schnell** — passing the
+ * figure tier's 28 to it is an API error, not a slower image, which is why the step count
+ * travels with the kind rather than being a constant.
  */
-async function generateReplicate(prompt: string, seed?: number): Promise<Buffer | undefined> {
+async function generateReplicate(
+  prompt: string,
+  kind: ImageKind,
+  seed?: number,
+): Promise<Buffer | undefined> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return undefined;
-  let body = await fetchJson(`https://api.replicate.com/v1/models/${REPLICATE_MODEL}/predictions`, {
+  const model = modelFor('replicate', kind);
+  let body = await fetchJson(`https://api.replicate.com/v1/models/${model}/predictions`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
@@ -175,7 +247,7 @@ async function generateReplicate(prompt: string, seed?: number): Promise<Buffer 
         prompt,
         num_outputs: 1,
         aspect_ratio: '1:1',
-        num_inference_steps: 4,
+        num_inference_steps: STEPS[kind],
         output_format: 'png',
         megapixels: '1',
         go_fast: true,
@@ -215,17 +287,21 @@ async function generateReplicate(prompt: string, seed?: number): Promise<Buffer 
  * `image_size` takes the named presets or an explicit `{width, height}`, and
  * `square_hd` is 1024×1024; the response is `{ images: [{ url, width, height }] }`.
  */
-async function generateFal(prompt: string, seed?: number): Promise<Buffer | undefined> {
+async function generateFal(
+  prompt: string,
+  kind: ImageKind,
+  seed?: number,
+): Promise<Buffer | undefined> {
   const key = process.env.FAL_KEY;
   if (!key) return undefined;
-  const body = await fetchJson(`https://fal.run/${FAL_MODEL}`, {
+  const body = await fetchJson(`https://fal.run/${modelFor('fal', kind)}`, {
     method: 'POST',
     headers: { authorization: `Key ${key}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       prompt,
       image_size: 'square_hd',
       num_images: 1,
-      num_inference_steps: 4,
+      num_inference_steps: STEPS[kind],
       output_format: 'png',
       enable_safety_checker: true,
       ...(seed !== undefined ? { seed } : {}),
@@ -261,22 +337,31 @@ async function download(url: string | undefined): Promise<Buffer | undefined> {
  */
 export async function generateIllustration(
   prompt: string,
-  opts: { seed?: number } = {},
+  opts: { seed?: number; kind?: ImageKind } = {},
 ): Promise<Buffer | undefined> {
   const provider = detectImageProvider();
   if (provider === 'none') return undefined;
-  const shaped = illustrationPrompt(prompt);
-  log.debug(`generating illustration via ${provider}`, prompt);
+  const kind = opts.kind ?? 'form';
+  const shaped = shapePrompt(prompt, kind);
+  log.debug(`generating ${kind} via ${provider} (${modelFor(provider, kind)})`, prompt);
   return provider === 'replicate'
-    ? generateReplicate(shaped, opts.seed)
-    : generateFal(shaped, opts.seed);
+    ? generateReplicate(shaped, kind, opts.seed)
+    : generateFal(shaped, kind, opts.seed);
 }
 
 /* ------------------------------------------------------------------ caching */
 
-/** Cache key for an illustration: the asset id plus a hash of its prompt. */
-export function illustrationKey(id: string, prompt: string): string {
-  return `${sanitiseId(id)}-${hash('illustration/v1', prompt.trim()).slice(0, 10)}`;
+/**
+ * Cache key for an illustration: the asset id plus a hash of its prompt **and its kind**.
+ *
+ * The kind is in the hash because a form and a figure of the same subject are two different
+ * pictures — one flat line art for the tracer, one a colour teaching figure — and a key that
+ * could not tell them apart would serve whichever was generated first. That is the same
+ * silent aliasing that cost `projects/cardiac5` its two best cards through `underlayAsset`,
+ * and it is worth being paranoid about twice.
+ */
+export function illustrationKey(id: string, prompt: string, kind: ImageKind = 'form'): string {
+  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim()).slice(0, 10)}`;
 }
 
 export type IllustrationRaster = {
@@ -334,8 +419,11 @@ export async function illustrationRaster(args: {
   /** Project working directory. */
   dir: string;
   seed?: number;
+  /** `form` (line art, to be traced) or `figure` (a colour teaching picture). */
+  kind?: ImageKind;
 }): Promise<IllustrationRaster | undefined> {
-  const key = illustrationKey(args.id, args.prompt);
+  const kind = args.kind ?? 'form';
+  const key = illustrationKey(args.id, args.prompt, kind);
   const rel = `${ILLUSTRATION_DIR}/${key}.png`;
   const abs = path.resolve(args.dir, rel);
   const shared = path.join(cacheDir('illustrations'), `${key}.png`);
@@ -375,6 +463,7 @@ export async function illustrationRaster(args: {
     if (provider === 'none') return undefined;
     const png = await generateIllustration(args.prompt, {
       ...(args.seed !== undefined ? { seed: args.seed } : {}),
+      kind,
     });
     if (!png || png.length === 0) return undefined;
     await stash(abs, png, 'project');
@@ -585,6 +674,86 @@ export async function vectoriseToInk(
 }
 
 /**
+ * A PNG's intrinsic size, straight out of the IHDR chunk.
+ *
+ * Both providers are configured square today, but "the provider happens to return squares"
+ * is not something the placement should quietly depend on — an aspect assumption that is
+ * right until someone changes `image_size` is the kind of thing that comes back as a
+ * stretched heart nobody can explain. Falls back to a square if the header is not a PNG.
+ */
+function pngSize(png: Buffer): { w: number; h: number } {
+  const PNG_MAGIC = '89504e470d0a1a0a';
+  if (png.length < 24 || png.subarray(0, 8).toString('hex') !== PNG_MAGIC) {
+    log.warn('a figure raster is not a PNG — assuming it is square');
+    return { w: 1024, h: 1024 };
+  }
+  const w = png.readUInt32BE(16);
+  const h = png.readUInt32BE(20);
+  return w > 0 && h > 0 ? { w, h } : { w: 1024, h: 1024 };
+}
+
+/**
+ * A colour figure, kept as a raster and never traced.
+ *
+ * Measured, and this is the whole argument for the mode: thresholding a figure whose
+ * conduction arrows are orange **erases the arrows** — vtracer runs in `ColorMode.Binary`
+ * and orange sits on the wrong side of the luminance cut — merges the red and blue chambers
+ * into one black mass, and turns the interiors into scribble. See
+ * `docs/research/figure-lane/binary-destroys-colour.png`. There is no tracer setting that
+ * fixes that, because the information being destroyed is hue and a binary trace has no
+ * hue. `docs/STYLES.md` §1 called this years before it was measured: **do not vectorize
+ * rich illustration.**
+ *
+ * What comes back is an `<image>` wrapped in an SVG. `inlineImages` in the renderer already
+ * data-URIs a relative `<image href>`, and the runtime already paints one — `image` is in
+ * its `PAINTABLE` set. Nothing upstream had ever produced one.
+ */
+export async function figureRaster(args: {
+  id: string;
+  prompt: string;
+  dir: string;
+  box: Box;
+  seed?: number;
+}): Promise<{ svg: string; raster: string; cached: boolean } | undefined> {
+  const raster = await illustrationRaster({
+    id: args.id,
+    prompt: args.prompt,
+    dir: args.dir,
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    kind: 'figure',
+  });
+  if (!raster) return undefined;
+  // Fit the raster's own aspect inside the box and emit the `<image>` at exactly that
+  // rectangle, rather than letting `preserveAspectRatio` letterbox it inside a wider one.
+  // The difference is not cosmetic: the reveal mask and the pen both work from the
+  // element's bounding box, so a letterboxed image spends a fifth of its sweep on empty
+  // margin and parks the nib off the picture entirely.
+  const size = pngSize(raster.png);
+  const scale = Math.min(args.box.w / size.w, args.box.h / size.h);
+  const w = size.w * scale;
+  const h = size.h * scale;
+  const x = (args.box.w - w) / 2;
+  const y = (args.box.h - h) / 2;
+  // The href is project-relative: the renderer resolves and inlines it against the project
+  // directory, and keeping it relative is what lets a project stay self-describing.
+  //
+  // `mix-blend-mode: multiply` is what makes the picture sit *on* the board rather than on
+  // a white card laid over it. Every one of these rasters is drawn on white, the board's
+  // paper is `#fcfbf9`, and multiplying by white is the identity — so the card disappears,
+  // the paper's warmth carries through the picture, and the grid dots read underneath it.
+  // The first render without it showed the card's edges plainly against the paper.
+  const n = (v: number): string => String(Math.round(v * 100) / 100);
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(args.box.w)}" ` +
+    `height="${n(args.box.h)}" viewBox="0 0 ${n(args.box.w)} ${n(args.box.h)}" ` +
+    'data-ink-space="local" data-ink-mode="raster-reveal">' +
+    `<image href="${raster.rel}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" ` +
+    'preserveAspectRatio="none" style="mix-blend-mode:multiply"/>' +
+    '</svg>';
+  return { svg, raster: raster.rel, cached: raster.cached };
+}
+
+/**
  * The whole lane for one asset: cached raster → vector → hand-drawn strokes.
  *
  * Returns `undefined` for every kind of unavailability (no key, provider error,
@@ -606,6 +775,7 @@ export async function illustrationPaths(args: {
     prompt: args.prompt,
     dir: args.dir,
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    kind: 'form',
   });
   if (!raster) return undefined;
   const paths = await vectoriseToInk(raster.png, args.box, args.ctx, {

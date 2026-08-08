@@ -156,6 +156,22 @@ export const VisualIntent = z.object({
     .object({
       prompt: z.string(),
       /**
+       * Whether the generated picture is the object's **form** or the beat's whole
+       * **figure**, and it changes what `prompt` should say.
+       *
+       * `form` (the default, and what every lesson before 2026-08-06 meant) is flat line
+       * art of the object, traced and redrawn in the board's hand, with composed marks
+       * carrying the mechanism on top: _"a human heart, anatomical, external front view"_.
+       *
+       * `figure` is the teaching picture itself, in colour — the view, the internal
+       * structures, the pathway, the arrows — shown as a raster and never traced, with the
+       * marks reduced to naming parts: _"cutaway cross-section of a heart, the AV node
+       * marked, the signal fanning down through both ventricles"_. Choose it when the
+       * picture rather than the annotation carries the teaching. It costs about ten times
+       * as much per image and needs a figure-capable model; see `docs/PLAN-FIGURE-LANE.md`.
+       */
+      kind: z.enum(['form', 'figure']).optional(),
+      /**
        * Where that image's ink lands on the drawing canvas, `[x, y, w, h]`.
        *
        * Written by the drawing stage when it generates the image, never by the lesson

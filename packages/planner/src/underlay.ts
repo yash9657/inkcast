@@ -22,7 +22,7 @@
  * seam read them from this file. Same argument as `draw-geom.ts`: the quality came from
  * the repair and the audit being unable to hold different opinions about what ink is.
  */
-import { DRAW_H, DRAW_W } from '@inkcast/core';
+import { DRAW_H, DRAW_W, hash } from '@inkcast/core';
 import type { Box } from './elements.js';
 
 /**
@@ -39,6 +39,30 @@ import type { Box } from './elements.js';
  * that does not use the board's height is the sparseness defect arriving by another door.
  */
 export const UNDERLAY_AREA = { w: 620, h: DRAW_H } as const;
+
+/**
+ * The region a **figure** occupies, and it is deliberately most of the board.
+ *
+ * `UNDERLAY_AREA` reserves 190 units either side for the names that carry a form's
+ * mechanism. A figure carries its own mechanism, so the split inverts: the picture takes
+ * the board and the few names it needs sit in a thin margin. This is also the fix for the
+ * measured 12%-of-frame subject — a picture that teaches has to be big enough to read.
+ */
+export const FIGURE_AREA = { w: 840, h: DRAW_H } as const;
+
+/**
+ * Where a figure sits on the drawing canvas, without generating anything.
+ *
+ * A form's box is measured from a trace of its own raster, because marks are aimed into
+ * it. **A figure is never traced** — a binary trace erases the hues that carry its
+ * teaching — so there is nothing to measure and nothing needs measuring: the picture is
+ * simply given a box and centred in it by `figureRaster`. Gating it on a traced ink box,
+ * which is what the shared seam used to do, meant every figure the lesson author asked for
+ * fell through in silence.
+ */
+export function figureBox(): Box {
+  return { x: (DRAW_W - FIGURE_AREA.w) / 2, y: 0, w: FIGURE_AREA.w, h: FIGURE_AREA.h };
+}
 
 /**
  * Where a traced image's ink goes on the drawing canvas, from the shape of that ink.
@@ -90,6 +114,21 @@ export function readInkBox(box: number[] | undefined): Box | undefined {
  * match, and not only for tidiness — on a machine with no cached raster, a regeneration
  * under a different seed returns a different heart, and `lesson.json` stops being the
  * complete description of the video that its own schema promises.
+ *
+ * ## The id is total over the prompt, and the four-word slug alone was not
+ *
+ * The readable slug is the first four words worth reading, which is what makes a cache
+ * directory browsable. It is not enough to *identify* a prompt, and the failure is silent:
+ * `projects/cardiac5` asked for
+ *
+ *     "a human heart, anatomical, external front view, whole organ with great vessels"
+ *     "a human heart, anatomical, external front view, coronal cut-open view showing
+ *      both ventricles and the septum"
+ *
+ * on different beats, both slugged to `underlay-human-heart-anatomical-external`, and the
+ * second silently annotated the first's picture — so the two beats that most needed to see
+ * inside the heart were drawn on the outside of one, and nothing anywhere logged it. The
+ * suffix makes distinct prompts distinct assets; the slug stays so the id is still legible.
  */
 export function underlayAsset(prompt: string): { id: string; prompt: string } {
   const clean = prompt.trim();
@@ -101,5 +140,5 @@ export function underlayAsset(prompt: string): { id: string; prompt: string } {
       .filter((w) => w.length > 2)
       .slice(0, 4)
       .join('-') || 'underlay';
-  return { id: `underlay-${slug}`, prompt: clean };
+  return { id: `underlay-${slug}-${hash(clean).slice(0, 8)}`, prompt: clean };
 }

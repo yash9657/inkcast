@@ -35,7 +35,7 @@ export type AssetVisual = {
   id: string;
   kind: Asset['kind'];
   /** How this asset was actually resolved, whatever `kind` claimed. */
-  lane: 'library' | 'icon' | 'illustration' | 'diagram' | 'letter' | 'inline';
+  lane: 'library' | 'icon' | 'illustration' | 'figure' | 'diagram' | 'letter' | 'inline';
   /** Project-relative path to the SVG. */
   svg: string;
   space: VisualSpace;

@@ -197,6 +197,9 @@
     'style',
   ];
 
+  /** Asset-root attributes the wrapper must keep, because the root itself is discarded. */
+  var CARRIED = ['data-ink-mode', 'data-ink-id'];
+
   /** Tags that hold other paintable nodes. */
   var CONTAINERS = { g: 1, a: 1, switch: 1 };
   /** Tags that actually put ink on the board. */
@@ -269,6 +272,13 @@
       var an = INHERITED[pa];
       var av = root.getAttribute(an);
       if (av !== null) g.setAttribute(an, av);
+    }
+    // The children move onto this wrapper, so anything the part collector reads off the
+    // asset root has to move with them. `data-ink-mode` is how a raster figure asks to be
+    // swept rather than faded, and it is on the root the parser threw away.
+    for (var da = 0; da < CARRIED.length; da++) {
+      var dv = root.getAttribute(CARRIED[da]);
+      if (dv !== null) g.setAttribute(CARRIED[da], dv);
     }
 
     var k = Math.min(prim.box.w / (vw || 1), prim.box.h / (vh || 1));
@@ -497,15 +507,142 @@
     return out;
   }
 
+  /**
+   * A raster figure is revealed by sweeping a hand-drawn mask across it.
+   *
+   * A colour teaching figure cannot be traced — a binary trace erases every hue that
+   * carries meaning — so it arrives as an `<image>`, and an `<image>` has no strokes to
+   * dash along. Fading it in reads wrong on a board where everything else is drawn. So the
+   * picture is clipped to "everything the hand has swept so far": an edge that runs top to
+   * bottom, tilted, with a roughened wobble, marching left to right.
+   *
+   * `docs/STYLES.md` §1 specified this and named the failure to avoid: a straight
+   * left-to-right wipe looks mechanical. Hence the tilt, the wobble, and a phase that
+   * varies per asset so two figures in one film do not sweep identically.
+   */
+  var SWEEP_STEPS = 24;
+  /** Distinguishes two sweeps in one document; declared here, not after its first use. */
+  var sweepCounter = 0;
+
+  function sweepSeed(el) {
+    // Stable per asset: the same figure sweeps the same way every render, which is what
+    // makes a re-render byte-identical rather than merely similar.
+    var id = (el.getAttribute('data-ink-id') || el.getAttribute('id') || '') + '';
+    var h = 2166136261;
+    for (var i = 0; i < id.length; i++) {
+      h ^= id.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    return h / 4294967296;
+  }
+
+  /** The x of the sweep edge at height fraction `u`, at progress `p`. */
+  function sweepEdgeX(part, u, p) {
+    var w = part.bw;
+    var tilt = part.tilt;
+    var pad = part.pad;
+    // Travel far enough that the edge has fully cleared the box at p=1, tilt included.
+    var travel = w + Math.abs(tilt) + pad * 2;
+    var x = -pad - Math.abs(tilt) / 2 + p * travel;
+    // Tilt about the middle, not about the top: hung off `u` alone it shifts the whole
+    // edge sideways, so the sweep spends its first fifth clearing empty board.
+    x += tilt * (u - 0.5);
+    // Two out-of-phase sinusoids: a single one reads as a wave, two as a hand.
+    var a = part.wob;
+    x += a * Math.sin(u * 5.3 + part.phase * 6.283);
+    x += a * 0.45 * Math.sin(u * 11.7 + part.phase * 3.1);
+    return x;
+  }
+
+  function applySweep(part, p) {
+    var pts = [];
+    var pad = part.pad;
+    var h = part.bh;
+    pts.push(-pad * 2 + ',' + -pad * 2);
+    for (var i = 0; i <= SWEEP_STEPS; i++) {
+      var u = i / SWEEP_STEPS;
+      pts.push(f(sweepEdgeX(part, u, p)) + ',' + f(-pad * 2 + u * (h + pad * 4)));
+    }
+    pts.push(-pad * 2 + ',' + f(h + pad * 2));
+    part.poly.setAttribute('points', pts.join(' '));
+  }
+
+  /**
+   * Turn an `<image>` into a swept part, or return null if this document is not a raster
+   * figure. The clip lives in the imported wrapper so it travels with the asset.
+   */
+  function makeSweepPart(el, root) {
+    var doc = el.ownerDocument;
+    var box;
+    try {
+      box = el.getBBox();
+    } catch (e) {
+      return null;
+    }
+    if (!(box.width > 0 && box.height > 0)) return null;
+
+    var seed = sweepSeed(root);
+    var uid = 'inkcast-sweep-' + Math.round(seed * 1e9) + '-' + sweepCounter++;
+    var defs = doc.createElementNS(SVGNS, 'defs');
+    var clip = doc.createElementNS(SVGNS, 'clipPath');
+    clip.setAttribute('id', uid);
+    // The polygon is authored in the same user space as the image it clips.
+    clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    var poly = doc.createElementNS(SVGNS, 'polygon');
+    clip.appendChild(poly);
+    defs.appendChild(clip);
+    // Appended, never inserted at the front: `collectSvgParts` walks `root.children`, which
+    // is a *live* collection, so inserting ahead of the cursor re-visits the node that
+    // asked for the clip and inserts again, forever. That hung a capture for five minutes
+    // with no error to show for it. Appending a non-paintable node past the cursor is
+    // inert, and the caller snapshots the list as well.
+    root.appendChild(defs);
+    el.setAttribute('clip-path', 'url(#' + uid + ')');
+
+    var part = {
+      t: 'sweep',
+      el: el,
+      poly: poly,
+      bx: box.x,
+      by: box.y,
+      bw: box.width,
+      bh: box.height,
+      // A tilt of about a sixth of the width reads as a diagonal without the top and
+      // bottom of the picture arriving at conspicuously different times.
+      tilt: box.width * (0.13 + seed * 0.1) * (seed > 0.5 ? 1 : -1),
+      wob: Math.min(box.width, box.height) * 0.022,
+      pad: Math.max(box.width, box.height) * 0.04,
+      phase: seed,
+      // A figure is the beat's picture, so it earns a real share of the beat rather than
+      // a fade's flat token cost.
+      cost: Math.max(FADE_COST * 3, (box.width + box.height) * 0.9),
+      baseOpacity: 1,
+    };
+    // The polygon is in the image's own user space, so shift it by the bbox origin.
+    poly.setAttribute('transform', 'translate(' + f(box.x) + ',' + f(box.y) + ')');
+    applySweep(part, 0);
+    return part;
+  }
+
   /** Document-order walk of an imported asset, classifying every paintable node. */
   function collectSvgParts(root, out) {
-    var kids = root.children;
+    var sweeping = root.getAttribute('data-ink-mode') === 'raster-reveal';
+    // Snapshot: `root.children` is live, and the sweep adds a `<defs>` to it as it goes.
+    var kids = [];
+    for (var ci = 0; ci < root.children.length; ci++) kids.push(root.children[ci]);
     for (var i = 0; i < kids.length; i++) {
       var el = kids[i];
       var tag = el.tagName.toLowerCase();
       if (CONTAINERS[tag]) {
         collectSvgParts(el, out);
         continue;
+      }
+      if (sweeping && tag === 'image') {
+        var swept = makeSweepPart(el, root);
+        if (swept) {
+          out.push(swept);
+          continue;
+        }
       }
       // defs/masks/gradients/titles paint nothing on their own.
       if (!PAINTABLE[tag]) continue;
@@ -744,6 +881,12 @@
       part.el.setAttribute('opacity', f(part.baseOpacity * fp));
       return;
     }
+    if (part.t === 'sweep') {
+      // Linear, for the same reason `strokeReveal` is: the nib has to travel at a
+      // constant speed or it drifts off the edge it is supposed to be riding.
+      applySweep(part, reveal ? lp : 1);
+      return;
+    }
     // line
     var edge;
     if (!reveal || lp >= 1) {
@@ -809,6 +952,27 @@
     if (part.t === 'line') {
       var edge = wordEdge(part, lp);
       return { x: part.left + edge, y: part.baseline - part.size * 0.06, angle: 0 };
+    }
+    if (part.t === 'sweep') {
+      // The nib rides the sweep edge, running up and down it as it advances — the motion
+      // of filling something in rather than of ruling a line. Four passes across the
+      // picture: fewer reads as a wipe, more as a scribble.
+      var u = 0.5 - 0.44 * Math.cos(lp * Math.PI * 8);
+      var sx = sweepEdgeX(part, u, lp) + part.bx;
+      var sy = part.by + u * part.bh;
+      // Angle from the edge's local tangent, so the nib leans the way the edge leans.
+      var du = 0.02;
+      var u2 = Math.min(1, u + du);
+      var dx = sweepEdgeX(part, u2, lp) - sweepEdgeX(part, u, lp);
+      var dy = (u2 - u) * part.bh;
+      var ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+      if (part.m) {
+        var mm = part.m;
+        var px = mm.a * sx + mm.c * sy + mm.e;
+        var py = mm.b * sx + mm.d * sy + mm.f;
+        return { x: px, y: py, angle: ang };
+      }
+      return { x: sx, y: sy, angle: ang };
     }
     return null;
   }
