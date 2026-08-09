@@ -2031,3 +2031,83 @@ the local derivation **silently**, reporting `author: 'anthropic'` because `cast
 unfixable inside `cast.ts` alone: `teachLesson` returns a bare `Lesson` and swallows the
 failure, so nothing downstream can know. Phase 3's verification is blocked until credits are
 topped up. Phases 2, 4, 5 are not — none of them needs a model.
+
+## 2026-08-09 — Phases 2 and 4 land; defect 0's premise turns out to be false
+
+Seven commits on `visuals-morph-density`, from `b8f6291` to `45d4ff9`. **699 tests**
+(654 at the start), lint and typecheck clean, and the four pinned hashes —
+`b6ed04d68aaa` / `4aa467530110` / `a9b5b8960ed0` / `c0f2ccc5024c` — unmoved at every
+single commit.
+
+| Phase            | State                                                                     |
+| ---------------- | ------------------------------------------------------------------------- |
+| 0 preflight      | done — the figure lane was uncommitted and is now committed               |
+| 1 figure film    | rendered for **$0.00**; hues 1 → 4; ink 5.7% against a 10% gate           |
+| 2 wipe the board | done, and reachable: `cast … --board wipe`                                |
+| 3 script economy | **not started** — blocked, see below                                      |
+| 4 the voice      | done — records who spoke, prices per credit, flash                        |
+| 5 craft layer    | 5a (labels) done; **defect 0 attempted and reverted**; titles not started |
+| 6 mascot         | not started                                                               |
+
+### Defect 0 is not what the plan says it is, and the fix was reverted
+
+The plan (Phase 5 item 1) says the planner's `FONT` and the renderer's `TYPE_SCALE` are
+"two catalogues of one number" and that the renderer draws 18% bigger. **They are not two
+quotes of one number: `FONT` is in canvas units and `TYPE_SCALE` is in output pixels**,
+which `camera.ts:276` already said and which nothing had reconciled. Making them equal is
+a units conflation, not a unification.
+
+The attempt was made and is reverted at `45d4ff9`. It left three render tests red
+(`text roles map onto the type scale`, `text is wrapped, measured, and revealed word by
+word`, `a ball riding a plot lands on the curve`) and it shrank type by ~21% in every
+film — against the only calibration evidence in the repo, `compile.test.ts:147`, which
+reasons explicitly in pixel space: _"A 96 px title therefore lands as ~72.7 canvas units —
+which is what fits the 150-unit box the author drew."_
+
+Two things the attempt did establish, which are worth more than the fix would have been:
+
+- **There is a third catalogue.** `ROLE_SCALE` in `visuals/src/style.ts` sizes every
+  diagram node, term card heading and arrow label through `roleFontSize`, unconditionally
+  and with no `typeSizes` — so a board already writes text elements from one table and
+  diagram labels from another.
+- **On the shipped boards nothing clips the way the plan describes.** Standard 16:9 draws
+  body at 17.4 and 33.5 canvas units into a 34-unit box — _smaller_ than reserved. The
+  `AV nod` clipping in `docs/research/golpo-parity/figure-film-one-card-113s.png` is real,
+  but the plan's stated cause is not it, and the next attempt should start from the frame
+  rather than from the two constants.
+
+The honest fix is a fixed-point pass — measure at `FONT`, resolve framing, re-measure at
+`boardMetrics().type`, re-resolve — and **it will move all four pinned hashes**, so it is
+a decision for a person, not something to slip into a phase.
+
+### What blocks the rest
+
+**Anthropic is out of credits.** `keys validate` passes because the key is valid, but
+every lesson call returns `400 "Your credit balance is too low"` and the stage falls back
+to the local derivation silently. Phase 3 is a lesson-brief change whose entire
+verification is `designLesson` ×2, so it cannot be started honestly until this is topped
+up. Nothing else in the plan needs a model.
+
+**ElevenLabs: about 8,864 of 10,000 characters left.** 1,136 were spent by an agent that
+ran a real `cast` as end-to-end proof of the `--board` flag, believing the run was local
+because it found no provider keys in `env` — the CLI's `hydrateKeys()` copies vault keys
+into `process.env` before any stage runs. The isolation that actually works is what
+`apps/cli/test/cli.test.ts` does: `INKCAST_HOME` + `INKCAST_KEYVAULT_BACKEND` +
+`INKCAST_PROJECTS` at a sandbox. Anything running a real `cast` for a non-voice reason
+must pin `--voice kokoro:af_heart` as well.
+
+### Where the density actually is
+
+Three measurements, so nobody re-derives them:
+
+- **Wiping is not a density fix.** The same beat renders 2.73% ink wiped against 2.59%
+  accumulated. What wiping buys is that the camera stops touring whitespace and stale
+  cards stop sharing the frame: mean content fill 55.5% → 62.3%, regions 4 → 1, canvas
+  4448x2908 → 1280x895. Do not read a wipe render's ink as this phase's verdict.
+- **A camera transition costs zero wall clock.** `sceneLength` has no transition term and
+  the ease runs inside the next scene's own duration. Phase 3's ≤0.7s boundary budget has
+  to come out of `hold`; there is nothing to reclaim from transitions.
+- **The figure was drawing at 66.7% of its own box** until `5090421`. That is fixed at the
+  request rather than at the fit, and it is the largest single move left on `inkstat` — but
+  it is unmeasured, because seeing it needs a re-render with regenerated rasters at the new
+  aspect. **That is the first thing the next session should do**, and it costs about $0.10.

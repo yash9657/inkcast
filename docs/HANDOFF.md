@@ -1,12 +1,29 @@
-> ## → Read **`docs/PLAN-GOLPO-PARITY.md`** first. It sequences everything below into six gated phases.
+> ## → Phases 0, 1, 2, 4 and 5a of **`docs/PLAN-GOLPO-PARITY.md`** are done. Read `STATUS.md` under **2026-08-09** before that plan, because three of the plan's own claims are now false.
 >
-> Measured 2026-08-08, both films side by side: Golpo is 59.5s / 14.4% ink / 6 hues /
-> 3.2s silence; `cardiac8` is 174s / 5.0% / 1 hue / 26.8s silence — and its "ElevenLabs"
-> voice was actually **kokoro** (`af_heart`, 24 kHz, quota exhausted, silently billed
-> $0.43). Their labels are a text layer like ours; their density target is 14%, not 50%;
-> our sync machinery is fine. The five real gaps, in order: no film has ever contained a
-> figure, the board never wipes, 348 words where 145 do, the paid voice has never been
-> heard, and titles have no craft. The plan closes them one gated phase at a time.
+> Seven commits, `b8f6291`..`45d4ff9`. **699 tests**, lint and typecheck clean, and the four
+> pinned hashes unmoved at every commit. A film now exists with figures in it
+> (`projects/cardiac8f`, frames under `docs/research/golpo-parity/`); the board wipes on
+> `cast … --board wipe`; the voice records who actually spoke and bills per credit.
+>
+> **What the plan gets wrong, corrected from artefacts:**
+>
+> - **Defect 0 is not "two catalogues of one number".** `FONT` is canvas units and
+>   `TYPE_SCALE` is output pixels. Unifying them shrinks type ~21% in every film and turns
+>   three render tests red; it was attempted and reverted. There is also a **third**
+>   catalogue (`ROLE_SCALE`, sizing every diagram and arrow label). The real fix is a
+>   fixed-point pass and it moves all four pinned hashes — a human's decision.
+> - **`cardiac8`'s voice was a mixed run, not kokoro.** Scene 0's phrase split is
+>   ElevenLabs' clause default and every later scene is Kokoro's sentence split: the paid
+>   provider spoke the first scene and the balance died. Reporting whoever _finished_ would
+>   have billed $0.00 for characters that really were charged.
+> - **Wiping is not a density fix.** 2.73% ink wiped against 2.59% accumulated on the same
+>   beat. It buys framing (content fill 55.5% → 62.3%), not ink. And a camera transition
+>   costs **zero** wall clock, so Phase 3's boundary budget must come out of `hold`.
+>
+> **Blocked:** Phase 3 needs the Anthropic account topped up — the key is valid, the balance
+> is not, and the lesson stage falls back to the local derivation silently. **Do first:**
+> re-render with figures regenerated at the box's aspect (~$0.10). They were drawing at
+> 66.7% of their own box until `5090421`, and that is the largest untested move on `inkstat`.
 
 > ## → Read **`docs/PLAN-FIGURE-LANE.md`** second. Its items 0–2.5 are built; its items 4 and 7 are now Phases 2 and 3 of the plan above.
 >
