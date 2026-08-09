@@ -93,6 +93,78 @@ const MODELS: Record<Exclude<ImageProvider, 'none'>, Record<ImageKind, string>> 
 /** Denoising steps. Schnell is *capped* at 4; the figure tier needs the full schedule. */
 const STEPS: Record<ImageKind, number> = { form: 4, figure: 28 };
 
+/**
+ * What both providers price an image at, and what `square_hd` already was: ~1 megapixel.
+ * Holding the *area* rather than the long edge is what makes a 3:2 request cost the same
+ * as a square one.
+ */
+const RASTER_PIXELS = 1024 * 1024;
+/** Diffusion models quantise their latent grid anyway; asking off-grid buys nothing. */
+const RASTER_STEP = 32;
+/**
+ * The widest (or tallest) shape worth asking for. A very long box is a layout defect
+ * upstream, and a model asked for a 6:1 banner of one subject returns a strip of repeats
+ * rather than one subject — so the raster is clamped and letterboxes a little instead.
+ */
+const RASTER_ASPECT_LIMIT = 2.5;
+
+/**
+ * The pixel size to ask a provider for, from the shape of the box the raster will fill.
+ *
+ * Both providers were hard-coded square, and that cost the figure lane a third of every box
+ * it was handed. Measured on `projects/cardiac8`: a 1024×1024 PNG in a 567×378 element drew
+ * **378×378 — 66.7% of its box**, the remainder reserved paper with nothing on it, on all
+ * three cutaway beats. The runtime fits an asset uniformly and centres it (the `Math.min`
+ * in `page/runtime.js`), which is correct and must stay correct — a stretched heart is
+ * worse than a small one. So the fix belongs here: ask for the shape we are going to show.
+ *
+ * A square request still returns exactly 1024×1024, which is what `square_hd` meant, so
+ * every raster in the caches is still bit-for-bit what would be asked for today.
+ */
+export function rasterSize(aspect: number): { width: number; height: number } {
+  const a =
+    Number.isFinite(aspect) && aspect > 0
+      ? Math.min(RASTER_ASPECT_LIMIT, Math.max(1 / RASTER_ASPECT_LIMIT, aspect))
+      : 1;
+  const snap = (v: number): number =>
+    Math.max(RASTER_STEP, Math.round(v / RASTER_STEP) * RASTER_STEP);
+  return { width: snap(Math.sqrt(RASTER_PIXELS * a)), height: snap(Math.sqrt(RASTER_PIXELS / a)) };
+}
+
+/**
+ * Replicate's flux models take a named `aspect_ratio`, not pixel dimensions, so a request
+ * is served by the nearest name they accept. Nearest in *log* space: 3:2 has to be exactly
+ * as far from 1:1 as 2:3 is, and a linear distance says otherwise.
+ */
+const REPLICATE_ASPECTS = [
+  '21:9',
+  '16:9',
+  '3:2',
+  '4:3',
+  '5:4',
+  '1:1',
+  '4:5',
+  '3:4',
+  '2:3',
+  '9:16',
+  '9:21',
+] as const;
+
+export function replicateAspect(aspect: number): string {
+  const want = Math.log(Number.isFinite(aspect) && aspect > 0 ? aspect : 1);
+  let best = '1:1';
+  let bestGap = Infinity;
+  for (const name of REPLICATE_ASPECTS) {
+    const [w, h] = name.split(':').map(Number) as [number, number];
+    const gap = Math.abs(Math.log(w / h) - want);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = name;
+    }
+  }
+  return best;
+}
+
 function modelFor(provider: Exclude<ImageProvider, 'none'>, kind: ImageKind): string {
   const override = kind === 'figure' ? process.env.INKCAST_FIGURE_MODEL : undefined;
   return override && override.trim().length > 0 ? override.trim() : MODELS[provider][kind];
@@ -226,10 +298,14 @@ function firstUrl(value: unknown): string | undefined {
  * is explicit; and `num_inference_steps` is capped at 4 on **schnell** — passing the
  * figure tier's 28 to it is an API error, not a slower image, which is why the step count
  * travels with the kind rather than being a constant.
+ *
+ * `aspect_ratio` here is a name from a fixed list, unlike fal's explicit pixel size, so the
+ * request is the nearest name — see `replicateAspect`.
  */
 async function generateReplicate(
   prompt: string,
   kind: ImageKind,
+  aspect: number,
   seed?: number,
 ): Promise<Buffer | undefined> {
   const token = process.env.REPLICATE_API_TOKEN;
@@ -246,7 +322,7 @@ async function generateReplicate(
       input: {
         prompt,
         num_outputs: 1,
-        aspect_ratio: '1:1',
+        aspect_ratio: replicateAspect(aspect),
         num_inference_steps: STEPS[kind],
         output_format: 'png',
         megapixels: '1',
@@ -286,10 +362,15 @@ async function generateReplicate(
  * Schema notes: `output_format` defaults to **jpeg**, so png is explicit;
  * `image_size` takes the named presets or an explicit `{width, height}`, and
  * `square_hd` is 1024×1024; the response is `{ images: [{ url, width, height }] }`.
+ *
+ * The explicit `{width, height}` is used rather than a preset name because the shape asked
+ * for is the shape of a box on the board, and no preset matches an arbitrary one. A square
+ * request still resolves to 1024×1024 — the same bytes `square_hd` requested.
  */
 async function generateFal(
   prompt: string,
   kind: ImageKind,
+  aspect: number,
   seed?: number,
 ): Promise<Buffer | undefined> {
   const key = process.env.FAL_KEY;
@@ -299,7 +380,7 @@ async function generateFal(
     headers: { authorization: `Key ${key}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       prompt,
-      image_size: 'square_hd',
+      image_size: rasterSize(aspect),
       num_images: 1,
       num_inference_steps: STEPS[kind],
       output_format: 'png',
@@ -337,31 +418,52 @@ async function download(url: string | undefined): Promise<Buffer | undefined> {
  */
 export async function generateIllustration(
   prompt: string,
-  opts: { seed?: number; kind?: ImageKind } = {},
+  opts: { seed?: number; kind?: ImageKind; aspect?: number } = {},
 ): Promise<Buffer | undefined> {
   const provider = detectImageProvider();
   if (provider === 'none') return undefined;
   const kind = opts.kind ?? 'form';
+  const aspect = opts.aspect ?? 1;
   const shaped = shapePrompt(prompt, kind);
-  log.debug(`generating ${kind} via ${provider} (${modelFor(provider, kind)})`, prompt);
+  const size = rasterSize(aspect);
+  log.debug(
+    `generating ${kind} ${size.width}x${size.height} via ${provider} (${modelFor(provider, kind)})`,
+    prompt,
+  );
   return provider === 'replicate'
-    ? generateReplicate(shaped, kind, opts.seed)
-    : generateFal(shaped, kind, opts.seed);
+    ? generateReplicate(shaped, kind, aspect, opts.seed)
+    : generateFal(shaped, kind, aspect, opts.seed);
 }
 
 /* ------------------------------------------------------------------ caching */
 
 /**
- * Cache key for an illustration: the asset id plus a hash of its prompt **and its kind**.
+ * Cache key for an illustration: the asset id plus a hash of its prompt, its kind **and the
+ * shape it was asked for**.
  *
  * The kind is in the hash because a form and a figure of the same subject are two different
  * pictures — one flat line art for the tracer, one a colour teaching figure — and a key that
  * could not tell them apart would serve whichever was generated first. That is the same
  * silent aliasing that cost `projects/cardiac5` its two best cards through `underlayAsset`,
- * and it is worth being paranoid about twice.
+ * and it is worth being paranoid about twice. The shape is in for exactly the same reason:
+ * a 3:2 figure and a square one of the same subject are two different pictures, and serving
+ * the square one for a 3:2 box would silently restore the defect the aspect exists to fix.
+ *
+ * **A square request contributes nothing to the hash**, and that is deliberate rather than
+ * lazy: every raster in every cache was generated when both providers were hard-coded
+ * square, so the square token has to stay absent or the whole machine cache — a few dollars
+ * of images, and the only reason two videos about the rover agree what the rover looks
+ * like — invalidates on a change that would ask for the identical bytes.
  */
-export function illustrationKey(id: string, prompt: string, kind: ImageKind = 'form'): string {
-  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim()).slice(0, 10)}`;
+export function illustrationKey(
+  id: string,
+  prompt: string,
+  kind: ImageKind = 'form',
+  aspect = 1,
+): string {
+  const size = rasterSize(aspect);
+  const shape = size.width === size.height ? [] : [`${size.width}x${size.height}`];
+  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim(), ...shape).slice(0, 10)}`;
 }
 
 export type IllustrationRaster = {
@@ -421,9 +523,12 @@ export async function illustrationRaster(args: {
   seed?: number;
   /** `form` (line art, to be traced) or `figure` (a colour teaching picture). */
   kind?: ImageKind;
+  /** Width over height of the box this raster will fill. Defaults to square. */
+  aspect?: number;
 }): Promise<IllustrationRaster | undefined> {
   const kind = args.kind ?? 'form';
-  const key = illustrationKey(args.id, args.prompt, kind);
+  const aspect = args.aspect ?? 1;
+  const key = illustrationKey(args.id, args.prompt, kind, aspect);
   const rel = `${ILLUSTRATION_DIR}/${key}.png`;
   const abs = path.resolve(args.dir, rel);
   const shared = path.join(cacheDir('illustrations'), `${key}.png`);
@@ -464,6 +569,7 @@ export async function illustrationRaster(args: {
     const png = await generateIllustration(args.prompt, {
       ...(args.seed !== undefined ? { seed: args.seed } : {}),
       kind,
+      aspect,
     });
     if (!png || png.length === 0) return undefined;
     await stash(abs, png, 'project');
@@ -676,10 +782,10 @@ export async function vectoriseToInk(
 /**
  * A PNG's intrinsic size, straight out of the IHDR chunk.
  *
- * Both providers are configured square today, but "the provider happens to return squares"
- * is not something the placement should quietly depend on — an aspect assumption that is
- * right until someone changes `image_size` is the kind of thing that comes back as a
- * stretched heart nobody can explain. Falls back to a square if the header is not a PNG.
+ * The placement reads the real header rather than assuming the shape it asked for: a
+ * provider is free to round a request to its own latent grid, and an aspect assumption that
+ * is right until it is not is the kind of thing that comes back as a stretched heart nobody
+ * can explain. Falls back to a square if the header is not a PNG.
  */
 function pngSize(png: Buffer): { w: number; h: number } {
   const PNG_MAGIC = '89504e470d0a1a0a';
@@ -721,6 +827,12 @@ export async function figureRaster(args: {
     dir: args.dir,
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
     kind: 'figure',
+    // The box is the whole point of asking. Every figure before this drew at **66.7% of
+    // the box reserved for it** — measured on all three of `cardiac8`'s cutaways, e.g. a
+    // 1024×1024 raster in a 567×378 element drawing 378×378 — because the request was
+    // hard-coded square and the box is 3:2. A third of the area the figure lane exists to
+    // claim was reserved paper with nothing on it, and no check in the repo could see it.
+    aspect: args.box.h > 0 ? args.box.w / args.box.h : 1,
   });
   if (!raster) return undefined;
   // Fit the raster's own aspect inside the box and emit the `<image>` at exactly that
