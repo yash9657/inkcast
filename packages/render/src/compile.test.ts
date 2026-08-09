@@ -404,6 +404,78 @@ test('a hold is deliberate silence the visual stays up through', () => {
   assert.equal(q.sceneEnd, 3.5);
 });
 
+test('a card held across beats goes out with the beat that still needs it', () => {
+  // The wipe schedule has one case it cannot honour — an anchor whose hold is shorter
+  // than the fade would be, where fading from the last word finishes after the next
+  // card has cut in. It used to answer that with `undefined`, which is not "no
+  // schedule": it is `sceneEnd`, and `sceneEnd` is the item's *own* scene. So the one
+  // element that needs `persistUntil` most, the drawing a later beat morphs, was the
+  // one whose fade fell back to leaving with the beat that drew it — and the morph
+  // then bent a shape already at alpha 0. Unreachable on the shipped lessons, whose
+  // holds are 0.65s and up against a 0.55s maximum fade, so nothing else can see it.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'a card two beats draw',
+    meta: { board: 'wipe', outroSec: 0.2 },
+    scenes: [
+      {
+        id: 's0',
+        narration: 'You are walking downhill in fog.',
+        durationSec: 2,
+        hold: 0.9,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'hill',
+            type: 'shape',
+            shape: 'ellipse',
+            persist: false,
+            // The anchor still needs it: it is the shape scene 1 reshapes.
+            persistUntil: 's1',
+            at: { x: 0, y: 0, w: 400, h: 200 },
+            enter: { at: 0, duration: 0.3, style: 'draw' },
+          },
+        ],
+      },
+      {
+        id: 's1',
+        narration: 'The hill is a curve.',
+        durationSec: 2,
+        // 0.15s of silence against a 0.2s fade: too short to fade inside, which is the
+        // branch under test.
+        hold: 0.15,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'curve',
+            type: 'shape',
+            shape: 'rect',
+            persist: false,
+            at: { x: 0, y: 0, w: 400, h: 200 },
+            enter: { at: 0, duration: 0.3, style: 'draw' },
+            morph: { fromId: 'hill', from: 0.12, to: 0.62, easing: 'ease', retire: true },
+          },
+        ],
+      },
+    ],
+  });
+  const plan = compilePlan(sb, DIR);
+  const hill = plan.items.find((i) => i.id === 'hill');
+  const curve = plan.items.find((i) => i.id === 'curve');
+  assert.ok(hill && curve);
+
+  const anchorEnd = (plan.scenes[1]?.start ?? 0) + (plan.scenes[1]?.dur ?? 0);
+  assert.equal(hill.sceneEnd, 2.9, 'its own scene ends at 2.9s');
+  assert.equal(hill.fadeAt, anchorEnd, 'and it leaves with the scene that names it');
+  assert.ok(hill.fadeAt > curve.start + curve.dur, 'so the morph has something to bend');
+
+  // The control, and the reason `fadeAt` stays absent where it would say nothing: an
+  // element on the same short-held scene that no later beat needs already fades at
+  // `sceneEnd`, which is that same number.
+  assert.equal(curve.fadeAt, undefined);
+  assert.equal(curve.sceneEnd, anchorEnd);
+});
+
 test('an enter cue lands on the word that names it', () => {
   const words = [
     { word: 'That', start: 0, end: 0.2 },

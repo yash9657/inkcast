@@ -17,7 +17,14 @@
  * literal.
  */
 
-import type { Element, Lesson, OnProgress, Storyboard, StoryboardMeta } from '@inkcast/core';
+import type {
+  BoardMode,
+  Element,
+  Lesson,
+  OnProgress,
+  Storyboard,
+  StoryboardMeta,
+} from '@inkcast/core';
 import { StageError } from './errors.js';
 import type { StageName } from './progress.js';
 
@@ -76,6 +83,14 @@ export type LessonStageOptions = FormatOptions & {
 
 export type CompileStageOptions = FormatOptions & {
   title?: string;
+  /**
+   * What the board does between beats — `accumulate` (the default) or `wipe`.
+   *
+   * On this bag and not on `FormatOptions` above, mirroring the planner's own split:
+   * `FormatOptions` is shared with the lesson stage, which composes no board and would
+   * take the option and drop it. `compileLesson` is the one stage that can honour it.
+   */
+  board?: BoardMode;
   onProgress?: OnProgress;
   force?: boolean;
 };

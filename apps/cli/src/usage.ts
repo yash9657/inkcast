@@ -35,6 +35,7 @@ ${h('FORMAT')}
       --short            9:16 vertical with short-form pacing
       --aspect <ratio>   16:9 | 9:16 | 1:1                          (default 16:9)
       --preset <name>    standard | short | square
+      --board <mode>     accumulate | wipe — one idea per card     (default accumulate)
   -t, --title <text>     title for the video (default: the lesson's topic)
       --voice <id>       voice id, e.g. af_heart, am_puck           (default af_heart)
       --lang <code>      narration language, e.g. en, es, fr        (default en)

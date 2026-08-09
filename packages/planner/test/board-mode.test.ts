@@ -19,7 +19,7 @@ import path from 'node:path';
 import test from 'node:test';
 import type { Element, Scene, Storyboard } from '@inkcast/core';
 import { parseStoryboard } from '@inkcast/core';
-import { compileLesson } from '../src/compile.js';
+import { applyBoardMode, compileLesson } from '../src/compile.js';
 import { readLessonFile } from '../src/lesson-io.js';
 import { PRESETS } from '../src/presets.js';
 
@@ -116,6 +116,96 @@ test('every element goes out, and the ones a later beat needs go out later', () 
     if (el.persistUntil !== undefined) {
       assert.ok(aliveAt(el, at) > at, `${id} names its own scene, which says nothing`);
     }
+  }
+});
+
+test('only the closing card is exempt — not everything the closing card names', () => {
+  // Straight at `applyBoardMode`, because `compileLesson` cannot build this board: the
+  // only beat that points backwards is the bridge, and `findReuse` will only make a
+  // `step` the bridge, never the recap. That is why the broadened test — keep anything
+  // whose keep-set *reaches* the last scene, rather than the last scene's own ink —
+  // passed every check in this file while pinning ink from beat 0 across the whole film.
+  const scenes = parseStoryboard({
+    version: 1,
+    title: 'a recap that points backwards',
+    meta: { board: 'wipe' },
+    scenes: [
+      {
+        id: 's0',
+        narration: 'The ground under you slopes away.',
+        durationSec: 2,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'hill',
+            type: 'path',
+            points: [
+              { x: 0, y: 0 },
+              { x: 400, y: 200 },
+            ],
+            at: { x: 0, y: 0, w: 400, h: 200 },
+          },
+        ],
+      },
+      {
+        id: 's1',
+        narration: 'Step where it drops fastest.',
+        durationSec: 2,
+        camera: { x: 0, y: 0 },
+        elements: [
+          { id: 'step', type: 'text', text: 'downhill', at: { x: 0, y: 300, w: 400, h: 80 } },
+        ],
+      },
+      {
+        id: 's2',
+        narration: 'That slope was the whole idea.',
+        role: 'recap',
+        durationSec: 2,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'summary',
+            type: 'text',
+            text: 'follow the slope',
+            at: { x: 0, y: 600, w: 400, h: 80 },
+          },
+          {
+            id: 'ring',
+            type: 'emphasis',
+            targetId: 'hill',
+            effect: 'circle',
+            at: { x: 0, y: 0, w: 400, h: 200 },
+          },
+        ],
+      },
+    ],
+  }).scenes;
+  applyBoardMode(
+    scenes,
+    new Map([
+      [0, [0]],
+      [1, [1]],
+      [2, [2]],
+    ]),
+  );
+
+  const el = (scene: number, id: string): Element => {
+    const found = scenes[scene]?.elements.find((e) => e.id === id);
+    assert.ok(found, `no ${id} on scene ${scene}`);
+    return found;
+  };
+  // The hillside is wanted until the recap circles it, and not one card longer. Kept
+  // `persist: true` it never leaves at all: it is drawn across every intervening card,
+  // and core's framing history holds it `until: Infinity`, which widens the frame for
+  // ink that is meant to be gone — the accumulation this mode exists to remove.
+  assert.equal(el(0, 'hill').persist, false, 'the recap naming it is not a reprieve');
+  assert.equal(el(0, 'hill').persistUntil, 's2', 'it stays until the card that names it');
+  assert.equal(el(1, 'step').persist, false);
+  assert.equal(el(1, 'step').persistUntil, undefined, 'nothing points at it — its own beat');
+  // And the exemption still applies where it was always meant to: the last card.
+  for (const closing of scenes[2]!.elements) {
+    assert.equal(closing.persist, true, `${closing.id} is on the closing card and stays`);
+    assert.equal(closing.persistUntil, undefined);
   }
 });
 

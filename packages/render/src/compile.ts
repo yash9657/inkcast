@@ -479,11 +479,19 @@ function fadeSpan(dur: number): number {
  * Where a wiping board's ink goes out: the instant the narration stops.
  *
  * The anchor is the item's own scene, or the one `persistUntil` names when several
- * beats draw one card. Returns undefined — leaving `sceneEnd`, today's schedule — in
- * the one case the new one cannot be honoured: an anchor whose `hold` is shorter
+ * beats draw one card. One case cannot be honoured: an anchor whose `hold` is shorter
  * than the fade, where starting at the last word would mean finishing after the next
  * card has already cut in. Hand-authored boards default `Scene.hold` to 0 and land
- * there; both shipped lessons hold 0.6–2.55s and never do.
+ * there; both shipped lessons hold 0.6–2.55s against a 0.55s ceiling on the fade, and
+ * never do.
+ *
+ * That case falls back to the **anchor's** end, not to `undefined`. Undefined leaves
+ * `item.sceneEnd`, which `baseItem` takes from the item's own scene — so a card held
+ * across beats went out at the end of the beat that drew it, which is the exact defect
+ * `persistUntil` exists to prevent. Repro: a hook draws `hill` with
+ * `persistUntil: 's1'`, scene 1 holds 0.15s against a 0.2s fade, and scene 1's
+ * `morph.fromId: 'hill'` bends a shape that is already at alpha 0 — silently, because
+ * the shipped lessons never hold short enough to reach this branch.
  */
 function wipeFadeAt(
   item: PlanItem,
@@ -496,7 +504,12 @@ function wipeFadeAt(
   const anchor = scenes[Math.max(item.scene, named)];
   if (!anchor) return undefined;
   const span = fadeSpan(item.dur);
-  if (anchor.hold < span) return undefined;
+  if (anchor.hold < span) {
+    // The anchor's end. Undefined when the anchor *is* the item's own scene, because
+    // there `sceneEnd` is already that number and `fadeAt` is documented as the value
+    // for when it is not — a field that repeats what it overrides says nothing.
+    return anchor === scenes[item.scene] ? undefined : anchor.start + anchor.dur;
+  }
   return anchor.start + anchor.speech + span;
 }
 

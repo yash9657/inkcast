@@ -66,6 +66,9 @@ function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string, route: st
     lessonVersion: route === 'lesson' ? LESSON_VERSION : undefined,
     compiler: route === 'lesson' ? COMPILER_VERSION : undefined,
     preset: opts.preset,
+    // Only the lesson route can honour it, so only the lesson route may key on it —
+    // and it must, or the same document served the other mode's cached storyboard.
+    board: route === 'lesson' ? opts.board : undefined,
     aspect: opts.aspect,
     palette: opts.palette,
     style: opts.style,

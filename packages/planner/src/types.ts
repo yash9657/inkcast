@@ -5,7 +5,7 @@
  * structural: headings and lists in the source are a free outline, and the
  * heuristic planner leans on them heavily.
  */
-import type { Lesson, Mark, StageOptions } from '@inkcast/core';
+import type { BoardMode, Lesson, Mark, StageOptions } from '@inkcast/core';
 import type { PresetName } from './presets.js';
 
 /**
@@ -185,6 +185,16 @@ export type CompileOptions = StageOptions &
   FormatOptions & {
     /** Storyboard title. Defaults to the lesson's topic. */
     title?: string;
+    /**
+     * What the board does between beats — `accumulate` (the default) or `wipe`.
+     *
+     * Here rather than on `FormatOptions` above, and the distinction is load-bearing:
+     * `FormatOptions` is shared with the lesson stage and with the document planners,
+     * which compose their own boards and would take the option and ignore it. This bag
+     * belongs to `compileLesson`, the one function that can honour it — offering a lane
+     * that is not there is the failure this repo keeps paying for.
+     */
+    board?: BoardMode;
   };
 
 /** What an edit to a lesson actually did. */
@@ -234,6 +244,18 @@ export type PlanOptions = StageOptions & {
   fps?: number;
   /** Hard cap on scene count. Default 24. */
   maxScenes?: number;
+  /**
+   * What the board does between beats — `accumulate` (the default) or `wipe`.
+   *
+   * Honoured on `via: 'lesson'`, which compiles through `compileLesson`, and stated
+   * here so the option is reachable from the one other entry point that ends in a
+   * storyboard. `via: 'document'` ignores it, as it ignores `audience` and `brief`:
+   * the document planners compose their own boards. `plan()` hashes it into the
+   * planner's own cache key for the reason `@inkcast/pipeline`'s `keys.ts` gives —
+   * an option that changes the artefact and not the key is served from the cache of
+   * the mode you did not ask for.
+   */
+  board?: BoardMode;
   /**
    * Target words spoken per second, used to size narration so scenes land in
    * the 4–12 second window. Default 2.6 (≈156 wpm, unhurried explainer pace).

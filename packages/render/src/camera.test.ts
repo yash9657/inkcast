@@ -246,13 +246,25 @@ test('a wiped board frames one card and forgets the last one', () => {
     assert.ok(rectContains(recapView, box), 'the recap frames the summary it drew');
   }
 
-  // Not the widest shot in the film any more: it is a card, framed like every other
+  // Not a pull-back over the board any more: it is a card, framed like every other
   // card and clamped by the same close-up ceiling, because there is no board behind
   // it to pull back over. The accumulating fixture is the control — same geometry,
   // same recap, and there the shot is the widest in the film (the test above).
+  //
+  // `>=`, and the equals is the case the real product lands in. Measured on
+  // gradient-descent at the standard preset under `wipe`, the derived zooms are
+  // 1.678 1.678 1.678 then 1.620 six times: the median *is* the recap's own shot, so a
+  // strict `>` is false there and passed here only because this fixture's ink sits
+  // differently. An assertion that holds on the fixture and fails on the thing we ship
+  // is measuring the fixture.
+  //
+  // Nor is it a law, and the next person should not read it as one: `longitude` wiped
+  // frames its recap at 1.620 against a 1.702 median, because that recap's summary
+  // carries more ink than its beats do. What both lessons *do* share is the line
+  // below — the same recap, accumulating, pulls back several times as wide.
   const zooms = framing.map((f) => f.camera.zoom);
   const median = [...zooms].sort((a, b) => a - b)[zooms.length >> 1] as number;
-  assert.ok(recap.camera.zoom > median, 'a wiped recap is tighter than the median, not wider');
+  assert.ok(recap.camera.zoom >= median - 1e-9, 'a wiped recap is no wider than the median shot');
   assert.ok(recap.camera.zoom <= median * 1.9 + 1e-9, 'and still inside the close-up ceiling');
   const accumulated = resolveFraming(lessonStoryboard(), FRAME).at(-1);
   assert.ok(accumulated, 'the control fixture has a recap too');

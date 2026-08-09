@@ -414,8 +414,14 @@ export function compileLesson(
  * and the whole `outroSec` on an empty board. Caught by rendering it: the recap frame
  * at 105.0s of a 107.3s wipe of `gradient-descent` was a summary at a third of its
  * alpha, mid-fade, with nothing to follow it.
+ *
+ * Exported for its own test, as `findReuse` above is, and for the same kind of reason:
+ * the case that broke here — ink a *later* card points back at — cannot be built
+ * through `compileLesson` at all today, because the only beat that points backwards is
+ * the bridge and `findReuse` will only make a `step` the bridge, never the recap. A
+ * defect no lesson can reach is one no test of the compiler can reach either.
  */
-function applyBoardMode(scenes: Scene[], cells: ReadonlyMap<number, number[]>): void {
+export function applyBoardMode(scenes: Scene[], cells: ReadonlyMap<number, number[]>): void {
   /** Last scene index that names an element, for elements named by another. */
   const pointedAt = new Map<string, number>();
   const needs = (id: string | undefined, i: number): void => {
@@ -443,8 +449,14 @@ function applyBoardMode(scenes: Scene[], cells: ReadonlyMap<number, number[]>): 
   scenes.forEach((scene, i) => {
     for (const el of scene.elements) {
       const until = Math.max(i, cellEnds.get(i) ?? i, pointedAt.get(el.id) ?? i);
-      // The closing card stays: there is nothing to make room for.
-      if (until >= last) continue;
+      // The closing card stays: there is nothing to make room for. Which card this is,
+      // not how far its keep-set reaches — `until >= last` said the same thing for the
+      // last beat and something else entirely for every other one, keeping *any* ink a
+      // later card names up for the rest of the film. A recap whose `emphasis.targetId`
+      // or `morph.fromId` cites beat 2 would pin beat 2's drawing across every card
+      // between them, and hand it to core's framing history with `until: Infinity` —
+      // the stale accumulation and the widening frame this mode exists to remove.
+      if (i === last) continue;
       el.persist = false;
       // Absent means "goes out with its own scene", which is what `persist: false`
       // has always meant — so the field only appears where it changes something.
@@ -936,11 +948,14 @@ function buildBeat(ctx: BeatContext): Element[] {
   // Under a wiping board this stops being a fallback and becomes the recap's whole
   // job: an accumulating recap can pull back over the board and let the board be the
   // summary, a wiped one has nothing behind it. It needs no widening to do that. Every
-  // lane returns at least one element for every intent it is given — there is no
-  // `return []` in `buildIntent` — so "asked for no picture" and "drew no picture" are
-  // the same beat, and a recap that did ask draws that picture as its card. Both
-  // shipped lessons take this branch in both modes; what changes under `wipe` is on the
-  // camera side, where there is no board to pull back over.
+  // lane returns at least one element for every intent it is given — not because no
+  // lane can come back empty (`buildDrawing` returns `[]` in nine places) but because
+  // `buildIntent` guards the one that can: marks that draw nothing fall through
+  // `if (drawn.length)` to the lane the intent's `kind` names. So "asked for no
+  // picture" and "drew no picture" are the same beat, and a recap that did ask draws
+  // that picture as its card. Both shipped lessons take this branch in both modes;
+  // what changes under `wipe` is on the camera side, where there is no board to pull
+  // back over.
   if (role === 'recap' && !figures.length) {
     const chain = recapChain(ctx.lesson, eid('chain'), figureArea, ctx.preset);
     if (chain) elements.push(chain);

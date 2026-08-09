@@ -24,6 +24,26 @@ test('depth is validated against the three levels', () => {
   assert.throws(() => readFlags({ depth: 'thorough' }), UsageError);
 });
 
+test('--board reaches the pipeline input the compiler reads', async () => {
+  // The whole point of the flag, and the half that was missing for a whole phase:
+  // `board: 'wipe'` compiled a one-card-at-a-time board from the day it landed and
+  // nothing a user could type reached it. `baseInput` is the last CLI-side link.
+  const { baseInput } = await import('../src/commands/cast.js');
+  assert.equal(readFlags({ board: 'WIPE' }).board, 'wipe');
+  assert.equal(baseInput(readFlags({ board: 'wipe' })).board, 'wipe');
+  // Not in `meta`: that is stamped onto the storyboard after it has compiled, so a
+  // mode there would announce a wiping board over ink that was never marked to go.
+  assert.equal(metaFromFlags(readFlags({ board: 'wipe' })).board, undefined);
+  assert.equal(baseInput(readFlags({})).board, undefined, 'absent is `accumulate`');
+});
+
+test('--board with --via document is refused rather than quietly dropped', () => {
+  // The document route never reaches `compileLesson`, and its planners compose their
+  // own boards. Accepting the flag there would print a mode nothing performs.
+  assert.throws(() => readFlags({ board: 'wipe', via: 'document' }), UsageError);
+  assert.equal(readFlags({ board: 'wipe', via: 'lesson' }).board, 'wipe');
+});
+
 test('every enum flag rejects nonsense with the valid options in the message', () => {
   for (const [name, bad] of [
     ['aspect', '4:3'],
@@ -31,6 +51,7 @@ test('every enum flag rejects nonsense with the valid options in the message', (
     ['palette', 'sepia'],
     ['preset', 'tall'],
     ['via', 'vibes'],
+    ['board', 'erase'],
   ] as const) {
     assert.throws(
       () => readFlags({ [name]: bad }),

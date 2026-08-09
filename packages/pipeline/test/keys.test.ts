@@ -10,6 +10,7 @@ import {
   elementFingerprint,
   renderFingerprint,
   stageVersion,
+  storyboardKey,
   visualsFingerprint,
   voiceFingerprint,
 } from '../src/keys.js';
@@ -40,6 +41,59 @@ test('a code-version bump invalidates an unchanged input', () => {
   const before = cacheKey('storyboard', 'lesson-content');
   const pretendBumped = cacheKey('storyboard', 'lesson-content', 'compiler@2');
   assert.notEqual(before, pretendBumped);
+});
+
+test('the storyboard key carries the board mode, and only when there is one', () => {
+  const request = {
+    compiler: 1,
+    planner: 2,
+    route: 'lesson',
+    source: 'lesson-hash',
+    meta: { aspect: '16:9' },
+    preset: 'standard',
+    seconds: 150,
+    title: '',
+  } as const;
+
+  // A mode the compiler acted on has to divide the cache, or the run without the flag
+  // is served the wiped storyboard and the run with it the accumulated one.
+  assert.notEqual(storyboardKey({ ...request, board: 'wipe' }), storyboardKey(request));
+  assert.notEqual(
+    storyboardKey({ ...request, board: 'wipe' }),
+    storyboardKey({ ...request, board: 'accumulate' }),
+  );
+
+  // And the default key does not move: byte-identical to what this stage hashed
+  // before the field existed, so no project on disk recompiles for a mode nobody
+  // asked for. `JSON.stringify` drops an undefined value, which is what makes the
+  // field's home inside the format object load-bearing rather than tidy.
+  assert.equal(
+    storyboardKey(request),
+    cacheKey(
+      'storyboard',
+      1,
+      2,
+      'lesson',
+      'lesson-hash',
+      { aspect: '16:9' },
+      { preset: 'standard', seconds: 150, title: '' },
+      '',
+    ),
+  );
+  // The document route's planner is still part of it, in the same slot.
+  assert.equal(
+    storyboardKey({ ...request, route: 'document', documentPlanner: ['heuristic', ''] }),
+    cacheKey(
+      'storyboard',
+      1,
+      2,
+      'document',
+      'lesson-hash',
+      { aspect: '16:9' },
+      { preset: 'standard', seconds: 150, title: '' },
+      ['heuristic', ''],
+    ),
+  );
 });
 
 const scene = { narration: 'The ground under you gets gentler.', hold: 0.4 };

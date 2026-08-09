@@ -22,7 +22,7 @@
  */
 
 import { hash } from '@inkcast/core';
-import type { Element, Scene, Storyboard } from '@inkcast/core';
+import type { BoardMode, Element, Scene, Storyboard, StoryboardMeta } from '@inkcast/core';
 import type { StageName } from './progress.js';
 
 /**
@@ -263,6 +263,49 @@ export function cacheKey(stage: StageName, ...parts: unknown[]): string {
 }
 
 /* ------------------------------------------------------- stage fingerprints */
+
+/**
+ * What the storyboard stage's output depends on.
+ *
+ * Here rather than inline in `cast.ts` because of `board`, which is the case this
+ * file's header is about with a new name. The mode is not part of the lesson, not
+ * part of `meta` and not part of the preset — it is a request the caller makes of
+ * the compiler — so a key built from the lesson, the meta overrides and
+ * `{preset, seconds, title}` is byte-identical for `--board wipe` and for the run
+ * without it. The second command finds the first one's storyboard fresh and serves
+ * it, and the flag looks like it does nothing at all.
+ *
+ * `board` sits *inside* the format object rather than beside it so that the default
+ * key does not move: `JSON.stringify` drops an undefined value, so an `accumulate`
+ * run hashes the exact bytes it hashed before this field existed and no project on
+ * disk is invalidated. Only a run that asks for a mode gets a key of its own.
+ */
+export function storyboardKey(input: {
+  /** `COMPILER_VERSION` and `PLANNER_VERSION`, already through `versionOf`. */
+  compiler: number;
+  planner: number;
+  route: 'lesson' | 'document';
+  /** The lesson's hash, or the document's on the route with no lesson. */
+  source: string;
+  meta: Partial<StoryboardMeta>;
+  preset: string;
+  seconds: number;
+  title: string;
+  board?: BoardMode;
+  /** Who writes the storyboard on the `document` route — name and model. */
+  documentPlanner?: readonly [string, string];
+}): string {
+  return cacheKey(
+    'storyboard',
+    input.compiler,
+    input.planner,
+    input.route,
+    input.source,
+    input.meta,
+    { preset: input.preset, seconds: input.seconds, title: input.title, board: input.board },
+    input.documentPlanner ?? '',
+  );
+}
 
 /**
  * What the voice stage's output for one scene depends on.

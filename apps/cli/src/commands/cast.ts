@@ -163,6 +163,9 @@ export function baseInput(flags: Flags): CastInput {
     ...(flags.title ? { title: flags.title } : {}),
     ...(Object.keys(meta).length > 0 ? { meta } : {}),
     ...(flags.preset ? { preset: flags.preset } : {}),
+    // Beside `preset` and not inside `meta`: the mode is a request the compiler has to
+    // act on, and `meta` is stamped onto the finished storyboard after it has compiled.
+    ...(flags.board ? { board: flags.board } : {}),
     ...(flags.depth ? { depth: flags.depth } : {}),
     ...(flags.seconds ? { maxSeconds: flags.seconds } : {}),
     ...(flags.audience ? { audience: flags.audience } : {}),

@@ -49,6 +49,7 @@ import {
   projectId as makeProjectId,
   saveStoryboard,
   totalDuration,
+  type BoardMode,
   type Lesson,
   type OnProgress,
   type Scene,
@@ -65,6 +66,7 @@ import {
   cacheKey,
   cacheSlot,
   renderFingerprint,
+  storyboardKey,
   visualsFingerprint,
   voiceFingerprint,
 } from './keys.js';
@@ -176,6 +178,16 @@ export type CastInput = {
   brief?: string;
   /** Output format. `short` is 9:16 vertical with its own pacing rules. */
   preset?: PresetName;
+  /**
+   * What the board does between beats: `accumulate` (the default) or `wipe`.
+   *
+   * Deliberately not folded into `meta`, which every stage reads and `applyOverrides`
+   * stamps onto the finished storyboard: `meta.board` there would announce a wiping
+   * board on ink the compiler never marked non-persistent — a mode in the file that
+   * nothing in the film performs. It is a request to the compiler, so it travels as
+   * one, and it only reaches a compiler on `via: 'lesson'`.
+   */
+  board?: BoardMode;
   /** How thorough to be. Scales the preset's runtime target. */
   depth?: Depth;
   /** Hard runtime target in seconds. Overrides `depth` and the preset. */
@@ -547,6 +559,31 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
 /* ----------------------------------------------------------------- the cast */
 
 /**
+ * What the caller is asking the compiler for, without the run's own machinery.
+ *
+ * Split out of `cast()` and exported so it can be handed to the real `compileLesson`
+ * in a test. The defect this closes was never in the compiler — `board: 'wipe'`
+ * worked from the day it landed and nothing in the product could ask for it — and an
+ * option a stage quietly fails to pass on is invisible to every test that exercises
+ * the two ends separately. This is the join, so this is what gets asserted.
+ *
+ * `onProgress` and `force` belong to the run rather than to the request, so they are
+ * added at the call site.
+ */
+export function compileRequest(
+  input: Pick<CastInput, 'preset' | 'title' | 'board' | 'meta'>,
+  targetSec: number,
+): CompileStageOptions {
+  return {
+    ...resolveMetaOverrides(input.meta),
+    ...(input.preset === undefined ? {} : { preset: input.preset }),
+    maxSeconds: targetSec,
+    ...(input.title === undefined ? {} : { title: input.title }),
+    ...(input.board === undefined ? {} : { board: input.board }),
+  };
+}
+
+/**
  * Teach a topic. No document, no planner input beyond the topic itself.
  *
  * ```ts
@@ -579,24 +616,40 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   /* --------------------------------------------------------- 3. storyboard */
 
+  // The mode is asked for on the one route that has a compiler in it. Said out loud
+  // rather than dropped: a flag that changes nothing and reports nothing is how a
+  // capability comes to be shipped with no way to reach it.
+  if (input.board !== undefined && design.route === 'document') {
+    log.warn(
+      `board: '${input.board}' was ignored — the document route summarises instead of ` +
+        'compiling a lesson, and its planners compose their own boards',
+      'cast the same source without `via: document` to get the mode you asked for',
+    );
+  }
   const compileOpts: CompileStageOptions = {
-    ...metaOverrides,
-    ...(input.preset === undefined ? {} : { preset: input.preset }),
-    maxSeconds: design.targetSec,
-    ...(input.title === undefined ? {} : { title: input.title }),
+    ...compileRequest(input, design.targetSec),
     onProgress: run.bus.child('storyboard'),
     force: run.force,
   };
-  const boardKey = cacheKey(
-    'storyboard',
-    versionOf(planner.COMPILER_VERSION),
-    versionOf(planner.PLANNER_VERSION),
-    design.route,
-    design.lesson ? lessonHash(design.lesson) : hash(doc?.title ?? '', doc?.text ?? ''),
-    metaOverrides,
-    { preset: design.preset, seconds: design.targetSec, title: input.title ?? '' },
-    design.route === 'document' ? [provs.planner.name, provs.planner.model ?? ''] : '',
-  );
+  const boardKey = storyboardKey({
+    compiler: versionOf(planner.COMPILER_VERSION),
+    planner: versionOf(planner.PLANNER_VERSION),
+    route: design.route,
+    source: design.lesson ? lessonHash(design.lesson) : hash(doc?.title ?? '', doc?.text ?? ''),
+    meta: metaOverrides,
+    preset: design.preset,
+    seconds: design.targetSec,
+    title: input.title ?? '',
+    // Keyed on the route that honours it, exactly as `plan()` keys its own cache: a
+    // mode the storyboard was not compiled with must not divide the cache, and a mode
+    // it was must never share a key with the mode it was not.
+    ...(design.route === 'lesson' && compileOpts.board !== undefined
+      ? { board: compileOpts.board }
+      : {}),
+    ...(design.route === 'document'
+      ? { documentPlanner: [provs.planner.name, provs.planner.model ?? ''] as const }
+      : {}),
+  });
 
   let sb: Storyboard | undefined;
   if (

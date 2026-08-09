@@ -25,6 +25,7 @@ const PALETTES = ['mono', 'color'] as const;
 const PRESETS = ['standard', 'short', 'square'] as const;
 const DEPTHS = ['quick', 'standard', 'deep'] as const;
 const ROUTES = ['lesson', 'document'] as const;
+const BOARDS = ['accumulate', 'wipe'] as const;
 
 const COMMANDS = [
   'teach',
@@ -54,6 +55,8 @@ export type Flags = {
   preset?: (typeof PRESETS)[number];
   depth?: (typeof DEPTHS)[number];
   via?: (typeof ROUTES)[number];
+  /** What the board does between beats. See `--board` in `usage.ts`. */
+  board?: (typeof BOARDS)[number];
   /** Hard runtime target in seconds. */
   seconds?: number;
   audience?: string;
@@ -88,6 +91,7 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         palette: { type: 'string' },
         preset: { type: 'string' },
         depth: { type: 'string' },
+        board: { type: 'string' },
         seconds: { type: 'string' },
         audience: { type: 'string' },
         objective: { type: 'string' },
@@ -230,6 +234,19 @@ export function readFlags(values: Record<string, unknown>): Flags {
   if (typeof values.preset === 'string') flags.preset = oneOf('preset', values.preset, PRESETS);
   if (typeof values.depth === 'string') flags.depth = oneOf('depth', values.depth, DEPTHS);
   if (typeof values.via === 'string') flags.via = oneOf('via', values.via, ROUTES);
+  if (typeof values.board === 'string') flags.board = oneOf('board', values.board, BOARDS);
+
+  // Refused rather than ignored. `--via document` never reaches `compileLesson`, and
+  // the document planners compose their own boards, so accepting `--board` on that
+  // route would print a mode nothing performs — the same silent no-op that let `wipe`
+  // ship with nothing able to ask for it. Two flags that contradict each other are a
+  // question for the user, not something to resolve on their behalf.
+  if (flags.board && flags.via === 'document') {
+    throw new UsageError(
+      '--board only applies to the lesson route; --via document summarises and composes ' +
+        'its own board. Drop one of the two.',
+    );
+  }
 
   // `--short` is the headline form of "9:16 vertical, short-form pacing". It sets
   // both the aspect and the preset, because a short is not a cropped landscape
