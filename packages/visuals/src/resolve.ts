@@ -167,12 +167,15 @@ export async function resolveVisuals(
       // v5: a `figure` is excluded from the library, icon and letter lanes, so an asset
       // that previously resolved to a matched stick figure now resolves to a generated
       // one. Same class of change as v3 and for the same reason: which lane may answer.
-      'asset/v5',
+      'asset/v6',
       asset.id,
       asset.kind,
       asset.prompt ?? '',
       asset.fit ?? '',
-      asset.fit === 'exact' ? aspectOf(usedAt.get(asset.id)) : '',
+      // v6: a figure is authored in its element's shape too, so its aspect chooses both the
+      // viewBox and the pixels asked of the generator — and an asset resolved before that
+      // was a square picture in a 3:2 box.
+      asset.fit === 'exact' || asset.kind === 'figure' ? aspectOf(usedAt.get(asset.id)) : '',
       asset.seed ?? '',
       asset.svg && asset.svg.includes('<svg') ? asset.svg : '',
       // Covers a version the reference did not pin and an alias table that moved;
@@ -211,7 +214,9 @@ export async function resolveVisuals(
       canvasHeight,
       provider,
       fontHref,
-      ...(asset.fit === 'exact' && usedAt.has(asset.id) ? { at: usedAt.get(asset.id) as Box } : {}),
+      ...((asset.fit === 'exact' || asset.kind === 'figure') && usedAt.has(asset.id)
+        ? { at: usedAt.get(asset.id) as Box }
+        : {}),
     });
     assetVisuals[asset.id] = visual;
     asset.svg = visual.svg;
@@ -377,8 +382,14 @@ async function resolveAsset(args: {
 }): Promise<AssetVisual> {
   const { asset, dir, rel, style, font } = args;
   const seed = asset.seed ?? seedFrom('asset', asset.id);
+  // A figure is authored in its element's shape for the same reason an `exact` asset is,
+  // and it is not marked `exact` because that flag also decides which lanes may answer.
+  // Leaving it on the nominal square is what made every figure draw at **66.7% of the box
+  // reserved for it**: the square viewBox is fitted uniformly into a 3:2 element, so a
+  // third of the area is blank paper. Asking the generator for the box's aspect (see
+  // `rasterSize`) only helps if the box it is asked about is the one the film will draw.
   const box: Box =
-    asset.fit === 'exact'
+    asset.fit === 'exact' || asset.kind === 'figure'
       ? assetViewBox(args.at)
       : { x: 0, y: 0, w: NOMINAL_ASSET, h: NOMINAL_ASSET };
   const ctx: DrawContext = { style, gen: createGenerator(style), seed };
