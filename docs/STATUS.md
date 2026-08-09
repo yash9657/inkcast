@@ -1949,3 +1949,85 @@ the same thing.
 - Their frames are **not uniformly dense**. One is a small heart on an empty board and the
   opener is a title with almost nothing under it. The 14.4% is a mean over sparse and dense
   alike, which is why a single well-filled card of ours can beat it.
+
+## 2026-08-08, later — the first film with a figure in it, and what it cost to find out
+
+Phases 0, 1, 4 and 5a of `PLAN-GOLPO-PARITY.md`. Frames committed under
+`docs/research/golpo-parity/`; the film is `projects/cardiac8f`.
+
+### Phase 1: the chain works, the gate does not pass
+
+**The plan books ~$1.20 for this phase and it cost $0.00.** `projects/cardiac8/lesson.json`
+already carried 3 `figure` underlays and every one of its images was already in the
+machine-wide cache (`~/.inkcast/cache/illustrations/`), so
+`cast --lesson projects/cardiac8/lesson.json --project cardiac8f --voice kokoro:af_heart`
+produced the first film ever to contain a figure without a single API call. **Pin the voice
+or it is not free**: `PINNED_LOCAL` matches a provider _prefix_, and the default `af_heart`
+names a voice, so an unpinned run reaches for the paid provider.
+
+|                | `cardiac8` (before)            | `cardiac8f` (this film)          | Golpo |
+| -------------- | ------------------------------ | -------------------------------- | ----- |
+| runtime        | 174.1s                         | 176.3s                           | 59.5s |
+| mean ink       | 5.0%                           | **5.7%**                         | 14.4% |
+| hues           | 1                              | **4**                            | 6     |
+| silence ≥0.35s | 26.8s (15.4%)                  | 27.3s (15.5%)                    | 3.2s  |
+| voice recorded | `elevenlabs/af_heart`, $0.4286 | `kokoro/…Kokoro-82M…`, **$0.00** | —     |
+
+So: **hues 1 → 4 and the gate's ≥3 is met; ink 5.7% against a ≥10% gate is missed.** The
+figure lane is not the reason. The renderer says why in its own warning — _"mean content fill
+25% of frame across 10 scenes"_ — and the two frames say it better than any number:
+
+- `figure-film-one-card-113s.png` — one centred colour cutaway, a title, names in the clear
+  margin with leaders, and the blue conduction pathway drawn **over** the form. This is the
+  best card this repository has produced and it is the same class of thing as theirs.
+- `figure-film-two-cards-26s.png` — the same lane, two cards sharing the frame, each subject
+  about 40% of its half. Nothing is wrong with the picture; the board is diluting it.
+
+The difference between those two frames is Phase 2. Density was never Phase 1's to win.
+
+### Three defects the frames show, that no number did
+
+1. **The white card seam is still there.** The figure sits on a visibly lighter rectangle
+   against `#fcfbf9` paper. `PLAN-FIGURE-LANE.md` item 2 recorded it; `mix-blend-mode:multiply`
+   was supposed to be the answer and is not sufficient.
+2. **`AV nod` is clipped** in `figure-film-one-card-113s.png`. That is defect 0 — the planner
+   sizing text from `FONT` while the renderer draws it from `TYPE_SCALE` — caught in a frame
+   rather than in a list. It is Phase 5's first item and the frame is now the evidence.
+3. **Marks for a figure are composed blind.** `underlayFor` short-circuits on
+   `kind === 'figure'` and returns `undefined`, so the author never sees the picture it is
+   annotating. At 26.2s that produces black enclosure loops drawn across the anatomy. The
+   brief tells the author to draw very little on a figure; nothing enforces it.
+
+### A square picture in a 3:2 box
+
+Every figure draws at **66.7% of the box reserved for it** — measured on all three:
+`567x378 -> 378x378`, `509.96x339.97 -> 340x340`, `491.73x327.82 -> 328x328`. `FIGURE_AREA`
+is 3:2, every generated PNG is 1024x1024, and the renderer fits uniformly and centres. A
+third of the area the figure lane fought for is blank paper, and it is invisible to every
+existing check. This is the largest single move available on `inkstat` and it is not in the
+plan.
+
+### Two corrections to the plan's own evidence base
+
+**`cardiac8`'s voice was not simply kokoro — it was a mixed run.**
+`audio/scene-000.timing.json` splits on commas, which is the clause default ElevenLabs takes;
+every later scene splits on sentences, which is Kokoro's preference. ElevenLabs spoke scene 0,
+the balance died, and the rest is local. That matters for more than the record: reporting
+whoever _finished_ would have booked $0.00 for characters that really were charged, which is
+the same defect as the $0.4286 pointing the other way. `resolvedVoiceChoice` and
+`billedVoiceChoice` are now allowed to disagree.
+
+**`lanecheck` could not see a figure.** It printed `draw+underlay` for a figure and a form
+alike — it read `VisualIntent.kind`, which is always `draw`, and never `underlay.kind`. The
+Phase 1 gate could have been run, passed, and proved nothing. Fourth instance of one failure
+mode. It now prints `draw+figure` / `draw+form` and names the figure beats.
+
+### The Anthropic account is out of credits
+
+`keys validate` passes — the key is valid — but every lesson call returns
+`400 "Your credit balance is too low to access the Anthropic API"` and the stage falls back to
+the local derivation **silently**, reporting `author: 'anthropic'` because `cast.ts` sets
+`author = adapter` before the call. Same defect as the voice one, one stage over, and
+unfixable inside `cast.ts` alone: `teachLesson` returns a bare `Lesson` and swallows the
+failure, so nothing downstream can know. Phase 3's verification is blocked until credits are
+topped up. Phases 2, 4, 5 are not — none of them needs a model.
