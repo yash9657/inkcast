@@ -45,14 +45,22 @@ test('a code-version bump invalidates an unchanged input', () => {
 const scene = { narration: 'The ground under you gets gentler.', hold: 0.4 };
 const meta = { voice: 'af_heart', language: 'en' };
 
-test('voice keys cover narration, silence, voice, language and provider', () => {
-  const base = voiceFingerprint(scene, meta, 'kokoro');
-  assert.equal(base, voiceFingerprint({ ...scene }, { ...meta }, 'kokoro'));
-  assert.notEqual(base, voiceFingerprint({ ...scene, narration: 'Different.' }, meta, 'kokoro'));
+test('voice keys cover narration, silence, voice, language, provider and engine', () => {
+  const base = voiceFingerprint(scene, meta, 'kokoro', '');
+  assert.equal(base, voiceFingerprint({ ...scene }, { ...meta }, 'kokoro', ''));
+  assert.notEqual(
+    base,
+    voiceFingerprint({ ...scene, narration: 'Different.' }, meta, 'kokoro', ''),
+  );
   // `hold` is rendered as real silence inside the clip, so it changes the file.
-  assert.notEqual(base, voiceFingerprint({ ...scene, hold: 1.2 }, meta, 'kokoro'));
-  assert.notEqual(base, voiceFingerprint(scene, { ...meta, voice: 'am_puck' }, 'kokoro'));
-  assert.notEqual(base, voiceFingerprint(scene, meta, 'elevenlabs'));
+  assert.notEqual(base, voiceFingerprint({ ...scene, hold: 1.2 }, meta, 'kokoro', ''));
+  assert.notEqual(base, voiceFingerprint(scene, { ...meta, voice: 'am_puck' }, 'kokoro', ''));
+  assert.notEqual(base, voiceFingerprint(scene, meta, 'elevenlabs', ''));
+  // The engine, which is the field that was missing: two runs of one provider that
+  // differ only in `ELEVENLABS_MODEL_ID` are different recordings of the same words.
+  const flash = voiceFingerprint(scene, meta, 'elevenlabs', 'eleven_flash_v2_5');
+  assert.notEqual(flash, voiceFingerprint(scene, meta, 'elevenlabs', 'eleven_multilingual_v2'));
+  assert.notEqual(flash, voiceFingerprint(scene, meta, 'elevenlabs', ''));
 });
 
 test('asset keys cover the prompt, the seed, the ink style and the provider', () => {

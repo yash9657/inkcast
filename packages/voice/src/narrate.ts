@@ -57,9 +57,9 @@ import {
   pinnedProvider,
   requestedProvider,
 } from './providers/index.js';
+import type { ActiveProvider, OpenChainOptions } from './providers/index.js';
 import type { VoiceProviderId, WordTiming } from './providers/types.js';
 import { SAY_NOT_FOR_PUBLISHING } from './providers/system.js';
-import { DELIVERY_SIGNATURE } from './providers/elevenlabs.js';
 import { TEACHING_WPM_MAX, TEACHING_WPM_MIN, TEACHING_WPM_TARGET } from './voices.js';
 import { CLIP_SAMPLE_RATE, CLIP_SIGNATURE, findSpeechBounds } from './wav.js';
 
@@ -109,6 +109,56 @@ export type NarrateOptions = StageOptions & {
   phraseSplit?: PhraseSplit;
   /** Word-level alignment: `auto` (default), `whisper`, or `off`. */
   align?: AlignMode;
+  /** How a provider is built. Test seam only — see `OpenChainOptions.create`. */
+  createProvider?: OpenChainOptions['create'];
+};
+
+/**
+ * Which provider actually spoke, and what it spoke.
+ *
+ * The record downstream is only as honest as this: `pipeline.json` used to be written
+ * from the environment-derived *request* — a key being set — so a run that fell back
+ * to the free local engine still reported `elevenlabs` and was billed $0.4286 for
+ * audio that cost nothing. That is `projects/cardiac8`, and it really did fall back:
+ * see the reconstruction in `@inkcast/pipeline`'s `resolvedVoiceChoice`. Everything
+ * here is observed rather than intended.
+ */
+export type ResolvedVoice = {
+  /** The provider that spoke last, or the one that resolved when nothing was spoken. */
+  provider: VoiceProviderId;
+  label: string;
+  /** Provider-native voice id in force. */
+  voice: string;
+  /** The engine, when the provider names one. */
+  model?: string;
+  /**
+   * Characters synthesised **per provider** this run.
+   *
+   * A map rather than a number because quota exhaustion is discovered at the first
+   * `synthesize` and not before it: a run can genuinely be part paid and part free,
+   * and both the record and the bill have to be able to say so.
+   */
+  charsByProvider: Partial<Record<VoiceProviderId, number>>;
+  /**
+   * The engine each provider spoke with, for the providers that spoke.
+   *
+   * `model` above names only the provider that finished, which is the wrong engine to
+   * price a mixed run with: after a demotion the characters that cost money were
+   * spoken by ElevenLabs and the surviving `model` is Kokoro's. Billing then had no
+   * engine to look up and fell back to the full credit rate — a 2× error on the one
+   * scenario the fallback path exists for. Keyed by provider so the bill can ask the
+   * one that spent the money what it was running.
+   */
+  modelByProvider: Partial<Record<VoiceProviderId, string>>;
+  /** True when at least one character was actually synthesised this run. */
+  spoke: boolean;
+  /** Fallbacks, in the `string[]` shape `LessonSummary.problems` already uses. */
+  problems: string[];
+};
+
+export type NarrateResult = {
+  storyboard: Storyboard;
+  voice: ResolvedVoice;
 };
 
 function envNumber(name: string, fallback: number): number {
@@ -155,6 +205,17 @@ type SynthContext = {
   padSec: number;
   chain: ReturnType<typeof openVoiceChain>;
   aligner: ReturnType<typeof openAligner>;
+  /**
+   * Characters billed to each provider, tallied here rather than by the caller.
+   *
+   * The pipeline cannot compute this: it has its own scene cache, keyed on different
+   * material from the stage's, so a scene can be stale to the pipeline and fresh here
+   * — and counting its narration would bill for audio nobody synthesised. This is the
+   * only place that knows a request was made.
+   */
+  spoken: Map<VoiceProviderId, number>;
+  /** The engine each provider was running when it spoke. See `ResolvedVoice.modelByProvider`. */
+  engines: Map<VoiceProviderId, string>;
 };
 
 /**
@@ -264,6 +325,16 @@ async function synthesizeScene(
         language: ctx.language,
         outPath: tmp,
       });
+      // Per phrase, not per scene: `demote()` can fire between two clauses of one
+      // scene, which is the same reason the scene's hash is re-taken below.
+      const spokeIt = result.provider.id;
+      // `billedChars` when the provider spent more than one generation on this phrase
+      // — see `SynthesisResult.billedChars`. `text.length` is the one-to-one case.
+      ctx.spoken.set(
+        spokeIt,
+        (ctx.spoken.get(spokeIt) ?? 0) + (result.billedChars ?? phrase.text.length),
+      );
+      if (result.provider.model) ctx.engines.set(spokeIt, result.provider.model);
 
       const samples = await readClipSamples(tmp);
       const bounds = findSpeechBounds(samples, CLIP_SAMPLE_RATE);
@@ -363,12 +434,18 @@ async function synthesizeEmptyScene(
  * Enriches and returns a copy of the storyboard: `scene.durationSec`,
  * `scene.audioPath`, `scene.words` where timings exist, and `element.enter.at`
  * rewritten for every element that carried a `cue`.
+ *
+ * Returns the enriched storyboard **and** what actually spoke. The second half is
+ * not decoration: the chain has always reported which provider produced each phrase
+ * and this stage used to drop it on the floor, so every consumer downstream had to
+ * infer the provider from the environment — and was wrong whenever the chain
+ * demoted.
  */
 export async function narrate(
   sb: Storyboard,
   dir: string,
   opts: NarrateOptions = {},
-): Promise<Storyboard> {
+): Promise<NarrateResult> {
   const out = structuredClone(sb);
   const audioDir = path.resolve(dir, 'audio');
   await mkdir(audioDir, { recursive: true });
@@ -390,6 +467,7 @@ export async function narrate(
     preferred: requestedProvider(opts.provider) ?? pinnedProvider(requestedVoice),
     requestedVoice: bareVoiceId(requestedVoice),
     log,
+    ...(opts.createProvider ? { create: opts.createProvider } : {}),
     onDownload: (note) =>
       report(opts, { stage: 'voice', pct: 1, note: `downloading model · ${note}` }),
   });
@@ -417,7 +495,13 @@ export async function narrate(
    * asking the chain again after `dispose()` would resolve it from scratch and
    * load a model just to write a log line.
    */
-  let lastProvider: VoiceProviderId | undefined;
+  let lastActive: ActiveProvider | undefined;
+  /** The provider the run is reported against, captured before the chain is disposed. */
+  let resolved: ActiveProvider;
+  /** Characters synthesised per provider. See `SynthContext.spoken`. */
+  const spoken = new Map<VoiceProviderId, number>();
+  /** The engine each of them was running. See `ResolvedVoice.modelByProvider`. */
+  const engines = new Map<VoiceProviderId, string>();
 
   try {
     for (let i = 0; i < total; i++) {
@@ -430,7 +514,7 @@ export async function narrate(
       const cacheKey = `voice:scene:${i}:${scene.id}`;
 
       const active = await chain.active();
-      lastProvider = active.id;
+      lastActive = active;
       // The engine decides how much text it needs to sound like a person, because only it
       // knows whether it can be told what surrounds a fragment. An explicit `--phrase-split`
       // still wins; absent that, a local engine with no context window gets whole sentences
@@ -451,7 +535,7 @@ export async function narrate(
         ? clamp(round3(userSpeed * (sceneWpm / active.naturalWpm)), 0.5, 2)
         : userSpeed;
 
-      const sceneKey = (id: string, voice: string, rate: number): string =>
+      const sceneKey = (id: string, voice: string, rate: number, delivery: string): string =>
         hash(
           text,
           id,
@@ -472,12 +556,14 @@ export async function narrate(
           scene.emphasis.join('|'),
           CLIP_SIGNATURE,
           // How the clip is *delivered*, which the stage does not otherwise own: an
-          // adapter decides the voice settings and whether the engine is told what
-          // surrounds a clause, and both change the audio for narration that never moved.
-          DELIVERY_SIGNATURE,
+          // adapter decides the voice settings, the engine, and whether it is told what
+          // surrounds a clause, and each changes the audio for narration that never
+          // moved. Taken from the provider that is speaking rather than imported from
+          // one of them — a Kokoro clip used to be keyed on an ElevenLabs constant.
+          delivery,
         );
 
-      const inputHash = sceneKey(active.id, active.voice, speed);
+      const inputHash = sceneKey(active.id, active.voice, speed, active.delivery ?? '');
       sceneHashes.push(inputHash);
 
       // Progress is emitted before the work so the UI shows the scene being spoken.
@@ -496,6 +582,8 @@ export async function narrate(
         padSec,
         chain,
         aligner,
+        spoken,
+        engines,
       };
 
       let timing: SceneTiming | undefined;
@@ -520,7 +608,7 @@ export async function narrate(
         // Re-hash against the provider that actually produced the clip: the chain
         // may have demoted mid-scene, and the cache must reflect reality.
         const finalActive = await chain.active();
-        lastProvider = finalActive.id;
+        lastActive = finalActive;
         const finalSpeed = finalActive.naturalWpm
           ? clamp(round3(userSpeed * (sceneWpm / finalActive.naturalWpm)), 0.5, 2)
           : userSpeed;
@@ -530,7 +618,12 @@ export async function narrate(
         // stale on the next run, because the hash written to disk could no longer match
         // the one looked up. The only field that may differ between the two calls is the
         // provider, which is the entire point of re-taking it.
-        const finalHash = sceneKey(finalActive.id, finalActive.voice, finalSpeed);
+        const finalHash = sceneKey(
+          finalActive.id,
+          finalActive.voice,
+          finalSpeed,
+          finalActive.delivery ?? '',
+        );
         sceneHashes[i] = finalHash;
         await writeFile(timingAbs, JSON.stringify(timing, null, 2));
         await markFresh(dir, cacheKey, finalHash);
@@ -589,6 +682,10 @@ export async function narrate(
       spokenWords += text.split(/\s+/).filter(Boolean).length;
       spokenSeconds += timing.narrationSec;
     }
+    // Asked for here, inside the `try`: after `dispose()` the same question reloads a
+    // model from scratch to answer it. `lastActive` is already set for any storyboard
+    // with a scene in it, so this only resolves for one with none.
+    resolved = lastActive ?? (await chain.active());
   } finally {
     await aligner.dispose();
     await chain.dispose();
@@ -625,7 +722,16 @@ export async function narrate(
 
   /* --------------------------------------------------------- report quality */
 
-  if (lastProvider === 'system') log.warn(SAY_NOT_FOR_PUBLISHING);
+  if (resolved.id === 'system') log.warn(SAY_NOT_FOR_PUBLISHING);
+
+  // Loud, and in two places, because one of them is read after the run is over: a
+  // demotion is spoken to stderr *and* carried out of the stage so the record can
+  // keep it. Quota exhaustion mid-run used to degrade to the free voice with nothing
+  // in the summary and a bill that still said the paid one.
+  const problems = chain
+    .fallbacks()
+    .map((f) => `voice fell back to ${f.to} (${f.from}: ${f.reason})`);
+  for (const line of problems) log.warn(line);
 
   const wpm = spokenSeconds > 0 ? (spokenWords / spokenSeconds) * 60 : 0;
   if (spokenWords > 20 && wpm > 0) {
@@ -657,7 +763,30 @@ export async function narrate(
     note: `${timelineSec.toFixed(1)}s of narration`,
   });
 
-  return out;
+  const charsByProvider = Object.fromEntries(spoken) as ResolvedVoice['charsByProvider'];
+  const modelByProvider = Object.fromEntries(engines) as ResolvedVoice['modelByProvider'];
+  const voice: ResolvedVoice = {
+    provider: resolved.id,
+    label: resolved.label,
+    voice: resolved.voice,
+    ...(resolved.model ? { model: resolved.model } : {}),
+    charsByProvider,
+    modelByProvider,
+    // A provider resolves on every run, cached or not — for ElevenLabs that is a
+    // network call to map the voice id — so "which provider is active" is not the
+    // same question as "who spoke". Reporting the first as the second would be a
+    // smaller version of the lie this whole return value exists to correct.
+    spoke: spoken.size > 0,
+    problems,
+  };
+  if (voice.spoke) {
+    log.info(
+      `spoken by ${[...spoken].map(([id, n]) => `${id} (${n} characters)`).join(', ')}` +
+        (voice.model ? ` · ${voice.model}` : ''),
+    );
+  }
+
+  return { storyboard: out, voice };
 }
 
 function round3(v: number): number {

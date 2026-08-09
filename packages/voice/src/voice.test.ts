@@ -16,7 +16,7 @@ import test from 'node:test';
 import { bareVoiceId, defaultChain, pinnedProvider } from './providers/index.js';
 
 import { narrate, sceneAudioPath, sceneTimingPath, NARRATION_FILE } from './narrate.js';
-import { measureDuration, readClipSamples, writeClipFromParts } from './audio.js';
+import { measureDuration, readClipSamples, writeClipFromParts, writeSilenceWav } from './audio.js';
 import {
   readWavInfo,
   encodeWav,
@@ -65,8 +65,21 @@ import {
   TEACHING_WPM_MIN,
 } from './voices.js';
 import { parseSayVoices, pickSayVoice, sayRateForWpm } from './providers/system.js';
-import { alignmentToWords } from './providers/elevenlabs.js';
-import { chunkForKokoro, KOKORO_VOICES } from './providers/kokoro.js';
+import {
+  alignmentToWords,
+  createElevenLabsProvider,
+  elevenLabsDelivery,
+  elevenLabsModel,
+  ELEVENLABS_FLASH_MODEL,
+} from './providers/elevenlabs.js';
+import {
+  chunkForKokoro,
+  createKokoroProvider,
+  KOKORO_MODEL_ID,
+  KOKORO_VOICES,
+} from './providers/kokoro.js';
+import { failureReason, VoiceProviderError } from './providers/types.js';
+import type { VoiceProvider, VoiceProviderId } from './providers/types.js';
 import type { Element, Scene, Storyboard } from '@inkcast/core';
 
 /* ------------------------------------------------------------------ fixtures */
@@ -343,6 +356,243 @@ test('character alignment folds into word timings', () => {
   assert.ok((words[1]?.end ?? 0) > (words[0]?.end ?? 0));
 });
 
+/* ------------------------------------------- the record of who actually spoke */
+
+/**
+ * A provider that speaks silence, or refuses to speak at all.
+ *
+ * The failover path decides both what `pipeline.json` records and what the run is
+ * billed, and it cannot be exercised any other way: reproducing it for real needs a
+ * paid key and a genuinely exhausted balance. `OpenChainOptions.create` is the seam.
+ */
+function stubProvider(
+  id: VoiceProviderId,
+  opts: {
+    model?: string;
+    fail?: VoiceProviderError;
+    /** What the call cost, when that is not `text.length`. See `SynthesisResult`. */
+    billedChars?: (text: string) => number;
+  } = {},
+): VoiceProvider {
+  return {
+    id,
+    label: `stub ${id}`,
+    available: async () => true,
+    voices: async () => ['stub'],
+    resolveVoice: async () => `${id}-voice`,
+    naturalWpm: () => 150,
+    modelId: () => opts.model,
+    synthesize: async (req) => {
+      if (opts.fail) throw opts.fail;
+      await writeSilenceWav(req.outPath, Math.max(0.4, req.text.length / 15));
+      return opts.billedChars ? { billedChars: opts.billedChars(req.text) } : {};
+    },
+    dispose: async () => undefined,
+  };
+}
+
+/** Characters the stage will hand a provider for one narration, split as it splits. */
+function phraseChars(narration: string): number {
+  return splitPhrases(normalizeNarration(narration), { mode: 'clause' }).reduce(
+    (n, p) => n + p.text.length,
+    0,
+  );
+}
+
+test('the record names the provider that actually spoke, not the one that was asked for', async () => {
+  await withTempProject(async (dir) => {
+    const lines = [
+      'The heart has its own pacemaker, and it fires without being told to.',
+      'The signal spreads through the atria, then waits at the gate.',
+    ];
+    const sb = storyboard(lines);
+
+    const { storyboard: out, voice } = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        id === 'elevenlabs'
+          ? stubProvider(id, {
+              model: ELEVENLABS_FLASH_MODEL,
+              fail: new VoiceProviderError('ElevenLabs /text-to-speech -> 401', {
+                provider: 'elevenlabs',
+                reason: 'quota_exceeded',
+                status: 401,
+              }),
+            })
+          : stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+
+    // The provider that spoke, and the engine it spoke with.
+    assert.equal(voice.provider, 'kokoro');
+    assert.equal(voice.model, KOKORO_MODEL_ID);
+    assert.equal(voice.spoke, true);
+
+    // Nothing is billed to the provider that refused. This is the $0.4286 defect.
+    assert.equal(voice.charsByProvider.elevenlabs ?? 0, 0);
+    assert.equal(
+      voice.charsByProvider.kokoro,
+      lines.reduce((n, l) => n + phraseChars(l), 0),
+    );
+
+    // The fallback is carried out of the stage in the shape `lessonProblems` uses.
+    assert.deepEqual(voice.problems, ['voice fell back to kokoro (elevenlabs: quota_exceeded)']);
+
+    // And the failover cost the film nothing: every scene still has real audio.
+    for (let i = 0; i < out.scenes.length; i++) {
+      assert.equal(out.scenes[i]?.audioPath, sceneAudioPath(i));
+      assert.ok((out.scenes[i]?.durationSec ?? 0) > 0.3);
+    }
+  });
+});
+
+test('a run where nothing was synthesised does not claim anyone spoke', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(['A cached scene is audio nobody paid for twice.']);
+    const create = (id: VoiceProviderId) => stubProvider(id, { model: KOKORO_MODEL_ID });
+
+    const first = await narrate(sb, dir, { provider: 'kokoro', padSec: 0, createProvider: create });
+    assert.equal(first.voice.spoke, true);
+    assert.ok((first.voice.charsByProvider.kokoro ?? 0) > 0);
+
+    // The chain still resolves a provider on a cache hit — for ElevenLabs that is a
+    // network call — so "who is active" must not be reported as "who spoke".
+    const second = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      createProvider: create,
+    });
+    assert.equal(second.voice.provider, 'kokoro');
+    assert.equal(second.voice.spoke, false);
+    assert.deepEqual(second.voice.charsByProvider, {});
+  });
+});
+
+test('the ElevenLabs engine is flash, and its id is inside the clip key', () => {
+  // Deliverable 3: flash bills half a credit per character where multilingual bills one.
+  assert.equal(elevenLabsModel({} as NodeJS.ProcessEnv), ELEVENLABS_FLASH_MODEL);
+  assert.equal(
+    elevenLabsModel({ ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2' } as NodeJS.ProcessEnv),
+    'eleven_multilingual_v2',
+  );
+
+  // The delivery signature is hashed into every scene key, so changing the engine has
+  // to change it — otherwise an existing project stays fresh and never hears flash.
+  const flash = elevenLabsDelivery({ ELEVENLABS_MODEL_ID: ELEVENLABS_FLASH_MODEL } as never);
+  const v2 = elevenLabsDelivery({ ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2' } as never);
+  assert.notEqual(flash, v2);
+  assert.ok(flash.includes(ELEVENLABS_FLASH_MODEL));
+
+  // The free provider names its engine too, so `charsByProvider` has something to label.
+  assert.equal(createKokoroProvider().modelId?.(), KOKORO_MODEL_ID);
+});
+
+test('an exhausted balance is classified, not scraped out of the message', async () => {
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = 'sk_test_never_spent';
+  // A 401 is two different events: no credits left, and a key that is not valid. The
+  // only machine-readable difference is `detail.status`, and the fallback line has to
+  // name which one it was.
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ detail: { status: 'quota_exceeded', message: 'no credits' } }), {
+      status: 401,
+      statusText: 'Unauthorized',
+    })) as typeof fetch;
+  try {
+    const el = createElevenLabsProvider();
+    const err = await el
+      .synthesize({
+        text: 'one',
+        voice: '21m00Tcm4TlvDq8ikWAM',
+        speed: 1,
+        language: 'en',
+        outPath: path.join(os.tmpdir(), 'inkcast-never-written.wav'),
+      })
+      .then(() => undefined)
+      .catch((e: unknown) => e);
+    assert.ok(err instanceof VoiceProviderError, 'a provider failure must name itself');
+    assert.equal(err.reason, 'quota_exceeded');
+    assert.equal(err.status, 401);
+    assert.equal(failureReason(new Error('anything else')), 'unknown');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = realKey;
+  }
+});
+
+test('a phrase the adapter generated twice is billed twice', async () => {
+  // One `synthesize` is not one generation. `/with-timestamps` can answer 200 with no
+  // `audio_base64` — audio that was made, charged and cannot be used — and the fall
+  // through to plain TTS is a second full request for the same words. The tally is the
+  // only record of what was spent, so it has to hear about the retry.
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = 'sk_test_never_spent';
+  const out = path.join(await mkdtemp(path.join(os.tmpdir(), 'inkcast-billing-')), 'clip.wav');
+  const text = 'Two generations of the same sentence.';
+
+  /** A run of the adapter where the timestamped attempt fails in the given way. */
+  const attempt = async (first: () => Response) => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes('/with-timestamps')) return first();
+      return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), { status: 200 });
+    }) as typeof fetch;
+    const result = await createElevenLabsProvider().synthesize({
+      text,
+      voice: '21m00Tcm4TlvDq8ikWAM',
+      speed: 1,
+      language: 'en',
+      outPath: out,
+    });
+    return { result, calls };
+  };
+
+  try {
+    // 200 with no audio: generated, billed, unusable. Two requests, two charges.
+    const empty = await attempt(() => new Response(JSON.stringify({}), { status: 200 }));
+    assert.equal(empty.calls.length, 2, 'the fall-through is a second full TTS request');
+    assert.equal(empty.result.billedChars, text.length * 2);
+
+    // A request the rate limiter refused never reached the engine, so the retry is the
+    // only generation there was, and `text.length` — the caller's default — is right.
+    const limited = await attempt(
+      () => new Response('slow down', { status: 429, statusText: 'Too Many Requests' }),
+    );
+    assert.equal(limited.calls.length, 2);
+    assert.equal(limited.result.billedChars, undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = realKey;
+    await rm(path.dirname(out), { recursive: true, force: true });
+  }
+});
+
+test('the stage tallies what the provider says it spent, not what it was handed', async () => {
+  await withTempProject(async (dir) => {
+    const line = 'The gate holds the signal back for a tenth of a second.';
+    const sb = storyboard([line]);
+    const { voice } = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      // Every phrase generated twice, as the timestamped fall-through does it.
+      createProvider: (id) =>
+        stubProvider(id, { model: ELEVENLABS_FLASH_MODEL, billedChars: (t) => t.length * 2 }),
+    });
+    // Counting `phrase.text.length` per successful call under-reported by exactly the
+    // retry, and this tally is now the sole source of the billed number.
+    assert.equal(voice.charsByProvider.elevenlabs, phraseChars(line) * 2);
+    assert.equal(voice.modelByProvider.elevenlabs, ELEVENLABS_FLASH_MODEL);
+  });
+});
+
 /* ------------------------------------------------- end-to-end: system provider */
 
 const darwin = process.platform === 'darwin';
@@ -358,7 +608,7 @@ test(
       ]);
 
       const progress: number[] = [];
-      const out = await narrate(sb, dir, {
+      const { storyboard: out } = await narrate(sb, dir, {
         provider: 'system',
         padSec: 0.2,
         onProgress: (p) => progress.push(p.pct),
@@ -421,11 +671,11 @@ test(
     await withTempProject(async (dir) => {
       const sb = storyboard(['Caching means editing one scene is cheap.']);
 
-      const first = await narrate(sb, dir, { provider: 'system', padSec: 0 });
+      const { storyboard: first } = await narrate(sb, dir, { provider: 'system', padSec: 0 });
       const clip = path.resolve(dir, sceneAudioPath(0));
       const before = await stat(clip);
 
-      const second = await narrate(sb, dir, { provider: 'system', padSec: 0 });
+      const { storyboard: second } = await narrate(sb, dir, { provider: 'system', padSec: 0 });
       const after = await stat(clip);
 
       assert.equal(after.mtimeMs, before.mtimeMs, 'cached scene must not be rewritten');
@@ -448,7 +698,7 @@ test('the silence provider keeps the pipeline alive with real, timed clips', asy
       'The camera moves instead of wiping the canvas.',
     ]);
 
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
 
     for (let i = 0; i < out.scenes.length; i++) {
       const scene = out.scenes[i]!;
@@ -466,7 +716,10 @@ test('the silence provider keeps the pipeline alive with real, timed clips', asy
 
 test('an empty narration still yields a positive duration and a clip', async () => {
   await withTempProject(async (dir) => {
-    const out = await narrate(storyboard(['   \n\n  ']), dir, { provider: 'silence', padSec: 0.3 });
+    const { storyboard: out } = await narrate(storyboard(['   \n\n  ']), dir, {
+      provider: 'silence',
+      padSec: 0.3,
+    });
     const scene = out.scenes[0]!;
     assert.ok((scene.durationSec ?? 0) > 0, 'durationSec must stay positive for the IR');
     assert.equal(scene.audioPath, sceneAudioPath(0));
@@ -476,7 +729,7 @@ test('an empty narration still yields a positive duration and a clip', async () 
 test('narrate() enriches a copy and leaves the input storyboard untouched', async () => {
   await withTempProject(async (dir) => {
     const sb = storyboard(['Stages enrich the storyboard, they do not reshape it.']);
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
     assert.equal(sb.scenes[0]?.durationSec, undefined);
     assert.equal(sb.scenes[0]?.audioPath, undefined);
     assert.ok(out.scenes[0]?.durationSec);
@@ -889,7 +1142,7 @@ test('narrate() renders Scene.hold as real silence the timeline can rely on', as
       { narration: 'Then the answer arrives.', hold: 0 },
     ]);
 
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
     const first = out.scenes[0]!;
     const clip = path.resolve(dir, sceneAudioPath(0));
 
@@ -925,7 +1178,7 @@ test('narrate() resolves a cue to a plausible offset and writes it into enter.at
       },
     ]);
 
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
     const s = out.scenes[0]!;
     const dur = s.durationSec ?? 0;
     const at = (id: string): number => s.elements.find((e) => e.id === id)!.enter.at;
@@ -951,7 +1204,7 @@ test('narrate() resolves a cue to a plausible offset and writes it into enter.at
     assert.ok(sidecar.phrases[2]!.start > sidecar.phrases[0]!.end);
 
     // A cached second pass reaches the same conclusion.
-    const again = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: again } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
     assert.equal(again.scenes[0]!.elements.find((e) => e.id === 'step')!.enter.at, at('step'));
   });
 });
@@ -969,7 +1222,11 @@ test(
         },
       ]);
 
-      const out = await narrate(sb, dir, { provider: 'system', padSec: 0.2, align: 'off' });
+      const { storyboard: out } = await narrate(sb, dir, {
+        provider: 'system',
+        padSec: 0.2,
+        align: 'off',
+      });
       const s = out.scenes[0]!;
       const el = s.elements[0]!;
       const offset = el.enter.at * (s.durationSec ?? 0);
@@ -1082,7 +1339,7 @@ test('a punchy beat is measurably faster than a slow_deliberate one', async () =
       { narration: words, cadence: 'slow_deliberate' },
       { narration: words },
     ]);
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
 
     const [punchy = 0, slow = 0, plain = 0] = out.scenes.map((s) => s.durationSec ?? 0);
     assert.ok(punchy > 0 && slow > 0 && plain > 0);
@@ -1104,11 +1361,12 @@ test('cadence changes the audio, so it changes the cache key', async () => {
   // would leave the old clip on disk and look like the change had no effect.
   await withTempProject(async (dir) => {
     const words = 'One idea per scene keeps the board readable enough to follow along.';
-    const first = await narrate(storyboard([{ narration: words, cadence: 'punchy' }]), dir, {
-      provider: 'silence',
-      padSec: 0,
-    });
-    const second = await narrate(
+    const { storyboard: first } = await narrate(
+      storyboard([{ narration: words, cadence: 'punchy' }]),
+      dir,
+      { provider: 'silence', padSec: 0 },
+    );
+    const { storyboard: second } = await narrate(
       storyboard([{ narration: words, cadence: 'slow_deliberate' }]),
       dir,
       { provider: 'silence', padSec: 0 },
@@ -1129,7 +1387,7 @@ test('an emphasised phrase is given more room than the same words unemphasised',
       { narration: words },
       { narration: words, emphasis: ['points uphill'] },
     ]);
-    const out = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
+    const { storyboard: out } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
 
     const [plain = 0, stressed = 0] = out.scenes.map((s) => s.durationSec ?? 0);
     assert.ok(

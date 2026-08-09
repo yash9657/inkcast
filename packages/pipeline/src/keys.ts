@@ -215,7 +215,18 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // its own pitch range — and a scene was ten of those concatenated. That is the abrupt
   // local delivery everyone had attributed to the model. Every cached clip is different
   // audio for the same words, so they all have to go.
-  voice: 7,
+  // 8: the clip is delivered by `eleven_flash_v2_5`, the effective model id lives
+  // inside the adapter's per-scene delivery signature, and `voiceFingerprint` below
+  // finally carries an engine of its own. The bump alone was not enough and it is
+  // worth saying why: it moves every existing project off the old engine exactly once,
+  // but a *version* cannot see `ELEVENLABS_MODEL_ID`. With the engine outside this
+  // file's key, changing that variable left every scene fresh, `cast()` skipped the
+  // stage on an empty stale set, and the override was ignored with nothing said. The
+  // engine is now a hashed input, so the knob invalidates precisely what it changes.
+  // The delivery signature is also taken from the active provider rather than imported
+  // from ElevenLabs, so a local clip is no longer keyed on a cloud adapter's constant;
+  // that invalidates the cached kokoro clips too, exactly once.
+  voice: 8,
   // 8: a traced illustration's paths are placed where the vectoriser said they go, and an
   // asset may ask for its box to be met exactly. See the note above.
   // 9: the figure lane. An asset of kind `figure` resolves to an `<image>` wrapper rather
@@ -248,13 +259,32 @@ export function cacheKey(stage: StageName, ...parts: unknown[]): string {
  * `hold` is in here because the stage renders it as real silence inside the
  * clip: a beat whose pause changed from 0.4s to 1.2s has a different audio file,
  * even though not one word of narration moved.
+ *
+ * `engine` is in here because of the seam that decides. The clip *the stage makes* is
+ * keyed on the adapter's own delivery signature, engine and all — but this key is what
+ * `cast()` compares to decide whether to run the stage at all, and it could not see an
+ * engine. So `ELEVENLABS_MODEL_ID` changed the recording and changed nothing the
+ * pipeline looks at: every scene stayed fresh, the stale set came back empty, the
+ * stage was skipped and the override was silently ignored. A knob that changes the
+ * audio has to change the key that decides whether to re-record it. See `voiceEngine()`
+ * in `providers.ts` for where the string comes from, and `staleVoiceScenes()` in
+ * `cast.ts` for the decision itself.
  */
 export function voiceFingerprint(
   scene: Pick<Scene, 'narration' | 'hold'>,
   meta: { voice: string; language: string },
   provider: string,
+  engine: string,
 ): string {
-  return cacheKey('voice', scene.narration, scene.hold, meta.voice, meta.language, provider);
+  return cacheKey(
+    'voice',
+    scene.narration,
+    scene.hold,
+    meta.voice,
+    meta.language,
+    provider,
+    engine,
+  );
 }
 
 /**

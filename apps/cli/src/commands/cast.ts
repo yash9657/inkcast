@@ -265,6 +265,9 @@ function jsonResult(result: CastResult, copied?: string) {
         }
       : undefined,
     lessonProblems: result.problems,
+    // Beside the lesson's problems and in the same shape, because they are the same
+    // kind of fact: something about this render is worse than the command asked for.
+    voiceProblems: result.voice.problems,
     lessonAuthor: result.author,
     route: result.route,
     preset: result.preset,
@@ -281,10 +284,17 @@ function jsonResult(result: CastResult, copied?: string) {
     degraded: result.degradations,
     providers: {
       planner: result.providers.planner.name,
-      voice: result.providers.voice.name,
+      // The provider that spoke, not the key that was set. `result.providers.voice`
+      // is the environment's intention and is wrong exactly when the chain demoted.
+      voice: voiceLabel(result),
       images: result.providers.images.name,
     },
   };
+}
+
+/** `elevenlabs/eleven_flash_v2_5` — who spoke and what they spoke with. */
+function voiceLabel(result: CastResult): string {
+  return `${result.voice.provider}${result.voice.model ? `/${result.voice.model}` : ''}`;
 }
 
 async function printSummary(ctx: CliContext, result: CastResult, copied?: string): Promise<void> {
@@ -331,7 +341,7 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     [
       // Who wrote the lesson, not which key happens to be set.
       `lesson ${result.author}`,
-      `voice ${result.providers.voice.name}`,
+      `voice ${voiceLabel(result)}`,
       `art ${result.providers.images.name}`,
     ]
       .map((s) => c.dim(s))
@@ -349,6 +359,14 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     for (const p of result.problems.slice(0, 5)) out += `    ${c.dim('·')} ${p}\n`;
     const major = result.degradations.find((d) => d.severity === 'major');
     if (major) out += `    ${c.dim('fix:')} ${c.cyan(major.fix)}\n`;
+  }
+
+  // Its own block rather than an addition to the one above, which is gated entirely on
+  // the lesson's problems: a paid voice that ran out of credits half way through a
+  // flawless lesson used to print nothing at all.
+  if (result.voice.problems.length > 0) {
+    out += `\n  ${c.yellow('the voice did not come out as asked:')}\n`;
+    for (const p of result.voice.problems) out += `    ${c.dim('·')} ${p}\n`;
   }
 
   out += `\n  ${c.dim(`next: inkcast lesson ${result.projectId}   ·   inkcast preview ${result.projectId}   ·   inkcast edit ${result.projectId} "…"`)}\n\n`;

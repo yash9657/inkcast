@@ -70,7 +70,67 @@ export type SynthesisRequest = {
 export type SynthesisResult = {
   /** Only when the provider genuinely supplies timings. */
   words?: WordTiming[];
+  /**
+   * Characters this call will be **billed** for, when that is not `text.length`.
+   *
+   * One `synthesize` is not always one generation. The ElevenLabs adapter asks the
+   * timestamped endpoint first and falls through to a plain TTS request when that
+   * answers without usable audio, so a single phrase can be generated — and charged —
+   * twice. The stage tallies `charsByProvider` from these calls and that tally is now
+   * the sole source of the billed number, so a provider that spends twice has to say
+   * so here or the bill under-reports by exactly the retry.
+   *
+   * Omitted by every provider whose call maps one-to-one onto one generation.
+   */
+  billedChars?: number;
 };
+
+/**
+ * Why a provider stopped speaking, in the vocabulary the record uses.
+ *
+ * Named rather than described because the reason is reported to the user and written
+ * into `pipeline.json`: "the ElevenLabs key ran out of credits mid-run" and "the key
+ * was rejected" are different problems with different fixes, and both arrive as a 401.
+ */
+export type VoiceFailureReason =
+  'quota_exceeded' | 'unauthorized' | 'rate_limited' | 'network' | 'unknown';
+
+/**
+ * A provider failure that names itself.
+ *
+ * The alternative — scraping a reason back out of the message string — is a
+ * measurement the provider can silently break: ElevenLabs may reword its error copy
+ * at any time, and the fallback line would quietly go from naming the cause to
+ * saying `unknown` with nothing to indicate it had stopped working. Adapters
+ * classify at the point where the status code is still in scope; everyone else
+ * reads `reason`.
+ */
+export class VoiceProviderError extends Error {
+  readonly provider: VoiceProviderId;
+  readonly reason: VoiceFailureReason;
+  readonly status?: number;
+
+  constructor(
+    message: string,
+    init: {
+      provider: VoiceProviderId;
+      reason: VoiceFailureReason;
+      status?: number;
+      cause?: unknown;
+    },
+  ) {
+    super(message, init.cause === undefined ? undefined : { cause: init.cause });
+    this.name = 'VoiceProviderError';
+    this.provider = init.provider;
+    this.reason = init.reason;
+    if (init.status !== undefined) this.status = init.status;
+  }
+}
+
+/** The reason a failure carries, or `unknown` for a throw from anywhere else. */
+export function failureReason(err: unknown): VoiceFailureReason {
+  return err instanceof VoiceProviderError ? err.reason : 'unknown';
+}
 
 export type VoiceProvider = {
   readonly id: VoiceProviderId;
@@ -104,6 +164,26 @@ export type VoiceProvider = {
    * sentences. Return `undefined` to accept the caller's choice.
    */
   preferredSplit?(): PhraseSplit | undefined;
+  /**
+   * The engine that will actually speak, when the provider runs more than one.
+   *
+   * Reported because the record has to name it: `pipeline.json` said
+   * `elevenlabs/af_heart` for every keyed project on disk — a *voice* id in the model
+   * slot — while the model in force was whatever `ELEVENLABS_MODEL_ID` happened to
+   * resolve to, and the bill was priced as if it were the expensive one. A provider
+   * with one engine returns its id; one with none returns `undefined`.
+   */
+  modelId?(): string | undefined;
+  /**
+   * Everything about delivery this adapter decides and the stage cannot see.
+   *
+   * The stage's cache key hashes the narration, the voice and the pacing — all of
+   * which it owns. It cannot see that an adapter pinned `stability`, or started
+   * sending the surrounding clauses as context, or switched engines, and every one of
+   * those is different audio for words that never moved. Fold them into a string here
+   * and the clip key invalidates exactly when the audio would.
+   */
+  deliverySignature?(): string;
   synthesize(req: SynthesisRequest): Promise<SynthesisResult>;
   /** Release any cached handles. Must be safe to call twice. */
   dispose(): Promise<void>;

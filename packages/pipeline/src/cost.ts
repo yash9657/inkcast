@@ -24,14 +24,39 @@ const PRICES = {
     'claude-sonnet-4-6': { in: 3, out: 15 },
     'claude-haiku-4-5': { in: 1, out: 5 },
   } as Record<string, { in: number; out: number }>,
-  /** ElevenLabs Creator tier: ~$22 per 100,000 characters => $0.00022/char. */
-  elevenlabsPerChar: 0.00022,
+  /** ElevenLabs Creator tier: ~$22 per 100,000 credits => $0.00022/credit. */
+  elevenlabsPerCredit: 0.00022,
   /** FLUX-class text-to-image on Replicate/fal: ~$0.003 per 1024px image. */
   imagePerAsset: 0.003,
 } as const;
 
 /** Rough but stable tokens-per-character for English prose and JSON. */
 const CHARS_PER_TOKEN = 4;
+
+/**
+ * Credits ElevenLabs bills per character, by engine.
+ *
+ * The bill is not a rate per character — it is a rate per *credit*, and how many
+ * credits a character costs is a property of the model. `eleven_flash_v2_5` and
+ * `eleven_turbo_v2_5` bill half a credit, which is the whole of why the voice line
+ * halves when the adapter switches to flash.
+ */
+const ELEVENLABS_CREDITS_PER_CHAR: Record<string, number> = {
+  eleven_multilingual_v2: 1,
+  eleven_turbo_v2_5: 0.5,
+  eleven_flash_v2_5: 0.5,
+};
+
+/**
+ * A model this table has not heard of is billed at the full rate.
+ *
+ * The wrong direction to fail is the cheap one: a pricing table that silently
+ * discounts what it does not recognise under-states a real bill and nobody finds out
+ * until the invoice arrives.
+ */
+function creditsPerChar(model: string | undefined): number {
+  return (model === undefined ? undefined : ELEVENLABS_CREDITS_PER_CHAR[model]) ?? 1;
+}
 
 export type CostLine = {
   stage: string;
@@ -95,12 +120,18 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
     });
   }
 
+  // `voice.cloud` must describe the provider that *spoke* — see `resolvedVoiceChoice`,
+  // which reconstructs how `projects/cardiac8` came to book $0.4286 for 1,948
+  // characters that ElevenLabs demoted out of on its first request. The guard is the
+  // defensive floor under that: a run that synthesised nothing cannot emit a line at
+  // all, whatever the provider block says.
   if (voice.cloud && input.narratedChars > 0) {
+    const credits = creditsPerChar(voice.model);
     lines.push({
       stage: 'voice',
       provider: `${voice.name}${voice.model ? `/${voice.model}` : ''}`,
-      usd: input.narratedChars * PRICES.elevenlabsPerChar,
-      basis: `${input.narratedChars} characters at $${PRICES.elevenlabsPerChar}/char (Creator list price)`,
+      usd: input.narratedChars * credits * PRICES.elevenlabsPerCredit,
+      basis: `${input.narratedChars} characters × ${credits} credits/char at $${PRICES.elevenlabsPerCredit}/credit (Creator list price)`,
       estimated: true,
     });
   }

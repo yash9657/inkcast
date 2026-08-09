@@ -88,6 +88,112 @@ export function voiceProvider(
   };
 }
 
+/**
+ * The ElevenLabs engine this environment will speak with. `''` for every other provider.
+ *
+ * **Mirrored** from `elevenLabsModel()` in `@inkcast/voice`, and the duplication is
+ * deliberate for the same reason `voiceProvider` mirrors `defaultChain`: the pipeline
+ * decides whether to run the voice stage *before* it has loaded the voice stage (see
+ * the header of `stages.ts` — a static import here would turn "that package is still
+ * installing" into a module-resolution stack trace), and the engine has to be inside
+ * that decision. `test/voice-key.test.ts` pins the two constants against each other,
+ * so the mirror fails a test rather than silently drifting into a stale cache.
+ *
+ * It is read from the environment rather than observed because it is used to decide
+ * whether anything needs re-recording, which is a question that has to be answerable
+ * before a single character is spoken.
+ */
+export const ELEVENLABS_DEFAULT_MODEL = 'eleven_flash_v2_5';
+
+export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (provider !== 'elevenlabs') return '';
+  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_DEFAULT_MODEL;
+}
+
+/**
+ * The choice as the run turned out, which is the only one anybody may be billed for.
+ *
+ * `voiceProvider` above answers "what will this environment reach for" — a prediction
+ * made before a single character is spoken. The chain can demote mid-run (an expired
+ * key, a rate limit, an exhausted balance) and then the prediction is simply wrong.
+ *
+ * `projects/cardiac8` is that case, reconstructed rather than assumed, because a
+ * future session will otherwise re-derive it from the pipeline.json alone and get it
+ * backwards. The file books a $0.4286 ElevenLabs line and the film is Kokoro:
+ *
+ *  - The keyed chain — a present `ELEVENLABS_API_KEY` puts ElevenLabs *first* — landed
+ *    in `86ae285` on 2026-08-05. `cardiac8` was cast on 2026-08-07, so ElevenLabs was
+ *    reached, not skipped.
+ *  - All ten of its `voice:scene:N` cache entries recompute exactly as
+ *    `kokoro`/`af_heart` under the stage's own key inputs (sha256 over narration,
+ *    provider, voice, speed, split, delivery). Kokoro spoke the whole film.
+ *  - Scene 0's entry was keyed with the *clause* split and scenes 1-9 with the
+ *    *sentence* split, and the clips agree: run `splitPhrases(normalizeNarration(…))`
+ *    over each narration and only scene 0's `audio/scene-000.timing.json` matches
+ *    `clause`, while 1-9 match `sentence`. That split comes from the active provider's
+ *    `preferredSplit`: sentence is Kokoro's, and ElevenLabs declares none, so it gets
+ *    the `clause` default. ElevenLabs was active when scene 0 began and was gone by
+ *    scene 1 — a demotion, at the first request, on an exhausted quota
+ *    (`docs/PLAN-GOLPO-PARITY.md`).
+ *
+ * So the demotion is the demonstrated event, and the $0.4286 is what it cost to derive
+ * the record from the environment instead of asking the stage.
+ *
+ * `cloud` is the field that matters. It is the one thing standing between a kokoro run
+ * and a bill, so it is derived here from the provider that spoke and from nothing else.
+ */
+export function resolvedVoiceChoice(
+  resolved: { provider: string; model?: string; voice: string },
+  requested: ProviderChoice,
+): ProviderChoice {
+  const name = resolved.provider === 'system' ? 'say' : resolved.provider;
+  return {
+    name,
+    cloud: resolved.provider === 'elevenlabs',
+    why:
+      name === requested.name ? requested.why : `requested ${requested.name}, resolved to ${name}`,
+    // The engine, and *only* the engine. This slot used to fall back to the voice id,
+    // which reproduced the very string this phase exists to correct: on a cached
+    // re-run nothing resolves a model, so `elevenlabs` + `af_heart` was written back
+    // to disk as `elevenlabs/af_heart` — a voice where a model belongs, disagreeing
+    // with the terminal, which prints the engine or nothing.
+    ...(resolved.model ? { model: resolved.model } : {}),
+  };
+}
+
+/**
+ * The choice the **bill** is computed from, which is not always the one that finished.
+ *
+ * A mid-run demotion produces a genuinely mixed film: exhaustion is only discovered at
+ * the first request that fails, so the scenes before it were spoken by the paid
+ * provider and really were billed. Reporting only who finished would under-state that
+ * run to zero — the same defect as `cardiac8`, pointing the other way.
+ *
+ * `engine` is what the paid provider was running when it spent that money, measured by
+ * the stage (`ResolvedVoice.modelByProvider`) rather than inferred. It has to be passed
+ * in because `resolved` describes the provider that *finished*, whose engine is the
+ * wrong one to price with: leaving it unnamed bills at the full credit rate, and flash
+ * costs half — a 2× over-charge on exactly the run this function exists for.
+ */
+export function billedVoiceChoice(
+  resolved: { provider: string; model?: string; voice: string },
+  paidChars: number,
+  requested: ProviderChoice,
+  engine?: string,
+): ProviderChoice {
+  const choice = resolvedVoiceChoice(resolved, requested);
+  if (paidChars <= 0 || choice.cloud) return choice;
+  return {
+    name: 'elevenlabs',
+    cloud: true,
+    why: `${paidChars} characters were spoken by elevenlabs before it fell back to ${choice.name}`,
+    // Absent when the stage could not name it, and an unnamed engine is billed at the
+    // full rate (`cost.ts`) — failing expensive is the safe direction for a number
+    // someone reconciles against an invoice.
+    ...(engine ? { model: engine } : {}),
+  };
+}
+
 export function imageProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
   if (env.REPLICATE_API_TOKEN) {
     return { name: 'replicate', cloud: true, why: 'REPLICATE_API_TOKEN is set' };

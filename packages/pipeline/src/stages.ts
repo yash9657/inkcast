@@ -133,8 +133,44 @@ type LessonStageModule = {
   PLANNER_VERSION?: unknown;
 };
 
+/**
+ * What the voice stage resolved to, mirrored from `@inkcast/voice`'s `ResolvedVoice`.
+ *
+ * Mirrored rather than imported for the reason at the top of this file, and the shape
+ * is deliberately loose about *which* provider — this file must not grow an opinion
+ * about the voice package's union of ids.
+ */
+export type ResolvedVoice = {
+  /** The provider that actually spoke, or the one that resolved when nothing did. */
+  provider: string;
+  label: string;
+  voice: string;
+  /** The engine, when the provider names one. */
+  model?: string;
+  /** Characters synthesised per provider this run. Empty when everything was cached. */
+  charsByProvider: Partial<Record<string, number>>;
+  /** The engine each of those providers was running — what the bill has to be priced at. */
+  modelByProvider: Partial<Record<string, string>>;
+  /** True when at least one character was actually synthesised. */
+  spoke: boolean;
+  /** Fallbacks, in the `string[]` shape `LessonSummary.problems` uses. */
+  problems: string[];
+};
+
+/**
+ * `narrate` returns the storyboard *and* what spoke.
+ *
+ * Typed here rather than left as `Promise<unknown>` because the pipeline's only check
+ * on the storyboard half is `parseStoryboard`, which would have gone on accepting the
+ * new wrapper object and thrown at runtime on a shape it cannot parse. The compiler is
+ * the thing that has to notice a call site that was not updated.
+ */
 type VoiceModule = {
-  narrate(sb: Storyboard, dir: string, opts?: StageOpts): Promise<unknown>;
+  narrate(
+    sb: Storyboard,
+    dir: string,
+    opts?: StageOpts,
+  ): Promise<{ storyboard: unknown; voice: ResolvedVoice }>;
 };
 
 type VisualsModule = {

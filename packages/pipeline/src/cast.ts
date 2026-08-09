@@ -51,6 +51,7 @@ import {
   totalDuration,
   type Lesson,
   type OnProgress,
+  type Scene,
   type Storyboard,
   type StoryboardMeta,
 } from '@inkcast/core';
@@ -78,8 +79,22 @@ import {
   type Depth,
 } from './lesson.js';
 import { progressBus, type ProgressBus, type StageName } from './progress.js';
-import { fullyLocal, providers as detectProviders, type Providers } from './providers.js';
-import { findVideo, readState, writeState, type PipelineState, type SourceRef } from './state.js';
+import {
+  billedVoiceChoice,
+  fullyLocal,
+  providers as detectProviders,
+  resolvedVoiceChoice,
+  voiceEngine,
+  type Providers,
+} from './providers.js';
+import {
+  findVideo,
+  readState,
+  writeState,
+  type PipelineState,
+  type SourceRef,
+  type VoiceRecord,
+} from './state.js';
 import {
   loadLessonStage,
   loadPlanner,
@@ -92,6 +107,7 @@ import {
   type PlanOptions,
   type PresetName,
   type PresetShape,
+  type ResolvedVoice,
   type SourceDoc,
 } from './stages.js';
 
@@ -216,6 +232,14 @@ export type CastResult = LessonResult & {
   videoPath: string;
   storyboard: Storyboard;
   cost: CostReport;
+  /**
+   * Which voice actually spoke, and what it was billed for.
+   *
+   * `providers.voice` above is the environment's *intention*, decided before the run.
+   * This is what happened, including a mid-run fallback and its reason — the two
+   * differ exactly when someone is about to be told they paid for something free.
+   */
+  voice: ResolvedVoice;
   /** Wall-clock milliseconds per stage. Skipped stages are ~0. */
   timings: Partial<Record<StageName, number>>;
   /** Stages that did no work this run (cached, or nothing to do). */
@@ -619,24 +643,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   /* -------------------------------------------------------------- 4. voice */
 
-  const voiceKeyFor = (scene: { narration: string; hold: number }) =>
-    voiceFingerprint(
-      scene,
-      { voice: sb!.meta.voice, language: sb!.meta.language },
-      provs.voice.name,
-    );
+  const staleScenes = await staleVoiceScenes(run.dir, sb, provs.voice.name, {
+    force: run.force,
+  });
 
-  const staleScenes = new Set<string>();
-  for (const scene of sb.scenes) {
-    const ready = scene.durationSec !== undefined && scene.audioPath !== undefined;
-    const fresh =
-      !run.force &&
-      ready &&
-      (await isFresh(run.dir, cacheSlot('voice', scene.id), voiceKeyFor(scene), [
-        scene.audioPath!,
-      ]));
-    if (!fresh) staleScenes.add(scene.id);
-  }
+  /** What the voice stage reported it actually did. Undefined when it did not run. */
+  let resolvedVoice: ResolvedVoice | undefined;
 
   if (staleScenes.size === 0) {
     run.skip('voice', 'cached');
@@ -654,10 +666,11 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     sb = await run.time('voice', async () => {
       run.bus.stage('voice', 1, `${provs.voice.name} (${sb!.meta.voice}) · resolving cues`);
       const { narrate } = await loadVoice();
-      const out = await narrate(sb!, run.dir, {
+      const { storyboard: out, voice } = await narrate(sb!, run.dir, {
         onProgress: run.bus.child('voice'),
         force: run.force,
       });
+      resolvedVoice = voice;
       const next = parseStoryboard(out);
       const missing = next.scenes.filter((s) => !s.durationSec || !s.audioPath);
       if (missing.length > 0) {
@@ -668,14 +681,31 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       return next;
     });
     await saveStoryboard(run.dir, sb);
-    for (const scene of sb.scenes) {
-      await markFresh(run.dir, cacheSlot('voice', scene.id), voiceKeyFor(scene));
-    }
+    await markVoiceFresh(run.dir, sb, resolvedVoice, provs.voice.name);
     run.bus.done('voice', `${Math.round(totalDuration(sb))}s of narration`);
   }
-  const narratedChars = sb.scenes
-    .filter((s) => staleScenes.has(s.id))
-    .reduce((n, s) => n + s.narration.length, 0);
+
+  const voiceRecord = voiceRecordOf(resolvedVoice, run.previous?.voice, provs.voice.name, {
+    voiceId: sb.meta.voice,
+  });
+  const resolvedChoice = {
+    provider: voiceRecord.provider,
+    ...(voiceRecord.model ? { model: voiceRecord.model } : {}),
+    voice: voiceRecord.voiceId,
+  };
+  const voiceChoice = resolvedVoiceChoice(resolvedChoice, provs.voice);
+  // Measured inside the stage, per provider, and never inferred from the pipeline's own
+  // stale set: the two caches key on different material, so a scene can be stale here
+  // and fresh there — and counting its narration would bill for audio nobody made.
+  const narratedChars = resolvedVoice?.charsByProvider.elevenlabs ?? 0;
+  /**
+   * The engine the *paid* provider was running, which is the only one the bill may use.
+   *
+   * `resolvedVoice.model` names the provider that finished, and after a demotion that is
+   * Kokoro's engine — no price at all. Leaving it unnamed is not free either: an unknown
+   * model is billed at the full credit rate, so a mixed flash run was charged double.
+   */
+  const billedEngine = resolvedVoice?.modelByProvider.elevenlabs;
 
   /* ------------------------------------------------------------ 5. visuals */
 
@@ -760,15 +790,16 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   /* ---------------------------------------------------------------- wrap up */
 
-  // A supplied lesson never reaches the model, so a key being present must not
-  // invent a bill for work nobody did.
-  const costProviders =
-    design.author === 'supplied'
-      ? {
-          ...provs,
-          planner: { ...provs.planner, cloud: false, why: 'the lesson was supplied' },
-        }
-      : provs;
+  // Both halves of the same rule: a stage is billed for what it did, not for which
+  // key was set. A supplied lesson never reaches the model, and a run that fell back
+  // to the free voice is billed nothing at all — see `resolvedVoiceChoice`.
+  const costProviders = {
+    ...provs,
+    voice: billedVoiceChoice(resolvedChoice, narratedChars, provs.voice, billedEngine),
+    ...(design.author === 'supplied'
+      ? { planner: { ...provs.planner, cloud: false, why: 'the lesson was supplied' } }
+      : {}),
+  };
   const cost = costOf(sb, {
     providers: costProviders,
     sourceChars: design.sourceChars,
@@ -799,9 +830,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       planner: provs.planner.model
         ? `${provs.planner.name}/${provs.planner.model}`
         : provs.planner.name,
-      voice: `${provs.voice.name}${provs.voice.model ? `/${provs.voice.model}` : ''}`,
+      // The provider that spoke and the engine it spoke with — not the key that
+      // happened to be set. See `voiceRecord` above and `state.ts`'s `VoiceRecord`.
+      voice: `${voiceChoice.name}${voiceChoice.model ? `/${voiceChoice.model}` : ''}`,
       images: provs.images.name,
     },
+    voice: voiceRecord,
     ...(design.lesson
       ? {
           lesson: {
@@ -824,6 +858,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     videoPath,
     storyboard: sb,
     cost,
+    voice: resolvedVoice ?? cachedVoice(voiceRecord),
     timings: run.timings,
     skipped: run.skipped,
   };
@@ -875,39 +910,30 @@ export async function rerender(
     return out;
   };
 
-  /* voice: only scenes whose narration, silence or voice changed */
-  const voiceKeyFor = (scene: { narration: string; hold: number }) =>
-    voiceFingerprint(scene, { voice: sb.meta.voice, language: sb.meta.language }, provs.voice.name);
-  let stale = 0;
+  /* voice: only scenes whose narration, silence, voice or engine changed */
+  const stale = await staleVoiceScenes(dir, sb, provs.voice.name);
   for (const scene of sb.scenes) {
-    const ready = scene.durationSec !== undefined && scene.audioPath !== undefined;
-    const fresh =
-      ready &&
-      (await isFresh(dir, cacheSlot('voice', scene.id), voiceKeyFor(scene), [scene.audioPath!]));
-    if (!fresh) {
-      stale++;
-      delete scene.audioPath;
-      delete scene.durationSec;
-      delete scene.words;
-    }
+    if (!stale.has(scene.id)) continue;
+    delete scene.audioPath;
+    delete scene.durationSec;
+    delete scene.words;
   }
-  let narratedChars = 0;
-  if (stale === 0) {
+  let resolvedVoice: ResolvedVoice | undefined;
+  if (stale.size === 0) {
     skipped.push('voice');
     bus.done('voice', 'cached');
   } else {
-    narratedChars = sb.scenes
-      .filter((s) => !s.durationSec)
-      .reduce((n, s) => n + s.narration.length, 0);
     await saveStoryboard(dir, sb);
     sb = await time('voice', async () => {
       const { narrate } = await loadVoice();
-      return parseStoryboard(await narrate(sb, dir, { onProgress: bus.child('voice') }));
+      const { storyboard: out, voice } = await narrate(sb, dir, {
+        onProgress: bus.child('voice'),
+      });
+      resolvedVoice = voice;
+      return parseStoryboard(out);
     });
     await saveStoryboard(dir, sb);
-    for (const scene of sb.scenes) {
-      await markFresh(dir, cacheSlot('voice', scene.id), voiceKeyFor(scene));
-    }
+    await markVoiceFresh(dir, sb, resolvedVoice, provs.voice.name);
     bus.done('voice');
   }
 
@@ -953,8 +979,29 @@ export async function rerender(
     bus.done('render');
   }
 
+  // Re-voicing goes through this path, so the correction has to live here too: with
+  // only `cast()` fixed, the one command the voice work is verified with would keep
+  // writing the record it exists to correct.
+  const voiceRecord = voiceRecordOf(resolvedVoice, previous?.voice, provs.voice.name, {
+    voiceId: sb.meta.voice,
+  });
+  const resolvedChoice = {
+    provider: voiceRecord.provider,
+    ...(voiceRecord.model ? { model: voiceRecord.model } : {}),
+    voice: voiceRecord.voiceId,
+  };
+  const voiceChoice = resolvedVoiceChoice(resolvedChoice, provs.voice);
+  const narratedChars = resolvedVoice?.charsByProvider.elevenlabs ?? 0;
   const cost = costOf(sb, {
-    providers: provs,
+    providers: {
+      ...provs,
+      voice: billedVoiceChoice(
+        resolvedChoice,
+        narratedChars,
+        provs.voice,
+        resolvedVoice?.modelByProvider.elevenlabs,
+      ),
+    },
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars,
@@ -972,7 +1019,14 @@ export async function rerender(
     timings,
     skipped,
     cost,
-    providers: previous?.providers ?? {},
+    // The inherited record for the stages this path never re-runs, with the voice line
+    // recomputed — it copied the whole block verbatim, so a re-voice could change the
+    // provider and the file would go on naming the old one.
+    providers: {
+      ...(previous?.providers ?? {}),
+      voice: `${voiceChoice.name}${voiceChoice.model ? `/${voiceChoice.model}` : ''}`,
+    },
+    voice: voiceRecord,
     ...(previous?.lesson ? { lesson: previous.lesson } : {}),
   });
   return { videoPath, storyboard: sb, cost, projectId, dir };
@@ -1064,6 +1118,164 @@ async function readJson<T>(file: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The stage's per-provider tally as a plain record.
+ *
+ * `charsByProvider` is partial — a provider that never spoke has no entry, not a zero
+ * — and `pipeline.json` should carry exactly the providers that did.
+ */
+function charsSpoken(by: Partial<Record<string, number>>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(by)) if (typeof n === 'number') out[id] = n;
+  return out;
+}
+
+/**
+ * What `pipeline.json` records about the voice, from what the stage reported.
+ *
+ * One function for both entry points because they used to build this block separately,
+ * and `rerender()` is the path a re-voice actually takes — a correction that landed in
+ * `cast()` alone would have been undone by the command it is verified with.
+ */
+export function voiceRecordOf(
+  resolved: ResolvedVoice | undefined,
+  previous: VoiceRecord | undefined,
+  requested: string,
+  fallback: { voiceId: string },
+): VoiceRecord {
+  if (resolved) {
+    return {
+      provider: resolved.provider,
+      ...(resolved.model ? { model: resolved.model } : {}),
+      voiceId: resolved.voice,
+      requested,
+      observed: resolved.spoke,
+      chars: charsSpoken(resolved.charsByProvider),
+      problems: resolved.problems,
+    };
+  }
+  return {
+    // Inherited, because the audio on disk is the audio the previous run described:
+    // re-deriving the provider from the environment is exactly how a project voiced by
+    // the free engine came to be recorded, and billed, as a paid one.
+    ...(previous ?? {
+      provider: requested,
+      voiceId: fallback.voiceId,
+      requested,
+      problems: [],
+    }),
+    // Except these three, which are about *this* run, and this run synthesised nothing.
+    // `problems` most of all: a demotion is an event, not a property. Carrying it
+    // forward made the CLI print "voice fell back to kokoro (elevenlabs:
+    // quota_exceeded)" on every later cached run of a project that was no longer in
+    // that state. The durable half of the fact survives as `provider` beside
+    // `requested`.
+    observed: false,
+    chars: {},
+    problems: [],
+  };
+}
+
+/**
+ * The `ResolvedVoice` shape for a run where the stage never ran.
+ *
+ * `CastResult.voice` is what the CLI prints from, and a cached run still has to be able
+ * to say who spoke — it just cannot claim anybody spoke *this time*, which is what the
+ * empty tallies and `spoke: false` are for.
+ */
+function cachedVoice(record: VoiceRecord): ResolvedVoice {
+  return {
+    provider: record.provider,
+    label: record.provider,
+    voice: record.voiceId,
+    ...(record.model ? { model: record.model } : {}),
+    charsByProvider: {},
+    modelByProvider: {},
+    spoke: false,
+    problems: record.problems,
+  };
+}
+
+/**
+ * The pipeline's cache key for one scene's audio, under a given provider.
+ *
+ * Separate from `voiceFingerprint` so that the engine is resolved in exactly one place:
+ * a key written with the engine and read without it is a cache that never hits.
+ */
+function voiceSceneKey(
+  sb: Storyboard,
+  scene: Pick<Scene, 'narration' | 'hold'>,
+  provider: string,
+  env?: NodeJS.ProcessEnv,
+): string {
+  return voiceFingerprint(
+    scene,
+    { voice: sb.meta.voice, language: sb.meta.language },
+    provider,
+    voiceEngine(provider, env),
+  );
+}
+
+/**
+ * Record this project's audio as cached, under the provider that **spoke**.
+ *
+ * Not under the one that was asked for, which is what both call sites used to write and
+ * is what made a mid-run demotion permanent: the free take was filed under the paid
+ * provider's fingerprint, so topping the balance back up and re-running found every
+ * scene fresh and the kokoro audio stayed in the film forever — `--force` was the only
+ * way out. Filed this way, the next run recomputes the requested provider's key, does
+ * not find it, and re-records, which is exactly what a fallback should cost. The
+ * equality with `staleVoiceScenes` is the whole mechanism, so they live together.
+ */
+export async function markVoiceFresh(
+  dir: string,
+  sb: Storyboard,
+  resolved: ResolvedVoice | undefined,
+  requested: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<void> {
+  const provider = resolved?.provider ?? requested;
+  for (const scene of sb.scenes) {
+    await markFresh(dir, cacheSlot('voice', scene.id), voiceSceneKey(sb, scene, provider, env));
+  }
+}
+
+/**
+ * The scenes the voice stage has to re-record — the seam this phase exists to close.
+ *
+ * The stage keys each clip on its own inputs, the adapter's delivery signature among
+ * them; this key decides whether the stage is called at all. When the two disagree
+ * about what changes the audio, the stage is skipped and the change simply does not
+ * happen: with no engine on this side, `ELEVENLABS_MODEL_ID=eleven_multilingual_v2` on
+ * a keyed project left every scene fresh, `cast()` reported `voice cached`, `narrate`
+ * was never called, and the film kept its flash audio with nothing said. Exported so a
+ * test can cross the seam rather than check one side of it: voice's own "the ElevenLabs
+ * engine is flash, and its id is inside the clip key" asserts the delivery signature
+ * carries the model, and passed throughout. See `test/voice-key.test.ts`.
+ */
+export async function staleVoiceScenes(
+  dir: string,
+  sb: Storyboard,
+  provider: string,
+  opts: { force?: boolean; env?: NodeJS.ProcessEnv } = {},
+): Promise<Set<string>> {
+  const stale = new Set<string>();
+  for (const scene of sb.scenes) {
+    const ready = scene.durationSec !== undefined && scene.audioPath !== undefined;
+    const fresh =
+      !opts.force &&
+      ready &&
+      (await isFresh(
+        dir,
+        cacheSlot('voice', scene.id),
+        voiceSceneKey(sb, scene, provider, opts.env),
+        [scene.audioPath!],
+      ));
+    if (!fresh) stale.add(scene.id);
+  }
+  return stale;
 }
 
 function round2(n: number): number {

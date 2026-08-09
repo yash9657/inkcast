@@ -14,8 +14,14 @@ import { createElevenLabsProvider } from './elevenlabs.js';
 import { createKokoroProvider } from './kokoro.js';
 import { createSilenceProvider } from './silence.js';
 import { createSystemProvider } from './system.js';
-import type { SynthesisRequest, SynthesisResult, VoiceProvider, VoiceProviderId } from './types.js';
-import { isVoiceProviderId, VOICE_PROVIDER_IDS } from './types.js';
+import type {
+  SynthesisRequest,
+  SynthesisResult,
+  VoiceFailureReason,
+  VoiceProvider,
+  VoiceProviderId,
+} from './types.js';
+import { failureReason, isVoiceProviderId, VOICE_PROVIDER_IDS } from './types.js';
 
 export * from './types.js';
 export {
@@ -28,7 +34,13 @@ export {
   weightsCached,
 } from './kokoro.js';
 export { parseSayVoices, pickSayVoice } from './system.js';
-export { alignmentToWords } from './elevenlabs.js';
+export {
+  alignmentToWords,
+  elevenLabsDelivery,
+  elevenLabsModel,
+  ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_MULTILINGUAL_MODEL,
+} from './elevenlabs.js';
 
 /**
  * Order with no cloud key: Kokoro first (local, free, best of the free options),
@@ -152,6 +164,17 @@ export type ActiveProvider = {
    * fragment. See `VoiceProvider.preferredSplit`.
    */
   preferredSplit?: PhraseSplit;
+  /** The engine that will speak, when the provider names one. See `VoiceProvider.modelId`. */
+  model?: string;
+  /** The adapter's delivery decisions, for the clip key. See `VoiceProvider.deliverySignature`. */
+  delivery?: string;
+};
+
+/** One demotion: who stopped speaking, who took over, and why. */
+export type VoiceFallback = {
+  from: VoiceProviderId;
+  to: VoiceProviderId;
+  reason: VoiceFailureReason;
 };
 
 export type VoiceChain = {
@@ -163,6 +186,15 @@ export type VoiceChain = {
   ): Promise<SynthesisResult & { provider: ActiveProvider }>;
   /** Providers that were tried and rejected, for reporting. */
   skipped(): VoiceProviderId[];
+  /**
+   * Demotions that happened mid-run, in order.
+   *
+   * Separate from `skipped()`, which also holds providers that were never available in
+   * the first place. A fallback is the case the user is owed a sentence about: they
+   * asked for a paid voice, some of the film is in a free one, and until this existed
+   * the only trace was a `log.warn` nobody reads after the fact.
+   */
+  fallbacks(): VoiceFallback[];
   dispose(): Promise<void>;
 };
 
@@ -172,6 +204,14 @@ export type OpenChainOptions = ProviderHooks & {
   /** The storyboard's `meta.voice`, mapped per provider. */
   requestedVoice: string;
   log?: Logger;
+  /**
+   * How a link of the chain is built. Defaults to `createProvider`.
+   *
+   * The one seam a test needs: failover is the behaviour that decides what the record
+   * says and what the run costs, and the only way to exercise it without a key and a
+   * real quota failure is to hand the chain a provider that fails on demand.
+   */
+  create?: (id: VoiceProviderId, hooks: ProviderHooks) => VoiceProvider;
 };
 
 /**
@@ -185,6 +225,8 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
   const log = opts.log ?? logger('voice');
   const order = chainFor(opts.preferred);
   const rejected: VoiceProviderId[] = [];
+  const demotions: VoiceFallback[] = [];
+  const make = opts.create ?? createProvider;
 
   let cursor = 0;
   let current: { provider: VoiceProvider; active: ActiveProvider } | undefined;
@@ -194,7 +236,7 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
     while (cursor < order.length) {
       const id = order[cursor]!;
       cursor++;
-      const provider = createProvider(id, { onDownload: opts.onDownload });
+      const provider = make(id, { onDownload: opts.onDownload });
       try {
         if (!(await provider.available())) {
           rejected.push(id);
@@ -204,9 +246,11 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
         const voice = await provider.resolveVoice(opts.requestedVoice);
         const naturalWpm = provider.naturalWpm?.(voice);
         const preferredSplit = provider.preferredSplit?.();
+        const model = provider.modelId?.();
+        const delivery = provider.deliverySignature?.();
         current = {
           provider,
-          active: { id, label: provider.label, voice, naturalWpm, preferredSplit },
+          active: { id, label: provider.label, voice, naturalWpm, preferredSplit, model, delivery },
         };
         log.info(`provider: ${provider.label} · voice ${voice}`);
         return current.active;
@@ -236,12 +280,16 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
       log.warn(`provider ${failed.active.id} failed mid-run — falling back`, err);
       await failed.provider.dispose().catch(() => undefined);
     }
-    await active();
+    // Recorded after the next provider has actually resolved, so `to` is the one that
+    // will speak rather than the next id in the order — which may itself be skipped.
+    const next = await active();
+    if (failed) demotions.push({ from: failed.active.id, to: next.id, reason: failureReason(err) });
   }
 
   return {
     active,
     skipped: () => [...rejected],
+    fallbacks: () => [...demotions],
 
     async synthesize(req) {
       // Bounded by the chain length: each failure consumes one link.

@@ -16,7 +16,7 @@
  *   gap so ideas breathe. See `phrase.ts`.
  */
 export { narrate, sceneAudioPath, sceneTimingPath, NARRATION_FILE } from './narrate.js';
-export type { NarrateOptions } from './narrate.js';
+export type { NarrateOptions, NarrateResult, ResolvedVoice } from './narrate.js';
 
 /* --------------------------------------------------------- cues and phrases */
 
@@ -109,6 +109,12 @@ export {
   parseSayVoices,
   pickSayVoice,
   alignmentToWords,
+  elevenLabsDelivery,
+  elevenLabsModel,
+  failureReason,
+  VoiceProviderError,
+  ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_MULTILINGUAL_MODEL,
 } from './providers/index.js';
 export { SAY_NOT_FOR_PUBLISHING, sayRateForWpm } from './providers/system.js';
 export { estimateClipSeconds } from './providers/silence.js';
@@ -120,6 +126,8 @@ export type {
   SynthesisRequest,
   SynthesisResult,
   VoiceChain,
+  VoiceFailureReason,
+  VoiceFallback,
   VoiceProvider,
   VoiceProviderId,
   WordTiming,

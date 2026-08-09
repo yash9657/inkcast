@@ -17,12 +17,48 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { logger } from '@inkcast/core';
 import { CLIP_SAMPLE_RATE, encodeWav } from '../wav.js';
-import type { SynthesisRequest, SynthesisResult, VoiceProvider, WordTiming } from './types.js';
+import type {
+  SynthesisRequest,
+  SynthesisResult,
+  VoiceFailureReason,
+  VoiceProvider,
+  WordTiming,
+} from './types.js';
+import { VoiceProviderError } from './types.js';
 
 const log = logger('voice:elevenlabs');
 
 const API = 'https://api.elevenlabs.io/v1';
-const DEFAULT_MODEL = 'eleven_multilingual_v2';
+
+/** The quality-optimised engine. One credit per character. */
+export const ELEVENLABS_MULTILINGUAL_MODEL = 'eleven_multilingual_v2';
+
+/**
+ * The engine this adapter speaks with, and half the price of the one it replaces.
+ *
+ * Flash bills **0.5 credits per character** where multilingual v2 bills 1, and voice
+ * was 86% of the last full keyed bill: `projects/1d80720ea373` booked $0.3835 of
+ * $0.4453 over 109.78s, so the **voice line alone** was $0.2096 per finished minute
+ * and the whole run was $0.2434 (`perMinuteUsd` in that file) against a $0.20 target.
+ * Halving the voice line is the only change in the pipeline that moves that number
+ * without changing what the film is. It is the latency-optimised model rather than the
+ * quality-optimised one, which is why the phase that switched it required a listening
+ * note: no tool in this repo can hear the difference, so a person has to.
+ */
+export const ELEVENLABS_FLASH_MODEL = 'eleven_flash_v2_5';
+
+/**
+ * The engine in force, resolving the override in one place.
+ *
+ * `ELEVENLABS_MODEL_ID` appeared in no cache key, no log line and no record: it was
+ * read inline where the request body is built, so two machines with different values
+ * produced different audio for the same lesson and nothing could tell. Everything
+ * that needs to name the model — the clip key, the delivery signature, the record in
+ * `pipeline.json` — asks here.
+ */
+export function elevenLabsModel(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_FLASH_MODEL;
+}
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
 const FALLBACK_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
@@ -56,8 +92,14 @@ const VOICE_SETTINGS = {
  * The stage's cache key hashes the narration, the voice and the pacing — everything it
  * owns. It cannot see a delivery decision made inside an adapter, so a change here would
  * otherwise serve clips recorded under the old one for the life of the project.
+ *
+ * v3 folds in the effective model id, which is the field that was missing: switching
+ * from multilingual to flash is a different recording of the same words, and until it
+ * entered this string an existing project stayed fresh and never heard the new engine.
  */
-export const DELIVERY_SIGNATURE = 'el/v2:context+pinned-settings';
+export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string {
+  return `el/v3:${elevenLabsModel(env)}+context+pinned-settings`;
+}
 
 /**
  * Words per minute this provider **delivers** at `speed: 1`.
@@ -145,6 +187,31 @@ export function alignmentToWords(alignment: AlignmentPayload | undefined): WordT
   return words;
 }
 
+/**
+ * What an HTTP failure means, from the status and the machine-readable status field.
+ *
+ * A 401 is two different events here: an account with no credits left and a key that
+ * is not valid. ElevenLabs distinguishes them only in the body, as
+ * `detail.status: "quota_exceeded"` — a field name, not error copy, which is why it
+ * is safe to match on. Anything unrecognised stays `unknown` rather than being
+ * guessed at, because a wrong reason in the record is worse than no reason.
+ */
+function classify(status: number, body: string): VoiceFailureReason {
+  if (status === 429) return 'rate_limited';
+  if (status === 401 || status === 403) {
+    let detail: unknown;
+    try {
+      detail = (JSON.parse(body) as { detail?: unknown }).detail;
+    } catch {
+      detail = undefined;
+    }
+    const named = (detail as { status?: unknown } | undefined)?.status;
+    if (named === 'quota_exceeded' || body.includes('quota_exceeded')) return 'quota_exceeded';
+    return 'unauthorized';
+  }
+  return 'unknown';
+}
+
 async function request(
   urlPath: string,
   init: RequestInit & { timeoutMs?: number } = {},
@@ -152,15 +219,27 @@ async function request(
   const key = apiKey();
   if (!key) throw new Error('ELEVENLABS_API_KEY is not set');
   const { timeoutMs = 120_000, headers, ...rest } = init;
-  const res = await fetch(`${API}${urlPath}`, {
-    ...rest,
-    headers: { 'xi-api-key': key, ...(headers as Record<string, string> | undefined) },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API}${urlPath}`, {
+      ...rest,
+      headers: { 'xi-api-key': key, ...(headers as Record<string, string> | undefined) },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (cause) {
+    throw new VoiceProviderError(`ElevenLabs ${urlPath} could not be reached`, {
+      provider: 'elevenlabs',
+      reason: 'network',
+      cause,
+    });
+  }
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 400);
-    throw new Error(
+    // The message text is unchanged on purpose: it is what today's log lines say, and
+    // the classification is carried beside it rather than instead of it.
+    throw new VoiceProviderError(
       `ElevenLabs ${urlPath} -> ${res.status} ${res.statusText}${body ? `: ${body}` : ''}`,
+      { provider: 'elevenlabs', reason: classify(res.status, body), status: res.status },
     );
   }
   return res;
@@ -194,7 +273,7 @@ export function createElevenLabsProvider(): VoiceProvider {
     if (req.speed !== 1) settings.speed = Math.max(0.7, Math.min(1.2, req.speed));
     return JSON.stringify({
       text: req.text,
-      model_id: process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL,
+      model_id: elevenLabsModel(),
       voice_settings: settings,
       // The neighbours, so a clause is read as the middle of a sentence rather than as
       // a sentence. Documented by the provider for exactly this — concatenating several
@@ -226,6 +305,14 @@ export function createElevenLabsProvider(): VoiceProvider {
 
     naturalWpm() {
       return ELEVENLABS_BASELINE_WPM;
+    },
+
+    modelId() {
+      return elevenLabsModel();
+    },
+
+    deliverySignature() {
+      return elevenLabsDelivery();
     },
 
     async resolveVoice(requested: string) {
@@ -260,6 +347,19 @@ export function createElevenLabsProvider(): VoiceProvider {
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
       await mkdir(path.dirname(req.outPath), { recursive: true });
       const payload = body(req);
+      /**
+       * Whether the timestamped attempt has already cost a generation.
+       *
+       * The fall-through below is a *second* full TTS request for the same phrase, and
+       * the first one is not necessarily free: `/with-timestamps` can answer 200 with
+       * no `audio_base64` at all, which is audio that was generated and billed and
+       * that we cannot use. Only the failures that never reached the engine are free —
+       * no response at all (`network`), and a request the rate limiter refused before
+       * it ran (`rate_limited`). Everything else is counted, because over-stating a
+       * bill by one phrase is the safe direction and under-stating it is the one
+       * nobody notices until the invoice arrives.
+       */
+      let firstAttemptBilled = false;
 
       // Preferred: the timestamped endpoint, which also gives us word timings.
       try {
@@ -283,6 +383,18 @@ export function createElevenLabsProvider(): VoiceProvider {
         const words = alignmentToWords(json.alignment ?? json.normalized_alignment);
         return words.length ? { words } : {};
       } catch (err) {
+        // An exhausted balance or a rejected key is not fixed by asking for less: the
+        // retry would spend another round trip to fail identically, and its warning
+        // ("retrying without word timings") describes a problem this is not. Let the
+        // classified failure through so the chain can demote on the real reason.
+        if (
+          err instanceof VoiceProviderError &&
+          (err.reason === 'quota_exceeded' || err.reason === 'unauthorized')
+        ) {
+          throw err;
+        }
+        const reason = err instanceof VoiceProviderError ? err.reason : 'unknown';
+        firstAttemptBilled = reason !== 'network' && reason !== 'rate_limited';
         log.warn('timestamped synthesis failed — retrying without word timings', err);
       }
 
@@ -294,7 +406,9 @@ export function createElevenLabsProvider(): VoiceProvider {
       const pcm = Buffer.from(await res.arrayBuffer());
       if (!pcm.length) throw new Error('ElevenLabs returned an empty audio body');
       await writeFile(req.outPath, encodeWav(pcm));
-      return {};
+      // Two generations of the same phrase when the first one was reached — see
+      // `firstAttemptBilled`. The stage's tally is the only record of what was spent.
+      return firstAttemptBilled ? { billedChars: req.text.length * 2 } : {};
     },
 
     async dispose() {

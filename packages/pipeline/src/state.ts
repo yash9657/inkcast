@@ -33,6 +33,50 @@ export type LessonSummary = {
   problems: string[];
 };
 
+/**
+ * Which voice was actually used, as opposed to which one was configured.
+ *
+ * `providers.voice` is a display string the studio and older files on disk both
+ * speak, and it cannot carry the distinction that matters: every keyed project in
+ * `projects/` records `elevenlabs/af_heart` — a requested provider and a *voice* id
+ * where a model belongs — and `cardiac8` was voiced entirely by the free local engine
+ * after ElevenLabs demoted on its first request, and billed $0.4286 for it (the
+ * reconstruction is in `providers.ts`'s `resolvedVoiceChoice`). This block is the
+ * observed version, and `observed` is the field that says whether anything was spoken
+ * at all.
+ */
+export type VoiceRecord = {
+  /** The provider that spoke, or the one that resolved when nothing was synthesised. */
+  provider: string;
+  /** The engine, when the provider names one. */
+  model?: string;
+  /** The provider-native voice id in force. */
+  voiceId: string;
+  /** What the environment asked for, kept so a fallback is legible from the file alone. */
+  requested: string;
+  /** False when every scene was cached — nobody spoke, so nobody may be billed. */
+  observed: boolean;
+  /**
+   * Characters synthesised per provider this run, and the evidence for the bill.
+   *
+   * Per provider because a run really can be part paid and part free: an exhausted
+   * balance is discovered at the first request, so the scenes before it are billed and
+   * the ones after it are not. One label could not describe that film.
+   */
+  chars: Record<string, number>;
+  /**
+   * Fallbacks **this run** hit, in the same `string[]` shape as `LessonSummary.problems`.
+   *
+   * Cleared, not inherited, on a run that synthesised nothing — for the same reason
+   * `chars` is. A demotion is an event, and a project that was cached this time did not
+   * have one; carrying the sentence forward made the CLI print "voice fell back to
+   * kokoro (elevenlabs: quota_exceeded)" on every later run of a project that was no
+   * longer in that state. What survives is the durable fact: `provider` beside
+   * `requested`.
+   */
+  problems: string[];
+};
+
 export type PipelineState = {
   projectId: string;
   title: string;
@@ -47,6 +91,8 @@ export type PipelineState = {
   skipped: StageName[];
   cost: CostReport;
   providers: Record<string, string>;
+  /** What the voice stage resolved to. Absent on files written before it was recorded. */
+  voice?: VoiceRecord;
   /** Absent on the `via: 'document'` route, which has no lesson. */
   lesson?: LessonSummary;
 };

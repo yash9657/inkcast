@@ -286,6 +286,15 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
     },
 
     /**
+     * The free provider names its engine too, so the record can distinguish
+     * "kokoro spoke" from "kokoro was configured". A run that fell back to here has
+     * an engine that produced the audio, and a bill of exactly nothing.
+     */
+    modelId() {
+      return KOKORO_MODEL_ID;
+    },
+
+    /**
      * Whole sentences, always.
      *
      * Kokoro has no context window — `generate(text, {voice, speed})` is the entire
