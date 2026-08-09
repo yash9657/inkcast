@@ -12,8 +12,12 @@
  *    one is a close-up; by beat four the camera has pulled back to hold the whole
  *    panel, and the recap pulls back over the entire board. The accumulated board
  *    *is* the summary — which is the only reason to use a whiteboard over slides.
+ *
+ * Both of those are arguments about ink that *stays*. `BoardMode: 'wipe'` says none
+ * of it does, and then neither argument holds — see `oneCardBoard` at the foot of
+ * this file, which is the whole of the grid builder under that mode.
  */
-import type { Camera, Scene, StoryboardMeta } from '@inkcast/core';
+import type { BoardMode, Camera, Scene, StoryboardMeta } from '@inkcast/core';
 import type { Box } from './elements.js';
 import { frameSpan } from './layout.js';
 
@@ -54,6 +58,11 @@ export type BoardOptions = {
    * its own, it reshapes ink that is already there.
    */
   sharesCellWith?: ReadonlyMap<number, number>;
+  /**
+   * What the board does between beats. Absent is `accumulate`, which is every path
+   * below this point; `wipe` short-circuits into `oneCardBoard`.
+   */
+  board?: BoardMode;
 };
 
 export type Board = {
@@ -267,6 +276,11 @@ export function unionBox(boxes: Box[]): Box {
  * format: one tall canvas, one continuous downward walk.
  */
 export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
+  // A board that wipes has nothing to lay out: one cell, every beat. Dispatching
+  // here rather than threading the mode through the grid keeps the accumulate path
+  // literally untouched code, which is the cheapest proof there is that the two
+  // pinned lessons still compile byte for byte.
+  if (opts.board === 'wipe') return oneCardBoard(roles, opts);
   const aspect = opts.aspect;
   const margin = opts.margin ?? 80;
   const shares = opts.sharesCellWith ?? new Map<number, number>();
@@ -396,6 +410,68 @@ export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
       }
       return frame(entry.cell, 0.94);
     },
+  };
+}
+
+/**
+ * The board when nothing accumulates: one card, drawn and wiped, over and over.
+ *
+ * A grid exists to hold ink that stays. Under `wipe` none of it stays, so the grid
+ * becomes a lie the camera then has to tour — and the frames say so.
+ * `projects/cardiac8f`, the first film to contain a figure: mean ink 5.7% of pixels
+ * against the benchmark's 14.4%, and the renderer warning "mean content fill 25% of
+ * frame across 10 scenes". At 26.2s two cards share the frame and each subject is
+ * ~40% of its half; at 112.7s one card is alone and it is the best frame this repo
+ * has produced. The difference between those two frames is a grid.
+ *
+ * So there is one cell, sized exactly as `cellSize` sizes any cell — frame-shaped,
+ * for the reason given there — every beat draws into it, and every camera holds it.
+ * The recap included: `cameraFor`'s `wholeBoard` pull-back is unreachable here,
+ * because there is no board behind the card to pull back over.
+ *
+ * The canvas is the cell plus a `REGION_GAP` border, which is deliberate slack
+ * rather than composition: `fitCamera` in core re-derives every one of these
+ * cameras from the ink actually drawn, and the border is the room it has to breathe
+ * when a beat's ink sits against an edge of the cell.
+ */
+function oneCardBoard(roles: BeatRole[], opts: BoardOptions): Board {
+  const aspect = opts.aspect;
+  const margin = opts.margin ?? 80;
+  const { cw, ch } = cellSize(aspect);
+  const cell: Box = { x: REGION_GAP, y: REGION_GAP, w: cw, h: ch };
+  const canvas: Box = { x: 0, y: 0, w: cw + REGION_GAP * 2, h: ch + REGION_GAP * 2 };
+  const region: RegionSpec = {
+    key: 'board',
+    beats: roles.map((_, i) => i),
+    box: cell,
+  };
+  // Every beat gets the same shot, so it is computed once. This is `frame(cell, …)`
+  // with its two clamps collapsed: the cell *is* the frame-shaped cell the accumulate
+  // path clamps to, so `wanted` and `fitCell` are the same number by construction.
+  const span = frameSpan(canvas.w, canvas.h, aspect);
+  const zoom = round(
+    Math.max(1, Math.min(span.w / (cw + margin * 2), span.h / (ch + margin * 2))),
+    4,
+  );
+  const visW = span.w / zoom;
+  const visH = span.h / zoom;
+  const camera: Camera = {
+    x: round(clamp(cell.x + cell.w / 2, visW / 2, canvas.w - visW / 2), 2),
+    y: round(clamp(cell.y + cell.h / 2, visH / 2, canvas.h - visH / 2), 2),
+    zoom,
+    // Every beat shares one region, so the compiler rewrites this to its
+    // same-region pan anyway. Writing that number here keeps the authored camera
+    // and the compiled one from disagreeing for a reader.
+    transition: 0.45,
+  };
+
+  return {
+    canvas,
+    regions: [region],
+    regionOf: () => region,
+    cellOf: () => cell,
+    // A fresh object per beat: the compiler mutates `scene.camera.transition`.
+    cameraFor: () => ({ ...camera }),
   };
 }
 

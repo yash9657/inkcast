@@ -11,7 +11,7 @@
  * produced fragments like "under you gets gentler", which is worse than saying
  * less.
  */
-import type { StoryboardMeta, TextElement } from '@inkcast/core';
+import type { BoardMode, StoryboardMeta, TextElement } from '@inkcast/core';
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
 import { critiqueLesson, lessonBeats, logger } from '@inkcast/core';
 import { keywords, sentences, wordCount } from './text.js';
@@ -54,6 +54,15 @@ export type Preset = {
    * estimate, which is exactly the shape of bug this file just paid for.
    */
   outroSec: number;
+  /**
+   * What the board does between beats — see `BoardMode` in `@inkcast/core`.
+   *
+   * `accumulate` on every preset, because the two shipped lessons are pinned to
+   * compile byte-identically and a new default would move both. `Preset` is never
+   * serialised, so a required field here costs no bytes downstream; what reaches the
+   * storyboard is `meta.board`, and only when it is `wipe`.
+   */
+  board: BoardMode;
 };
 
 /**
@@ -88,6 +97,7 @@ export const PRESETS: Record<PresetName, Preset> = {
     holdBonus: 0.15,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1.6,
+    board: 'accumulate',
   },
   short: {
     name: 'short',
@@ -103,6 +113,7 @@ export const PRESETS: Record<PresetName, Preset> = {
     holdBonus: 0.1,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1,
+    board: 'accumulate',
   },
   square: {
     name: 'square',
@@ -118,6 +129,7 @@ export const PRESETS: Record<PresetName, Preset> = {
     holdBonus: 0.12,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1,
+    board: 'accumulate',
   },
 };
 
@@ -126,6 +138,7 @@ export type PresetInput = {
   aspect?: StoryboardMeta['aspect'];
   maxSeconds?: number;
   wordsPerSecond?: number;
+  board?: BoardMode;
 };
 
 /** The preset an option bag selects: explicit name first, then the aspect. */
@@ -142,6 +155,7 @@ export function resolvePreset(opts: PresetInput = {}): Preset {
   }
   if (opts.maxSeconds) preset.maxSeconds = opts.maxSeconds;
   if (opts.wordsPerSecond) preset.wordsPerSecond = opts.wordsPerSecond;
+  if (opts.board) preset.board = opts.board;
   return preset;
 }
 

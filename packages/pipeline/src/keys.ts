@@ -203,7 +203,18 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // as an asset element before the marks, and a beat that has one fits its marks by the
   // whole authoring canvas rather than by their own bounds — one transform, or the marks
   // and the thing they annotate do not line up. A lesson with no underlay is unaffected.
-  storyboard: 14,
+  // 15: the preset carries a board mode. Under `wipe` the planner lays one
+  // frame-shaped cell for every beat instead of a grid, marks every element
+  // `persist: false` with an explicit `persistUntil` for the cards several beats draw
+  // together, and takes the recap's 1.3s pull-back away because there is no board
+  // behind its card to reveal. Core expires that ink out of the framing history to
+  // match, so the camera stops widening for marks that are no longer on screen —
+  // without it the planner's half changes nothing. A lesson compiled at the default
+  // `accumulate` is byte-identical — both shipped lessons verified with `sbhash`, both
+  // presets. `render` below is deliberately not bumped: every renderer-side change is
+  // gated on `meta.board`, and `renderFingerprint` hashes the whole storyboard, so a
+  // wiping board invalidates its own renders and no other project's.
+  storyboard: 15,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never

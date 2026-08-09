@@ -254,6 +254,21 @@ const ElementBase = {
    * wipes every eight seconds.
    */
   persist: z.boolean().default(true),
+  /**
+   * Id of the last scene this element is still on the board for.
+   *
+   * Only meaningful with `persist: false`, and only on a wiping board: it is how one
+   * card outlives its own scene without living forever. A cell can be drawn across
+   * several beats — the hillside the anchor walks down, the plot the bridge beat
+   * grows out of it — and `morph.fromId` reshapes ink drawn two scenes earlier. A
+   * blanket `persist: false` fades that ink at its own scene's end and the morph
+   * bends a shape whose alpha is already zero, silently. So the beats sharing a cell
+   * name the last of them here and go out together.
+   *
+   * Optional and never defaulted, for the reason `tone` above is: a default would
+   * write a key onto every element of every storyboard on disk.
+   */
+  persistUntil: z.string().optional(),
   /** Optional explicit z-order; defaults to declaration order. */
   z: z.number().int().optional(),
   /** Optional movement along a path, after the element has entered. */
@@ -575,6 +590,24 @@ export const Scene = z.object({
 
 /* -------------------------------------------------------------- storyboard */
 
+/**
+ * What the board does between beats.
+ *
+ * `accumulate` is the whiteboard this repo was built as: nothing is wiped, beats
+ * share regions, and the camera pulls back over the finished board at the recap.
+ * `wipe` is one idea, one card — every beat draws into the same frame-shaped cell
+ * and its ink goes out when the narration stops, so the subject owns the frame
+ * instead of being one tile of eleven. Measured on `projects/cardiac8f`: mean ink
+ * 5.7% of pixels against the benchmark's 14.4%, with the renderer itself warning
+ * "mean content fill 25% of frame — the board is mostly whitespace".
+ *
+ * A mode rather than a new default, because the two shipped lessons are pinned to
+ * compile byte-identically and they are the only proof a presentation change did
+ * not silently rewrite every existing video.
+ */
+export const BoardMode = z.enum(['accumulate', 'wipe']);
+export type BoardMode = z.infer<typeof BoardMode>;
+
 export const StoryboardMeta = z.object({
   language: z.string().default('en'),
   aspect: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
@@ -585,6 +618,18 @@ export const StoryboardMeta = z.object({
   voice: z.string().default('af_heart'),
   /** Trailing silence after the last scene, so endings do not feel clipped. */
   outroSec: z.number().min(0).default(1.2),
+  /**
+   * What the board does between beats. Absent *is* `accumulate`, everywhere.
+   *
+   * Optional and never `.default('accumulate')`, and this one is not a style
+   * preference: `cast.ts` runs the compiler's output back through
+   * `parseStoryboard`, so a zod default would write `"board":"accumulate"` into
+   * every project's `storyboard.json` on disk, move `renderFingerprint` — which
+   * hashes the whole storyboard — and invalidate every cached render. `sbhash`
+   * hashes `compileLesson()` *before* that reparse, so it would report the pinned
+   * lessons byte-identical while every project moved.
+   */
+  board: BoardMode.optional(),
 });
 
 export const Storyboard = z.object({

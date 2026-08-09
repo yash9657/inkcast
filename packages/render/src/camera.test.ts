@@ -25,6 +25,7 @@ import {
   lessonStoryboard,
   planWithVisuals,
   verticalStoryboard,
+  wipeStoryboard,
 } from './fixture.js';
 import { rectContains } from './geom.js';
 import type { Rect } from './types.js';
@@ -210,6 +211,60 @@ test('a recap pulls back over everything drawn, across every region', () => {
   for (const f of framing.slice(0, -1)) {
     assert.ok(recap.camera.zoom <= f.camera.zoom, 'the recap is the widest shot in the film');
   }
+});
+
+test('a wiped board frames one card and forgets the last one', () => {
+  // The inverse of the test above, and the half of `wipe` without which the phase
+  // changes nothing: `resolveFraming` re-derives every camera from accumulated ink
+  // and overwrites whatever the planner composed, so a board that wipes has to be
+  // able to say that ink is *gone*. Otherwise the frame keeps widening for marks the
+  // renderer has already faded out.
+  const sb = wipeStoryboard();
+  const framing = resolveFraming(sb, FRAME);
+  const views = framing.map((f) => viewRect(f.camera, sb.canvas, FRAME));
+  const boxOf = (id: string): Rect => {
+    for (const scene of sb.scenes) {
+      const el = scene.elements.find((e) => e.id === id);
+      if (el) return elementBounds(el);
+    }
+    throw new Error(`no element ${id}`);
+  };
+
+  // A card that several beats draw together is still on the board for the last of
+  // them — the hook draws the hillside, the anchor rolls a ball down it.
+  assert.ok(rectContains(views[1] as Rect, boxOf('hill')), 'the held hillside is still framed');
+
+  // And it is gone by the recap, which under `wipe` frames only what it drew itself.
+  const recap = framing.at(-1);
+  assert.ok(recap?.derived, 'the recap camera is still derived');
+  const recapView = views.at(-1) as Rect;
+  for (const id of ['hill', 'ball', 'loss', 'tan']) {
+    assert.ok(!rectContains(recapView, boxOf(id)), `${id} was wiped — the recap must not frame it`);
+  }
+  const own = sb.scenes.at(-1)!.elements.map((el) => elementBounds(el));
+  for (const box of own) {
+    assert.ok(rectContains(recapView, box), 'the recap frames the summary it drew');
+  }
+
+  // Not the widest shot in the film any more: it is a card, framed like every other
+  // card and clamped by the same close-up ceiling, because there is no board behind
+  // it to pull back over. The accumulating fixture is the control — same geometry,
+  // same recap, and there the shot is the widest in the film (the test above).
+  const zooms = framing.map((f) => f.camera.zoom);
+  const median = [...zooms].sort((a, b) => a - b)[zooms.length >> 1] as number;
+  assert.ok(recap.camera.zoom > median, 'a wiped recap is tighter than the median, not wider');
+  assert.ok(recap.camera.zoom <= median * 1.9 + 1e-9, 'and still inside the close-up ceiling');
+  const accumulated = resolveFraming(lessonStoryboard(), FRAME).at(-1);
+  assert.ok(accumulated, 'the control fixture has a recap too');
+  assert.ok(
+    recap.camera.zoom > accumulated.camera.zoom * 1.5,
+    `the same recap pulls back to ${accumulated.camera.zoom.toFixed(2)} when the board accumulates`,
+  );
+
+  // The slow pull-back goes with it: 1.1s of crossfade between two shots of the same
+  // empty cell is the boundary dead air Phase 3 has to spend elsewhere.
+  assert.equal(recap.camera.transition, sb.scenes.at(-1)!.camera.transition);
+  assert.ok(accumulated.camera.transition >= 1.1, 'the accumulating recap still eases wide');
 });
 
 test('region framing fills the frame where authored cameras leave a void', () => {

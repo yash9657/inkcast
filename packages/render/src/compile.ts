@@ -376,6 +376,8 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
 
   const items: PlanItem[] = [];
   const unresolvedCues: string[] = [];
+  const wipes = sb.meta.board === 'wipe';
+  const sceneIndexById = new Map(timed.scenes.map((s, i) => [s.id, i]));
   let seq = 0;
   for (let si = 0; si < timed.scenes.length; si++) {
     const scene = timed.scenes[si] as Scene;
@@ -393,6 +395,10 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
       const fraction = enterFraction(el, scene, unresolvedCues);
       for (const item of itemsFor(el, fraction, timing, ctx, sb.meta.fps)) {
         item.order = [el.z ?? 0, seq++];
+        if (wipes) {
+          const at = wipeFadeAt(item, el, scenes, sceneIndexById);
+          if (at !== undefined) item.fadeAt = at;
+        }
         items.push(item);
       }
     }
@@ -454,6 +460,44 @@ function baseItem(
     center: origin,
     prims,
   };
+}
+
+/**
+ * How long an item's fade runs, in seconds.
+ *
+ * The runtime computes this same number from `item.dur` (`page/runtime.js`, the
+ * `!item.persist` branch). It is duplicated here rather than shipped on the item
+ * because the compiler has to know the window to decide whether it *fits* inside
+ * the anchor scene's silence — and a fade that does not fit is one that eats
+ * narration. Change one and change the other.
+ */
+function fadeSpan(dur: number): number {
+  return Math.min(0.55, Math.max(0.2, dur * 0.6));
+}
+
+/**
+ * Where a wiping board's ink goes out: the instant the narration stops.
+ *
+ * The anchor is the item's own scene, or the one `persistUntil` names when several
+ * beats draw one card. Returns undefined — leaving `sceneEnd`, today's schedule — in
+ * the one case the new one cannot be honoured: an anchor whose `hold` is shorter
+ * than the fade, where starting at the last word would mean finishing after the next
+ * card has already cut in. Hand-authored boards default `Scene.hold` to 0 and land
+ * there; both shipped lessons hold 0.6–2.55s and never do.
+ */
+function wipeFadeAt(
+  item: PlanItem,
+  el: Element,
+  scenes: readonly PlanScene[],
+  indexOfScene: ReadonlyMap<string, number>,
+): number | undefined {
+  if (item.persist) return undefined;
+  const named = el.persistUntil === undefined ? -1 : (indexOfScene.get(el.persistUntil) ?? -1);
+  const anchor = scenes[Math.max(item.scene, named)];
+  if (!anchor) return undefined;
+  const span = fadeSpan(item.dur);
+  if (anchor.hold < span) return undefined;
+  return anchor.start + anchor.speech + span;
 }
 
 /**

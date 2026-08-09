@@ -119,10 +119,29 @@ export type PlanItem = {
   style: EnterStyle;
   persist: boolean;
   /**
-   * Absolute end of the owning scene, *including* `Scene.hold` — a non-persistent
-   * item stays up through the deliberate silence and only then fades.
+   * Absolute end of the owning scene, *including* `Scene.hold`.
+   *
+   * The fade anchor on an accumulating board, and it was chosen: a non-persistent
+   * item stays up through the deliberate silence and only then goes. `fadeAt` below
+   * overrides it, and says why that is the wrong anchor when the whole board wipes.
    */
   sceneEnd: number;
+  /**
+   * Absolute second at which this item's fade **completes**, when it is not
+   * `sceneEnd`. Set only on a wiping board (`meta.board: 'wipe'`).
+   *
+   * The card is finished and static for the whole narration; the fade begins the
+   * instant the narration stops and runs 0.2–0.55s, so the rest of `Scene.hold` is a
+   * blank board the next card cuts into — the benchmark's blank frame at 41s. Fading
+   * at `sceneEnd` instead spends the deliberate pause watching the card die, which
+   * reads as a mistake rather than a beat.
+   *
+   * Undefined when the mode is `accumulate`, and also when the anchor scene's hold
+   * is shorter than the fade would be: there is nowhere to put the fade that is not
+   * over spoken words, so today's schedule stands. Anchored to the scene named by
+   * `persistUntil` where a card outlives its own beat.
+   */
+  fadeAt?: number;
   /** Transform origin for `pop` / `grow`. */
   center: [number, number];
   prims: PlanPrim[];

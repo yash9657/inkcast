@@ -28,6 +28,7 @@ import type {
   Analogy,
   Asset,
   AssetElement,
+  BoardMode,
   Cadence,
   CastMember,
   DiagramElement,
@@ -213,8 +214,16 @@ function seedOf(s: string): number {
  *
  * Deterministic: the same lesson and options produce a byte-identical storyboard,
  * which is what lets the pipeline cache renders and lets tests pin the geometry.
+ *
+ * `board` is taken here rather than on `FormatOptions` because this is the only
+ * function that can honour it: the document planners compose their own boards and
+ * would silently ignore it, and offering a lane that is not there is the failure
+ * this repo keeps paying for.
  */
-export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyboard {
+export function compileLesson(
+  lesson: Lesson,
+  opts: CompileOptions & { board?: BoardMode } = {},
+): Storyboard {
   const preset = resolvePreset(opts);
   const shaped = adaptLesson(lesson, preset);
   const beats = lessonBeats(shaped);
@@ -238,6 +247,7 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       aspect: preset.aspect,
       maxPerRegion: preset.maxPerRegion,
       sharesCellWith: reuse.annotates,
+      board: preset.board,
     },
   );
 
@@ -318,13 +328,28 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
     return scene;
   });
 
+  // One card at a time, and the ink goes out with the narration that earned it.
+  if (preset.board === 'wipe') applyBoardMode(scenes, cells);
+
   // A pan inside one region is a nudge; a pan to a new region is a move; the
   // recap's pull-back is the slowest shot in the video because it is the one the
   // learner is meant to read the whole board from.
+  //
+  // Under `wipe` the recap has no board behind it — it draws a card like every
+  // other beat — so it takes the ordinary pan instead of spending 1.3s crossfading
+  // between two shots of the same empty cell. (`camera.ts` raises a recap to at
+  // least 1.1s for the same reason and is gated the same way.)
+  const slowRecap = preset.board !== 'wipe';
   scenes.forEach((scene, i) => {
     const prev = scenes[i - 1];
     scene.camera.transition =
-      i === 0 ? 0 : scene.role === 'recap' ? 1.3 : prev?.region === scene.region ? 0.45 : 0.95;
+      i === 0
+        ? 0
+        : scene.role === 'recap' && slowRecap
+          ? 1.3
+          : prev?.region === scene.region
+            ? 0.45
+            : 0.95;
   });
 
   const sb: Storyboard = {
@@ -340,6 +365,10 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
       // Long enough that the final board is still on screen after the last word. The
       // preset owns it, because the length estimate has to be able to count it.
       outroSec: preset.outroSec,
+      // A conditional spread rather than a field, because absent *is* `accumulate`
+      // everywhere that reads it: at the default this adds no key and moves no byte
+      // of `JSON.stringify(sb)`, which is what the pinned lessons are hashed on.
+      ...(preset.board === 'wipe' ? { board: 'wipe' as const } : {}),
     },
     canvas: board.canvas,
     assets: assets.list(),
@@ -354,6 +383,74 @@ export function compileLesson(lesson: Lesson, opts: CompileOptions = {}): Storyb
   });
   report(opts, { stage: 'plan', pct: 100, note: `${scenes.length} scenes` });
   return parseStoryboard(sb);
+}
+
+/* ------------------------------------------------------------- the wiped board */
+
+/**
+ * Mark a compiled board's ink non-persistent — in one pass, here, and nowhere else.
+ *
+ * Not in `elements.ts`: `persist: o.persist ?? true` on the element factories is
+ * shared with the heuristic planner (whose tests assert annotated elements persist),
+ * with `figures.ts`, `plots.ts` and the two offline sheets, none of which knows a
+ * preset exists. Changing the default would wipe boards nobody asked to wipe.
+ *
+ * The hard part is not the flag, it is what a card *is*. Several beats can draw one
+ * card — the anchor walking down the hook's hillside, the bridge beat growing a plot
+ * out of it — and `morph.fromId` reshapes ink drawn two scenes earlier. Fading every
+ * element at its own scene's end passes every existing test and produces a morph out
+ * of nothing: the runtime dutifully bends a shape whose alpha is already zero.
+ * `gradient-descent` at the standard preset has exactly that chain. So an element
+ * stays up until the last scene that still needs it, named explicitly by
+ * `persistUntil`, and the last scene that needs it is the later of:
+ *
+ * - the last beat that shares its cell (`cells`, the host → sharers map), because
+ *   they are all drawing one picture; and
+ * - the last beat that *points* at it — an `emphasis.targetId`, a `morph.fromId`,
+ *   or an id in `morph.retires`.
+ *
+ * The last card of the film is the exception and keeps `persist: true`. A wipe makes
+ * room for the next card; there is no next card, so wiping it spends the closing hold
+ * and the whole `outroSec` on an empty board. Caught by rendering it: the recap frame
+ * at 105.0s of a 107.3s wipe of `gradient-descent` was a summary at a third of its
+ * alpha, mid-fade, with nothing to follow it.
+ */
+function applyBoardMode(scenes: Scene[], cells: ReadonlyMap<number, number[]>): void {
+  /** Last scene index that names an element, for elements named by another. */
+  const pointedAt = new Map<string, number>();
+  const needs = (id: string | undefined, i: number): void => {
+    if (!id) return;
+    pointedAt.set(id, Math.max(pointedAt.get(id) ?? -1, i));
+  };
+  scenes.forEach((scene, i) => {
+    for (const el of scene.elements) {
+      if (el.type === 'emphasis') needs(el.targetId, i);
+      if (el.morph) {
+        needs(el.morph.fromId, i);
+        for (const id of el.morph.retires ?? []) needs(id, i);
+      }
+    }
+  });
+
+  /** Last beat of the cell each beat draws into — a cell nobody shares is a group of one. */
+  const cellEnds = new Map<number, number>();
+  for (const group of cells.values()) {
+    const last = group[group.length - 1] ?? 0;
+    for (const beat of group) cellEnds.set(beat, last);
+  }
+
+  const last = scenes.length - 1;
+  scenes.forEach((scene, i) => {
+    for (const el of scene.elements) {
+      const until = Math.max(i, cellEnds.get(i) ?? i, pointedAt.get(el.id) ?? i);
+      // The closing card stays: there is nothing to make room for.
+      if (until >= last) continue;
+      el.persist = false;
+      // Absent means "goes out with its own scene", which is what `persist: false`
+      // has always meant — so the field only appears where it changes something.
+      if (until > i) el.persistUntil = scenes[until]?.id;
+    }
+  });
 }
 
 /* ------------------------------------------------------------- the vocabulary */
@@ -835,6 +932,15 @@ function buildBeat(ctx: BeatContext): Element[] {
   });
 
   /* --- a recap with no visuals still gets the chain drawn --- */
+  //
+  // Under a wiping board this stops being a fallback and becomes the recap's whole
+  // job: an accumulating recap can pull back over the board and let the board be the
+  // summary, a wiped one has nothing behind it. It needs no widening to do that. Every
+  // lane returns at least one element for every intent it is given — there is no
+  // `return []` in `buildIntent` — so "asked for no picture" and "drew no picture" are
+  // the same beat, and a recap that did ask draws that picture as its card. Both
+  // shipped lessons take this branch in both modes; what changes under `wipe` is on the
+  // camera side, where there is no board to pull back over.
   if (role === 'recap' && !figures.length) {
     const chain = recapChain(ctx.lesson, eid('chain'), figureArea, ctx.preset);
     if (chain) elements.push(chain);

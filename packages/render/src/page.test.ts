@@ -16,7 +16,7 @@ import {
   snapshotPage,
 } from './browser.js';
 import { compilePlan } from './compile.js';
-import { fixtureStoryboard, lessonStoryboard, planWithVisuals } from './fixture.js';
+import { fixtureStoryboard, lessonStoryboard, planWithVisuals, wipeStoryboard } from './fixture.js';
 import { buildPageHtml, buildPreviewHtml } from './html.js';
 
 const SKIP = chromiumAvailable()
@@ -36,6 +36,14 @@ const lessonHtml = buildPageHtml(lessonPlan, {
   fontCss: '',
   title: 'lesson determinism',
 });
+
+/** The same board wiping: one card at a time, and ink that goes out with the words. */
+const wiped = wipeStoryboard();
+const wipedPlan = await planWithVisuals(wiped, { grid: true });
+const wipedDoc = {
+  frame: wipedPlan.frame,
+  html: buildPageHtml(wipedPlan, { mode: 'capture', fontCss: '', title: 'wipe' }),
+};
 
 async function withPage<T>(
   browser: Browser,
@@ -354,7 +362,7 @@ test('a tangent sweeps into place and settles at its true angle', { skip: SKIP }
 });
 
 test(
-  'the accumulated board is still there at the end, every region of it',
+  'an accumulating board never wipes: every region of it is still there at the end',
   { skip: SKIP },
   async () => {
     const browser = await launchChromium();
@@ -399,6 +407,108 @@ test(
     }
   },
 );
+
+test('a wiped board is empty at every card boundary', { skip: SKIP }, async () => {
+  // The other half of the assertion above, and the one the accumulate mode cannot
+  // make: with `meta.board: 'wipe'` the board carries one card at a time. The three
+  // things that have to hold together, because any two of them pass with the fade
+  // in the wrong place: nothing dies mid-sentence, everything is gone before the
+  // next card cuts in, and a card several beats draw together survives all of them.
+  const fades = new Map<string, { fadeAt: number; anchor: number; drawn: number }>();
+  const staying: string[] = [];
+  const sceneIndex = new Map(wipedPlan.scenes.map((s, i) => [s.id, i]));
+  for (const item of wipedPlan.items) {
+    // The closing card is the one thing a wiping board keeps — nothing follows it.
+    if (item.persist) {
+      assert.equal(item.fadeAt, undefined, `${item.id} persists and was scheduled to fade`);
+      staying.push(item.id);
+      continue;
+    }
+    assert.ok(item.fadeAt !== undefined, `${item.id} has no wipe schedule`);
+    // One element becomes several items — a plot's phases, a motion's trail — and
+    // they carry the element's id with a `~suffix`. They all belong to its card.
+    const owner = item.id.split('~')[0];
+    const held = wiped.scenes[item.scene]?.elements.find((el) => el.id === owner)?.persistUntil;
+    const anchor = held === undefined ? item.scene : (sceneIndex.get(held) ?? item.scene);
+    fades.set(item.id, { fadeAt: item.fadeAt, anchor, drawn: item.start + item.dur });
+  }
+  assert.ok(staying.length > 0, 'the fixture ends on a card');
+
+  const browser = await launchChromium();
+  try {
+    await withPage(
+      browser,
+      async (page) => {
+        const board = async (t: number): Promise<Map<string, number>> => {
+          await seekPage(page, t);
+          const rows = await page.evaluate(() =>
+            [...document.querySelectorAll('#inkcast-content > g[data-id]')].map(
+              (g) =>
+                [g.getAttribute('data-id') ?? '?', Number(g.getAttribute('opacity') ?? 0)] as const,
+            ),
+          );
+          return new Map(rows);
+        };
+
+        // 1. Nothing dies while it is being talked about. Sampled at the last instant
+        //    of the narration its card belongs to, every mark on that card is solid.
+        for (const [id, f] of fades) {
+          const scene = wipedPlan.scenes[f.anchor];
+          assert.ok(scene, `${id} has an anchor scene`);
+          const speaking = Math.max(f.drawn + 0.02, scene.start + scene.speech - 0.02);
+          const at = await board(speaking);
+          assert.ok(
+            (at.get(id) ?? 0) > 0.9,
+            `${id} was at ${(at.get(id) ?? 0).toFixed(2)} while its scene was still speaking`,
+          );
+        }
+
+        // 2. And it is gone by the time the fade window closes — inside the hold,
+        //    not after it, so the silence is a blank board rather than a death.
+        for (const [id, f] of fades) {
+          const at = await board(f.fadeAt + 0.02);
+          assert.equal(at.get(id), 0, `${id} was still up after its fade completed`);
+        }
+
+        // 3. At every boundary the board carries the new card and nothing else. Two
+        //    of these boundaries are blank frames (the benchmark's at 41s); the other
+        //    two are mid-card, where `persistUntil` is the only thing keeping the ink
+        //    alive — a wipe that fades at its own scene's end passes 1 and 2 and
+        //    fails here, with the next beat morphing a shape whose alpha is zero.
+        let blank = 0;
+        let carried = 0;
+        for (let i = 1; i < wipedPlan.scenes.length; i++) {
+          const start = (wipedPlan.scenes[i] as (typeof wipedPlan.scenes)[number]).start;
+          const at = await board(start - 0.02);
+          const alive = [...at].filter(([, o]) => o > 0.05).map(([id]) => id);
+          for (const id of alive) {
+            const f = fades.get(id);
+            assert.ok(f, `${id} is a known item`);
+            assert.ok(
+              f.anchor >= i,
+              `${id} belongs to card ${f.anchor} and is still on the board at scene ${i}`,
+            );
+          }
+          if (alive.length === 0) blank++;
+          else carried++;
+        }
+        assert.ok(blank >= 2, `only ${blank} of the boundaries wiped to an empty board`);
+        assert.ok(carried >= 1, `no boundary carried a card — persistUntil is untested`);
+
+        // 4. And the film does not end on the blank board it keeps cutting to: the
+        //    closing card is still up through the outro, because there is nothing
+        //    after it to make room for.
+        const end = await board(wipedPlan.duration);
+        for (const id of staying) {
+          assert.equal(end.get(id), 1, `${id} faded out of the film's last frame`);
+        }
+      },
+      wipedDoc,
+    );
+  } finally {
+    await browser.close();
+  }
+});
 
 test('a hold keeps the visual on screen through the silence', { skip: SKIP }, async () => {
   const browser = await launchChromium();

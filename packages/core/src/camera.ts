@@ -33,6 +33,13 @@
  * storyboards and the older planner compose their own shots, and silently
  * overruling them would be a regression, not a fix.
  *
+ * All three rules are about ink that stays. `meta.board: 'wipe'` says none of it
+ * does: the board carries one card at a time, so the history a scene is framed
+ * against expires — at the element's own scene, or at the scene its `persistUntil`
+ * names when several beats draw one card. The recap then has nothing behind it and
+ * is framed as the card it drew, ceiling and all. Everything below reads that mode
+ * through the local `wipe`; absent means `accumulate` and every expiry is a no-op.
+ *
  * ## Why this is in `@inkcast/core` and not in the renderer
  *
  * It used to be in `packages/render`, and that placement was the last live piece of
@@ -286,8 +293,37 @@ export function unitsPerPixel(canvas: Rect, frame: FrameSize, zooms: readonly nu
 
 /* ------------------------------------------------------------------ framing */
 
-function persistingBounds(scene: Scene, boxes: Map<string, Rect>): Rect[] {
-  return scene.elements.filter((el) => el.persist).map((el) => elementBounds(el, boxes));
+/** A rect on the board, and the last scene index it is still on the board for. */
+type Held = { rect: Rect; until: number };
+
+/**
+ * What this scene leaves behind, and for how long.
+ *
+ * `persist` alone answers "forever or not at all", which is every accumulating
+ * board: `until` is `Infinity` and the expiry below is a no-op. A wiping board needs
+ * the third answer — a card drawn across several beats stays up until the last of
+ * them and then goes — and that is `persistUntil`, the scene id the planner wrote.
+ * Without it the frame keeps widening for ink that is no longer on screen, which is
+ * the whole reason the planner's half of `wipe` would otherwise change nothing.
+ */
+function heldBounds(
+  scene: Scene,
+  index: number,
+  boxes: Map<string, Rect>,
+  indexOfScene: ReadonlyMap<string, number>,
+  wipe: boolean,
+): Held[] {
+  const out: Held[] = [];
+  for (const el of scene.elements) {
+    if (el.persist) {
+      out.push({ rect: elementBounds(el, boxes), until: Infinity });
+      continue;
+    }
+    if (!wipe || el.persistUntil === undefined) continue;
+    const until = indexOfScene.get(el.persistUntil) ?? -1;
+    if (until > index) out.push({ rect: elementBounds(el, boxes), until });
+  }
+  return out;
 }
 
 /**
@@ -301,9 +337,14 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
   const boxes = new Map<string, Rect>();
   for (const scene of sb.scenes) for (const el of scene.elements) boxes.set(el.id, el.at);
 
+  // Absent is `accumulate`, and under `accumulate` every entry below is held for
+  // ever and the expiry is arithmetic that changes nothing.
+  const wipe = sb.meta.board === 'wipe';
+  const indexOfScene = new Map(sb.scenes.map((s, i) => [s.id, i]));
+
   /* Pass 1: what each scene has to hold in frame. */
-  const regionHistory = new Map<string, Rect[]>();
-  const boardHistory: Rect[] = [];
+  const regionHistory = new Map<string, Held[]>();
+  const boardHistory: Held[] = [];
   type Shot = {
     scene: Scene;
     /** Ink already on this scene's board, oldest first. */
@@ -315,14 +356,16 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
   };
   const shots: Shot[] = [];
 
-  for (const scene of sb.scenes) {
+  for (let i = 0; i < sb.scenes.length; i++) {
+    const scene = sb.scenes[i] as Scene;
     const own = scene.elements.map((el) => elementBounds(el, boxes));
     const ownUnion = unionAll(own);
     const key = scene.region ?? null;
     const recap = scene.role === 'recap';
-    const history = [
-      ...(recap ? boardHistory : key === null ? [] : (regionHistory.get(key) ?? [])),
-    ];
+    const held = recap ? boardHistory : key === null ? [] : (regionHistory.get(key) ?? []);
+    // Ink whose last scene has gone by is not on the board, so it is not in frame
+    // and it is not in the fill either. Under `accumulate` nothing ever expires.
+    const history = held.filter((h) => h.until >= i).map((h) => h.rect);
     const visible = [...history, ...own];
     // A narration-only beat on a board we have not drawn into yet has nothing to
     // frame, so `target` stays null and the author's camera stands.
@@ -336,7 +379,7 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
       visible,
     });
 
-    const keep = persistingBounds(scene, boxes);
+    const keep = heldBounds(scene, i, boxes, indexOfScene, wipe);
     if (key !== null) {
       const list = regionHistory.get(key) ?? [];
       list.push(...keep);
@@ -373,12 +416,17 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
         zoom = fitCamera(target, canvas, frame, insets).zoom;
       }
     }
+    // The recap is exempt from the close-up ceiling because it is the film's wide
+    // shot — but only while there is a board to be wide over. A wiped recap frames
+    // its own card, and an unclamped card renders its letters oversize by exactly
+    // the ratio to the median, which is what the ceiling exists to stop.
+    const clamped = wipe || !shot.recap;
     const cam = fitCamera(
       target,
       canvas,
       frame,
       insets,
-      !shot.recap && zoom > ceiling ? ceiling : undefined,
+      clamped && zoom > ceiling ? ceiling : undefined,
     );
     return {
       camera: { ...cam, transition: shot.scene.camera.transition },
@@ -395,7 +443,9 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
     const scene = sb.scenes[i] as Scene;
     const prev = sb.scenes[i - 1] as Scene;
     if (!f.derived) continue;
-    if (scene.role === 'recap') {
+    // A wiped recap is a card like any other — there is no board behind it to read,
+    // so the slow pull-back it would be given is 1.1s of crossfade over nothing.
+    if (scene.role === 'recap' && !wipe) {
       f.camera.transition = Math.max(f.camera.transition, 1.1);
     } else if (scene.region && scene.region === prev.region) {
       f.camera.transition = Math.max(f.camera.transition, 0.45);
