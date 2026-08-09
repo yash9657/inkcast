@@ -76,8 +76,22 @@ import type { CompileOptions } from './types.js';
 
 const log = logger('planner:compile');
 
-/** Bump when compiled output changes in a way that should invalidate caches. */
-export const COMPILER_VERSION = 1;
+/**
+ * Bump when compiled output changes in a way that should invalidate caches.
+ *
+ * 2: labels are placed and measured at the footprint the board really writes them in
+ * (`draw-geom.ts`'s `labelFootprint`), so every cached storyboard with a drawing beat in
+ * it has its names in the old, wrong places — including the `cardiac8` frame that reads
+ * "atria (spark spreadsspark starts here". `cast.ts`'s `boardKey` is the only thing that
+ * reaches those caches, and this constant is the only part of it the planner controls;
+ * without this the repair is real and no existing project ever sees it.
+ *
+ * This is a cache key and nothing else — it is not written into the storyboard — so a bump
+ * must leave the pinned hashes exactly where they were:
+ * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
+ * b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 / c0f2ccc5024c.
+ */
+export const COMPILER_VERSION = 2;
 
 /* ------------------------------------------------------------------ assets */
 

@@ -19,7 +19,6 @@
  * 3. **Will the board break a word in half?** The planner estimates text width and the
  *    renderer wraps again against the real handwriting metrics, so a word wider than its
  *    box comes out as `Cartil / age`. That is arithmetic, not judgement.
- *
  * Plus two whole-drawing checks: ink that has run off the canvas, and a label sitting far
  * enough from every mark that it names nothing.
  *
@@ -31,6 +30,28 @@
  * call on every drawing. Judgement is what the model is for; this is what arithmetic is
  * for. A defect here is a fact, and every one of them names coordinates so that the
  * sentence handed to the model is a fact too.
+ *
+ * **Whether a leader ends on the thing it names.** This was measured here for one session
+ * as `leader-misses` and taken out again, and the reason is worth keeping because the
+ * check reads as obviously correct until you measure what it can see. It compared the
+ * arrow's tip to the underlay's *box*, and a box is not ink. On the traced lane a heart's
+ * bounding box is mostly board, so a leader stopping on empty paper inside it scored as a
+ * hit — the exact case the check was written for. On the figure lane it is worse and it is
+ * structural: `figureBox()` is `{x:80,y:0,w:840,h:560}` on a 1000x560 canvas and there is
+ * no trace behind it at all — a figure is never traced (`underlay.ts`) — so with the 60
+ * units of slack the check allowed, only `x<20` and `x>980` could ever be reported. That
+ * is 4% of the canvas, and it is narrower than the 80-unit margin the names themselves sit
+ * in, so a leader that stops in the margin short of the picture reads as a hit too. Its
+ * calibration — no false positives over the 62 leaders in the cached lessons — was run
+ * against a 348-wide traced box, where 53% of the canvas was reportable; that is a lane
+ * 2.4x narrower than `FIGURE_AREA` and the number never transferred. And the failure the
+ * check cited as its reason, `underlay.ts`'s "if the picture then lands anywhere other than
+ * where it was when the model looked, every leader arrow points at empty board", is not
+ * visible from here in any case: this function is handed the same ink box the author was,
+ * and `compile.ts`'s `buildUnderlay` places the picture through that box and through
+ * `buildDrawing`'s own `Fit`, which is what makes the two line up. Bringing it back needs a
+ * measurement of where the picture's ink actually is, and the lane that most needs it is
+ * the one lane that has no trace to measure.
  */
 import type { Mark } from '@inkcast/core';
 import { DRAW_H, DRAW_W } from '@inkcast/core';
@@ -39,11 +60,14 @@ import {
   ADRIFT,
   ADVANCE,
   LABEL_SIZE,
+  TYPICAL_FIT,
   contentBounds,
   inkDistance,
   inkHitsBox,
   inkOf,
   labelBox,
+  labelCap,
+  labelFootprint,
   overlapArea,
   underlayInk,
 } from './draw-geom.js';
@@ -54,9 +78,11 @@ import {
  * The audit is the *input* to a correction — the model is told these sentences and fixes
  * what they name — so a cached correction made under different rules is a correction to a
  * different question. It went to v2 when shaded regions stopped being obstacles, which is
- * the change that stopped `N` being moved out of its magnet.
+ * the change that stopped `N` being moved out of its magnet. It went to v3 when labels
+ * started being measured at the footprint the board draws them at (`labelFootprint`),
+ * at the fit a beat is really laid out at rather than at unit scale (`TYPICAL_FIT`).
  */
-export const AUDIT_VERSION = 'audit/v2';
+export const AUDIT_VERSION = 'audit/v3';
 
 /** What kind of thing is wrong. Ordered by how much a viewer notices it. */
 export type DefectKind =
@@ -85,13 +111,19 @@ const LABEL_SLOP = 60;
 /**
  * The widest a label's line can be before the board wraps it, in drawing units.
  *
- * Mirrors the cap `drawing.ts` puts on a label's element at unit scale: a word wider than
- * this is a word the renderer has nowhere to put, so it breaks the word itself. Auditing
- * at unit scale rather than at the beat's own fit is a small approximation — the role a
- * label snaps to shifts the advance by a few percent — and it is the right one, because a
- * drawing is authored once and may be fitted into several different cells.
+ * Mirrors the cap `drawing.ts` puts on a label's element: a word wider than this is a word
+ * the renderer has nowhere to put, so it breaks the word itself.
+ *
+ * Unit scale, unlike everything else in this function, and not by inheritance — the same
+ * "a drawing is authored once" argument that used to be written here is the one
+ * `TYPICAL_FIT` rejects. The arithmetic is simply different for this check. It compares an
+ * authoring-unit width against the board's cap divided back by the fit, and `labelCap`'s
+ * 280 floor makes that quotient *smallest* at s=1: 420 authoring units at unit scale, 424
+ * at `TYPICAL_FIT`, 560 at s=0.5. So unit scale is the strict end here, where for a label's
+ * footprint it was the roomy one, and the failure mode this check has — a word silently
+ * coming out as `Cartil / age` — is the one worth erring towards reporting.
  */
-const WRAP_CAP = Math.max(280, DRAW_W * 0.42);
+const WRAP_CAP = labelCap(1);
 
 const round = (n: number): number => Math.round(n);
 const at = (b: Box): string => `(${round(b.x + b.w / 2)},${round(b.y + b.h / 2)})`;
@@ -102,11 +134,22 @@ const at = (b: Box): string => `(${round(b.x + b.w / 2)},${round(b.y + b.h / 2)}
  * Expects the marks that will actually be drawn — `prepareMarks` output, not raw author
  * output. Auditing raw marks would report collisions the free repair pass is about to fix
  * and then spend a model call on them.
+ *
+ * `scale` is the beat's fit, and it must be the same one the repair was given or the two
+ * take turns undoing each other — the failure `draw-geom.ts`'s header exists to prevent.
+ * Nothing in the drawing stage knows the cell (`planBoard` has not run), so the default is
+ * `TYPICAL_FIT`, the middle of the range beats are really laid out at, and every caller
+ * gets it without opting in. It was 1 for one session, which is the roomy end of that
+ * range: measured against each beat's own fit, that read 10 of the 41 dirty beats in
+ * `projects/` as clean — under-reporting, in a gate whose whole job is to notice.
  */
-export function auditDrawing(marks: Mark[], underlay?: Box): Defect[] {
+export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Defect[] {
   const out: Defect[] = [];
   const labels = marks.filter((m) => m.kind === 'label');
-  const boxes = new Map(labels.map((m) => [m.id, labelBox(m)] as const));
+  // The words' real footprint, not `labelBox`'s one unwrapped line. Measuring the wrong
+  // box is how `cardiac8` shipped "spark starts here" typed through "atria (spark spreads
+  // sideways)" with the audit reporting nothing — see `labelFootprint`.
+  const boxes = new Map(labels.map((m) => [m.id, labelFootprint(m, scale)] as const));
   // The hybrid lane's generated picture is ink the audit has to know about, or a name
   // written across the middle of a traced heart measures perfectly clean. It is also what
   // stops `label-adrift` firing on the names this lane deliberately puts out at the sides:
@@ -178,6 +221,11 @@ export function auditDrawing(marks: Mark[], underlay?: Box): Defect[] {
     if (over.length) {
       const outside = marks
         .filter((m) => {
+          // `labelBox`, not `labelFootprint`, and deliberately: this list names the marks
+          // responsible for the `contentBounds` overrun reported just above, and
+          // `contentBounds` measures a label as `markBounds` does — one unwrapped line at
+          // the author's own cap height. Measuring the culprits in the other space would
+          // report a drawing as running off the canvas and then name no mark that does.
           const b = m.kind === 'label' ? labelBox(m) : undefined;
           const bb = b ?? contentBounds([m]);
           return (

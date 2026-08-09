@@ -36,27 +36,31 @@
  *    top of ink. That is mechanical, so it is fixed mechanically: `repairLabels` slides a
  *    colliding label to the nearest free space before anything is drawn.
  */
-import type { ArrowElement, Element, Mark, ShapeElement, TextElement } from '@inkcast/core';
+import type { ArrowElement, Element, Mark, ShapeElement } from '@inkcast/core';
 import { DRAW_H, DRAW_W, logger } from '@inkcast/core';
 import { round } from './curves.js';
 import { cueMarks } from './draw-cues.js';
 import {
   ADRIFT,
+  LABEL_SLACK,
+  TYPICAL_FIT,
   type Ink,
   clipToBox,
   contentBounds,
   inkDistance,
   inkHitsBox,
   inkOf,
-  labelBox,
+  labelCap,
+  labelFootprint,
   underlayInk,
   markBounds,
   overlapArea,
+  roleFor,
   union,
   waypoints,
 } from './draw-geom.js';
 import type { Box, Point } from './elements.js';
-import { FONT, makeArrow, makeShape, makeText, measureText } from './elements.js';
+import { makeArrow, makeShape, makeText } from './elements.js';
 import { makePath } from './figures.js';
 
 const log = logger('planner:drawing');
@@ -191,8 +195,20 @@ const RINGS = [
  * revises (`draw-anthropic.ts`), and `draw-audit.ts` decides which drawings need it. A
  * mechanical pass that mangles a drawing to satisfy a checker has made the picture worse
  * and the number better.
+ *
+ * ## Why it needs the fit
+ *
+ * Because for one whole session it was scoring the wrong boxes. It measured labels with
+ * `labelBox` — one unwrapped line at the author's cap height — and `buildMark` below draws
+ * them at a type role chosen from `size * fit.s`, wrapped at `labelCap`, widened by
+ * `LABEL_SLACK`. On `cardiac8`'s spark beat that is 2.09× the reserved width, so the repair
+ * moved a label 58 units, declared 20 units of clearance, and the frame at 51.5s shows the
+ * two names typed through each other. `labelFootprint` is the geometry the builder draws
+ * in; `scale` is the fit it will be drawn at, and callers who do not know the cell yet get
+ * `TYPICAL_FIT` — the middle of the range beats are really laid out at, not unit scale,
+ * which is the roomy end of it (see `TYPICAL_FIT`).
  */
-export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
+export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Mark[] {
   // The generated picture counts as ink, and as the one kind that cannot be written on.
   // Without it a name landing in the middle of the organ scores as free space and is left
   // exactly where it was — `inkOf` knows about marks and nothing else. See `underlayInk`.
@@ -229,12 +245,28 @@ export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
 
   return marks.map((m) => {
     if (m.kind !== 'label') return m;
-    const home = labelBox(m);
+    const home = labelFootprint(m, scale);
     let best = home;
     let bestCost = cost(home, home);
     if (bestCost > 0) {
       const step = Math.max(20, home.h * 0.8);
-      for (let ring = 1; ring <= 8 && bestCost > 0; ring++) {
+      // How far out to search, from the weights rather than from a count. Every candidate
+      // at ring `r` has already been charged `r * step * 0.5` for the displacement alone,
+      // so once that floor exceeds the best score so far no further ring can win and the
+      // search is finished — which lets it reach right across the board when the thing
+      // being escaped is worth crossing the board to escape, and stop after two rings when
+      // it is not.
+      //
+      // The fixed eight rings this replaces made the reach a function of the label's cap
+      // height, which is nothing to do with how far it has to go. `underlay.test.ts`'s
+      // one-line "AV node" over a 348-unit picture had a reach of 230 units and needed
+      // 254: it stayed on the organ, and the comment above promising that escaping is
+      // always possible was false for exactly the labels that most needed it.
+      const maxRing = Math.ceil((DRAW_W + home.w) / step);
+      let searched = 0;
+      let admissible = 0;
+      for (let ring = 1; ring <= maxRing && bestCost > ring * step * 0.5; ring++) {
+        searched += 1;
         for (const [dx, dy] of RINGS) {
           const moved = { ...home, x: home.x + dx * step * ring, y: home.y + dy * step * ring };
           const inside =
@@ -243,6 +275,7 @@ export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
             moved.x + moved.w <= DRAW_W * (1 + margin) &&
             moved.y + moved.h <= DRAW_H * (1 + margin);
           if (!inside) continue;
+          admissible += 1;
           const c = cost(moved, home);
           if (c < bestCost) {
             best = moved;
@@ -250,6 +283,26 @@ export function repairLabels(marks: Mark[], underlay?: Box): Mark[] {
           }
         }
       }
+      // Said out loud, because the search can have nothing to search and used to return
+      // silently as if it had worked — the same silent failure the scoring above was
+      // introduced to end. `inside` is checked in authoring units while a footprint grows
+      // as 1/scale, so a narrow cell can put every candidate out of bounds: on
+      // `cardiac8`'s spark beat fitted at s=0.3 the four names measure 1145, 970, 630 and
+      // 1200 units wide on a 1000-wide canvas, no candidate is admissible, and every label
+      // stays exactly where the author put it. That is not a regression — it is still at
+      // least as good as what shipped at every cell width measured — but a repair that did
+      // nothing has to be distinguishable from a repair that found the drawing clean.
+      //
+      // `searched` is what makes the sentence true rather than merely frequent. The other
+      // way out of the loop is the pruning above: a single crossed stroke scores 50, and a
+      // three-line name has a footprint 165 units tall, so ring 1 is already charged 66 and
+      // the loop never runs a single iteration. That is the scoring deciding the move is
+      // not worth making — the label is placeable, it is just not worth placing elsewhere —
+      // and blaming the canvas for it would put a false cause in the log.
+      if (searched && !admissible)
+        log.debug(
+          `label "${m.text ?? m.id}" had nowhere to go: nothing inside the ${DRAW_W}x${DRAW_H} canvas fits its ${round(home.w, 0)}x${round(home.h, 0)} footprint at this fit`,
+        );
     }
     placed.push(best);
     if (best === home) return m;
@@ -310,19 +363,11 @@ export function cleanMarks(marks: Mark[]): Mark[] {
  * through it: cleaning keeps what it kept, and a label already clear of everything is
  * scored zero and left alone.
  */
-export function prepareMarks(marks: Mark[], underlay?: Box): Mark[] {
-  return repairLabels(cleanMarks(marks), underlay);
+export function prepareMarks(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Mark[] {
+  return repairLabels(cleanMarks(marks), underlay, scale);
 }
 
 /* ------------------------------------------------------------------ building */
-
-/** Role whose type size is closest to the mark's own, so labels keep their hierarchy. */
-function roleFor(px: number): TextElement['role'] {
-  const roles: TextElement['role'][] = ['caption', 'label', 'body', 'heading', 'title'];
-  let best = roles[0] as TextElement['role'];
-  for (const r of roles) if (Math.abs(FONT[r] - px) < Math.abs(FONT[best] - px)) best = r;
-  return best;
-}
 
 function arcs(cx: number, cy: number, r: number): string {
   return `M${round(cx - r, 2)},${round(cy, 2)}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
@@ -387,32 +432,13 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
     case 'label': {
       const text = (m.text ?? '').trim();
       if (!text) return [];
+      // Role, cap and slack all live in `draw-geom.ts` and are read back by
+      // `labelFootprint`, because the repair a few lines up has to reserve the box these
+      // three lines produce. When they were spelled out here instead, the repair reserved
+      // a different box and `cardiac8` shipped two names typed through each other.
       const role = roleFor((m.size ?? 30) * fit.s);
-      // Two failures meet here, and both are about the box being narrower than the words.
-      //
-      // The planner measures text at an assumed mean advance; the renderer wraps again
-      // against the *real* handwriting metrics, which are wider. A box sized to the
-      // estimate is therefore a box a word does not quite fit, and the renderer breaks
-      // the word itself — `Cartilage` came out as "Cartil / age", `block` as "blo / ck".
-      // A third of slack absorbs the difference.
-      //
-      // And a label that is a whole sentence — which the brief asks against and gets
-      // anyway — becomes one enormous line that lands across the picture. Capping the
-      // width at a share of the drawing wraps it into two or three tidy lines instead,
-      // which `repairLabels` can then place.
-      // A label that is a whole sentence — which the brief asks against and gets anyway —
-      // becomes one enormous line across the picture unless it is capped. Capped, it wraps
-      // into two or three tidy lines that `repairLabels` can place.
-      const cap = Math.max(280, DRAW_W * fit.s * 0.42);
-      const el = makeText(id, text, role, { align: 'center', maxWidth: cap });
-      // Then widened, because `measureText` can only ever return its own estimate and the
-      // renderer wraps again against the *real* handwriting metrics, which are wider. A
-      // box sized to the estimate is a box the words do not quite fit, and the renderer
-      // breaks the word itself: `Cartilage` came out as "Cartil / age", `block` as
-      // "blo / ck", on nearly every label of a twelve-subject breadth test. Half again is
-      // measured slack, not a guess — it is the widest the same string came out at when
-      // typeset by the board rather than estimated by the planner.
-      el.at = { ...el.at, w: round(el.at.w * 1.5, 2) };
+      const el = makeText(id, text, role, { align: 'center', maxWidth: labelCap(fit.s) });
+      el.at = { ...el.at, w: round(el.at.w * LABEL_SLACK, 2) };
       const c = P(m.x ?? 0, m.y ?? 0);
       el.at = {
         x: round(c.x - el.at.w / 2, 2),
@@ -513,12 +539,27 @@ export function buildDrawing(
   marks: Mark[],
   ctx: { id: string; box: Box; narration?: string; underlay?: boolean },
 ): Element[] {
-  const clean = prepareMarks(marks);
-  if (!clean.length) return [];
+  const cleaned = cleanMarks(marks);
+  if (!cleaned.length) return [];
   // Which fit, and it is the difference between a drawing and an annotation. See
   // `fitCanvas`: content bounds are right for a picture that is only its own marks and
   // wrong for one whose marks are aimed at something else on the board.
-  const fit = ctx.underlay ? fitCanvas(ctx.box) : fitDrawing(clean, ctx.box);
+  //
+  // It is computed twice on purpose. The repair needs a fit to measure a label's real
+  // footprint against, and the fit needs the repaired marks to know the content bounds —
+  // so the repair is given the fit of the *cleaned* marks, which is the only end of that
+  // circle that exists before anything moves. Refitting afterwards is what keeps the
+  // guarantee that everything drawn lands inside `box`.
+  //
+  // The residual was measured rather than argued about. Rebuilding all 61 cached drawing
+  // beats into one cell: 27 pairs of drawn names overlapped on 16 beats before this, the
+  // worst by 4759 square canvas units; after, one pair on one beat, by 0.84 units of line
+  // height — a hairline, and it is exactly this gap between the two fits. Running the
+  // repair a second time at the settled fit closes it to 15 square units and opens a
+  // second hairline somewhere else, which is not worth a second pass over every drawing.
+  const first = ctx.underlay ? fitCanvas(ctx.box) : fitDrawing(cleaned, ctx.box);
+  const clean = repairLabels(cleaned, undefined, first.s);
+  const fit = ctx.underlay ? first : fitDrawing(clean, ctx.box);
   const cues = ctx.narration ? cueMarks(clean, ctx.narration) : [];
   const out: Element[] = [];
   clean.forEach((m, i) => {

@@ -23,9 +23,10 @@
  * because a repair and a measurement that disagree about where the ink is would take
  * turns undoing each other.
  */
-import type { Mark } from '@inkcast/core';
+import type { Mark, TextElement } from '@inkcast/core';
 import { DRAW_W } from '@inkcast/core';
 import type { Box, Point } from './elements.js';
+import { FONT, measureText } from './elements.js';
 
 /**
  * How far a label may sit from every mark before it is naming nothing.
@@ -60,17 +61,106 @@ export const LABEL_SIZE = 30;
 export const ADVANCE = 0.52;
 
 /**
- * The space a label's words will take, in drawing units.
+ * A label's nominal extent: one unwrapped line at the author's own cap height.
  *
- * A label is placed by its centre and its extent is the text itself, estimated at the
- * same advance ratio the board writes at — so a collision check against this box is a
- * check against the space the words will really occupy.
+ * This is what the drawing *is* in authoring coordinates, and it is what `markBounds`
+ * and therefore the fit are computed from. It is **not** the space the words end up
+ * occupying on the board — see `labelFootprint`, which is what anything deciding
+ * "will these two names collide" has to measure instead.
  */
 export function labelBox(m: Mark): Box {
   const size = m.size ?? LABEL_SIZE;
   const text = m.text ?? '';
   const w = Math.max(size, text.length * size * ADVANCE);
   return { x: (m.x ?? 0) - w / 2, y: (m.y ?? 0) - size * 0.7, w, h: size * 1.4 };
+}
+
+/**
+ * Slack on a label's measured width, because the estimate is always the narrow one.
+ *
+ * `measureText` can only ever return the planner's own estimate and the renderer wraps
+ * again against the real handwriting metrics, which are wider — a box sized to the
+ * estimate is a box the words do not quite fit and the board breaks the word itself
+ * (`Cartilage` as "Cartil / age"). Half again is the widest the same strings came out at
+ * when typeset by the board rather than estimated by the planner.
+ */
+export const LABEL_SLACK = 1.5;
+
+/**
+ * The widest one line of a label may be before the board wraps it, at a given fit.
+ *
+ * A label that is a whole sentence — which the brief asks against and gets anyway —
+ * becomes one enormous line across the picture unless it is capped. Capped, it wraps into
+ * two or three tidy lines that `repairLabels` can place.
+ */
+export function labelCap(scale: number): number {
+  return Math.max(280, DRAW_W * scale * 0.42);
+}
+
+/**
+ * The fit a drawing beat is really laid out at, for anything measuring before a cell exists.
+ *
+ * A label's footprint depends on the fit, and not weakly: the board will not write below
+ * `caption` size, so a name in a narrow cell comes out *relatively larger* than the author
+ * sized it, and two names that clear each other at one fit are typed through each other at
+ * another (`labelFootprint`). Everything in the drawing stage — the repair, the audit, the
+ * gate that decides whether a drawing is worth a model call — runs before `planBoard` has
+ * chosen any cell, so none of it can be handed the real number.
+ *
+ * A default of 1 was not a neutral stand-in for that, and the difference was measured
+ * rather than argued. Over the 63 drawing beats in `projects/`, taking each beat's fit
+ * from its own storyboard (a drawn element's box divided by its mark's), the fit runs
+ * 0.517 to 1.262 with a median of 0.659. So 1 is the roomy end of the range, and auditing
+ * there reads every drawing as less crowded than it will be: against each beat's own fit,
+ * a scale of 1 calls 10 of the 41 genuinely-dirty beats clean, where 0.66 calls 5 clean and
+ * 6 clean beats dirty. Missing is the failure that shipped — see `labelFootprint` — and a
+ * spurious report costs one model call that `draw-critic.ts` discards unless it scores
+ * better, so the trade is not symmetric.
+ *
+ * It is the middle of a distribution, not a fact about any one beat. A caller that knows
+ * the cell passes the real fit and never reaches this: `buildDrawing` is the only one that
+ * can, and does.
+ */
+export const TYPICAL_FIT = 0.66;
+
+/** Role whose type size is closest to the mark's own, so labels keep their hierarchy. */
+export function roleFor(px: number): TextElement['role'] {
+  const roles: TextElement['role'][] = ['caption', 'label', 'body', 'heading', 'title'];
+  let best = roles[0] as TextElement['role'];
+  for (const r of roles) if (Math.abs(FONT[r] - px) < Math.abs(FONT[best] - px)) best = r;
+  return best;
+}
+
+/**
+ * The box the board will really write a label's words into, back in authoring units.
+ *
+ * `labelBox` is not that box and never was, and the gap between them is what put
+ * "spark starts here" through "atria (spark spreads sideways)" in `cardiac8` at 51.5s.
+ * `repairLabels` moved the second label 58 units right, scored the pair 20 units clear in
+ * `labelBox` space, and the frame shows them overlapping by 103×29 canvas units — because
+ * `labelBox` reserves `chars × size × ADVANCE` on one unwrapped line at the author's cap
+ * height, while the builder snaps the label to the nearest type role *at the beat's fit*,
+ * wraps it at `labelCap`, and then widens it by `LABEL_SLACK`. On that beat the two
+ * disagreed by 2.09× in width for one label and 2.48× in height for the other; the 20
+ * units of clearance the repair bought were an order of magnitude inside its own
+ * measurement error.
+ *
+ * So this reproduces the builder's label branch exactly and divides back by the fit, so
+ * the repair's ring search and canvas bounds keep speaking authoring units. Anything that
+ * asks "do these words collide" measures here; `drawing.ts` builds from the same numbers,
+ * and `packages/planner/test/drawing.test.ts` pins that they agree.
+ *
+ * A caller with no cell in hand gets `TYPICAL_FIT` rather than unit scale, because unit
+ * scale is not the middle of the range a drawing is fitted into — it is the top of it.
+ */
+export function labelFootprint(m: Mark, scale = TYPICAL_FIT): Box {
+  const text = (m.text ?? '').trim();
+  if (!text) return labelBox(m);
+  const s = scale > 0 ? scale : 1;
+  const t = measureText(text, roleFor((m.size ?? LABEL_SIZE) * s), labelCap(s));
+  const w = (t.w * LABEL_SLACK) / s;
+  const h = t.h / s;
+  return { x: (m.x ?? 0) - w / 2, y: (m.y ?? 0) - h / 2, w, h };
 }
 
 /** The corners a mark occupies on the drawing canvas, before fitting. */

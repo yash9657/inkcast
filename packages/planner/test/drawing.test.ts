@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Mark } from '@inkcast/core';
+import type { Element, Mark } from '@inkcast/core';
 import { DRAW_H, DRAW_W } from '@inkcast/core';
 import {
   buildDrawing,
   cleanMarks,
+  fitCanvas,
   fitDrawing,
   markBounds,
   repairLabels,
   MAX_MARKS,
 } from '../src/drawing.js';
+import { labelFootprint } from '../src/draw-geom.js';
 import { auditDrawing } from '../src/draw-audit.js';
 
 const BOX = { x: 100, y: 200, w: 800, h: 400 };
@@ -88,9 +90,14 @@ test('a drawing is fitted into its box by its own content, uniformly', () => {
   );
 });
 
-test('two labels never overlap each other', () => {
+test('two labels are moved apart in the authoring geometry', () => {
   // The defect that showed up in every panel of the twelve-subject breadth test, and the
   // one that is never what anyone meant: two names written on top of each other.
+  //
+  // What this proves and no more: apartness in `markBounds` space, which for a label is
+  // `labelBox` — one unwrapped line at the author's own cap height. That is *not* the
+  // space the words are drawn in, and for a whole session this assertion was read as if it
+  // covered the frame. It does not. The test below is the one that covers the frame.
   const stacked = [
     mark({ id: 'outline', kind: 'rect', x: 0, y: 0, w: 900, h: 500 }),
     mark({ id: 'a', kind: 'label', x: 400, y: 250, text: 'right atrium', size: 30 }),
@@ -101,6 +108,187 @@ test('two labels never overlap each other', () => {
   const b = markBounds(out[2] as Mark)!;
   const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
   assert.ok(apart, 'two labels were left on top of each other');
+});
+
+/**
+ * `cardiac8`'s spark beat, verbatim from `projects/cardiac8/lesson.json` steps[1].
+ *
+ * Kept whole rather than reduced to the two labels, because the repair's choice is made
+ * against the beat's ink: with the ink removed it sidesteps downward and the defect does
+ * not reproduce. This is the drawing behind the frame at ~51.5s of `projects/cardiac8`.
+ */
+const SPARK_BEAT: Mark[] = [
+  mark({ id: 'left-atrium', kind: 'rect', x: 110, y: 60, w: 330, h: 190 }),
+  mark({ id: 'right-atrium', kind: 'rect', x: 540, y: 60, w: 330, h: 190 }),
+  mark({ id: 'left-atrium-hatch', kind: 'hatch', x: 110, y: 60, w: 330, h: 190, angle: 35 }),
+  mark({ id: 'right-atrium-hatch', kind: 'hatch', x: 540, y: 60, w: 330, h: 190, angle: 35 }),
+  mark({
+    id: 'wave-front-1',
+    kind: 'stroke',
+    smooth: true,
+    points: [
+      [870, 70],
+      [760, 90],
+      [660, 130],
+      [560, 170],
+      [470, 190],
+    ],
+  }),
+  mark({
+    id: 'wave-front-2',
+    kind: 'stroke',
+    smooth: true,
+    points: [
+      [870, 110],
+      [790, 140],
+      [700, 175],
+      [610, 210],
+      [520, 225],
+    ],
+  }),
+  mark({ id: 'spark-origin', kind: 'dots', x: 830, y: 60, w: 50, h: 40, count: 10 }),
+  mark({
+    id: 'valve-left',
+    kind: 'stroke',
+    points: [
+      [220, 250],
+      [260, 270],
+      [300, 250],
+    ],
+  }),
+  mark({
+    id: 'valve-right',
+    kind: 'stroke',
+    points: [
+      [650, 250],
+      [690, 270],
+      [730, 250],
+    ],
+  }),
+  mark({ id: 'left-ventricle', kind: 'rect', x: 140, y: 320, w: 270, h: 190 }),
+  mark({ id: 'right-ventricle', kind: 'rect', x: 570, y: 320, w: 270, h: 190 }),
+  mark({
+    id: 'flow-arrow-left',
+    kind: 'arrow',
+    points: [
+      [260, 220],
+      [260, 320],
+    ],
+  }),
+  mark({
+    id: 'flow-arrow-right',
+    kind: 'arrow',
+    points: [
+      [690, 220],
+      [690, 320],
+    ],
+  }),
+  mark({
+    id: 'label-atria',
+    kind: 'label',
+    x: 475,
+    y: 30,
+    size: 28,
+    text: 'atria (spark spreads sideways)',
+  }),
+  mark({
+    id: 'label-spark-origin',
+    kind: 'label',
+    x: 770,
+    y: 10.88,
+    size: 26,
+    text: 'spark starts here',
+  }),
+  mark({
+    id: 'arrow-spark-origin',
+    kind: 'arrow',
+    points: [
+      [870, 50],
+      [860, 70],
+    ],
+  }),
+  mark({ id: 'label-valves', kind: 'label', x: 475, y: 275, size: 26, text: 'open valves' }),
+  mark({
+    id: 'label-ventricles',
+    kind: 'label',
+    x: 475,
+    y: 540,
+    size: 28,
+    text: 'ventricles (fill with blood)',
+  }),
+];
+
+/** The cell `cardiac8` gave that beat: `fitCanvas` lands it at exactly the shipped fit. */
+const SPARK_CELL = { x: 3444.46, y: 405.03, w: 607.09, h: 339.97 };
+
+test('a label the repair cleared is still clear once it is drawn', () => {
+  // The frame at ~51.5s of `projects/cardiac8/out.mp4` reads "atria (spark spreadsspark
+  // starts here": the two names are typed through each other, and `repairLabels` had
+  // already run and reported success. It moved `label-spark-origin` from x 770 to x 828.24
+  // and scored the pair 20 authoring units clear — in `labelBox` space, where the first
+  // label is 436.8 x 39.2. The board drew it at 343.5 x 59 and the second at 291 x 29,
+  // overlapping by 102.80 x 29.00 canvas units. The measurement error was larger than
+  // the clearance it bought by an order of magnitude.
+  //
+  // So the assertion is made where the viewer is: on the boxes that reach the storyboard.
+  const els = buildDrawing(SPARK_BEAT, { id: 'b3_v0', box: SPARK_CELL, underlay: true });
+  assert.equal(fitCanvas(SPARK_CELL).s.toFixed(5), '0.60709', 'the shipped fit was not reproduced');
+  const text = els.filter((e) => e.type === 'text');
+  assert.equal(text.length, 4, 'the beat should draw four names');
+  for (let i = 0; i < text.length; i++) {
+    for (let j = i + 1; j < text.length; j++) {
+      const a = (text[i] as Element).at;
+      const b = (text[j] as Element).at;
+      const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      assert.ok(
+        w <= 0 || h <= 0,
+        `${text[i]?.id} and ${text[j]?.id} are drawn through each other, by ${w.toFixed(2)}x${h.toFixed(2)}`,
+      );
+    }
+  }
+});
+
+test('the box the repair reserves for a label is the box the builder draws it in', () => {
+  // A guard, not a reproduction: this passes unchanged against the commit the bug shipped
+  // from, because `labelFootprint` and `buildMark` were written together and have never
+  // disagreed. The invariant that was actually absent is repairLabels-vs-builder, which is
+  // the test above. This one pins the seam that makes that test's fix possible — if
+  // `labelFootprint` ever stops reproducing the label branch of `buildMark`, the repair
+  // goes back to reserving a box the words do not occupy and the frames go back to showing
+  // collisions that every number in the repo calls clean.
+  const cell = { x: 0, y: 0, w: 700, h: 392 };
+  const fit = fitCanvas(cell);
+  const cases: Mark[] = [
+    // Wraps: 30 characters at a 280-unit cap.
+    mark({
+      id: 'wrapped',
+      kind: 'label',
+      x: 500,
+      y: 300,
+      size: 28,
+      text: 'atria (spark spreads sideways)',
+    }),
+    // One short word, which the 80-unit floor in `measureText` decides rather than the text.
+    mark({ id: 'short', kind: 'label', x: 300, y: 200, size: 30, text: 'N' }),
+    // Either side of the caption/label boundary `roleFor` snaps at.
+    mark({ id: 'smaller', kind: 'label', x: 400, y: 120, size: 34, text: 'bundle of His' }),
+    mark({ id: 'larger', kind: 'label', x: 400, y: 460, size: 44, text: 'bundle of His' }),
+  ];
+  for (const m of cases) {
+    const [el] = buildDrawing([m], { id: 't', box: cell, underlay: true });
+    assert.ok(el && el.type === 'text', `${m.id} did not build`);
+    const reserved = labelFootprint(m, fit.s);
+    // Compared in board units, which is where the collision happens.
+    assert.ok(
+      Math.abs(reserved.w * fit.s - el.at.w) <= 1,
+      `${m.id}: reserved ${(reserved.w * fit.s).toFixed(2)} wide, drew ${el.at.w}`,
+    );
+    assert.ok(
+      Math.abs(reserved.h * fit.s - el.at.h) <= 1,
+      `${m.id}: reserved ${(reserved.h * fit.s).toFixed(2)} tall, drew ${el.at.h}`,
+    );
+  }
 });
 
 test('a label is moved off small ink, and left alone inside the shape it names', () => {
