@@ -40,7 +40,7 @@
  */
 import type { BoardMode, LessonStep, Mark, VisualIntent } from '@inkcast/core';
 import { readInkBox } from './underlay.js';
-import type { BeatRole } from './regions.js';
+import type { BeatRole, Board } from './regions.js';
 
 /**
  * Words that end the name of an object and begin the description of a *view* of it.
@@ -253,6 +253,87 @@ export function findReferrals(
     pictures.set(i, { host, subject });
   });
   return { pictures, recall };
+}
+
+/* ------------------------------------------------------------------- the board */
+
+/**
+ * The beat whose cell this beat really draws into, following the share chain to its end.
+ *
+ * A chain because sharing composes: the beat that morphs the anchor's hillside shares the
+ * anchor's cell, and a later beat referring to *that* picture is pointed at the morphing
+ * beat. Both have to end up in the anchor's cell or the second one is aimed at a cell that
+ * holds nothing. Bounded by the map's own size and guarded against a cycle, because
+ * `shares` is assembled from two independent passes (`findReuse` and `findReferrals`) and
+ * neither can see the other's entries — a cycle is not reachable today and is exactly the
+ * kind of thing that becomes reachable when a third pass is added.
+ */
+function hostOf(beat: number, shares: ReadonlyMap<number, number>): number | undefined {
+  let at = shares.get(beat);
+  if (at === undefined) return undefined;
+  const seen = new Set<number>([beat]);
+  for (;;) {
+    if (seen.has(at)) return at;
+    seen.add(at);
+    const next = shares.get(at);
+    if (next === undefined) return at;
+    at = next;
+  }
+}
+
+/**
+ * A board on which a beat that shares a cell is asked about *its host's* cell.
+ *
+ * ## What this fixes, and why `planBoard` cannot fix it alone
+ *
+ * `planBoard` already honours `sharesCellWith` — but only *within a region*. It builds
+ * `cellOfOwner` from the beats of one region at a time and looks the host up in that map,
+ * so a share whose host sits in a different region misses and falls through to
+ * `?? region.box`: the whole region, which is the sharer's own region and not the host's.
+ * That is not a small error. It is a beat handed a box four times the size of a cell,
+ * centred on a panel whose ink belongs to other beats, drawing on top of them — and it is
+ * silent, because a box is a box.
+ *
+ * Within a region the two agree exactly, by construction: `planBoard` returns the host's
+ * cell and so does this. Which is why it is a decorator rather than a rewrite of the grid.
+ * Nothing about how the board is laid out changes here; the pinned storyboard hashes are
+ * the check that says so, and they held when this landed.
+ *
+ * ## Why a cross-region share is now the common case
+ *
+ * It was rare when the only sharer was the morph, which annotates the beat immediately
+ * before it and is therefore almost always in the same phase and the same region. The
+ * referrals this file computes are not like that at all: `projects/cardiac8f` draws its
+ * heart at beat 1 and refers to it again at beats 3 and 6, and `groupIntoRegions` breaks
+ * at every phase boundary — setup, build, practice, recap — so beat 6 pointing at beat 1's
+ * picture crosses two of them. The whole point of a referral is that the subject was
+ * established a while ago; a mechanism that only worked for adjacent beats would refer
+ * exactly where redrawing was cheapest and redraw exactly where it hurt.
+ *
+ * ## The camera
+ *
+ * Delegated to the host's own shot rather than recomputed, so the sharer sees precisely
+ * the framing the host's picture was composed for — the zoom, the clamps against the
+ * canvas edge, all of it — instead of an approximation of it assembled out here.
+ *
+ * The recap is the exception, and deliberately: it keeps its *own* camera. A recall recap
+ * takes the host's cell so that it stops opening a fresh panel, but what it does there is
+ * circle names spread across the entire board, and `cameraFor` gives a `recap` the widest
+ * shot in the film for exactly that reason. Framing it on one cell would put most of what
+ * it is pointing at off screen — the one failure mode worse than the panel it was opening.
+ */
+export function referTo(board: Board, shares: ReadonlyMap<number, number>): Board {
+  if (shares.size === 0) return board;
+  return {
+    canvas: board.canvas,
+    regions: board.regions,
+    regionOf: (beat) => board.regionOf(hostOf(beat, shares) ?? beat),
+    cellOf: (beat) => board.cellOf(hostOf(beat, shares) ?? beat),
+    cameraFor: (beat, role) =>
+      role === 'recap'
+        ? board.cameraFor(beat, role)
+        : board.cameraFor(hostOf(beat, shares) ?? beat, role),
+  };
 }
 
 /**

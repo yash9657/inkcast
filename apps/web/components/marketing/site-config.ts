@@ -85,6 +85,111 @@ export function studioTopicHref(topic: string): string {
   return `${STUDIO_HREF}?${STUDIO_TOPIC_PARAM}=${encodeURIComponent(trimmed)}`;
 }
 
+/**
+ * Where the typed topic waits while a visitor signs in, and how long it waits.
+ *
+ * `?topic=` is the primary carrier and Clerk's `redirect_url` is what brings it
+ * back, so this is the belt to that braces — and it exists because the failure
+ * it covers is the one that would actually happen. A sign-up with an emailed
+ * verification link finishes in whatever tab the mail client opens, and a
+ * password manager or an OAuth hop can drop a query string on the way through.
+ * A visitor who typed a sentence on the landing page and lands on an empty
+ * studio box has been made to do the work twice, which turns the try strip from
+ * the zero-friction hook into a bait.
+ *
+ * `sessionStorage`, not `localStorage`: this is one tab's unfinished business,
+ * and it should die with the tab rather than resurface next week. The stored
+ * value carries the time it was written and is only honoured for the window
+ * below — long enough for an email round trip, short enough that a topic never
+ * appears in a box the visitor did not just type it into. It is read exactly
+ * once and cleared, and only when the box is empty and no `?topic=` arrived.
+ *
+ * Nothing sensitive is involved: the value is a sentence the visitor typed into
+ * a public form and which is already in their URL bar and their history.
+ */
+const STUDIO_TOPIC_STASH_KEY = 'inkcast.studio.topic';
+const STUDIO_TOPIC_STASH_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Hold a topic for the far side of a sign-in. Browser only; never throws.
+ *
+ * Called by the sign-in wall (`app/(app)/sign-in-gate.tsx`) at the moment a
+ * signed-out visitor arrives carrying one.
+ */
+export function stashTopic(topic: string): void {
+  const trimmed = topic.trim().slice(0, STUDIO_TOPIC_MAX);
+  if (trimmed === '') return;
+  try {
+    window.sessionStorage.setItem(
+      STUDIO_TOPIC_STASH_KEY,
+      JSON.stringify({ topic: trimmed, at: Date.now() }),
+    );
+  } catch {
+    // Safari in private browsing throws on `setItem` rather than no-opping, and
+    // a quota can throw anywhere. This is the backup path — `?topic=` and
+    // Clerk's `redirect_url` are the primary ones — so losing it costs nothing
+    // and must not surface as an error.
+  }
+}
+
+/**
+ * Read and clear a stashed topic, if one is still fresh. Browser only.
+ *
+ * Read-once-and-clear is the whole contract, and the TTL is the other half: a
+ * topic that survived into a later visit would appear in a box the visitor did
+ * not just type it into, which is a worse outcome than losing it. Called by
+ * `components/studio/create-form.tsx`, and only when the URL carried nothing and
+ * the box is empty.
+ */
+export function takeStashedTopic(): string | null {
+  try {
+    const raw = window.sessionStorage.getItem(STUDIO_TOPIC_STASH_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(STUDIO_TOPIC_STASH_KEY);
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const { topic, at } = parsed as { topic?: unknown; at?: unknown };
+    if (typeof topic !== 'string' || typeof at !== 'number') return null;
+    if (!Number.isFinite(at) || Date.now() - at > STUDIO_TOPIC_STASH_TTL_MS) return null;
+    const trimmed = topic.trim();
+    return trimmed === '' ? null : trimmed;
+  } catch {
+    // Storage disabled, or a hand-edited value that is not our JSON. Either way
+    // there is nothing to restore and nothing worth saying about it.
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------ what this box is */
+
+/**
+ * Whether *this deployment* asks for a sign-in before it will draw anything.
+ *
+ * The one switch behind every account-shaped sentence on this surface. It exists
+ * because the copy this file governs went from true to false the day the hosted
+ * site grew a gate: "No account, no key" is still exactly right about the
+ * software, and still exactly wrong as a description of pressing the button on
+ * inkcast.video. Rule 1 at the top of this file does not allow a claim that is
+ * false of the page it is printed on, and the two-deployment answer is not to
+ * pick a side — the local path really is free, keyless and open source, and that
+ * is worth more said honestly than said everywhere.
+ *
+ * Derived from the Clerk publishable key rather than from a flag of its own,
+ * because a flag of its own is a second thing to remember and the failure mode
+ * of forgetting it is a landing page that lies. An operator who configures
+ * accounts gets truthful copy without doing anything else.
+ *
+ * **This is copy, never enforcement.** The gate is `readAccess()` in
+ * `app/(app)/access.ts` and the ownership checks in `app/api/_lib/session.ts`;
+ * nothing on the marketing surface can let anybody in or keep anybody out. And
+ * because the landing route is prerendered — `next build` reports `○ /` — the
+ * value is fixed when the image is built, exactly like
+ * `NEXT_PUBLIC_INKCAST_BASE_URL` and `NEXT_PUBLIC_INKCAST_REPO_URL`, whose build
+ * arguments the Dockerfile already passes and explains for this same reason.
+ */
+export const signInRequired: boolean =
+  (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '').trim() !== '';
+
 /* --------------------------------------------------------- the showcase films */
 
 /** The three frame shapes the renderer supports (`meta.aspect`). */

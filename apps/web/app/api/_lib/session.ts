@@ -1,14 +1,71 @@
 /**
- * Anonymous sessions and project ownership.
+ * Sessions, accounts, and project ownership.
  *
- * There are no accounts. Nobody signs up to watch a whiteboard video get drawn,
- * and asking them to would cost more users than it protects projects. What the
- * hosted deployment actually needs is much smaller: a way to tell *this browser*
- * apart from every other browser, so that `/library` shows you your films,
- * `DELETE` deletes yours, and `/share/<id>` is public only once you said so.
+ * On a laptop there are no accounts. Nobody signs up to watch a whiteboard video
+ * get drawn, and asking them to would cost more users than it protects projects.
+ * What a local studio actually needs is much smaller: a way to tell *this
+ * browser* apart from every other browser, so that `/library` shows you your
+ * films, `DELETE` deletes yours, and `/share/<id>` is public only once you said
+ * so.
  *
- * So the identity is a signed opaque id in a cookie, and that is all it is. It
- * proves continuity of a browser, nothing about a person.
+ * So the default identity is a signed opaque id in a cookie, and that is all it
+ * is. It proves continuity of a browser, nothing about a person.
+ *
+ * ## And then there is inkcast.video
+ *
+ * The hosted deployment does need to know who you are, because it renders on
+ * somebody's hardware with somebody's API keys and a generation there is not
+ * free. So when it is configured with a Clerk instance, identity comes from
+ * Clerk instead, and a request with no signed-in user is refused rather than
+ * handed an anonymous library.
+ *
+ * That is a *deployment* difference and it stops there. `docs/CONTRACT.md` §1
+ * requires this to run with zero API keys and zero network, and the landing copy
+ * sells precisely that ("no account, no key" —
+ * `components/marketing/features.tsx`). A build that could not start without
+ * reaching a login service would falsify both. So the switch is
+ * `clerkConfigured()` in `./clerk.ts` — both Clerk variables present and
+ * non-empty — and when it is false nothing in `@clerk/nextjs` is imported, let
+ * alone called. `pnpm dev` on a machine with no Clerk account and no network
+ * behaves exactly as it did before this paragraph existed.
+ *
+ * ## One function decides, and only one
+ *
+ * `resolveIdentity` is the switch, and it is the only thing in this file that
+ * knows Clerk exists. Everything below it is untouched, because the ownership
+ * machinery reads exactly one field of a `Session`: `id`. `requireOwner` compares
+ * a digest of it, `ownedProjectsFilter` filters on a digest of it,
+ * `requireViewable` asks `requireOwner`. Swapping where the id *comes from*
+ * therefore costs nothing downstream, which is why this is an addition rather
+ * than a rewrite — and why `readSession` is still here, still synchronous, still
+ * the anonymous path, with its tests untouched.
+ *
+ * ## A user id is namespaced before it is digested
+ *
+ * A Clerk user id becomes the session id `clerk:user_2abc…`, and that colon is
+ * doing cryptographic work. `meta.json` stores `sessionOwnerTag(id)` — a keyed
+ * digest, never the id — so namespacing the id is what keeps a raw Clerk user id
+ * off disk for free, and it is what makes the two identity spaces disjoint:
+ * anonymous ids are base64url (`/^[A-Za-z0-9_-]{16,64}$/`, enforced in
+ * `verifySessionToken`) and cannot contain a colon, so no anonymous session id
+ * can ever spell the same HMAC message as a user id. That is the same
+ * prefix-separation argument `SIGN_DOMAIN` and `OWNER_DOMAIN` rest on, applied
+ * one level in.
+ *
+ * ## Projects that predate the sign-in
+ *
+ * Turning Clerk on does not migrate anything. A project written by an anonymous
+ * browser carries `HMAC(OWNER_DOMAIN:<random id>)`; the same person signed in
+ * carries `HMAC(OWNER_DOMAIN:clerk:<user id>)`; the tags do not match and are
+ * not meant to. So on a box that switches, pre-existing projects drop out of
+ * `/library`, refuse `DELETE`/`/edit`/`/rerender` with a 403, and remain
+ * reachable through any share link already published. Saying that plainly is
+ * half the requirement; the other half is a way out, and `cookieSession` is it —
+ * see its docstring for the exact claim flow, which reuses `requireOwner` rather
+ * than inventing a second ownership rule.
+ *
+ * This is a self-hoster's problem and not a launch-day one: `inkcast.video`
+ * starts with an empty disk, so there is nothing there to orphan.
  *
  * ## Why a signature at all, when the id is already random
  *
@@ -73,6 +130,9 @@ import path from 'node:path';
 import { PROJECTS_DIR, readProjectTruth } from '@/lib/store';
 import type { ProjectFilter, ProjectRecord } from '@/lib/store';
 
+import { clerkConfigured } from './clerk';
+import type { ClerkServerModule } from './clerk';
+
 /* --------------------------------------------------------------- the secret */
 
 /**
@@ -80,6 +140,29 @@ import type { ProjectFilter, ProjectRecord } from '@/lib/store';
  */
 const SIGN_DOMAIN = 'inkcast.session.v1';
 const OWNER_DOMAIN = 'inkcast.owner.v1';
+
+/**
+ * The prefix that turns a Clerk user id into a session id, and the reason it is
+ * a constant rather than a string literal typed twice.
+ *
+ * It is a third domain separator, one level below the two above: the message fed
+ * to the owner HMAC is `inkcast.owner.v1:clerk:user_2abc…` for an account and
+ * `inkcast.owner.v1:<base64url>` for a browser. Those messages cannot collide,
+ * because `verifySessionToken` only ever accepts an id matching
+ * `/^[A-Za-z0-9_-]{16,64}$/` and a colon is not in that set — so there is no
+ * anonymous cookie, forged or genuine, whose id can be read as a user id or vice
+ * versa.
+ *
+ * It also means `sessionOwnerTag` needed no new parameter and no new domain, so
+ * the one existing caller that derives a tag directly
+ * (`app/api/generate/route.ts`, which stamps ownership on a project's first
+ * upsert) keeps working for signed-in users without being edited. A second HMAC
+ * domain would have been equally sound cryptographically and strictly worse
+ * operationally: it would have made every existing `sessionOwnerTag(session.id)`
+ * call site silently derive the *wrong* tag for an account, and the symptom
+ * would have been an empty library rather than an error.
+ */
+const USER_ID_PREFIX = 'clerk:';
 
 /**
  * Shortest secret a hosted deployment may sign with.
@@ -203,9 +286,19 @@ export const SESSION_COOKIE = 'inkcast_session';
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 365;
 
 export type Session = {
-  /** 128 bits of randomness, base64url. Server-side only, except in the cookie. */
+  /**
+   * The identity, as one opaque string. Either 128 bits of randomness in
+   * base64url (an anonymous browser) or `clerk:<user id>` (an account). Nothing
+   * downstream parses it: it is the input to `sessionOwnerTag` and nothing else.
+   */
   id: string;
-  /** `id.signature` — exactly the string that belongs in the cookie. */
+  /**
+   * `id.signature` — exactly the string that belongs in the cookie — or the
+   * empty string for an identity that is not carried by one. A Clerk session's
+   * proof is Clerk's own cookie, so there is nothing for us to sign and nothing
+   * to set; `fresh` is false on those, which already makes `setSessionCookie` a
+   * no-op, and the emptiness is belt to that braces.
+   */
   token: string;
   /**
    * True when this request did not arrive with a valid cookie, so the caller
@@ -213,6 +306,15 @@ export type Session = {
    * browser already had a good cookie and re-sending it would be noise.
    */
   fresh: boolean;
+  /**
+   * Where this identity came from. Optional, and that is a compatibility
+   * decision rather than an oversight: every constructor in this file sets it,
+   * but making it required would break any hand-built `Session` literal
+   * elsewhere in the tree for no gain, because nothing in the ownership path
+   * reads it. It exists so a route that genuinely needs to say "signed-in users
+   * only" can ask, instead of sniffing `id` for a prefix.
+   */
+  kind?: 'anon' | 'user';
 };
 
 /** Everything `NextResponse.cookies.set` needs, as a plain object. */
@@ -234,7 +336,25 @@ function sign(id: string, secret: string): string {
 export function mintSession(env: NodeJS.ProcessEnv = process.env): Session {
   const secret = requireSessionSecret(env);
   const id = randomBytes(16).toString('base64url');
-  return { id, token: `${id}.${sign(id, secret)}`, fresh: true };
+  return { id, token: `${id}.${sign(id, secret)}`, fresh: true, kind: 'anon' };
+}
+
+/**
+ * The session for a signed-in Clerk user.
+ *
+ * `fresh: false` and an empty token, so no cookie is minted, set or sent. That
+ * is what keeps this an addition rather than a migration: the ~20
+ * `setSessionCookie(...)` call sites and the raw `sessionCookieHeader` in the SSE
+ * route are all already gated on `session.fresh`, so an account produces exactly
+ * the same responses it would have without this function existing, minus a
+ * `Set-Cookie` that would have meant nothing.
+ *
+ * The id is namespaced (see `USER_ID_PREFIX`) before anything digests it, so a
+ * raw Clerk user id never reaches `meta.json` and no user id can be spelled as an
+ * anonymous session id.
+ */
+export function userSession(userId: string): Session {
+  return { id: `${USER_ID_PREFIX}${userId}`, token: '', fresh: false, kind: 'user' };
 }
 
 /**
@@ -321,10 +441,57 @@ export function readSession(
   request: { headers: Headers },
   env: NodeJS.ProcessEnv = process.env,
 ): Session {
+  return cookieSession(request, env) ?? mintSession(env);
+}
+
+/**
+ * The anonymous session this request's cookie actually proves, or `undefined`.
+ *
+ * The same work `readSession` does, minus the minting — which is the difference
+ * between "who is this" and "does this browser hold a cookie we issued". Two
+ * callers want the second question.
+ *
+ * ## Claiming projects made before the sign-in
+ *
+ * A deployment that turns Clerk on strands the projects its visitors made
+ * anonymously: the tags in `meta.json` are digests of a random cookie id and a
+ * signed-in user digests to something else, so those projects leave `/library`
+ * and refuse mutation (see this file's header). The cookie itself, though, is
+ * still in the browser — `SESSION_MAX_AGE_SEC` is a year — so the proof of the
+ * old identity is still being presented on every request. That is what makes a
+ * claim possible without a migration script, a database, or a second notion of
+ * ownership:
+ *
+ * ```ts
+ * // POST /api/projects/:id/claim  — not written here; this file owns no routes.
+ * const who = await resolveIdentity(request);
+ * if (!who.ok) return fail(who.status, who.message);
+ * const previous = cookieSession(request);
+ * if (!previous) return fail(409, 'no earlier anonymous session on this browser');
+ * const verdict = await requireOwner(id, previous);          // the same arbiter
+ * if (!verdict.ok) return fail(verdict.status, verdict.message);
+ * await upsertProject(id, { ownerSession: sessionOwnerTag(who.session.id) });
+ * ```
+ *
+ * `requireOwner` is deliberately the one doing the deciding. A claim route that
+ * compared tags itself would be a second authorization rule for the same fact,
+ * and every time this repo has grown one of those — `/settings` hiding the BYOK
+ * panel while `/api/keys` stayed open — the two have drifted apart in the
+ * direction of the more permissive one.
+ *
+ * Note also what this cannot do: `previous` is whatever cookie the *browser*
+ * sends, so a claim only ever transfers projects that browser could already
+ * delete. Nothing here lets an account reach a project it did not already own
+ * under its old identity.
+ */
+export function cookieSession(
+  request: { headers: Headers },
+  env: NodeJS.ProcessEnv = process.env,
+): Session | undefined {
   const token = cookieValue(request.headers.get('cookie'), SESSION_COOKIE);
   const id = verifySessionToken(token, env);
-  if (id === undefined) return mintSession(env);
-  return { id, token: token!, fresh: false };
+  if (id === undefined) return undefined;
+  return { id, token: token!, fresh: false, kind: 'anon' };
 }
 
 /**
@@ -374,7 +541,13 @@ export function setSessionCookie<R extends CookieSink>(
   session: Session,
   env: NodeJS.ProcessEnv = process.env,
 ): R {
-  if (session.fresh) response.cookies.set(sessionCookie(session, env));
+  // `token !== ''` alongside `fresh` is redundant today and cheap insurance
+  // tomorrow: the only sessions with an empty token are Clerk's and the
+  // signed-out stranger's, and both are constructed `fresh: false`. If a future
+  // constructor gets that wrong, the failure this guard prevents is a
+  // `Set-Cookie: inkcast_session=` that *clears* the caller's real cookie — data
+  // loss for an anonymous user, and invisible until their library empties.
+  if (session.fresh && session.token !== '') response.cookies.set(sessionCookie(session, env));
   return response;
 }
 
@@ -383,6 +556,12 @@ export function setSessionCookie<R extends CookieSink>(
  *
  * Streaming endpoints (`/api/generate/<id>/stream`) build a raw `Response`
  * around a `ReadableStream` and have no `cookies` helper to call.
+ *
+ * Unlike `setSessionCookie` this cannot decide for itself whether there is
+ * anything to send, because its return value is a header string and there is no
+ * "no header" to return. Every call site is therefore already inside an
+ * `if (session.fresh)`, and must stay there: an account has no token to put in a
+ * cookie, and emitting one anyway would clear whatever cookie the browser had.
  */
 export function sessionCookieHeader(
   session: Session,
@@ -399,6 +578,170 @@ export function sessionCookieHeader(
   ].join('; ');
 }
 
+/* -------------------------------------------------------------- the identity */
+
+/**
+ * Who is calling, as one value a route can act on without knowing which kind of
+ * deployment it is running in.
+ *
+ * Shaped like `OwnerVerdict` on purpose — `ok`, and on refusal a `status` and the
+ * sentence to show — because every call site is a route already written in that
+ * idiom, so adopting this costs one line:
+ *
+ * ```ts
+ * const who = await resolveIdentity(request);
+ * if (!who.ok) return fail(who.status, who.message);
+ * const session = who.session;            // and the rest of the handler is unchanged
+ * ```
+ *
+ * The two `ok` variants both carry a `session`, so a handler that does not care
+ * *how* the caller was identified never asks. `via` is there for the handlers
+ * that legitimately do — a route that must not spend money for an anonymous
+ * visitor, a settings page that only makes sense for an account.
+ *
+ * ## Why the refusal carries a session too
+ *
+ * `stranger` is what makes this usable by the routes that must never 401. Two of
+ * them exist and both are load-bearing: `GET /api/projects/<id>`, which
+ * `app/share/<id>/page.tsx` fetches server-side with no cookie forwarded, and
+ * `GET /api/media/<id>/<path…>`, which is what a `<video>` element and every
+ * range request behind it actually hit. If those refused a signed-out caller,
+ * every share link on the internet would 404 — which is the most likely
+ * accidental casualty of adding authentication to this app, so the shape of this
+ * type is built to make the safe thing writable in one line:
+ *
+ * ```ts
+ * const who = await resolveIdentity(request);
+ * const session = who.ok ? who.session : who.stranger;   // public read path
+ * ```
+ *
+ * A stranger is a freshly minted anonymous session marked `fresh: false`. Fresh
+ * so that it matches nothing on disk and can therefore see only what has been
+ * shared; not-fresh so that no cookie is set — handing a signed-out visitor on an
+ * account-based deployment a durable anonymous identity would accumulate an
+ * identity they can never sign into, and would quietly re-open the anonymous
+ * ownership path on a box that had opted out of it.
+ */
+export type Identity =
+  | { ok: true; session: Session; via: 'user'; userId: string }
+  | { ok: true; session: Session; via: 'anonymous' }
+  | {
+      ok: false;
+      status: 401;
+      reason: 'sign-in-required';
+      message: string;
+      stranger: Session;
+    };
+
+/**
+ * How `resolveIdentity` asks Clerk who is calling. Injectable for tests.
+ *
+ * This is the same reason every other export in this file takes an `env`: both
+ * branches have to be exercisable in one `node --test` process. `auth()` reads
+ * Next's async request context and only works once `clerkMiddleware` has run, so
+ * there is no request one could construct that would drive the real thing from a
+ * unit test — and a Clerk branch that is only ever exercised in production is a
+ * Clerk branch nobody has checked.
+ */
+export type IdentityOptions = {
+  readUserId?: () => Promise<string | null>;
+};
+
+/**
+ * The one switch: Clerk when configured, the anonymous cookie when not.
+ *
+ * ## Configured, and signed out, is a refusal — not an anonymity
+ *
+ * The tempting third behaviour is to fall through to the cookie when Clerk finds
+ * nobody, so that a signed-out visitor still gets a library. It is wrong in both
+ * directions. Security first: on `inkcast.video` a generation costs real money,
+ * and a fall-through means the sign-in requirement is satisfied by deleting a
+ * cookie. But it is also wrong for the honest user, because it produces two
+ * libraries per person — one attached to their account, one to their browser —
+ * that are both real, neither complete, and swap places when they sign out.
+ * Refusing is the only answer that is a single story.
+ *
+ * ## A broken Clerk is a refusal too
+ *
+ * If `auth()` throws — the package missing, `clerkMiddleware` not reached on this
+ * path, Clerk's API unreachable — this refuses. It does not degrade to anonymous.
+ * `docs/PLAN-LAUNCH.md` names silent degradation as this repo's dominant failure
+ * mode, and the version of it available here is the worst one available anywhere:
+ * an authentication check that becomes a no-op when a dependency fails. A 401 on
+ * a broken box is a visible outage; a downgrade is an invisible one.
+ *
+ * Unconfigured, nothing above is reached and nothing in `@clerk/nextjs` is
+ * imported: the whole Clerk branch is behind `clerkConfigured(env)`, and
+ * `readSession` is called exactly as it was before. That property is asserted in
+ * `session.test.ts` by passing a `readUserId` that records its calls and proving
+ * the count stays zero.
+ */
+export async function resolveIdentity(
+  request: { headers: Headers },
+  env: NodeJS.ProcessEnv = process.env,
+  options: IdentityOptions = {},
+): Promise<Identity> {
+  if (!clerkConfigured(env)) {
+    return { ok: true, session: readSession(request, env), via: 'anonymous' };
+  }
+
+  let userId: string | null = null;
+  try {
+    const readUserId = options.readUserId ?? clerkUserId;
+    userId = await readUserId();
+  } catch {
+    // Deliberately swallowed and deliberately not distinguished from signed-out.
+    // The caller gets a 401 either way, and the operator gets the real diagnosis
+    // from the unhandled-rejection-shaped stack Clerk itself logs plus
+    // `/api/health`. Reporting "the identity provider is broken" to an anonymous
+    // caller tells an attacker which failure they just induced.
+    userId = null;
+  }
+
+  if (userId === null || userId === '') {
+    return {
+      ok: false,
+      status: 401,
+      reason: 'sign-in-required',
+      message: 'sign in to continue',
+      stranger: { ...mintSession(env), fresh: false },
+    };
+  }
+  return { ok: true, session: userSession(userId), via: 'user', userId };
+}
+
+/**
+ * Pinned to `globalThis` for the same reason the secret is: `next dev`
+ * re-evaluates module bodies on every edit, and re-importing an SDK on each one
+ * is pure waste. The *promise* is cached rather than the module, so two requests
+ * arriving during a cold start share one import instead of racing two.
+ */
+const clerkScope = globalThis as typeof globalThis & {
+  __inkcastClerkServer?: Promise<ClerkServerModule>;
+};
+
+/**
+ * The real reader. Only ever called behind `clerkConfigured`, and lazily, which
+ * is the property the whole self-hosting story rests on: on a checkout with no
+ * Clerk account this line is never reached, so `@clerk/nextjs` is never
+ * evaluated, cannot complain about a missing publishable key, and cannot open a
+ * connection.
+ *
+ * A rejection here — the package absent, `clerkMiddleware` never reached on this
+ * path, Clerk's API unreachable — propagates to `resolveIdentity`'s `catch` and
+ * becomes a 401. Never a fallback to anonymous: see that function's docstring.
+ */
+async function clerkUserId(): Promise<string | null> {
+  // No cast and no suppression: `ClerkServerModule` is built from `typeof auth`
+  // and `typeof clerkMiddleware`, so this is checked against the SDK's own
+  // declarations. See `./clerk.ts` for why it used to be a `@ts-ignore` and what
+  // the install revealed about the hand-written shape it replaced.
+  clerkScope.__inkcastClerkServer ??= import('@clerk/nextjs/server');
+  const { auth } = await clerkScope.__inkcastClerkServer;
+  const state = await auth();
+  return state.userId;
+}
+
 /* ------------------------------------------------------------------ ownership */
 
 /**
@@ -413,6 +756,27 @@ export function sessionOwnerTag(sessionId: string, env: NodeJS.ProcessEnv = proc
   return createHmac('sha256', requireSessionSecret(env))
     .update(`${OWNER_DOMAIN}:${sessionId}`)
     .digest('base64url');
+}
+
+/**
+ * The owner tag for a whole `Session`, whichever kind it is.
+ *
+ * Today this is `sessionOwnerTag(session.id)` and nothing more, because a user id
+ * is already namespaced into the id before it gets here (`USER_ID_PREFIX`) — so
+ * the digests are separated without the derivation needing to branch. The
+ * function exists anyway, and is what the code below calls, for a reason worth
+ * one line: it is the single place that would have to change if a third identity
+ * source ever arrives, and it names the right unit. `sessionOwnerTag` takes a
+ * string, so nothing stops a caller passing the wrong one; this takes the
+ * identity itself, which is the thing ownership is actually about.
+ *
+ * `sessionOwnerTag` stays exported and unchanged, both because its docstring's
+ * warning still applies and because `app/api/generate/route.ts` calls it directly
+ * when it stamps ownership on a new project. That call remains correct for
+ * accounts as well as browsers, which was the design constraint.
+ */
+export function ownerTagFor(session: Session, env: NodeJS.ProcessEnv = process.env): string {
+  return sessionOwnerTag(session.id, env);
 }
 
 /**
@@ -481,7 +845,7 @@ export async function requireOwner(
     }
     return { ok: true, project: truth.record, owner: 'unclaimed' };
   }
-  const mine = sessionOwnerTag(session.id, env);
+  const mine = ownerTagFor(session, env);
   // Constant time for the same reason the cookie signature is: this compares a
   // keyed digest, and a byte-at-a-time answer is a byte-at-a-time forgery guide.
   if (!sameTag(truth.ownerSession, mine)) {
@@ -552,7 +916,7 @@ export function ownedProjectsFilter(
   session: Session,
   env: NodeJS.ProcessEnv = process.env,
 ): ProjectFilter {
-  return { ownerSession: sessionOwnerTag(session.id, env) };
+  return { ownerSession: ownerTagFor(session, env) };
 }
 
 /* ---------------------------------------------------------------- boot check */

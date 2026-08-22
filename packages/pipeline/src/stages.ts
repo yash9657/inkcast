@@ -37,8 +37,26 @@ export type IngestInput = { text?: string; filePath?: string; url?: string };
  */
 export type SourceDoc = { title?: string; text?: string } & Record<string, unknown>;
 
-/** Output format presets, mirrored from the planner so nothing imports it eagerly. */
-export type PresetName = 'standard' | 'short' | 'square';
+/**
+ * Output format presets, mirrored from the planner so nothing imports it eagerly.
+ *
+ * `explainer` was added to `planner/src/PRESETS` and never added here, and a drifted
+ * mirror is worse than no mirror because it fails at the one boundary that matters. The
+ * consequence, measured: `CastInput.preset` is this type, so `preset: 'explainer'` was not
+ * *assignable* — the studio's whole hosted format cap (`hostedFormat()` in
+ * `apps/web/lib/jobs.ts`, exported and unit-tested for a day) could not be handed to
+ * `cast()` at all, and `pnpm --filter @inkcast/web typecheck` is where it finally said so.
+ * Nobody caught it earlier because nobody had tried to pass the value; a preset the
+ * pipeline cannot name is a preset that only exists in the planner's own tests.
+ *
+ * Still a mirror rather than `import type { PresetName } from '@inkcast/planner'`, for the
+ * reason this file's header gives: the signatures here are declared, not imported, so the
+ * CLI can print help and list projects while a stage package is half-installed. What is
+ * new is that the mirror is no longer guarded by hope — `test/preset-mirror.test.ts`
+ * asserts this union is exactly `Object.keys(PRESETS)`, in both directions, so the next
+ * preset cannot be added on one side only.
+ */
+export type PresetName = 'standard' | 'short' | 'square' | 'explainer';
 
 /** Format options every lesson-shaped stage understands. */
 export type FormatOptions = {

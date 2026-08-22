@@ -55,12 +55,36 @@ import { compileLesson } from '../src/compile.js';
  * launch build, which touched `presets.ts`, `lesson-anthropic.ts`, `draw-anthropic.ts`,
  * `core/src/camera.ts`, `render/src/sketch.ts` and `render/src/render.ts` and moved none
  * of them.
+ *
+ * ## One re-pin, 2026-08-22: longitude/short, `c0f2ccc5024c` -> `882002cbf24c`
+ *
+ * Cause: `text.ts`'s `DANGLING` list grew the closed classes it had only half enumerated
+ * (defect 0b), and `between` was one of the words it had been missing. Effect on this film,
+ * measured rather than argued: **one string**. The whole storyboard delta is
+ *
+ *     "label": "Longitude is a difference between"   ->   "Longitude is a difference"
+ *
+ * How that was established, because "updating the number is easier than checking the
+ * pixels" is the hazard this header opens with. `text.ts` was unmodified in the working
+ * tree, so `git show HEAD~1:packages/planner/src/text.ts` is exactly the trimmer that
+ * produced `c0f2ccc5024c`. Compiling longitude/short under each version and diffing the
+ * two pretty-printed storyboards gives `4` lines of `diff` output — one changed `label`
+ * and nothing else. `standard` stayed at `a9b5b8960ed0` under both, and the two
+ * gradient-descent pins never moved, which is the cross-check that says this is a string
+ * and not geometry: the type-scale attempt reverted in `45d4ff9` moved all four hashes and
+ * rewrote 330 geometric values, and that is what a geometry regression looks like here.
+ *
+ * No frames were rendered for this re-pin and none were needed. The header asks for pixels
+ * because a moved hash is normally a moved *shape*, and a diff cannot tell you whether a
+ * new shape is better. A one-word-shorter caption at an unchanged anchor has no shape to
+ * look at; the trimmed word is the evidence, and it is a caption that used to promise a
+ * noun it never delivered.
  */
 const PINNED = [
   { lesson: 'gradient-descent', preset: 'standard', hash: 'b6ed04d68aaa', scenes: 9 },
   { lesson: 'gradient-descent', preset: 'short', hash: '4aa467530110', scenes: 7 },
   { lesson: 'longitude', preset: 'standard', hash: 'a9b5b8960ed0', scenes: 8 },
-  { lesson: 'longitude', preset: 'short', hash: 'c0f2ccc5024c', scenes: 6 },
+  { lesson: 'longitude', preset: 'short', hash: '882002cbf24c', scenes: 6 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

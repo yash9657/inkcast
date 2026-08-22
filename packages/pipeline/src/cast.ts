@@ -860,6 +860,26 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     ...(design.lesson ? { lessonChars: JSON.stringify(design.lesson).length } : {}),
     narratedChars,
     generatedAssets,
+    /*
+     * Did the lesson stage actually call a model on *this* run? Only the caller can
+     * answer that, which is why `costOf` takes it rather than inferring it.
+     *
+     * The half of the phantom-cost bug that `authoredChars > 0` cannot reach. When the
+     * lesson is served from cache at the top of this file (`run.skip('lesson',
+     * 'cached')`), `design.author` stays `'anthropic'` and `design.lesson` is the full
+     * cached lesson, so the line above hands `costOf` nine thousand tokens' worth of
+     * real characters — a defensive floor against *zero* characters is no help against
+     * text that genuinely exists. That is `projects/cardiac`: $0.2567 billed to a stage
+     * its own `skipped` array names, 41% of that project's recorded $0.627, and the
+     * reason a user who re-rendered a film watched the price go up.
+     *
+     * `costProviders` above does not cover it either — its `planner` override fires only
+     * for `author === 'supplied'`, and a cached Anthropic lesson is not that.
+     *
+     * Both conditions, not just the skip: `design.author` also covers `'supplied'` and
+     * `'none'`, where no model ran and there was never a cache entry to skip.
+     */
+    lessonAuthored: design.author === 'anthropic' && !run.skipped.includes('lesson'),
   });
   const now = new Date().toISOString();
   const state: PipelineState = {

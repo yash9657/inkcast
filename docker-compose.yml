@@ -58,6 +58,18 @@ services:
         # cannot introduce a stale localhost into a production bundle.
         INKCAST_PUBLIC_URL: ${INKCAST_PUBLIC_URL:-}
         INKCAST_REPO_URL: ${INKCAST_REPO_URL:-}
+
+        # Clerk's publishable key, at BUILD time — and this one genuinely is
+        # inlined, not merely "might be one day". `next build` prerenders the
+        # landing route (`○ /`) and `signInRequired` in
+        # apps/web/components/marketing/site-config.ts reads this variable, so the
+        # landing copy is frozen here. Build without it and run with it and the
+        # page still says "no account, no key" on a site that requires one.
+        #
+        # Empty means this image has no accounts: anonymous cookie identity,
+        # /sign-in and /sign-up return 404, self-hosted landing copy. See
+        # docs/AUTH.md.
+        CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
     image: inkcast:local
     restart: unless-stopped
 
@@ -67,7 +79,69 @@ services:
       # Turns on everything that only makes sense when strangers can reach this:
       # the per-IP token bucket (`limiterEnabled` in ratelimit.ts), the 20k-char
       # source cap, and the hiding of the bring-your-own-key panel on /settings.
-      INKCAST_HOSTED: "1"
+      INKCAST_HOSTED: '1'
+
+      # Not optional, and it is `?err` rather than `:-` for a reason. Setting
+      # INKCAST_HOSTED=1 without this produces a box whose API is *dead*:
+      # `requireSessionSecret` (app/api/_lib/session.ts:118) throws when hosted
+      # and unset, it is imported at the bottom of that module, and the message
+      # says why — "a fallback key would be a key every reader of this source also
+      # has". This compose file used to set the first variable and not the second,
+      # so `docker compose up -d` came up healthy-looking and served 500s on every
+      # route that touches a session. Failing at `compose up` with a readable
+      # complaint is the whole improvement.
+      #
+      # Minimum 24 characters (MIN_SECRET_LENGTH, session.ts:94):
+      #   echo "INKCAST_SESSION_SECRET=$(openssl rand -hex 32)" >> .env
+      INKCAST_SESSION_SECRET: ${INKCAST_SESSION_SECRET:?set INKCAST_SESSION_SECRET in .env — openssl rand -hex 32}
+
+      # Accounts, and the pair rule behind them.
+      #
+      # Both blank is a complete, supported configuration: identity falls back to
+      # the signed anonymous cookie above and this box has no accounts. That is
+      # what a self-hoster gets, and `docs/CONTRACT.md` §1 requires it to keep
+      # working — a mandatory third-party login would falsify both the contract and
+      # the landing page.
+      #
+      # Both set turns on accounts. Exactly one set is treated as *unconfigured*
+      # on purpose (`clerkConfigured` in app/api/_lib/clerk.ts): secret-only is a
+      # site that refuses everybody and offers no door, publishable-only is a
+      # login page whose result the server cannot verify. Neither is a state worth
+      # being able to reach.
+      #
+      # The publishable key must ALSO be passed as the CLERK_PUBLISHABLE_KEY build
+      # argument above, or the prerendered landing page ships the wrong copy.
+      # Setting it in only one of the two places is the likeliest mistake here.
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+
+      # Optional. Where the shell's sign-in links point, and the one link that is
+      # omitted rather than guessed when unset: NEXT_PUBLIC_CLERK_ACCOUNT_URL is
+      # Clerk's hosted Account Portal (an accounts.<domain> address this app cannot
+      # derive), and signing out needs Clerk's own UI. With it unset the nav shows
+      # an unlinked "Signed in" chip instead of pointing at a guess, and there is
+      # no way to sign out from inside the app.
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${CLERK_SIGN_IN_URL:-}
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${CLERK_SIGN_UP_URL:-}
+      NEXT_PUBLIC_CLERK_ACCOUNT_URL: ${CLERK_ACCOUNT_URL:-}
+
+      # The master key every per-account API key is encrypted under, and `:?` for
+      # the same reason INKCAST_SESSION_SECRET is: without it
+      # apps/web/app/api/_lib/secrets.ts throws at import on a hosted box, so
+      # /api/keys 500s on every request. Failing at `compose up` with a readable
+      # complaint beats discovering it when a user pastes a credential.
+      #
+      # It is demanded on every hosted box, not only ones running Clerk, because
+      # `INKCAST_HOSTED=1` is what arms that check — the anonymous-cookie identity
+      # scopes stored keys just as well as an account does, so BYOK works on a
+      # Clerk-less hosted box too.
+      #
+      #   echo "INKCAST_SECRET_KEY=$(openssl rand -hex 32)" >> .env
+      #
+      # Rotating it is not a one-line change: every stored record has to be
+      # re-wrapped *and* every file renamed, because the filename is derived from
+      # it. See docs/AUTH.md, "Rotating the encryption key".
+      INKCAST_SECRET_KEY: ${INKCAST_SECRET_KEY:?set INKCAST_SECRET_KEY in .env — openssl rand -hex 32}
 
       # The app's own idea of its public address. Empty is a working value, not a
       # missing one: `/share/<id>` then derives the base from the request's Host
@@ -82,7 +156,7 @@ services:
       # without changing that line breaks per-IP limiting closed (every request
       # lands in the shared `unattributable` bucket). See the long note in
       # ratelimit.ts.
-      INKCAST_TRUSTED_PROXY_HOPS: "1"
+      INKCAST_TRUSTED_PROXY_HOPS: '1'
 
       # Server-side provider keys. Read from the host environment or `.env` and
       # never baked into the image — a key in a layer is a key that gets pushed.
@@ -138,9 +212,9 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "node",
-          "-e",
+          'CMD',
+          'node',
+          '-e',
           "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
@@ -149,7 +223,7 @@ services:
       start_period: 40s
 
     expose:
-      - "3000"
+      - '3000'
 
   caddy:
     image: caddy:2-alpine
@@ -161,13 +235,13 @@ services:
       # 80 is not optional once TLS is in use: the ACME HTTP-01 challenge and the
       # HTTP→HTTPS redirect both need it. On a laptop with the localhost default
       # nothing is served on 443 and this is merely idle.
-      - "80:80"
-      - "443:443"
-      - "443:443/udp" # HTTP/3
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
       # The localhost default in the Caddyfile is `http://localhost:8080`, so this
       # is the port a developer opens. Harmless in production, where the site
       # address is an https:// URL and Caddy never binds 8080.
-      - "8080:8080"
+      - '8080:8080'
     environment:
       INKCAST_PUBLIC_URL: ${INKCAST_PUBLIC_URL:-http://localhost:8080}
       INKCAST_ACME_EMAIL: ${INKCAST_ACME_EMAIL:-}
@@ -207,7 +281,7 @@ services:
     # enough that a 48 h TTL is not effectively 42 h. `exec` so tini's signal
     # handling reaches the sleep and `docker compose down` is not a ten-second
     # wait.
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: ['/bin/sh', '-c']
     command:
       - |
         while true; do

@@ -727,7 +727,10 @@ export async function narrate(
         // makes the restart clean: the clip for this scene exists on disk but is not
         // marked fresh, so the next attempt re-synthesises it rather than trusting a
         // file that may be half one voice and half another.
-        if (abandonedAttempts + 1 < MAX_VOICE_ATTEMPTS && chain.fallbacks().length > fallbacksBefore) {
+        if (
+          abandonedAttempts + 1 < MAX_VOICE_ATTEMPTS &&
+          chain.fallbacks().length > fallbacksBefore
+        ) {
           const fell = chain.fallbacks()[fallbacksBefore]!;
           abandonedAttempts++;
           fallbacksBefore = chain.fallbacks().length;
@@ -973,9 +976,7 @@ export async function narrate(
     // that fell back to the local engine costs exactly zero here, by construction
     // rather than by a special case somebody has to remember to write.
     costUsd: elevenLabsCostUsd(spoken.get('elevenlabs') ?? 0, engines.get('elevenlabs')),
-    ...(abandonedChars > 0
-      ? { abandonedChars, abandonedCostUsd: round4(abandonedCostUsd) }
-      : {}),
+    ...(abandonedChars > 0 ? { abandonedChars, abandonedCostUsd: round4(abandonedCostUsd) } : {}),
   };
   if (voice.spoke) {
     log.info(

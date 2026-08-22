@@ -329,7 +329,7 @@ export async function resolveEquation(
   if (bad) {
     log.warn(
       `could not typeset "${tex}": ${bad} — drawing its TeX source as text instead. ` +
-        'Only MathJax\'s `base` TeX package is loaded here (see `loadEngine`), so a valid ' +
+        "Only MathJax's `base` TeX package is loaded here (see `loadEngine`), so a valid " +
         'macro from another package fails exactly like a typo does.',
     );
     return undefined;

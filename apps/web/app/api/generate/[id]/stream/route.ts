@@ -33,7 +33,7 @@
  */
 
 import { badRequest } from '../../../_lib/http';
-import { readSession, requireOwner, sessionCookieHeader } from '../../../_lib/session';
+import { requireOwner, resolveIdentity, sessionCookieHeader } from '../../../_lib/session';
 import type { Session } from '../../../_lib/session';
 import { getProject, isValidProjectId, projectExists } from '@/lib/store';
 import { isTerminal, subscribe } from '@/lib/jobs';
@@ -56,7 +56,29 @@ export async function GET(
   const { id } = await context.params;
   if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
 
-  const session = readSession(request);
+  /*
+   * Identity before ownership, and a signed-out caller is refused — this stream
+   * carries the run's live progress and its failure messages, which name
+   * providers and absolute paths on the box.
+   *
+   * The refusal is delivered as a one-shot `error` *event* on a 200 rather than as
+   * a 401, which is this route's existing convention and not an exception made for
+   * auth: `EventSource` cannot read the body of a non-2xx response, so a 401 would
+   * reach the browser as an `onerror` with no message and the studio would show a
+   * spinner that never resolves. The same reasoning already applies to the 403
+   * below (`verdict.message` on a 200), and splitting the two would mean this one
+   * route reported permission failures two different ways. Nothing is disclosed by
+   * the 200: the body is the sentence "sign in to continue" and no project state is
+   * read before this line.
+   *
+   * No session is passed to the refusal, and `oneShot` takes none — see its
+   * docstring. Nothing is minted, nothing is set, and there is no `who.stranger`
+   * anywhere in this file for an audit to have to reason about.
+   */
+  const who = await resolveIdentity(request);
+  if (!who.ok) return oneShot({ error: who.message });
+  const session = who.session;
+
   const verdict = await requireOwner(id, session);
   if (!verdict.ok) return oneShot({ error: verdict.message }, session);
 
@@ -177,7 +199,7 @@ export async function GET(
  * a new session on every subsequent request, and the projects it created would
  * each be owned by an identity it never held.
  */
-function sseHeaders(session: Session): Record<string, string> {
+function sseHeaders(session: Session | undefined): Record<string, string> {
   return {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -185,7 +207,7 @@ function sseHeaders(session: Session): Record<string, string> {
     // Tell nginx and friends not to buffer, which would defeat the whole
     // point by delivering every event at once when the run ends.
     'X-Accel-Buffering': 'no',
-    ...(session.fresh ? { 'Set-Cookie': sessionCookieHeader(session) } : {}),
+    ...(session?.fresh ? { 'Set-Cookie': sessionCookieHeader(session) } : {}),
   };
 }
 
@@ -198,7 +220,21 @@ function sseHeaders(session: Session): Record<string, string> {
  * exactly as it does on the real stream, and `retry` is long here because
  * whatever a refused client reconnects for is not going to change.
  */
-function oneShot(event: JobEvent, session: Session): Response {
+/**
+ * `session` is optional, and the one caller that omits it is the sign-in refusal.
+ *
+ * There is genuinely no session to attach there — a signed-out caller on a Clerk
+ * deployment has no identity and must not be issued one — and the alternative was
+ * to hand this the `stranger` session from `resolveIdentity` purely so the
+ * parameter had a value. That reads, at every call site and in every audit, as the
+ * route granting a stranger identity to an unauthenticated caller. It would not
+ * have been (a stranger is `fresh: false`, so `sseHeaders` emits no cookie either
+ * way) but "it happens to be inert" is a worse guarantee than "there is nothing
+ * there". `app/api/_lib/routes.test.ts` asserts that no gated route mentions
+ * `who.stranger` at all, and this is the change that makes that assertion true of
+ * this file rather than requiring an exception in it.
+ */
+function oneShot(event: JobEvent, session?: Session): Response {
   const body = `: inkcast stream open\n\nretry: 60000\n\ndata: ${JSON.stringify(event)}\n\n`;
   return new Response(body, { status: 200, headers: sseHeaders(session) });
 }

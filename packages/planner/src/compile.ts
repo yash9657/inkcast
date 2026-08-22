@@ -70,7 +70,7 @@ import {
 import type { BeatRole, Board } from './regions.js';
 import { planBoard } from './regions.js';
 import type { Recall, Referral } from './refer.js';
-import { findReferrals, nameOf, sameName, subjectOf } from './refer.js';
+import { findReferrals, nameOf, referTo, sameName, subjectOf } from './refer.js';
 import { buildPlot, describesAPlot, plotHints, recipeChosen, trim } from './plots.js';
 import { adaptLesson, resolvePreset } from './presets.js';
 import type { Preset } from './presets.js';
@@ -100,7 +100,14 @@ const log = logger('planner:compile');
  * This is a cache key and nothing else — it is not written into the storyboard — so a bump
  * must leave the pinned hashes exactly where they were:
  * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
- * b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 / c0f2ccc5024c.
+ * b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 / 882002cbf24c.
+ *
+ * The last of those four was `c0f2ccc5024c` until 2026-08-22 and it did not move for any
+ * reason on this list. It moved because `text.ts`'s `DANGLING` list learned the word
+ * `between`, which shortens exactly one caption on longitude/short — "Longitude is a
+ * difference between" -> "Longitude is a difference", four lines of `diff` across the whole
+ * storyboard and no geometry at all. The reasoning and the before/after commands are in
+ * `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
 export const COMPILER_VERSION = 3;
 
@@ -316,7 +323,20 @@ export function compileLesson(
   }
 
   const assets = registry();
-  const memory: BoardMemory = { pictures: new Map(), names: new Map() };
+  // Only the anchor. An interrupted edit initialised `pictures` and `names` here as well,
+  // meaning them to carry a subject -> asset and a name -> element index forward so that a
+  // referring beat could reuse the host's picture; both were written and never read, and
+  // `BoardMemory` never declared them, which is the TS2353 this file shipped with. They are
+  // gone rather than added to the type, because the identity they were going to track is
+  // already tracked, one layer down and unconditionally: `registry().mint` keys on the
+  // content-derived slug (`slugOf(describe)`, `underlayAsset(prompt)`), never on the beat,
+  // so two beats asking for the same subject resolve to one `Asset` and the generator is
+  // paid once — which is exactly the guarantee `findReferrals`' header claims for `wipe`
+  // mode, where there is no shared cell to lean on. `referTo` above supplies the other
+  // half, the shared cell. Adding two members nothing consults would have been the
+  // written-and-never-read pattern this repo has now paid for three times (sketch.ts's
+  // brand mark, the visuals stage's unread roughjs SVGs, defect 9).
+  const memory: BoardMemory = {};
 
   const scenes: Scene[] = beats.map(({ step, role }, i) => {
     const cell = inset(board.cellOf(i), 10);

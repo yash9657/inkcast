@@ -10,12 +10,13 @@
  * renderer owns the exact typeface, so it should fit text to the box rather than
  * assume a font size.
  *
- * "The board's type scale" and not "its own" — that distinction is defect 0. The
- * planner had its own catalogue of type sizes and it disagreed with the one the renderer
- * draws at, so a box measured here was not the box the letters landed in. `FONT` below
- * is now `TYPE_SCALE` from `@inkcast/core`, and its comment carries the measurement.
+ * "The board's type scale" and not "its own" — that distinction is defect 0, and `FONT`
+ * below is the planner's half of it: the sizes here are held to a stated ratio against
+ * `TYPE_SCALE` in `@inkcast/core`, which the renderer draws at, and
+ * `test/type-scale.test.ts` fails if either side moves without the other. What it is *not*
+ * is equal to it — the two are in different units, and the measurement that says so is in
+ * `FONT`'s own comment.
  */
-import { TYPE_SCALE } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -45,43 +46,85 @@ type Z = { x: number; y: number };
 type Role = TextElement['role'];
 
 /**
- * Canvas units per role — `TYPE_SCALE` from `@inkcast/core`, not a second catalogue.
+ * Canvas units per role. Held to `TYPE_SCALE` by `TYPE_RATIO`, not equal to it.
  *
- * It used to be one: `{title: 76, heading: 50, body: 34, label: 27, caption: 22}`, said
- * to match the renderer "by convention", and it did not. The renderer draws at
- * `TYPE_SCALE` (96/62/42/32/26), so every box the planner reserved was 18–26% too small
- * for the letters that would land in it, and `docs/HANDOFF.md` ranks the consequence as
- * defect 0 — the thing a viewer notices first. Deriving it here rather than restating it
- * is the whole fix: there is now one number, in the package both stages already import,
- * and a change to it cannot reach one side and not the other.
+ * ## Why these are not `TYPE_SCALE`, having twice been made equal to it
  *
- * ## Why the pixel catalogue is also the right canvas-unit estimate
+ * `docs/HANDOFF.md` calls the two "two catalogues of one number" and the obvious fix is to
+ * delete one. It has now been tried from both ends and neither is the fix, because **they
+ * are not one number**: `TYPE_SCALE` is output pixels on a 1080-tall frame and this is
+ * canvas units, and `boardMetrics` converts between them with a factor the camera decides.
  *
- * `TYPE_SCALE` is quoted in output pixels and this is canvas units, which sounds like a
- * unit error and is the reason the two were allowed to differ. It is not one, because
- * the conversion factor is `scale * gain` from `boardMetrics` and that was measured
- * rather than assumed. Over the six boards in the repository — `projects/try`,
- * `projects/cardiac8f`, and `gradient-descent` and `longitude` at both presets — it runs
- * 0.511, 0.948, 0.967, 0.986, 1.660, 1.667, with a **median of 0.98**. So the pixel
- * number is, to within 2%, the best canvas-unit estimate that can be made before the
- * camera exists, and no constant fudge factor could do better: the spread is a factor of
- * three and it is the camera's, not the typeface's.
+ * - Making the *renderer* draw at these numbers was attempted and reverted in `45d4ff9`.
+ *   It left three render tests red and shrank type by ~21% in every film, against the only
+ *   calibration in the repo (`compile.test.ts:147`, reasoning in pixel space: "a 96 px
+ *   title therefore lands as ~72.7 canvas units — which is what fits the 150-unit box the
+ *   author drew").
+ * - Making the *planner* reserve at those numbers — `FONT = { ...TYPE_SCALE }` — was
+ *   attempted in the launch build and is reverted here. Measured with
+ *   `packages/pipeline/src/sbhash.mts` and a full storyboard diff: it moves **all four**
+ *   pinned hashes, and on `gradient-descent` at `standard` alone it rewrites **330
+ *   geometric values** — every reserved box shifted, and some *narrower* than before,
+ *   because a larger size rewraps a string onto more lines. Not one character of text
+ *   changed. So it is 330 unverified box moves on two shipped films, and the pinned-hash
+ *   test is explicit that a re-pin has to be paid for by looking at the frames.
  *
- * What that leaves is the residual, and the residual is the honest remaining defect.
- * A board framed tighter than the median (`gradient-descent` at 0.51) reserves boxes
- * roughly twice as large as the letters need, which costs whitespace; a 9:16 short at
- * 1.66 reserves half of what they need, and there the renderer's shrink-to-fit still has
- * to rescue the string. Closing that needs the fixed point `docs/PLAN-LAUNCH.md` A7
- * describes — measure, frame, re-measure with the framing in hand — which is a second
- * pass over a compiled storyboard and belongs to the compiler, not to a constant. What
- * this file can promise is that the estimate is now centred on the truth instead of
- * being 20% below all of it.
+ * The reason not to pay it is that the frames say the premise is wrong. `docs/STATUS.md`
+ * 2026-08-09 measured the shipped boards: standard 16:9 draws body at 17.4 and 33.5 canvas
+ * units into a 34-unit box — *smaller* than reserved, not clipped by it. The `AV nod` and
+ * `empty stac` clipping is real and it is in a **drawing's** labels, which are measured by
+ * `labelFootprint` in `./draw-geom.ts` and never touch this table. Enlarging every
+ * reservation in the compiler would not have moved those two strings by a pixel.
  *
- * Measured effect, with the renderer's own wrap run against the real handwriting metrics
- * over all six boards: 169 of 216 text prims had to be shrunk below the size their role
- * asked for, at a mean of 83% of it, and every heading in `cardiac8f` was drawn at 72%.
+ * ## What did close, and what a viewer is still owed
+ *
+ * The third catalogue is gone for real: `ROLE_SCALE` in `visuals/src/style.ts` is now
+ * derived from `TYPE_SCALE`, which is legitimate because it is a *fraction of canvas
+ * height* under the stated assumption that the whole canvas is on screen — and when the
+ * whole canvas is on screen the canvas is the frame, so the two are the same unit. That
+ * one really was a restatement, and it really had drifted (a title at 0.082 of 1080 is
+ * 88.6 against the renderer's 96).
+ *
+ * What is left is two tables in two units, which is a relationship rather than a
+ * duplication — so it is enforced as one. `TYPE_RATIO` states it and
+ * `test/type-scale.test.ts` executes it: change either side alone and a test names the
+ * other. That is the part of defect 0 that can be closed without pixels. The rest is the
+ * fixed point `docs/PLAN-LAUNCH.md` A7 describes — measure, frame, re-measure with the
+ * framing in hand — which moves all four hashes by design and is, in `STATUS.md`'s words,
+ * "a decision for a person, not something to slip into a phase".
  */
-export const FONT: Record<Role, number> = { ...TYPE_SCALE };
+export const FONT: Record<Role, number> = {
+  title: 76,
+  heading: 50,
+  body: 34,
+  label: 27,
+  caption: 22,
+};
+
+/**
+ * Canvas units per output pixel, per role — the relationship `FONT` and `TYPE_SCALE` are
+ * held to, so that neither can drift without a test saying which one moved.
+ *
+ * Per role and not one constant, because the two tables were never a uniform scaling of
+ * each other: the ratio runs 0.79 at `title` to 0.85 at `label`, i.e. the board's smaller
+ * roles are relatively larger than the renderer's. That is the historical shape of the
+ * two catalogues and it is recorded rather than smoothed, because smoothing it is a change
+ * to what the compiler reserves and every such change moves the pinned hashes.
+ *
+ * The band in `test/type-scale.test.ts` is deliberately loose (±0.04). This is a guard
+ * against a silent divergence — a role added to one table and not the other, a size
+ * doubled on one side — and not a claim that these five numbers are optimal. They are not:
+ * `boardMetrics`'s real conversion factor was measured at 0.511 to 1.667 across the six
+ * boards in the repository, so no fixed ratio is right for every shot, which is exactly
+ * why the honest fix is a second pass with the framing in hand.
+ */
+export const TYPE_RATIO: Record<Role, number> = {
+  title: 76 / 96,
+  heading: 50 / 62,
+  body: 34 / 42,
+  label: 27 / 32,
+  caption: 22 / 26,
+};
 
 const LINE_HEIGHT = 1.34;
 /**

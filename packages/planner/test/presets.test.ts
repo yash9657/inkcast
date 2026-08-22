@@ -24,7 +24,13 @@ import type { Lesson, LessonStep } from '@inkcast/core';
 import { lessonBeats } from '@inkcast/core';
 import { compileLesson } from '../src/compile.js';
 import { readLessonFile } from '../src/lesson-io.js';
-import { DELIVERED_WPS, PRESETS, adaptLesson, lessonSeconds, resolvePreset } from '../src/presets.js';
+import {
+  DELIVERED_WPS,
+  PRESETS,
+  adaptLesson,
+  lessonSeconds,
+  resolvePreset,
+} from '../src/presets.js';
 
 const lessonPath = (name: string): string =>
   path.resolve(import.meta.dirname, `../../../examples/lessons/${name}.lesson.json`);
@@ -55,7 +61,10 @@ test('the explainer preset is the measured shape, and its arithmetic is the stat
   // else, which is how a 60s cut came to be written against a 150s budget.
   const budget = Math.round(p.maxSeconds * DELIVERED_WPS);
   assert.ok(budget >= 150 && budget <= 175, `${budget} words is not the ~160 the plan asks for`);
-  assert.ok(p.maxSeconds >= 60 && p.maxSeconds <= 90, `${p.maxSeconds}s is outside the 60-90s band`);
+  assert.ok(
+    p.maxSeconds >= 60 && p.maxSeconds <= 90,
+    `${p.maxSeconds}s is outside the 60-90s band`,
+  );
 
   // `wordBudget` gives the hook and the worked example a 1.6x leash, so the per-beat
   // ceiling sums over eight beats as 6 + 2*1.6 shares. That total is what the A2 gate

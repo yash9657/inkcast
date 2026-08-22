@@ -69,10 +69,13 @@
  *     substantially longer render. A p95 measured this way is pessimistic.
  */
 
-import { readFile } from 'node:fs/promises';
-import { readdir, readFile as read } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { promisify } from 'node:util';
+
+const run = promisify(execFile);
 
 /* ------------------------------------------------------------------- config */
 
@@ -338,14 +341,28 @@ async function follow(base, projectId, submittedAt, stallMs) {
 
 /* ------------------------------------------------------------- box sampling */
 
+/** Processes worth counting toward the studio's footprint. */
+const RENDER_PROCESS = /next|node|chrome|chromium|ffmpeg/i;
+
 /**
  * Resident memory of the studio's own process tree.
  *
  * Linux `/proc` first, because that is what the launch box is, and it is exact.
- * `ps` is the portable fallback so a dry run on a developer's macOS machine still
- * exercises this path. Both match on the *command line* rather than a pid handed
- * in by the operator: a wrong pid silently reports a healthy 40 MB forever, which
- * is the most misleading possible outcome for a memory gate.
+ * `ps` is the portable fallback, and it is the reason a run against a studio in a
+ * container on a developer's Mac still produces a memory number instead of a SKIP
+ * — the fallback existed only in this comment until the file was first exercised.
+ * Both match on the *command line* rather than a pid handed in by the operator: a
+ * wrong pid silently reports a healthy 40 MB forever, which is the most
+ * misleading possible outcome for a memory gate.
+ *
+ * Both paths share two blind spots, and the plan's "run it on the box" is the
+ * instruction that closes both. Neither can see inside a container from outside
+ * it, so against a `docker compose` studio this measures the host. And matching
+ * on `node` counts *every* node process on the machine, which on a laptop is a
+ * meaningless number — a developer's editor and toolchain, not the studio. The
+ * `no OOM` gate does not rest on this figure for exactly that reason: it watches
+ * `/api/health`'s uptime going backwards, which is a restart, is observable from
+ * anywhere, and needs no privilege.
  */
 async function sampleRss() {
   if (process.platform === 'linux') {
@@ -356,16 +373,16 @@ async function sampleRss() {
       for (const pid of pids) {
         let cmdline;
         try {
-          cmdline = await read(`/proc/${pid}/cmdline`, 'utf8');
+          cmdline = await readFile(`/proc/${pid}/cmdline`, 'utf8');
         } catch {
           continue;
         }
-        if (!/next|node|chrome|chromium|ffmpeg/i.test(cmdline)) continue;
+        if (!RENDER_PROCESS.test(cmdline)) continue;
         // Exclude this script's own process tree, which would otherwise be
         // counted as part of the server it is measuring.
         if (Number(pid) === process.pid) continue;
         try {
-          const status = await read(`/proc/${pid}/status`, 'utf8');
+          const status = await readFile(`/proc/${pid}/status`, 'utf8');
           const m = /VmRSS:\s+(\d+) kB/.exec(status);
           if (m) {
             total += Number(m[1]);
@@ -377,10 +394,33 @@ async function sampleRss() {
       }
       return { kb: total, procs: matched, source: '/proc' };
     } catch {
-      /* fall through */
+      /* fall through to ps */
     }
   }
-  return { kb: 0, procs: 0, source: 'unavailable' };
+
+  // `ps -Ao rss=,pid=,command=`: RSS in KB, then the pid, then the command line.
+  // `rss=` with the trailing `=` suppresses the header, so every line is data and
+  // a short read cannot be mistaken for a column title. BSD and GNU `ps` agree on
+  // this spelling, which is what makes one call cover macOS and a non-/proc Linux.
+  try {
+    const { stdout } = await run('ps', ['-Ao', 'rss=,pid=,command='], {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    let total = 0;
+    let matched = 0;
+    for (const line of stdout.split('\n')) {
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      if (!m) continue;
+      const [, kb, pid, command] = m;
+      if (Number(pid) === process.pid) continue;
+      if (!RENDER_PROCESS.test(command)) continue;
+      total += Number(kb);
+      matched += 1;
+    }
+    return { kb: total, procs: matched, source: 'ps' };
+  } catch {
+    return { kb: 0, procs: 0, source: 'unavailable' };
+  }
 }
 
 /* ----------------------------------------------------------------- the gates */
@@ -392,6 +432,43 @@ function percentile(values, p) {
   // p95 lower than a value actually observed.
   const rank = Math.ceil((p / 100) * sorted.length);
   return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))];
+}
+
+/**
+ * How deep the queue was when this job joined it, from the job's own stream.
+ *
+ * This replaces a proxy that could not work, and the failure is worth recording
+ * because it made the gate below report the one reading its own docstring
+ * rejects. The proxy was `queue.total` as the health sampler last saw it, stamped
+ * at submit time — but all 25 submissions go out in one `Promise.all` that
+ * resolves in milliseconds, long before the 2-second sampler has observed
+ * anything, so every job was stamped with the preflight's depth of 0. Every job
+ * then satisfied "admitted at depth <= 10", the gate silently became "p95 across
+ * all 25 jobs", and that number is arithmetic rather than a measurement: 25 jobs
+ * at ~2.5 min through 2 render lanes is over 30 minutes by construction. A gate
+ * that always fails is worth no more than one that always passes.
+ *
+ * The stream carries the exact figure instead. `startJob` emits `queued: true`
+ * with a 1-based `position` at the moment of enqueue, and the snapshot keeps the
+ * latest queue event in its own slot rather than in the coalesced progress
+ * history (`apps/web/lib/jobs.ts:590`) precisely so a late subscriber is replayed
+ * a correct position. `follow()` subscribes within milliseconds of the 202, and
+ * positions only ever descend, so the largest one observed is the depth at
+ * admission.
+ *
+ * **No queue event at all is depth 0, not a missing measurement**, and that is a
+ * fact about `jobs.ts` rather than a convenience. A job that finds a free slot
+ * takes the `'lease' in admission` branch (jobs.ts:756) and publishes *nothing* —
+ * neither `queued: true` nor the `queued: false, position: 0` admission event,
+ * which is only sent to a job that actually waited (jobs.ts:779). So an empty
+ * position list means "never queued", which is the deepest possible discount, not
+ * an unknown. With renders gated at 2 that is true of exactly the first two jobs;
+ * if it were somehow true of all of them, `monotoneGate` says so loudly rather
+ * than letting this quietly become "p95 across everything".
+ */
+function admissionDepth(record) {
+  if (record.positions.length === 0) return 0;
+  return Math.max(...record.positions.map((p) => p.position));
 }
 
 /**
@@ -409,10 +486,8 @@ function percentile(values, p) {
  * "you're #4 — about 6 minutes", and it is falsifiable. The whole distribution is
  * printed alongside so the other reading is available to anyone who wants it.
  */
-function p95Gate(records, depthAtSubmit, depth, budgetMin) {
-  const eligible = records.filter(
-    (r) => r.outcome === 'done' && (depthAtSubmit.get(r.projectId) ?? Infinity) <= depth,
-  );
+function p95Gate(records, depth, budgetMin) {
+  const eligible = records.filter((r) => r.outcome === 'done' && admissionDepth(r) <= depth);
   const times = eligible.map((r) => (r.doneAt - r.submittedAt) / 60000);
   const p95 = percentile(times, 95);
   if (p95 === undefined) {
@@ -513,7 +588,10 @@ async function indexGate(base, root, ids) {
   );
   const missing = [...ids].filter((id) => !present.has(id));
   return missing.length === 0
-    ? { status: 'PASS', detail: `${present.size} entries via ${via}, all ${ids.size} run ids present` }
+    ? {
+        status: 'PASS',
+        detail: `${present.size} entries via ${via}, all ${ids.size} run ids present`,
+      }
     : {
         status: 'FAIL',
         detail: `${missing.length} of ${ids.size} run ids absent from ${via}: ${missing.slice(0, 4).join(', ')}`,
@@ -551,7 +629,9 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  say(`health: status=${pre.status} queue=${JSON.stringify(pre.queue)} rateLimit=${JSON.stringify(pre.rateLimit)}`);
+  say(
+    `health: status=${pre.status} queue=${JSON.stringify(pre.queue)} rateLimit=${JSON.stringify(pre.rateLimit)}`,
+  );
   if (pre.disk) {
     say(`disk:   ${(pre.disk.freeBytes / 1e9).toFixed(1)} GB free (${pre.disk.freePct}%)`);
     // ~33 MB per finished project, measured across this repo's projects/.
@@ -625,7 +705,13 @@ async function main() {
         const depth = h.queue?.total ?? 0;
         if (depth > peakQueue) peakQueue = depth;
       }
-      samples.push({ at: Date.now(), rssKb: rss.kb, procs: rss.procs, queue: h.queue, up: h.uptimeSec });
+      samples.push({
+        at: Date.now(),
+        rssKb: rss.kb,
+        procs: rss.procs,
+        queue: h.queue,
+        up: h.uptimeSec,
+      });
       await new Promise((r) => setTimeout(r, opts.sampleMs));
     }
   })();
@@ -634,7 +720,6 @@ async function main() {
 
   say('');
   say(`submitting ${opts.jobs} generations...`);
-  const depthAtSubmit = new Map();
 
   const submissions = await Promise.all(
     Array.from({ length: opts.jobs }, (_, i) => submit(base, i, usePreset)),
@@ -646,19 +731,16 @@ async function main() {
     const id = s.body?.projectId;
     if (s.status === 202 && typeof id === 'string') {
       accepted.push({ ...s, projectId: id });
-      // Depth as the server saw it when this job was admitted.
-      //
-      // `queue.total` from the sampler is a proxy, and it is used because the
-      // 202 does not carry the job's own position even though `startJob` now
-      // returns it: `POST /api/generate` destructures only `{ started }` from
-      // the snapshot and writes `status: 'running'` as a literal, so a job that
-      // actually queued is reported as running with no position. `jobs.ts`'s own
-      // docstring says the 202 tells the client where it stands; today it does
-      // not. Once that route forwards the snapshot, read `position` from the
-      // response here — it is exact, where `peakQueue` is only the high-water
-      // mark of the whole burst and therefore over-reports depth for the jobs
-      // admitted first.
-      depthAtSubmit.set(id, peakQueue);
+      // No depth is read from the 202, because it does not carry one. `startJob`
+      // returns a snapshot whose `status` is the truthful `'queued'` with a
+      // position (jobs.ts:687), but `POST /api/generate` destructures only
+      // `{ started }` from it and writes `status: 'running'` as a literal
+      // (generate/route.ts:263,270) — so a job that really queued is reported as
+      // running with no position at all. `jobs.ts`'s own docstring says the 202
+      // tells the client where it stands; today it does not. Depth therefore
+      // comes from the stream instead: see `admissionDepth`. If that route ever
+      // forwards the snapshot, reading `position` here would be strictly better,
+      // since it is stamped by the server at the instant of admission.
     } else {
       refused.push(s);
     }
@@ -731,12 +813,7 @@ async function main() {
               detail: `peak ${(peakRssKb / 1024 / 1024).toFixed(2)} GB across ${peakProcs} processes, no restart`,
             },
     'index.json intact': await indexGate(base, projectsRoot, uniqueIds),
-    [`p95 time-to-video <= ${opts.budget} min`]: p95Gate(
-      records,
-      depthAtSubmit,
-      opts.depth,
-      opts.budget,
-    ),
+    [`p95 time-to-video <= ${opts.budget} min`]: p95Gate(records, opts.depth, opts.budget),
   };
 
   if (opts.json) {
@@ -753,7 +830,9 @@ async function main() {
     }
     say('');
     say(`  peak queue depth        ${peakQueue}`);
-    say(`  peak studio RSS         ${peakRssKb ? `${(peakRssKb / 1024 / 1024).toFixed(2)} GB across ${peakProcs} procs` : 'not sampled'}`);
+    say(
+      `  peak studio RSS         ${peakRssKb ? `${(peakRssKb / 1024 / 1024).toFixed(2)} GB across ${peakProcs} procs` : 'not sampled'}`,
+    );
     if (times.length > 0) {
       say(
         `  time-to-video (all)     min ${percentile(times, 0).toFixed(1)} / median ${percentile(times, 50).toFixed(1)} / p95 ${percentile(times, 95).toFixed(1)} / max ${Math.max(...times).toFixed(1)} min`,
@@ -762,7 +841,8 @@ async function main() {
     say(`  sampler                 ${samples.length} samples on ${os.hostname()}`);
     say('');
     for (const r of errored.slice(0, 5)) say(`  errored ${r.projectId}: ${r.error}`);
-    for (const r of lost.slice(0, 5)) say(`  lost    ${r.projectId}: ${r.outcome} ${r.error ?? ''}`);
+    for (const r of lost.slice(0, 5))
+      say(`  lost    ${r.projectId}: ${r.outcome} ${r.error ?? ''}`);
     say('');
   }
 

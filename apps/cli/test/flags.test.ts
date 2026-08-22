@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { UsageError, lessonFromFlags, metaFromFlags, readFlags } from '../src/main.js';
+import { usage } from '../src/usage.js';
 
 test('--short means 9:16 with short-form pacing, not a cropped landscape video', () => {
   const flags = readFlags({ short: true, force: false, open: false });
@@ -100,4 +101,36 @@ test('--lesson resolves against the cwd, then the repo root, and fails loudly', 
   assert.equal(lessonFromFlags(ctx, readFlags({ lesson: 'x.lesson.json' })), file);
   assert.equal(lessonFromFlags(ctx, readFlags({})), undefined);
   assert.throws(() => lessonFromFlags(ctx, readFlags({ lesson: 'missing.json' })), UsageError);
+});
+
+/*
+ * The preset list, in all three places it is written down.
+ *
+ * `explainer` existed in `packages/planner/src/presets.ts` and in none of the mirrors, so
+ * for as long as the preset has been shipping, `--preset explainer` was answered with
+ * "must be one of standard | short | square". Three copies of one list, and no two of them
+ * checked against each other: the planner's `PRESETS`, the stage contract's `PresetName`
+ * (guarded now by `packages/pipeline/test/preset-mirror.test.ts`) and this CLI's flag
+ * validator plus its help text.
+ *
+ * The help text is why this is a test and not a type. `usage.ts` prints the allowed values
+ * as prose inside a template literal, and no compiler will ever notice that a sentence has
+ * gone stale — the user-visible half of the list is exactly the half nothing was checking.
+ */
+test('every preset the flag accepts is a preset the help text offers', () => {
+  const help = usage(false);
+  const line = help.split('\n').find((l) => l.includes('--preset'));
+  assert.ok(line, 'usage() must document --preset at all');
+
+  for (const name of ['standard', 'short', 'square', 'explainer']) {
+    // Accepted by the validator...
+    assert.equal(readFlags({ preset: name }).preset, name);
+    // ...and advertised to the user. A flag that works and is undocumented is as much a
+    // drift as one that is documented and rejected; `explainer` was briefly both.
+    assert.ok(line.includes(name), `usage()'s --preset line does not mention ${name}`);
+  }
+
+  // And the validator is still a validator: it must not have become a passthrough on the
+  // way to fixing the list, or this test would pass for a flag that accepts anything.
+  assert.throws(() => readFlags({ preset: 'widescreen' }), UsageError);
 });

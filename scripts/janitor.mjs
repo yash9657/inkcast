@@ -72,16 +72,49 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_TTL_HOURS = 48;
 
 /**
- * Files and directories at the top of `projects/` that are not projects.
+ * What a project id looks like, and therefore what this script is allowed to
+ * delete. Copied from `ID_RE` in `apps/web/lib/store.ts` — this script cannot
+ * import TypeScript, which is why it is a copy and why it is a copy of the
+ * *narrow* rule rather than a loose approximation of it.
  *
- * `index.json` is the derived cache described at the head of
- * `apps/web/lib/store.ts` ("a cache, never the source of truth"). It is
- * deliberately left alone: rebuilding it here would mean reimplementing the
- * store's own aggregation in a script that cannot import it, and a stale entry
- * pointing at a swept directory is harmless — `listProjects` scans the
- * directories rather than trusting the index, and the next write rebuilds it.
+ * ## This used to be a deny-list, and the deny-list was a data-loss bug
+ *
+ * The previous version was `NOT_PROJECTS = new Set(['index.json', '.DS_Store',
+ * '.gitignore', '.gitkeep'])` — everything else in `projects/` was fair game
+ * after the TTL. That was correct on the day it was written and became a bug the
+ * moment per-user BYOK landed, because `app/api/_lib/secrets.ts` stores every
+ * account's encrypted provider keys in `${INKCAST_PROJECTS}/.keys/` (deliberately,
+ * so they live on the one volume a hosted deploy must already persist).
+ *
+ * `.keys` is a directory, it has no `meta.json`, and it is not `shared`. So
+ * `inspect()` fell through to mtimes, and a `.keys` whose newest file was older
+ * than the deadline — which is every box where nobody has pasted a key for two
+ * days — classified as `expired` and got `rm -rf`'d. Every user on the box loses
+ * every stored credential, silently, 48 hours after launch, with a log line
+ * calling it a reclaimed project.
+ *
+ * The fix is the direction of the list, not another entry in it. A deny-list of
+ * things not to delete has to be updated by whoever adds the next non-project
+ * file, and they will not know it exists; an allow-list of things that *are*
+ * projects fails closed, and anything new under `projects/` is ignored by default.
+ * This is the same argument `publicView()` in
+ * `apps/web/app/api/projects/[id]/route.ts` makes about redacting fields:
+ * "a deny-list here would leak by default, which is how this kind of redaction
+ * usually fails: the leak arrives in an unrelated commit that adds a field."
+ *
+ * `.keys` needs no special case under this rule: the id alphabet requires an
+ * alphanumeric first character, so no dotfile can ever match. Neither can
+ * `index.json` — the derived cache described at the head of `store.ts` — which is
+ * left alone for its own reason: rebuilding it here would mean reimplementing the
+ * store's aggregation in a script that cannot import it, and a stale entry
+ * pointing at a swept directory is harmless, because `listProjects` scans
+ * directories rather than trusting the index.
  */
-const NOT_PROJECTS = new Set(['index.json', '.DS_Store', '.gitignore', '.gitkeep']);
+const PROJECT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+function isProjectDirName(name) {
+  return PROJECT_ID_RE.test(name);
+}
 
 /**
  * Where the films live.
@@ -273,7 +306,9 @@ export async function sweep(options = {}) {
   }
 
   for (const entry of entries) {
-    if (NOT_PROJECTS.has(entry.name)) continue;
+    // An allow-list, so anything new under `projects/` is ignored rather than
+    // reclaimed. See `PROJECT_ID_RE` for the `.keys` data-loss bug this replaced.
+    if (!isProjectDirName(entry.name)) continue;
     // Directories only, and never through a symlink: `isDirectory()` is false for
     // a symlink in a `withFileTypes` listing, so a link planted in the projects
     // root cannot aim this `rm -rf` somewhere else.

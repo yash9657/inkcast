@@ -563,16 +563,18 @@ test('a provider that dies mid-film sends the whole film back to scene 0 in one 
     // zero without the pipeline knowing any of this happened.
     assert.equal(voice.charsByProvider.elevenlabs ?? 0, 0);
     assert.equal(voice.costUsd, 0);
-    assert.equal(voice.chars, FOUR_BEATS.reduce((n, l) => n + phraseChars(l), 0));
+    assert.equal(
+      voice.chars,
+      FOUR_BEATS.reduce((n, l) => n + phraseChars(l), 0),
+    );
     assert.equal(voice.charsByProvider.kokoro, voice.chars);
 
     // But it is not hidden: the discarded audio is reported, with what it was worth.
     assert.ok((voice.abandonedChars ?? 0) > 0, 'discarded characters must be reported');
     assert.equal(
       voice.abandonedCostUsd,
-      Math.round(
-        elevenLabsCostUsd(voice.abandonedChars ?? 0, ELEVENLABS_FLASH_MODEL) * 10_000,
-      ) / 10_000,
+      Math.round(elevenLabsCostUsd(voice.abandonedChars ?? 0, ELEVENLABS_FLASH_MODEL) * 10_000) /
+        10_000,
     );
 
     // And the viewer is told, in the field the result UI reads.

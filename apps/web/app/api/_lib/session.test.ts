@@ -40,6 +40,37 @@
  * signature. The fix was to compare the canonical text; the test that pins it is
  * `only the canonical spelling of a valid MAC is accepted`, and the tamper case
  * now walks every character position instead of trusting one.
+ *
+ * ## Four more properties, since identity can now come from Clerk
+ *
+ *  7. **Unconfigured Clerk is not merely unused — it is unreached.** This is the
+ *     constraint most likely to be broken silently, because breaking it produces
+ *     a working hosted site and a broken self-hosted one, and only one of those
+ *     is being looked at. It is asserted the only way that actually proves
+ *     something: `resolveIdentity` is handed a `readUserId` that counts its
+ *     calls, and the count must stay at zero. Nothing in `@clerk/nextjs` is
+ *     imported here either — the package is not even installed in this
+ *     workspace, so a top-level import in the module under test would fail this
+ *     whole file at load.
+ *  8. **A user id and a session id cannot digest to the same tag.** `meta.json`
+ *     holds `HMAC(OWNER_DOMAIN:<id>)` for both kinds of identity, so the two id
+ *     spaces have to be disjoint or an account could inherit a browser's
+ *     projects. They are, because a user id is namespaced to `clerk:<id>` and
+ *     `verifySessionToken` refuses any id containing a colon. Both halves are
+ *     asserted, because either one alone is not the property.
+ *  9. **Configured Clerk plus no signed-in user is a refusal, not an anonymity.**
+ *     Falling through to the cookie would mean the sign-in requirement is
+ *     satisfied by clearing one. The refusal still hands back a `stranger`
+ *     session, and that stranger must own nothing and must not be issued a
+ *     cookie.
+ * 10. **A broken identity provider refuses too.** A `readUserId` that throws is
+ *     indistinguishable, to the caller, from signed out. An authentication check
+ *     that becomes a no-op when its dependency fails is the worst available
+ *     shape of this repo's dominant failure mode.
+ *
+ * The claim path for projects made before a deployment turned Clerk on is
+ * exercised end-to-end in `an account can claim what its browser already owned`,
+ * because "documented" is not a property a reader can check and "tested" is.
  */
 
 import assert from 'node:assert/strict';
@@ -66,18 +97,25 @@ const session = await import('./session.js');
 const {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SEC,
+  cookieSession,
   mintSession,
   ownedProjectsFilter,
+  ownerTagFor,
   readSession,
   requireOwner,
   requireSessionSecret,
   requireViewable,
+  resolveIdentity,
   sessionCookie,
   sessionCookieHeader,
   sessionOwnerTag,
   setSessionCookie,
+  userSession,
   verifySessionToken,
 } = session;
+
+const { CLERK_PUBLISHABLE_KEY_VAR, CLERK_SECRET_KEY_VAR, clerkConfigured } =
+  await import('./clerk.js');
 
 const { setProjectShared, upsertProject } = await import('@/lib/store.js');
 
@@ -105,6 +143,44 @@ function envWith(secret: string, hosted = false): NodeJS.ProcessEnv {
     INKCAST_SESSION_SECRET: secret,
     ...(hosted ? { INKCAST_HOSTED: '1' } : {}),
   });
+}
+
+/**
+ * The same environment, plus a Clerk instance.
+ *
+ * Fake keys, and that is the point of the whole design: `clerkConfigured` is a
+ * test for two variables being *present*, and everything past it goes through the
+ * injected `readUserId`, so this entire suite exercises the account path with no
+ * Clerk account, no `@clerk/nextjs` installed, and no network.
+ */
+function envWithClerk(secret: string, hosted = false): NodeJS.ProcessEnv {
+  return {
+    ...envWith(secret, hosted),
+    [CLERK_SECRET_KEY_VAR]: 'sk_test_notarealkey',
+    [CLERK_PUBLISHABLE_KEY_VAR]: 'pk_test_notarealkey',
+  };
+}
+
+/**
+ * A `readUserId` that answers a fixed value and records how often it was asked.
+ *
+ * The count is the assertion, not a convenience: the claim "Clerk is unreached
+ * when unconfigured" cannot be made by observing the return value, because the
+ * anonymous answer and a Clerk answer are the same shape.
+ */
+type Reader = { read: () => Promise<string | null>; calls: number };
+
+function reader(userId: string | null): Reader {
+  // Annotated rather than inferred: the arrow closes over `spy`, and TypeScript
+  // refuses to infer a type that is referenced inside its own initializer.
+  const spy: Reader = {
+    calls: 0,
+    read: async () => {
+      spy.calls += 1;
+      return userId;
+    },
+  };
+  return spy;
 }
 
 /** A request carrying (or not carrying) a session cookie. */
@@ -437,6 +513,252 @@ test('sharing does not make a project editable by its audience', async () => {
   assert.equal((await requireViewable('sharedtwo', audience, env)).ok, true);
   const verdict = await requireOwner('sharedtwo', audience, env);
   assert.equal(!verdict.ok && verdict.status, 403);
+});
+
+/* ------------------------------------------------------- identity, optionally Clerk */
+
+test('Clerk is configured only when both of its variables are really set', () => {
+  assert.equal(clerkConfigured(asEnv({})), false);
+  assert.equal(clerkConfigured(asEnv({ [CLERK_SECRET_KEY_VAR]: 'sk_test_x' })), false);
+  assert.equal(clerkConfigured(asEnv({ [CLERK_PUBLISHABLE_KEY_VAR]: 'pk_test_x' })), false);
+  assert.equal(
+    clerkConfigured(
+      asEnv({ [CLERK_SECRET_KEY_VAR]: 'sk_test_x', [CLERK_PUBLISHABLE_KEY_VAR]: 'pk_test_x' }),
+    ),
+    true,
+  );
+  // `VAR=` in a shell script is the classic way an unset variable arrives looking
+  // set. A publishable key alone would render a working sign-in flow whose result
+  // the server cannot verify, which is the half-configuration worth refusing.
+  assert.equal(
+    clerkConfigured(
+      asEnv({ [CLERK_SECRET_KEY_VAR]: '  ', [CLERK_PUBLISHABLE_KEY_VAR]: 'pk_test_x' }),
+    ),
+    false,
+  );
+});
+
+test('with Clerk unconfigured, identity is the anonymous cookie and Clerk is never asked', async () => {
+  const env = envWith(SECRET_A);
+  const minted = mintSession(env);
+  const spy = reader('user_shouldnotbeused');
+
+  const who = await resolveIdentity(request(`${SESSION_COOKIE}=${minted.token}`), env, {
+    readUserId: spy.read,
+  });
+  assert.equal(who.ok, true);
+  assert.equal(who.ok && who.via, 'anonymous');
+  assert.equal(who.ok && who.session.id, minted.id, 'the same session the cookie proves');
+  assert.equal(who.ok && who.session.kind, 'anon');
+  assert.equal(who.ok && who.session.fresh, false);
+
+  // The whole self-hosting promise in one assertion. A `pnpm dev` checkout has no
+  // Clerk account, no `@clerk/nextjs` on disk and possibly no network; if this
+  // number is ever 1, that checkout is broken and the hosted box still works, so
+  // nobody would notice from production.
+  assert.equal(spy.calls, 0, 'unconfigured Clerk must be unreached, not merely unused');
+
+  // And a first visit still mints, exactly as before this branch existed.
+  const first = await resolveIdentity(request(), env, { readUserId: spy.read });
+  assert.equal(first.ok && first.session.fresh, true);
+  assert.equal(spy.calls, 0);
+});
+
+test('with Clerk configured, a signed-in user is the identity and carries no cookie', async () => {
+  const env = envWithClerk(SECRET_A, true);
+  const spy = reader('user_2abcDEF');
+
+  const who = await resolveIdentity(request(), env, { readUserId: spy.read });
+  // `assert.fail` returns `never`, so this both checks and narrows — `userId`
+  // only exists on the `via: 'user'` arm, and a discriminated union is the point.
+  if (!who.ok || who.via !== 'user') assert.fail('a signed-in user must be identified');
+  assert.equal(who.userId, 'user_2abcDEF');
+  assert.equal(spy.calls, 1);
+
+  assert.equal(who.session.kind, 'user');
+  assert.equal(who.session.id, 'clerk:user_2abcDEF', 'namespaced before anything digests it');
+  assert.equal(who.session.token, '', 'Clerk holds the proof; we sign nothing');
+  assert.equal(who.session.fresh, false, 'so every setSessionCookie call site is a no-op');
+
+  // Proven rather than reasoned: an account must not cause a Set-Cookie.
+  const sent: unknown[] = [];
+  const response = { cookies: { set: (c: unknown) => sent.push(c) } };
+  setSessionCookie(response, who.session, env);
+  assert.equal(sent.length, 0);
+
+  // A signed-in cookie in the jar changes nothing: Clerk is the authority when
+  // Clerk is configured, so a leftover anonymous cookie cannot select a library.
+  const stale = mintSession(env);
+  const withCookie = await resolveIdentity(request(`${SESSION_COOKIE}=${stale.token}`), env, {
+    readUserId: spy.read,
+  });
+  assert.equal(withCookie.ok && withCookie.session.id, 'clerk:user_2abcDEF');
+});
+
+test('with Clerk configured, a signed-out request is refused rather than made anonymous', async () => {
+  const env = envWithClerk(SECRET_A, true);
+  const anonymous = mintSession(env);
+  await upsertProject('clerkowned', {
+    title: 'Made while signed out',
+    status: 'ready',
+    ownerSession: sessionOwnerTag(anonymous.id, env),
+  });
+
+  // Presenting a perfectly valid anonymous cookie must not buy anything. If it
+  // did, the sign-in requirement would be satisfiable by clearing a cookie, and
+  // an honest user would have two half-libraries that swap on sign-out.
+  const who = await resolveIdentity(request(`${SESSION_COOKIE}=${anonymous.token}`), env, {
+    readUserId: reader(null).read,
+  });
+  assert.equal(who.ok, false);
+  assert.equal(!who.ok && who.status, 401);
+  assert.equal(!who.ok && who.reason, 'sign-in-required');
+
+  // The stranger exists so `/api/media/<id>/…` and the share page's own
+  // server-side fetch of `/api/projects/<id>` can still answer without a 401 —
+  // and it must own nothing, or the refusal would be decorative.
+  const stranger = !who.ok ? who.stranger : mintSession(env);
+  assert.equal(stranger.fresh, false, 'a refused caller is not handed a durable identity');
+  const verdict = await requireOwner('clerkowned', stranger, env);
+  assert.equal(verdict.ok, false);
+  assert.equal(!verdict.ok && verdict.status, 403);
+
+  // An empty string from Clerk is signed out too, not a user named "".
+  const blank = await resolveIdentity(request(), env, { readUserId: reader('').read });
+  assert.equal(blank.ok, false);
+});
+
+test('a broken identity provider refuses; it does not degrade to anonymous', async () => {
+  const env = envWithClerk(SECRET_A, true);
+  const who = await resolveIdentity(request(), env, {
+    readUserId: async () => {
+      throw new Error('clerk unreachable');
+    },
+  });
+  assert.equal(who.ok, false);
+  assert.equal(!who.ok && who.status, 401);
+
+  // And the same with no injection at all, which on this workspace means the real
+  // loader failing to find `@clerk/nextjs`: still a refusal, never a crash and
+  // never an anonymous session. An auth check that no-ops when its dependency
+  // fails is the worst shape of this repo's dominant failure mode.
+  const real = await resolveIdentity(request(), env);
+  assert.equal(real.ok, false);
+  assert.equal(!real.ok && real.status, 401);
+});
+
+/* ------------------------------------------- domain separation, second layer */
+
+test('a user id and a session id cannot digest to the same owner tag', () => {
+  const env = envWith(SECRET_A);
+  const account = userSession('user_2abcDEF');
+
+  // The collision to rule out is a browser whose *session id* is spelled exactly
+  // like somebody's Clerk user id. The namespace is what stops it.
+  const impostor = { id: 'user_2abcDEF', token: '', fresh: false, kind: 'anon' as const };
+  assert.notEqual(ownerTagFor(account, env), ownerTagFor(impostor, env));
+  assert.notEqual(ownerTagFor(account, env), sessionOwnerTag('user_2abcDEF', env));
+
+  // The other half of the property, and the half that makes the first half safe:
+  // no cookie can ever *carry* an id containing a colon, whatever it is signed
+  // with, because the id-shape gate runs before any comparison. So the namespaced
+  // space is unreachable from the cookie side entirely.
+  assert.ok(!account.id.includes('.'), 'or the token grammar would be ambiguous too');
+  assert.equal(verifySessionToken(`${account.id}.${'A'.repeat(43)}`, env), undefined);
+  for (let i = 0; i < 32; i += 1) {
+    assert.ok(!mintSession(env).id.includes(':'), 'anonymous ids are base64url, colon-free');
+  }
+
+  // Keyed, and not the raw user id: `meta.json` is served to every holder of a
+  // share link, so a Clerk user id must never be written to it.
+  const tag = ownerTagFor(account, env);
+  assert.ok(!tag.includes('user_2abcDEF'));
+  assert.ok(!tag.includes('clerk'));
+  assert.notEqual(tag, ownerTagFor(account, envWith(SECRET_B)));
+});
+
+test('ownerTagFor is exactly sessionOwnerTag of the id, for both kinds', () => {
+  const env = envWith(SECRET_A);
+  // Pinned because `app/api/generate/route.ts` stamps ownership by calling
+  // `sessionOwnerTag(session.id)` directly. If these two ever diverge, that route
+  // writes a tag `requireOwner` will not accept, and the symptom is a project
+  // that renders fine and then 403s its own author — with an empty library, which
+  // reads as data loss rather than as a bug.
+  const anon = mintSession(env);
+  assert.equal(ownerTagFor(anon, env), sessionOwnerTag(anon.id, env));
+  const account = userSession('user_9zzz');
+  assert.equal(ownerTagFor(account, env), sessionOwnerTag(account.id, env));
+  assert.deepEqual(ownedProjectsFilter(account, env), { ownerSession: ownerTagFor(account, env) });
+});
+
+test('an account owns its own projects and a stranger account does not', async () => {
+  const env = envWithClerk(SECRET_A, true);
+  const mine = userSession('user_owner');
+  const theirs = userSession('user_other');
+  await upsertProject('accountown', {
+    title: 'Made signed in',
+    status: 'ready',
+    ownerSession: ownerTagFor(mine, env),
+  });
+
+  const ok = await requireOwner('accountown', mine, env);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.ok && ok.owner, 'session');
+
+  const no = await requireOwner('accountown', theirs, env);
+  assert.equal(!no.ok && no.status, 403);
+
+  // Sharing works identically — nothing in the view path learned about accounts.
+  await setProjectShared('accountown', true);
+  const viewed = await requireViewable('accountown', theirs, env);
+  assert.equal(viewed.ok && viewed.via, 'shared');
+  await setProjectShared('accountown', false);
+});
+
+/* ------------------------------------------------------------------- migration */
+
+test('cookieSession reports only a cookie we actually issued, never a fresh one', () => {
+  const env = envWith(SECRET_A);
+  const minted = mintSession(env);
+  assert.equal(cookieSession(request(`${SESSION_COOKIE}=${minted.token}`), env)?.id, minted.id);
+  // The difference from `readSession`, and the reason both exist: "who is this"
+  // mints, "does this browser hold a cookie we issued" must not.
+  assert.equal(cookieSession(request(), env), undefined);
+  assert.equal(cookieSession(request(`${SESSION_COOKIE}=${minted.id}.forged`), env), undefined);
+  assert.equal(
+    cookieSession(request(`${SESSION_COOKIE}=${minted.token}`), envWith(SECRET_B)),
+    undefined,
+  );
+  assert.equal(readSession(request(), env).fresh, true, 'readSession still mints');
+});
+
+test('an account can claim what its browser already owned', async () => {
+  const env = envWithClerk(SECRET_A, true);
+  const browser = mintSession(env);
+  await upsertProject('preauthone', {
+    title: 'Drawn before the sign-in existed',
+    status: 'ready',
+    ownerSession: sessionOwnerTag(browser.id, env),
+  });
+  const account = userSession('user_claimant');
+
+  // The state a deployment lands in the moment it turns Clerk on: the tags on
+  // disk are digests of a random cookie id, so the signed-in owner is a stranger
+  // to their own films. That is stated in the module header rather than hidden.
+  assert.equal((await requireOwner('preauthone', account, env)).ok, false);
+
+  // The way out. `requireOwner` against the browser's still-valid cookie is the
+  // authorization — no second ownership rule is invented — and the transfer is a
+  // rewrite of the tag.
+  const carried = cookieSession(request(`${SESSION_COOKIE}=${browser.token}`), env);
+  assert.ok(carried, 'the cookie outlives the sign-in: SESSION_MAX_AGE_SEC is a year');
+  assert.equal((await requireOwner('preauthone', carried, env)).ok, true);
+  await upsertProject('preauthone', { ownerSession: ownerTagFor(account, env) });
+
+  assert.equal((await requireOwner('preauthone', account, env)).ok, true);
+  // And the transfer is a move, not a copy: the old anonymous identity loses it,
+  // which is what stops a shared laptop from leaving a second owner behind.
+  assert.equal((await requireOwner('preauthone', carried, env)).ok, false);
 });
 
 test.after(async () => {

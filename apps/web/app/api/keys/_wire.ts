@@ -33,6 +33,21 @@ export type KeyStatus = {
   /** When it was stored. Only ever set for a stored key. */
   updatedAt?: string;
   /**
+   * When this key was last checked against the provider, and how that went.
+   *
+   * Only the per-account store fills these in (see `_account.ts`): a hosted user
+   * has no `inkcast keys check` to run and no vault sidecar to read, so the last
+   * verdict is the only evidence they have that the key they pasted a month ago
+   * still works. The local path leaves them absent, because `@inkcast/keyvault`
+   * already surfaces its own `lastValidated` through the settings page.
+   *
+   * `validatedOk` is a verdict, never a claim about right now: a key that
+   * authenticated on Tuesday can be revoked on Wednesday, so the UI must read
+   * this as "last we heard", which is what the timestamp is for.
+   */
+  validatedAt?: string;
+  validatedOk?: boolean;
+  /**
    * A stored entry exists but cannot be used. Reported as *not* configured,
    * because that is what the pipeline will experience — with the reason attached
    * so the remedy is obvious.

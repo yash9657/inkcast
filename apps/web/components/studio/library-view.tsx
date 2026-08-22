@@ -234,8 +234,16 @@ function EmptyLibrary() {
 
         <h2 className="relative text-xl text-foreground">Nothing on the board yet</h2>
         <p className="relative max-w-md text-sm leading-relaxed text-muted-foreground">
+          {/* The old ending — "on this machine, with no keys" — is true of a
+              laptop and false of the shared deployment, where the machine is
+              somebody's server and this is the first sentence a brand-new
+              signed-in user reads. Rewritten rather than branched on
+              `signInRequired`: this is an empty state, so the sentence is about
+              what the tool *does*, and "hands you an mp4" is the part that is true
+              of both deployments. Where the film is drawn is said on the studio
+              page itself, which already tells the two stories apart. */}
           Paste a document, drop a pdf, or hand it a link. Inkcast plans one growing canvas, writes
-          on it stroke by stroke, narrates it, and hands you an mp4 — on this machine, with no keys.
+          on it stroke by stroke, narrates it, and hands you an mp4.
         </p>
 
         <div className="relative flex flex-wrap items-center justify-center gap-2">

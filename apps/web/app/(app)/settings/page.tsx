@@ -3,6 +3,9 @@ import type { Metadata } from 'next';
 import { KeysPanel } from '@/components/settings/keys-panel';
 import { isHosted } from '@/app/api/_lib/http';
 
+import { accessLinks, admitted, readAccess } from '../access';
+import { SignInWall } from '../sign-in-gate';
+
 /**
  * `/settings` — the four keys, and nothing else.
  *
@@ -66,7 +69,33 @@ export async function generateMetadata(): Promise<Metadata> {
       };
 }
 
-export default function SettingsPage() {
+/**
+ * ## Why the gate comes before the hosted check
+ *
+ * `isHosted()` and `readAccess()` answer different questions and this page needs
+ * both, in this order. The gate is about *who is asking*; the hosted check is
+ * about *what there is to configure*. A signed-out visitor on a deployment with
+ * accounts should be told to sign in, not handed the paragraph explaining that
+ * the operator pays for the keys — that paragraph describes what they will find
+ * once they are through, and reading it while shut out is confusing rather than
+ * informative. The two checks are also independently settable: a self-hoster can
+ * run with `INKCAST_HOSTED=1` and no Clerk (a private team box, keys in env, no
+ * accounts) and gets exactly the page they get today.
+ */
+export default async function SettingsPage() {
+  const access = await readAccess();
+
+  if (!admitted(access)) {
+    return (
+      <SignInWall
+        heading="Sign in to see your settings"
+        lead="There is nothing here that is not about your account, so there is nothing to show until you are in it."
+        links={accessLinks()}
+        unavailable={access.mode === 'unavailable' ? access.reason : undefined}
+      />
+    );
+  }
+
   if (isHosted()) return <HostedSettings />;
 
   return (

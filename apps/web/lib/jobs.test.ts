@@ -78,6 +78,7 @@ const {
   waitCopy,
   waitForJob,
   HOSTED_PRESET,
+  HOSTED_PRESET_SEC,
 } = await import('./jobs.js');
 
 /* ------------------------------------------------------------------ helpers */
@@ -541,6 +542,13 @@ test('a staged run waits for a renderer without holding one, and the wait reache
 test('the hosted deployment renders one preset, and a local one is left alone', () => {
   assert.equal(HOSTED_PRESET, 'explainer');
   assert.deepEqual(hostedFormat(true), { preset: 'explainer' });
+
+  // The length is mirrored from `PRESETS.explainer.maxSeconds` rather than
+  // imported, because `apps/web` does not depend on the planner and a client
+  // component could not import this module if it did. A mirror needs a pin: the
+  // failure it guards is a preset edit that leaves every hosted visitor reading
+  // a wait justified by a film length that is no longer true.
+  assert.equal(HOSTED_PRESET_SEC, 75);
   // Locally the person pasting the text is the person paying for it and waiting
   // for their own CPU, so nothing is imposed: an empty patch spreads to nothing.
   assert.deepEqual(hostedFormat(false), {});

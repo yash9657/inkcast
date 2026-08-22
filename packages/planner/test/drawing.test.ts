@@ -583,3 +583,31 @@ test('a name is moved off an equation, which the ink table cannot see on its own
   assert.deepEqual(ink.solid, { x: 300, y: 200, w: 400, h: 120 });
   assert.equal(mathInk(drawing[1] as Mark), undefined, 'a label is not equation ink');
 });
+
+test('a name inside a traced closed stroke is not treated as having drifted away', () => {
+  // The case that had to be understood before the price of drifting could be raised. A name
+  // in the middle of an outline is 200-odd units from the nearest stroke, which is over
+  // `ADRIFT`, so a repair that took drifting seriously would drag "the heart" out of the
+  // heart and stand it on an edge — repairing ordinary whiteboard practice into a defect.
+  //
+  // A closed freehand `stroke` and not a `rect`, deliberately: this is how every traced
+  // organ in `~/.inkcast/cache/drawings` is drawn, and it is the case a rule written from
+  // the mark's *kind* would have missed. `repairLabels` reads closedness off the geometry —
+  // a loop of segments — so a rect, an ellipse and this are one case, while the long
+  // diagonal arrow two tests above encloses nothing however large its bounding box is.
+  const traced: Mark[] = [
+    mark({
+      id: 'outline',
+      kind: 'stroke',
+      closed: true,
+      points: [
+        [120, 80],
+        [820, 120],
+        [860, 460],
+        [140, 440],
+      ],
+    }),
+    mark({ id: 'name', kind: 'label', x: 480, y: 270, text: 'the heart', size: 30 }),
+  ];
+  assert.deepEqual(repairLabels(traced)[1], traced[1]);
+});

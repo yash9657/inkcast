@@ -59,7 +59,11 @@ export function TileGroup<T extends string>({
             key={option.value}
             className={cn(
               'group relative flex min-w-0 cursor-pointer flex-col items-start gap-1.5',
-              'rounded-lg border border-input bg-card p-3 shadow-xs',
+              // `shadow-card`, not the `shadow-xs` alias this carried until the
+              // component sweep: docs/DESIGN.md's clean-up list names this line,
+              // and the alias block in globals.css cannot be deleted while a
+              // call site still reads through it.
+              'rounded-lg border border-input bg-card p-3 shadow-card',
               'transition-[background-color,border-color] duration-fast ease-out',
               'hover:bg-accent/40',
               'has-[input:checked]:border-primary has-[input:checked]:bg-primary/8',

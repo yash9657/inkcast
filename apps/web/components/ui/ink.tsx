@@ -111,6 +111,40 @@ function round(n: number): string {
 /* ------------------------------------------------------------- components */
 
 /**
+ * The entrance for a flourish whose SVG is STRETCHED — `preserveAspectRatio
+ * ="none"` plus `vector-effect="non-scaling-stroke"`, which is `InkUnderline`
+ * and `InkCircle`.
+ *
+ * These used to draw themselves on with `animate-ink-draw`, the dash trick:
+ * `pathLength={1}` normalises the path to one unit and the keyframe walks
+ * `stroke-dashoffset` from 1 to 0. It is the right technique and it is wrong
+ * here, because the keyframe's end state (`stroke-dasharray: 1`, held by
+ * `forwards`) only means "one dash covering the whole path" while dashes are
+ * measured in the path's own units. `non-scaling-stroke` moves dash measurement
+ * into SCREEN space, where the stretched path is ~430px long and a 1px dash is a
+ * 1px dash — so the underline rendered as a stroke covering the first ~60% of
+ * the word, a gap, and an orphaned stub near the end.
+ *
+ * That shipped on the hero and on `/studio`, and it was found by looking at a
+ * screenshot rather than by reading the CSS. Measured in Chromium at the
+ * committed markup: computed `stroke-dasharray: 1px` against a
+ * `getTotalLength()` of 98.15 user units; deleting the dash left a full-width,
+ * correctly weighted stroke, and additionally deleting `vector-effect` gave a
+ * full-width stroke at roughly triple the intended weight (the stretch scales
+ * it). So `vector-effect` stays and the dash goes.
+ *
+ * What replaces it is an entrance rather than a draw: opacity plus a 4px sweep
+ * from the left, on the whole SVG. It is honest about being less than a drawn
+ * stroke — a real left-to-right reveal needs a clip or mask keyframe, and
+ * keyframes live in `globals.css`, which is the design system's file and not the
+ * place for one component's choreography. `InkArrow` keeps the dash draw: its
+ * viewBox is square, it scales uniformly, and it carries no `vector-effect`, so
+ * the dash maths there is sound. `ink-demo.tsx` likewise keeps it — it defines
+ * its own keyframes and its board is drawn at 1:1.
+ */
+const STRETCHED_ENTRANCE = 'animate-in fade-in slide-in-from-left-1 duration-slower ease-out';
+
+/**
  * Ink colour, named so callers pick from the palette rather than a hex.
  *
  * `highlighter` is the newest and the most restricted: it is the system's second
@@ -208,24 +242,16 @@ export function InkUnderline({
         className={cn(
           'pointer-events-none absolute -bottom-[0.18em] left-0 h-[0.34em] w-full overflow-visible',
           toneStroke[tone],
+          draw && STRETCHED_ENTRANCE,
         )}
       >
         {/* `vector-effect` is not an inherited CSS property, so it goes on each
-            path rather than on the group. */}
+            path rather than on the group. No `pathLength` and no dash animation
+            here — see STRETCHED_ENTRANCE above for the measurement that took
+            them out. */}
         <g fill="none" strokeWidth={weight} strokeLinecap="round">
-          <path
-            d={first}
-            pathLength={1}
-            vectorEffect="non-scaling-stroke"
-            className={draw ? 'animate-ink-draw' : undefined}
-          />
-          <path
-            d={second}
-            pathLength={1}
-            opacity={0.55}
-            vectorEffect="non-scaling-stroke"
-            className={draw ? 'animate-ink-draw [animation-delay:120ms]' : undefined}
-          />
+          <path d={first} vectorEffect="non-scaling-stroke" />
+          <path d={second} opacity={0.55} vectorEffect="non-scaling-stroke" />
         </g>
       </svg>
     </span>
@@ -259,16 +285,19 @@ export function InkCircle({
           'pointer-events-none absolute top-[-0.3em] left-[-0.5em] overflow-visible',
           'h-[calc(100%+0.6em)] w-[calc(100%+1em)]',
           toneStroke[tone],
+          draw && STRETCHED_ENTRANCE,
         )}
       >
+        {/* Stretched exactly like the underline, so the dash draw is off for the
+            same measured reason — a ring that stops three quarters of the way
+            round is worse here than in an underline, because a broken ring reads
+            as a different shape rather than as a short line. */}
         <path
           d={path}
           fill="none"
           strokeWidth={weight}
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
-          pathLength={1}
-          className={draw ? 'animate-ink-draw' : undefined}
         />
       </svg>
     </span>

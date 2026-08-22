@@ -2111,3 +2111,244 @@ Three measurements, so nobody re-derives them:
   request rather than at the fit, and it is the largest single move left on `inkstat` — but
   it is unmeasured, because seeing it needs a re-render with regenerated rasters at the new
   aspect. **That is the first thing the next session should do**, and it costs about $0.10.
+
+## 2026-08-22 — the integration pass: the tree is green, and three of the plan's premises were wrong
+
+Eight agents finished across the web app, the pipeline and the deploy artifacts, all on top
+of `089d3e3` ("Save the launch build where the agents left it"). This entry is the gate over
+all of it. Every number below is followed by the command that produced it.
+
+### The gates
+
+| gate          | command                                                               | result                      |
+| ------------- | --------------------------------------------------------------------- | --------------------------- |
+| typecheck     | `pnpm -r typecheck`                                                   | **9/9 projects Done**       |
+| tests         | per-package `pnpm --filter … test`                                    | **847 pass, 0 fail**        |
+| lint          | `pnpm lint`                                                           | **All matched files clean** |
+| studio build  | `pnpm --filter @inkcast/web build`                                    | **passes**, 23 routes       |
+| pinned hashes | `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` | 3 unmoved, **1 re-pinned**  |
+
+Per package: keyvault 56, planner 209, visuals 232, voice 71, render 92, pipeline 77, web
+87, cli 23.
+
+**`pnpm -r typecheck` was NOT green at `089d3e3`, and the commit message says it was.** Six
+of the eight agents independently reported this and each was right. Two errors, both
+committed, both in `packages/planner/src/compile.ts`:
+`src/compile.ts(279,17): error TS2304: Cannot find name 'referTo'` and
+`src/compile.ts(319,33): error TS2353: … 'pictures' does not exist in type 'BoardMemory'`.
+The planner suite was 138/147 with 9 failures, and no pinned hash could be checked at all
+because `compileLesson` threw for every storyboard. Anything that commit claims about test
+counts or hashes was measured before the last edit reached disk.
+
+Both are fixed. `referTo` existed and exported from `refer.ts`; only the import at
+`compile.ts:73` was missing it — one word. The `memory` initialiser's `pictures` and `names`
+were dropped rather than added to `BoardMemory`, because the identity they were going to
+track is already tracked one layer down: `registry().mint` keys on the content-derived slug,
+so two beats asking for one subject resolve to one `Asset` and the generator is paid once.
+Adding two members nothing reads would have been the written-and-never-read pattern again.
+
+### One hash re-pinned: longitude/short, `c0f2ccc5024c` → `882002cbf24c`
+
+Not taken on trust. `packages/planner/src/text.ts` was unmodified in the working tree, so
+`git show HEAD~1:packages/planner/src/text.ts` is exactly the trimmer that produced the old
+hash. Compiling longitude/short under each and diffing the pretty-printed storyboards gives
+**four lines of `diff` output** — one changed `label`:
+
+```
+"label": "Longitude is a difference between"   ->   "Longitude is a difference"
+```
+
+`between` is one of the words `text.ts`'s `DANGLING` list learned for defect 0b. The other
+three pins were byte-identical under both versions, which is the cross-check that says this
+is a string and not geometry: the type-scale attempt reverted in `45d4ff9` moved all four
+and rewrote 330 geometric values. Re-pinned in `test/pinned-hashes.test.ts` and in the
+`COMPILER_VERSION` comment, with the reasoning and the reproduction recorded in both.
+
+### Three of the plan's stated premises are false
+
+**A6 is NOT dead code.** The brief handed down to this pass asserts that `sketchWritten`,
+`sketchUnderline`, `TITLE_UNDERLINE`, `brandMark` and `BRAND_MARK` have zero call sites
+outside `sketch.ts`. Measured: `packages/render/src/compile.ts:508` calls `brandPlateItem`,
+which calls `sketchBrandMark` at `:780` and uses `BRAND_MARK.stroke` at `:794` and `:797`;
+`sketchUnderline` is called at `:1332` via `titleUnderlinePrims`, itself called at `:1346`.
+`sketchWritten` does not exist anywhere in the repo and never did — the grep in the brief
+named a symbol that was never written. The A6 grep predates `089d3e3`. A6 shipped as dead
+code and was then wired; the finding is stale, not wrong about history.
+
+**A4.3's fill clamp is arithmetically impossible and A1's ink gate cannot pass.** Unchanged
+from the previous entry and re-affirmed: fill is the product of how much frame the camera
+holds — capped by the 76.5% safe area — and how much of that the ink covers, measured at
+30–76% across the corpus, so a 55% clamp needs a coverage the corpus never reaches.
+Enlarging figures moved mean ink by less than reporting precision and cost a hue. **The real
+density lever is killing the pale white card behind each generated figure**, which is free
+and is in the render lane. No keyed run should be spent on the clamp.
+
+**`explainer` was unreachable from every entry point.** One list, written down four times,
+and no two checked against each other. `packages/planner/src/presets.ts:28` defines it;
+`packages/pipeline/src/stages.ts:41` mirrored `'standard' | 'short' | 'square'`, so
+`CastInput.preset` could not _hold_ the value; `apps/cli/src/main.ts:25` validated against
+the same three, so `readFlags({ preset: 'explainer' })` threw
+`--preset must be one of standard | short | square, got "explainer"`; and
+`apps/cli/src/usage.ts` advertised the same three in prose. So the studio's whole hosted
+format cap — `hostedFormat()` and `HOSTED_PRESET`, exported and unit-tested for a day —
+could not be handed to `cast()` at all, and no CLI user could ask for the preset either.
+
+`pnpm --filter @inkcast/web typecheck` is what finally said so, and only because this pass
+wired `hostedFormat()` into the route. Nobody had tried to pass the value. All four copies
+now agree, and the two that a compiler cannot check are guarded by tests:
+`packages/pipeline/test/preset-mirror.test.ts` asserts the mirror equals `Object.keys(PRESETS)`
+in both directions, and `apps/cli/test/flags.test.ts` asserts every accepted preset also
+appears in the `--preset` help line — the user-visible half of the list was exactly the half
+nothing was checking.
+
+### The launch surface did not exist in git
+
+`.gitignore` line 9 was `projects/` — no leading slash, trailing slash — which git matches at
+every depth. `git check-ignore -v apps/web/app/api/projects/route.ts` printed
+`.gitignore:9:projects/`. **Five files were untracked**: the library listing, the project
+GET/DELETE, `/edit`, `/rerender`, and the route that flips `shared: true` — the whole of
+D3's ownership enforcement surface. A fresh clone had none of it. `.prettierignore` carried
+the identical unanchored pattern, so those same five files were also excused from
+`prettier --check .` and the lint gate had been reporting green over a hole.
+
+Both are anchored now (`/projects/`, `/renders/`, `/.inkcast/`), plus `/.screens/` for the
+screenshot gate's ~70 PNGs. `git check-ignore` on the route files now exits 1, and the three
+working dirs at the repo root are still ignored.
+
+### Security: `/api/keys` was live on a hosted box
+
+`grep -rn isHosted apps/web/app/api/keys/` returned nothing. `/settings` correctly stops
+rendering the BYOK panel when `INKCAST_HOSTED=1`, but the four handlers behind it — GET,
+POST and DELETE on `/api/keys`, POST on `/api/keys/validate` — were unguarded, and they
+read, write and delete entries in the **operator's** vault: the credentials paying for every
+visitor's film. Hiding a panel is not closing a door, and an unlinked endpoint is not a
+private one.
+
+All four now open with `offOnHostedBox('the key vault')` (new, `_lib/http.ts`), which returns
+404 rather than 403 so a hosted deployment does not advertise that a vault exists. The guard
+sits above the vault call and above `readJson`, so a hosted box never parses a key out of a
+request body.
+
+### The queue told every client it had started
+
+`apps/web/app/api/generate/route.ts` wrote `status: 'running' as const` into its 202 while
+`startJob` was returning a snapshot whose status is `'queued'` whenever both render slots
+are busy. So under exactly the load the queue exists for, the response lied — silently, and
+self-repairingly, because a queued job does eventually run. `jobs.ts`'s own docstring says
+that response is where a client learns where it stands. It now forwards `snapshot.status`
+and the whole `snapshot.queue` object (position, running-ahead, eta, message), so the 202 and
+the SSE stream cannot describe one wait two ways.
+
+### Cost: half the phantom is dead, and the other half is worse than reported
+
+The cached-lesson phantom is fixed. `cast.ts` now passes
+`lessonAuthored: design.author === 'anthropic' && !run.skipped.includes('lesson')`.
+Measured across the 22 recorded projects in `projects/`, by reading each `pipeline.json`:
+**`projects/cardiac` is the only one with `lesson` in its own `skipped` array and a lesson
+cost line** — $0.2567 of a recorded $0.627, 41% of that project's total. Every other project
+carrying a lesson line has `lesson` absent from `skipped`, so the predicate zeroes exactly
+that one case and touches none of the other 21.
+
+`packages/pipeline/src/spend.ts` is now exported from the package index. It was complete,
+tested to 13 cases including 8 separate OS processes appending concurrently, and reachable
+from nowhere. **It is still not called**: `decide()` runs before no generation and `book()`
+after none, so `INKCAST_DAILY_USD` does nothing today. Exact call sites are listed in
+`docs/KEYED-GATES.md` Gate 6.
+
+### Provenance is still set before the call — reproduced, with evidence, for $0.00
+
+Trap #3 in `docs/PLAN-LAUNCH.md`, and the 2026-08-09 entry above already named it for the
+lesson stage. It is still live, and this pass reproduced it by accident while checking a CLI
+flag. A run with `ANTHROPIC_API_KEY=disabled-no-spend` produced a `pipeline.json` recording
+
+```
+providers.lesson: "anthropic/claude-opus-5"
+cost.lines: [{ stage: "lesson", usd: 0.0178, basis: "~2000 in + ~313 out tokens …" }]
+lesson.problems: []
+```
+
+All three false. The lesson's `objective` was
+`"explain in your own words how --version works, and why each step of it is needed"`, which
+is the template literal at `packages/planner/src/lesson-derive.ts:464` — the **local
+heuristic** author. No model was called, $0.0178 was booked, and `problems` was empty so
+nothing reported the demotion. `cast.ts:485` is `author = adapter`, decided from which env
+vars are set; `packages/planner/src/lesson.ts:86-90` falls back with a bare `log.warn` and
+returns a plain `Lesson`, so nothing downstream can learn what happened.
+
+This matters for reading the fix above: `lessonAuthored` keys off `design.author`, and here
+`design.author` is itself the lie. The two bugs share a symptom, have different causes, and
+only one is fixed.
+
+The **voice** lane, by contrast, is correct: `voiceRecordOf` (`cast.ts:1215`) takes a
+`ResolvedVoice` carrying `spoke`, `charsByProvider` and `problems` observed inside the stage,
+and deliberately inherits rather than re-deriving. The **figure** lane has no observation
+point at all — `providers.images` is the configured head of the chain, and `Asset`
+(`packages/core/src/storyboard.ts:72`) has a `source` enum but no field naming which provider
+drew it. The billed _count_ is honest (`generatedAssets` is diffed against the assets present
+before the stage ran); the attribution is not.
+
+Not fixed here, deliberately: it is a cross-package signature change through the stage
+contract, it moves storyboard content for any project with generated assets, and proving a
+fallback is _reported_ requires making one happen — a funded key and a deliberately broken
+one. Filed as a keyed gate.
+
+### Smaller things, each with its evidence
+
+- **The launch favicon was the placeholder.** `app/icon.svg`, `favicon.ico`,
+  `apple-icon.png`, `opengraph-image.png` and `.alt.txt` all existed, but `layout.tsx` still
+  carried a `metadata.icons` block whose own comment said C4 "replaces this whole block" —
+  and an explicit `metadata.icons` overrides Next's file convention. Deleted. The build now
+  lists `/icon.svg`, `/apple-icon.png` and `/opengraph-image.png` as routes and
+  `.next/server/app/favicon.ico` exists.
+- **`pnpm cast --` silently eats flags.** `pnpm --filter @inkcast/cli exec node -e '…' -- --preset explainer`
+  forwards `['explainer']`: the flag name is gone. `pnpm cast -- <file> --preset explainer`
+  therefore rendered at `standard` and reported success — which is why the `explainer` bug
+  survived, since the obvious way to test it cannot test it. Worse, `pnpm cast -- --version`
+  dropped `--version` and the CLI read the leftover token as a **topic**, authoring and
+  rendering a full four-beat lesson about "--version". Both accidental renders were removed;
+  `projects/` is back to its 22 recorded projects. Use
+  `npx tsx apps/cli/src/index.ts …` instead. Documented in `docs/KEYED-GATES.md`.
+- **`docs/KEYED-GATES.md` is new**: every gate needing a funded key or a deployed box, with
+  the exact command, the pass criterion, and the measured cost. A full keyed cast is
+  **$0.45–$0.77** (from `projects/cardiac8`: lesson $0.279, voice $0.4286, visuals $0.003).
+  Voice is 60% of that, so a gate that only needs pictures should use `drawcheck.mts` at
+  ~$0.003 instead of a $0.70 film.
+
+### UNPROVEN — nothing below was verified, by me or by anyone
+
+- **No film was rendered and no frame was looked at in this pass.** Every pixel claim in the
+  eight agent reports — the brand plate's 92px tile at bottom-right, the accent underlines,
+  the `InkUnderline` and storyboard-thumbnail fixes, the 24%-full outro with text over
+  pictures — is inherited, not re-measured. The outro collision defect is free to reproduce
+  (`frames.mts`) and is still open.
+- **Nothing has ever been deployed.** `docker build` completing, the healthcheck, the p95
+  admission gate, the janitor, and the `/api/keys` 404 I just added are all unverified
+  against a real box. The 404 guard is unit-testable and is not yet unit-tested.
+- **The hosted preset cap is proven only by the compiler.** `hostedFormat()` now reaches
+  `castInput` and typechecks end to end, which is strictly more than yesterday, but no
+  hosted POST was made and no 75-second film was produced.
+- **`INKCAST_DAILY_USD` does nothing.** The ledger is exported and untested against a real
+  run because it is called from nowhere.
+- **`cancelJob()` still has no production call site**, so nothing can vacate a queued run
+  from outside the test suite.
+- **`DRAW_BRIEF` has no `math` mark**, so `drawing.ts`'s `math` builder and
+  `equation.ts`'s `texError` guard remain unreachable — typeset mathematics is still drawn
+  in a handwriting font. Deliberately not landed: the bullet requires bumping
+  `STAGE_CODE_VERSION.draw`, which invalidates every cached lesson in the corpus and bills
+  the owner for re-authoring each on its next keyed run. That is their call, not an agent's.
+  Exact bullet text is in the agent report; pass criterion is in `docs/KEYED-GATES.md` 3a.
+- **`apps/web/components/site-header.tsx`** is 201 unreferenced lines. Four comments in other
+  files point at it by name, so deleting it means rewriting those four; left in place as
+  lower value than the docs, and named here so it is not forgotten.
+- **`.env.example` is stale**: no `INKCAST_HOSTED`, `INKCAST_SESSION_SECRET` (which the app
+  refuses to boot without when hosted), `INKCAST_BYPASS_TOKEN`, `INKCAST_PUBLIC_URL` or
+  `INKCAST_ACME_EMAIL`, while both `docker-compose.yml` and `docs/DEPLOY.md` say
+  `cp .env.example .env`. It does document `INKCAST_RENDER_WORKERS`, which
+  `grep -rn INKCAST_RENDER_WORKERS packages/ apps/` shows is read by no code anywhere.
+- **`apps/web/next-env.d.ts`** shows as modified, is Next-generated, and is in
+  `.prettierignore`. Somebody should decide whether it is committed or reverted.
+- **Client-side caps and share surface**: the routes return `generationsLeftToday` /
+  `operationsLeftToday` and a 429 body with `limit` and `retryAfterSec`; nothing reads them,
+  so a user still meets the cap as a bare error. Plan B2's share surface (captions `<track>`,
+  a "Made with Inkcast" plate, a Remix CTA) is unbuilt, and the project DTO carries no
+  `thumbnailPath`, so `/library` posters fall back to downloading the mp4.

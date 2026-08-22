@@ -38,7 +38,28 @@
 	# an open admin endpoint is a configuration-rewrite primitive for anything
 	# that gets a foothold in the app container.
 	admin off
-	email {$INKCAST_ACME_EMAIL:}
+
+	# The ACME contact address, and the quotes are the entire point.
+	#
+	# Unquoted, `email {$INKCAST_ACME_EMAIL:}` with the variable unset expands to a
+	# bare `email` with no argument, and Caddy refuses the whole config:
+	#
+	#   Error: adapting config using caddyfile: parsing caddyfile tokens for
+	#   'email': wrong argument count or unexpected line ending after 'email',
+	#   at /etc/caddy/Caddyfile:41
+	#
+	# Which means the *default* configuration — a laptop, no domain, no ACME
+	# account, exactly the case the header above promises works offline — could not
+	# start Caddy at all. `caddy validate` with no environment is what found it, and
+	# it is the reason that command is in docs/DEPLOY.md.
+	#
+	# Quoted, the same expansion is one empty argument, which Caddy accepts as "no
+	# contact address". That is a supported state rather than a degraded one: Let's
+	# Encrypt stopped sending expiry notification mail in 2025, so the address buys
+	# a contact record and nothing operational. Set it anyway on a real deployment —
+	# it is the only channel an ACME provider has to reach you about an account
+	# problem — but never at the cost of the unconfigured case booting.
+	email "{$INKCAST_ACME_EMAIL:}"
 }
 
 {$INKCAST_PUBLIC_URL:http://localhost:8080} {

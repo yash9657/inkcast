@@ -94,6 +94,34 @@ export function isHosted(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * A refusal for an endpoint that only makes sense on a desktop install, or
+ * `undefined` when the caller may proceed.
+ *
+ * Written because hiding a panel is not the same as closing a door, and the two
+ * had drifted apart. `/settings` correctly stops rendering the BYOK form when
+ * `INKCAST_HOSTED=1` — but `/api/keys` and `/api/keys/validate` were still live
+ * behind it, unlinked and unguarded, and they read, write and delete entries in
+ * the *operator's* vault. On a public box that is a stranger with the path
+ * exfiltrating the Anthropic and ElevenLabs keys that pay for everybody's films.
+ * `grep -rn isHosted apps/web/app/api/keys/` returned nothing at all before this.
+ *
+ * 404 rather than 403, and deliberately: a 403 confirms there is a vault here to
+ * come back for, and the honest description of a hosted deployment is that this
+ * route does not exist on it. The `what` phrase names the feature and not the
+ * mechanism, so the body is useful to the one person who sees it legitimately —
+ * an operator who set `INKCAST_HOSTED=1` on their own laptop and then wondered
+ * where their keys went.
+ *
+ * Returns a value instead of throwing so a handler's existing `try`/`catch`
+ * cannot turn a deliberate refusal into a 500: `if (const off) return off` at the
+ * top of the handler, before anything touches the vault.
+ */
+export function offOnHostedBox(what: string) {
+  if (!isHosted()) return undefined;
+  return fail(404, `${what} is not available on this deployment`);
+}
+
+/**
  * 409 for an operation that cannot proceed while a run is in flight.
  *
  * Deleting or editing a project mid-render would corrupt it in a place far from

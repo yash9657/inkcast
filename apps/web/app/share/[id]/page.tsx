@@ -157,7 +157,13 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
             <Link href="/" className="focus-ring rounded-xs font-medium text-primary outline-none">
               Inkcast
             </Link>{' '}
-            — open source, runs locally, no per-minute bill.
+            {/* Was "open source, runs locally, no per-minute bill". This footer is
+                on the most-shared surface the project has, and "runs locally" is
+                the one clause a stranger reads while looking at a film that did
+                not run locally — it ran on inkcast.video's box. "Run it yourself"
+                keeps the whole claim and makes it an invitation, which is both
+                true of every deployment and the thing this footer is for. */}
+            — open source. Run it yourself, no per-minute bill.
           </p>
           <Link
             href="/studio"

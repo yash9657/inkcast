@@ -573,11 +573,7 @@ export function insightArrival(lesson: Lesson): string | undefined {
  * runs long. A followable lesson at 140 seconds is worth more than a 120-second one with
  * two links missing, and that is a deliberate product decision rather than a fallback.
  */
-function droppableIds(
-  lesson: Lesson,
-  doomed: ReadonlySet<string>,
-  spared?: string,
-): Set<string> {
+function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>, spared?: string): Set<string> {
   const beats = lessonBeats(lesson).filter((b) => !doomed.has(b.id));
   /** Ids some surviving beat derives from. The recap is excluded: see above. */
   const needed = new Set<string>();

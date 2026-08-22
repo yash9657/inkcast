@@ -43,7 +43,7 @@ import { Readable } from 'node:stream';
 
 import { badRequest, fail, notFound } from '../../../_lib/http';
 import { contentTypeFor, parseRange, resolveMediaFile } from '../../../_lib/media';
-import { readSession, requireViewable } from '../../../_lib/session';
+import { requireViewable, resolveIdentity } from '../../../_lib/session';
 import { isValidProjectId, projectDir } from '@/lib/store';
 
 export const runtime = 'nodejs';
@@ -86,8 +86,26 @@ async function serve(request: Request, context: Context, headOnly: boolean): Pro
    * video kept playing for the person I revoked" is a worse defect than a few
    * JSON reads per seek. If seeking ever measures slow, the fix is a short-lived
    * *negative*-safe cache here, not a longer-lived permission.
+   *
+   * ## This route never 401s, and that is deliberate
+   *
+   * These bytes are what a `<video src>` and an `<img src>` on a public
+   * `/share/<id>` page actually fetch, as whatever stranger is watching — usually
+   * with no cookie and, on a deployment with accounts, usually with no account. A
+   * refusal here would not show a sign-in page; it would show a broken video
+   * element on every shared film. So a signed-out caller is downgraded to
+   * `who.stranger` rather than refused, and `requireViewable` decides the rest:
+   * shared, or nothing. That is the identical answer this route gave before
+   * accounts existed.
+   *
+   * The owner's *own* unshared film still plays, because a signed-in owner
+   * resolves to their real session and `requireViewable` says `via: 'owner'`. The
+   * one thing that changed is that on a Clerk deployment a signed-out browser no
+   * longer gets a mintable anonymous identity out of this route — it never set a
+   * cookie anyway, which is why this is a downgrade with no consequence.
    */
-  const session = readSession(request);
+  const who = await resolveIdentity(request);
+  const session = who.ok ? who.session : who.stranger;
   const verdict = await requireViewable(id, session);
   if (!verdict.ok) return fail(verdict.status, verdict.message);
 

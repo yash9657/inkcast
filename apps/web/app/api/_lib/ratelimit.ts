@@ -78,6 +78,16 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  * hops than configured means the request did not come through the proxy we
  * trust, so its headers are worth nothing.
  *
+ * One detail worth stating so the two files cannot be read as disagreeing: the
+ * `Caddyfile` this deploys behind goes further than appending. It uses
+ * `header_up X-Forwarded-For {remote_host}` with no `+`, which *discards* what
+ * the client sent, so in production the list arrives exactly one entry long. The
+ * rightmost-entry rule is correct either way — that is the point of writing it
+ * against the append behaviour rather than against a length — and reading it that
+ * way is what keeps this file right if a CDN is ever put in front and the chain
+ * grows again. Both directions of that change are called out at the
+ * `header_up` line in the `Caddyfile`; they have to move together.
+ *
  * Set `INKCAST_TRUSTED_PROXY_HOPS` if a CDN is ever put in front of Caddy (each
  * appending hop adds one). Getting it *too high* fails closed — unknown client,
  * shared bucket — rather than open.

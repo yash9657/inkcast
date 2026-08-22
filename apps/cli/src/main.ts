@@ -22,7 +22,20 @@ import { hydrateKeys } from './vault.js';
 const ASPECTS = ['16:9', '9:16', '1:1'] as const;
 const STYLES = ['marker', 'pencil', 'chalk', 'ink'] as const;
 const PALETTES = ['mono', 'color'] as const;
-const PRESETS = ['standard', 'short', 'square'] as const;
+/*
+ * The third copy of this list, and the one that *rejects*. `packages/planner/src/presets.ts`
+ * defines the presets, `packages/pipeline/src/stages.ts` mirrors the names into the stage
+ * contract, and this validates the flag — so `explainer`, missing from the second and third,
+ * was a preset the planner had and no user could ask for: `readFlags` threw
+ * `--preset must be one of standard | short | square, got "explainer"`.
+ *
+ * Kept as a local literal rather than imported from the planner because `oneOf` needs a
+ * runtime array and the CLI must be able to parse flags and print usage before any stage
+ * package is loaded — the whole point of `stages.ts`'s lazy thunks. `usage.ts` carries the
+ * same four names in prose and has to move with this line; there is no way to make a help
+ * string a compile error, so the pair is checked in `test/flags.test.ts` instead.
+ */
+const PRESETS = ['standard', 'short', 'square', 'explainer'] as const;
 const DEPTHS = ['quick', 'standard', 'deep'] as const;
 const ROUTES = ['lesson', 'document'] as const;
 const BOARDS = ['accumulate', 'wipe'] as const;

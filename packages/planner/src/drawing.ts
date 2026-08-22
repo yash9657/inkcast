@@ -273,6 +273,66 @@ function mathInkOf(marks: Mark[]): Ink[] {
 
 /* -------------------------------------------------------------------- repair */
 
+/**
+ * What lying across one crossed stroke costs, in units of displacement × 2.
+ *
+ * 150 buys 300 units of movement, and that number is geometry rather than taste. Escaping
+ * a *long* leader is not a nudge: an arrow crossing a label at a slope of 0.5 leaves the
+ * label's box only when the box clears the line along its whole width, so a 307-unit-wide
+ * name on such an arrow has to travel about 130 units, and a wider name or a steeper
+ * leader further. At the previous price of 50 — 100 units of movement — every one of those
+ * escapes was arithmetically unaffordable, so the search was pruned after two rings and
+ * the label stayed exactly where it was. That is the defect the header describes as
+ * "labels crowding arrows for three sessions": it survived the rewrite that was supposed
+ * to fix it, because the rewrite fixed the *obstacle detection* and left the price alone.
+ *
+ * Swept over the 192 drawings in `~/.inkcast/cache/drawings` with
+ * `npx tsx packages/planner/src/markcheck.mts cache`, against `defectScore` (raw 4499
+ * throughout — the sweep changes only what the repair keeps):
+ *
+ * | crossed / adrift  | kept | label-on-ink | adrift | off-canvas | on-label |
+ * | ----------------- | ---- | ------------ | ------ | ---------- | -------- |
+ * | 50 / 50, as shipped | 1328 | 294        | 25     | 56         | 3        |
+ * | 50 / 50, with seats | 1429 | 320        | 31     | 59         | 0        |
+ * | 100 / 100         | 1052 | 227          | 28     | 58         | 0        |
+ * | 150 / 150         |  923 | 192          | 29     | 63         | 0        |
+ * | **150 / 400**     |  966 | 208          | 8      | 63         | 0        |
+ * | 150 / 600         |  970 | 210          | 4      | 63         | 0        |
+ * | 300 / 50          |  761 | 134          | 88     | 66         | 1        |
+ *
+ * Two rows earn their place. The second says the seat reservation above *costs* 101 points
+ * at the old price — it blocks escapes that used to be available — so it only pays for
+ * itself once the escape is priced properly, which is why the two changes are one change.
+ * The last says why the lowest total is not the answer: raising this price alone drives
+ * `label-on-ink` down hardest and pays for it in the defect that is the repair's own doing,
+ * a name marooned 88 times over where it names nothing. That is what the weights were tuned
+ * out of once already (see the header), returning the moment the escape got cheap and the
+ * penalty for escaping too far did not keep up.
+ *
+ * 200/400 scores better still (878). Stopping at 150 is the restraint the header argues
+ * for: 300 units of travel is what the geometry above asks for, the rest is a checker being
+ * satisfied, and this pass is not the whole fix — the model revises after it.
+ */
+const CROSSED_INK = 150;
+
+/**
+ * What ending up too far from any ink to be naming anything costs.
+ *
+ * Held above `CROSSED_INK` deliberately, at a ratio of 8:3. A label that has crossed the
+ * board to escape an arrow and is now sitting on blank paper has not been repaired, it has
+ * been lost, and the whole point of the scored search (header, "the old failure in a new
+ * costume") is that it must never be able to buy its way out of one defect into a worse
+ * one. Pricing it here rather than in `ADRIFT` — which is a *distance* in `draw-geom.ts`,
+ * shared with the audit — keeps the threshold and the penalty separate: what counts as
+ * adrift is a judgement about the drawing, what it costs is a judgement about this search.
+ *
+ * The sweep above is the evidence: at 400 the marooned-label count falls to 8 from the 25
+ * that ship today, so the change that moves 86 names off the ink they were lying across
+ * also leaves a third as many names stranded as before it. Going further (600) buys 4 more
+ * at the cost of 2 names left on ink, which is trading a weight-1 defect for a weight-4 one.
+ */
+const ADRIFT_COST = 400;
+
 /** The eight ways out of a crowded spot, nearest first. */
 const RINGS = [
   [0, -1],
@@ -325,10 +385,12 @@ const RINGS = [
  * units off the canvas, where they named nothing and shrank the fitted picture to make
  * room for them. `markcheck.mts` measured that as it happened: 713 raw down to 48, and
  * all 48 were labels the repair itself had marooned. That is the old failure in a new
- * costume, so **moving a name is expensive here**: about 100 units of displacement costs
- * the same as lying across one mark, a candidate outside the canvas is not considered at
- * all, and a name that would end up too far from any ink to be naming it is charged as if
- * it were a collision.
+ * costume, so **moving a name is expensive here**: 300 units of displacement costs the same
+ * as lying across one mark (`CROSSED_INK`), a candidate outside the canvas is not
+ * considered at all, and a name that would end up too far from any ink to be naming it is
+ * charged more than the collision it escaped (`ADRIFT_COST`). Those two prices were swept
+ * together over the cached corpus and the table is under `CROSSED_INK`; the short version
+ * is that raising the first without the second reproduces the 2026-era marooning exactly.
  *
  * The point of that tuning is that this pass is *not* the whole fix. It nudges; the model
  * revises (`draw-anthropic.ts`), and `draw-audit.ts` decides which drawings need it. A
@@ -358,15 +420,75 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     ...mathInkOf(marks),
     ...inkOf(marks.filter((m) => m.kind !== 'label')),
   ];
-  const placed: Box[] = [];
+  // Where every label is, at the moment this one is being placed: the boxes the labels
+  // already dealt with ended up in, and the authored boxes of the ones not reached yet.
+  //
+  // The second half is the correction. This used to hold only the labels behind it, so a
+  // name was free to move into a seat a *later* name was about to be placed in, and that
+  // later name — arriving to find its own home taken — moved as well. Measured over the
+  // 192 cached drawings: 3 of the label-on-label defects the repair leaves behind are its
+  // own doing at today's price, and raising the price of crossed ink multiplies them,
+  // because the artefact scales with how much movement is affordable. With the seats
+  // reserved that count is **0** at every weight in the sweep under `CROSSED_INK`. Looking
+  // forward as well as back costs one array and removes the artefact rather than trading
+  // against it — and it is the reason the two changes had to land together.
+  //
+  // A label's own box is not among the obstacles it is scored against, which is what makes
+  // "stay put" cost nothing for a label that is already clear.
+  const seats = marks.map((m) => (m.kind === 'label' ? labelFootprint(m, scale) : undefined));
+  const taken: Box[] = [];
+  let ahead = seats.filter((b): b is Box => b !== undefined);
   // A label may sit slightly outside the canvas — the drawing is fitted by its content,
   // so a name just over the edge only makes the picture slightly smaller — but not far
   // outside, which is a caption drifting away from its own drawing.
   const margin = 0.04;
 
+  /**
+   * The regions a name can be *in the middle of* and still be naming something.
+   *
+   * The distance rule below cannot see these, and that blind spot is what stopped the
+   * price of drifting from being raised. A name in the middle of a 900x500 outline is 250
+   * units from the nearest stroke, which is over `ADRIFT` — so "the heart" written inside
+   * the heart scored as a label naming nothing, and a repair that took drifting seriously
+   * dragged it out to sit on an edge. That is ordinary whiteboard practice being repaired
+   * into a defect, and `repairLabels`' first rule is that the space a shape encloses is not
+   * an obstacle: it is the one place the name most obviously belongs.
+   *
+   * Closedness is read off the geometry rather than the kind, which is what makes this
+   * exact. `chain` closes the loop for a `rect`, an `ellipse` and a `stroke` the author
+   * marked closed, and leaves a line, an arrow and an open stroke as a path — so a loop of
+   * segments is *precisely* the set of marks that enclose anything. Taking the kinds
+   * instead would have missed the closed freehand stroke every traced organ is drawn with,
+   * and taking bounding boxes would have made the long diagonal arrow "enclose" the whole
+   * drawing, which is the area-cap mistake the header of this function is about.
+   *
+   * Shading counts too, on the same argument the `Ink.fill` comment makes about hatching:
+   * `N` inside a hatched magnet pole is right, so it is not adrift either.
+   */
+  const enclosures: Box[] = ink.flatMap((k) => {
+    if (k.fill) return [k.fill];
+    if (k.solid) return [k.solid];
+    const first = k.segs[0]?.[0];
+    const last = k.segs[k.segs.length - 1]?.[1];
+    if (k.segs.length < 3 || !first || !last) return [];
+    if (first.x !== last.x || first.y !== last.y) return [];
+    const xs = k.segs.map((s) => s[0].x);
+    const ys = k.segs.map((s) => s[0].y);
+    return [
+      {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        w: Math.max(...xs) - Math.min(...xs),
+        h: Math.max(...ys) - Math.min(...ys),
+      },
+    ];
+  });
+  const inside = (p: Point): boolean =>
+    enclosures.some((e) => p.x >= e.x && p.x <= e.x + e.w && p.y >= e.y && p.y <= e.y + e.h);
+
   /** Lower is better. A collision justifies a move; nothing else does. */
   const cost = (b: Box, from: Box): number => {
-    const onLabels = placed.reduce((n, o) => n + (overlapArea(b, o) > 0 ? 1 : 0), 0);
+    const onLabels = [...taken, ...ahead].reduce((n, o) => n + (overlapArea(b, o) > 0 ? 1 : 0), 0);
     const hit = ink.filter((k) => inkHitsBox(k, b, 6));
     const onInk = hit.filter((k) => !k.solid).length;
     // A generated picture is priced eight times a crossed stroke, and the difference is
@@ -380,14 +502,19 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     const onSolid = hit.filter((k) => k.solid).length;
     const centre = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     const nearest = ink.reduce((d, k) => Math.min(d, inkDistance(k, centre)), Infinity);
-    const adrift = ink.length && nearest > ADRIFT ? 1 : 0;
+    const adrift = ink.length && nearest > ADRIFT && !inside(centre) ? 1 : 0;
     const moved = Math.hypot(b.x - from.x, b.y - from.y);
-    return onLabels * 1000 + onSolid * 400 + onInk * 50 + adrift * 50 + moved * 0.5;
+    return (
+      onLabels * 1000 + onSolid * 400 + onInk * CROSSED_INK + adrift * ADRIFT_COST + moved * 0.5
+    );
   };
 
-  return marks.map((m) => {
+  return marks.map((m, i) => {
     if (m.kind !== 'label') return m;
-    const home = labelFootprint(m, scale);
+    const home = seats[i] as Box;
+    // Out of the "not reached yet" list before it is scored, so the only box this label is
+    // never charged for colliding with is its own.
+    ahead = ahead.filter((b) => b !== home);
     let best = home;
     let bestCost = cost(home, home);
     if (bestCost > 0) {
@@ -436,17 +563,17 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
       // nothing has to be distinguishable from a repair that found the drawing clean.
       //
       // `searched` is what makes the sentence true rather than merely frequent. The other
-      // way out of the loop is the pruning above: a single crossed stroke scores 50, and a
-      // three-line name has a footprint 165 units tall, so ring 1 is already charged 66 and
-      // the loop never runs a single iteration. That is the scoring deciding the move is
-      // not worth making — the label is placeable, it is just not worth placing elsewhere —
-      // and blaming the canvas for it would put a false cause in the log.
+      // way out of the loop is the pruning above: a single crossed stroke scores
+      // `CROSSED_INK`, and a three-line name has a footprint 165 units tall, so ring 3 is
+      // already charged 198 and the search stops after two. That is the scoring deciding no
+      // further move is worth making — the label is placeable, it is just not worth placing
+      // further out — and blaming the canvas for it would put a false cause in the log.
       if (searched && !admissible)
         log.debug(
           `label "${m.text ?? m.id}" had nowhere to go: nothing inside the ${DRAW_W}x${DRAW_H} canvas fits its ${round(home.w, 0)}x${round(home.h, 0)} footprint at this fit`,
         );
     }
-    placed.push(best);
+    taken.push(best);
     if (best === home) return m;
     log.debug(`label "${m.text ?? m.id}" moved clear of what it landed on`);
     return { ...m, x: best.x + best.w / 2, y: best.y + best.h / 2 };

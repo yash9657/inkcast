@@ -5,7 +5,7 @@ import { Badge, Button, InkUnderline } from '@/components/ui';
 
 import { InkDemo } from './ink-demo';
 import { Reveal } from './reveal';
-import { COST_LOCAL, LICENCE, STUDIO_HREF } from './site-config';
+import { COST_LOCAL, LICENCE, signInRequired, STUDIO_HREF } from './site-config';
 
 /**
  * The hero.
@@ -37,6 +37,20 @@ import { COST_LOCAL, LICENCE, STUDIO_HREF } from './site-config';
  * The chips under the CTAs are deliberately made of checkable facts — a licence,
  * a number from `docs/CONTRACT.md`. There are no logos, no star ratings and no
  * user counts on this page, because we would have to invent them.
+ *
+ * ## The two claims that moved when the hosted site grew a gate
+ *
+ * The pill used to end "no API keys" and the line under the buttons used to open
+ * "No account, no key." Both were true of every deployment that existed when
+ * they were written, and both became false about *this* page the day generating
+ * on the hosted site started asking for a sign-in. `site-config.ts` rule 1 does
+ * not permit a claim that is false of the page it is printed on, so they are
+ * routed through `signInRequired` and each deployment prints the sentence that
+ * is true of it. Nothing is softened for the self-hoster: their pill and their
+ * line are byte-for-byte the ones that shipped. What the hosted variant does not
+ * do is hide the gate in the small print — it is the first thing under the two
+ * buttons that lead to it, because a visitor who finds out at the door was
+ * misled, however cheerfully.
  */
 export function Hero() {
   return (
@@ -46,7 +60,7 @@ export function Hero() {
           <div className="min-w-0">
             <Reveal>
               <Badge variant="outline" className="mb-6 font-mono">
-                Open source · {LICENCE} · no API keys
+                Open source · {LICENCE} · {signInRequired ? 'sign in to draw' : 'no API keys'}
               </Badge>
             </Reveal>
 
@@ -90,7 +104,9 @@ export function Hero() {
 
             <Reveal index={4}>
               <p className="mt-6 font-mono text-xs text-muted-foreground">
-                No account, no key. The local path costs {COST_LOCAL} a minute to run.
+                {signInRequired
+                  ? `Drawing one here starts with a sign-in. Run it yourself and there is no account, no key, and the local path costs ${COST_LOCAL} a minute.`
+                  : `No account, no key. The local path costs ${COST_LOCAL} a minute to run.`}
               </p>
             </Reveal>
           </div>

@@ -103,8 +103,17 @@ function SceneRow({
   return (
     <li className="border-b border-border last:border-b-0">
       <div className="flex gap-3 p-4">
+        {/* `self-start` is load-bearing, not alignment taste. This is a flex
+            row, so the default `align-items: stretch` gives the thumbnail the
+            height of the whole row — and once BOTH dimensions are determined
+            (width from `w-20`, height from the stretch) `aspect-ratio` has
+            nothing left to decide and is ignored. Measured before this line
+            existed: a 16:9 scene thumbnail rendered 80px wide by ~300px tall,
+            a vertical sliver of a wide board, on every scene of every project.
+            `self-start` returns the cross-axis size to `auto` so the aspect
+            ratio is what sets it. */}
         <div
-          className="w-20 shrink-0 overflow-hidden rounded-sm border border-border bg-paper"
+          className="w-20 shrink-0 self-start overflow-hidden rounded-sm border border-border bg-paper"
           style={{ aspectRatio: aspectRatio(storyboard.meta.aspect) }}
         >
           <MiniBoard storyboard={storyboard} sceneIndex={index} />

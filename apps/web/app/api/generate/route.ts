@@ -33,7 +33,7 @@ import {
 } from '../_lib/http';
 import type { Parsed } from '../_lib/http';
 import { admit } from '../_lib/ratelimit';
-import { readSession, requireOwner, sessionOwnerTag, setSessionCookie } from '../_lib/session';
+import { ownerTagFor, requireOwner, resolveIdentity, setSessionCookie } from '../_lib/session';
 import {
   GenerateFields,
   MAX_UPLOAD_BYTES,
@@ -47,7 +47,7 @@ import {
   uploadExtension,
 } from '../_lib/schemas';
 import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
-import { isRunning, startJob } from '@/lib/jobs';
+import { hostedFormat, isRunning, startJob } from '@/lib/jobs';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
 export const runtime = 'nodejs';
@@ -77,14 +77,35 @@ export async function POST(request: Request) {
     if (!probe.allowed) return tooManyRequests(probe);
 
     /*
-     * Who is asking. This is the request that *creates* ownership, so the
-     * session is read before any work and its cookie travels back with the 202
-     * — a project stamped with a session the browser never receives is a project
+     * Who is asking. This is the request that *creates* ownership, so identity
+     * is resolved before any work and its cookie travels back with the 202 — a
+     * project stamped with a session the browser never receives is a project
      * nobody can ever see again, and it would be created by the happy path.
-     * `readSession` mints one when the cookie is absent or forged, so there is
-     * always an owner to record.
+     *
+     * ## This is the route the sign-in requirement exists for
+     *
+     * Everything else in this API guards *access to a thing that already
+     * exists*, and `requireOwner` does that job whether the identity came from
+     * Clerk or from a cookie. This route is different in kind: it is the one that
+     * spends money. A generation runs an Anthropic lesson call, ElevenLabs
+     * characters, a headless Chromium and an ffmpeg process for minutes, on
+     * hardware somebody pays for. So on a deployment with accounts a refusal here
+     * is the product decision, and it has to be enforced *here* rather than by the
+     * page that renders the form: `/studio` shows a sign-in wall to a signed-out
+     * visitor, but a wall in a server component is a UX affordance and this
+     * endpoint is reachable with `curl`.
+     *
+     * `resolveIdentity` rather than `readSession`, and the difference is the whole
+     * point. `readSession` *mints* an anonymous session when the cookie is absent
+     * or forged, which is exactly right on a laptop and exactly wrong here: it
+     * means a signed-out caller is handed a brand-new identity and a free film,
+     * so the sign-in requirement would be satisfiable by clearing a cookie. With
+     * Clerk unconfigured `resolveIdentity` calls `readSession` and this line
+     * behaves as it always did.
      */
-    const session = readSession(request);
+    const who = await resolveIdentity(request);
+    if (!who.ok) return fail(who.status, who.message);
+    const session = who.session;
 
     const contentType = request.headers.get('content-type') ?? '';
     const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
@@ -234,12 +255,34 @@ export async function POST(request: Request) {
 
     /* ------------------------------------------------------------- the job */
 
+    /*
+     * `hostedFormat()` is the format cap, and it is spread here rather than merged
+     * inside the runner because this is the only place that knows a *request*
+     * asked for the film — everything downstream sees an already-decided
+     * `CastInput`.
+     *
+     * It returns `{}` when `INKCAST_HOSTED` is unset, so a local studio run is
+     * untouched and needs no conditional. Hosted, it pins `preset: 'explainer'`
+     * (75s, 16:9, `board: 'wipe'`), and that is what makes the queue's arithmetic
+     * true rather than aspirational: `estimateWaitSec` quotes a wait built from a
+     * rolling mean of measured leases, and until this line existed a hosted POST
+     * rendered at the `standard` default — 150s of film, twice the length the
+     * plan's two-lane budget was sized against — so every position the queue card
+     * showed was an under-estimate by construction. `HOSTED_PRESET` was exported
+     * and unit-tested for a day without being applied to anything.
+     *
+     * Deliberately last in the literal, and deliberately not reachable from the
+     * request body: `GenerateFields` is `.strict()` and has no `preset`, so a
+     * hosted visitor cannot ask for `standard` and cannot override this by
+     * sending one — the field is refused at the schema before it reaches here.
+     */
     const castInput = {
       ...(fields.text === undefined ? {} : { text: fields.text }),
       ...(fields.url === undefined ? {} : { url: fields.url }),
       ...(serverPath === undefined ? {} : { filePath: serverPath }),
       ...(fields.title === undefined ? {} : { title: fields.title }),
       ...(meta === undefined ? {} : { meta }),
+      ...hostedFormat(),
     };
 
     /*
@@ -263,11 +306,11 @@ export async function POST(request: Request) {
       status: 'running',
       title: fields.title ?? titleFor(source),
       source: indexSource(source),
-      ownerSession: sessionOwnerTag(session.id),
+      ownerSession: ownerTagFor(session),
       ...(meta?.aspect === undefined ? {} : { aspect: meta.aspect }),
     });
 
-    const { started } = startJob(id, 'cast', async (onProgress) => {
+    const { snapshot, started } = startJob(id, 'cast', async (onProgress) => {
       const { cast } = await loadPipeline();
       const result = await cast(castInput, {
         projectId: id,
@@ -286,7 +329,27 @@ export async function POST(request: Request) {
       json(
         {
           projectId: id,
-          status: 'running' as const,
+          /*
+           * The scheduler's own verdict, not a literal.
+           *
+           * This said `status: 'running' as const` while `startJob` was returning a
+           * snapshot whose status is `'queued'` whenever both render slots are
+           * busy — so under exactly the load the queue exists for, the 202 told
+           * every client it had started. `jobs.ts`'s docstring says this response
+           * is where a client learns where it stands; a hardcoded literal made
+           * that false, and made it false silently, because a queued job does
+           * eventually run and the lie repairs itself before anyone can point at
+           * it. The load harness could not read an admission depth here at all
+           * and had to infer one from the first SSE queue event.
+           *
+           * `queue` is forwarded whole rather than flattened: it already carries
+           * the position, the number running ahead, the eta (`null` until there
+           * are measurements to average) and the sentence to show — one shape,
+           * written once in `jobs.ts`, so the 202 and the stream cannot describe
+           * the same wait in two different ways. It is absent on an admitted job.
+           */
+          status: snapshot.status,
+          ...(snapshot.queue === undefined ? {} : { queue: snapshot.queue }),
           /** False when an identical run was already in flight and was reused. */
           started,
           streamUrl: `/api/generate/${id}/stream`,

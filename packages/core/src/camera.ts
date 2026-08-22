@@ -522,10 +522,7 @@ export function contentFill(
     const view = viewRect(f.camera, canvas, frame);
     const area = view.w * view.h;
     if (!(area > 0) || f.visible.length === 0) return 0;
-    return Math.min(
-      1,
-      unionArea(f.visible.map((r) => clipTo(r, view))) / area,
-    );
+    return Math.min(1, unionArea(f.visible.map((r) => clipTo(r, view))) / area);
   });
 }
 

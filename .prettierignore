@@ -12,10 +12,17 @@ out/
 # Written by tools that rewrite them on the next run
 apps/web/next-env.d.ts
 
-# Per-project working directories: storyboards, lessons, caches, frames, media
-projects/
-renders/
-.inkcast/
+# Per-project working directories: storyboards, lessons, caches, frames, media.
+# Anchored, for the reason spelled out at length in `.gitignore`: prettier reads these
+# with gitignore semantics, so unanchored `projects/` also excused
+# `apps/web/app/api/projects/**` from `prettier --check .` — the five owner-scoped route
+# files were both untracked and unformatted, and the lint gate reported green over a hole.
+/projects/
+/renders/
+/.inkcast/
+
+# Screenshot gate output: ~70 PNGs plus a report per run of `scripts/screens.mjs`.
+/.screens/
 
 # Model weights fetched at runtime
 .models/

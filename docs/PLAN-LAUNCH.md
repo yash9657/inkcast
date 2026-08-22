@@ -150,6 +150,17 @@ sync verified by `synccheck.mts` (0 co-landing strokes).
 
 ### A6. The "professional at a glance" layer (should-ship)
 
+**Status 2026-08-22: the first two bullets are wired, verified on pixels and
+regression-tested; the third is still open.** A6 first shipped as _dead code_ — 283 lines in
+`sketch.ts` with no call sites, which is how it passed review — and was then wired. Today
+`render/src/compile.ts:508` calls `brandPlateItem` (→ `sketchBrandMark`, `BRAND_MARK`) and
+`:1346` calls `titleUnderlinePrims` (→ `sketchUnderline`, `TITLE_UNDERLINE`). Note that
+`sketchWritten` never existed: the letter-by-letter mechanics live in the browser runtime
+(`render/src/page/runtime.js:30`, `WRITE_COST = 1.55`) and already applied to every text
+prim, so the only missing half of "written titles" was ever the accent underline. The third
+bullet, `INKCAST_DRAW_FIX=all`, is a deployment setting and nothing has been deployed.
+See `docs/STATUS.md` (2026-08-22).
+
 - **Letter-by-letter titles** (PLAN-GOLPO-PARITY Phase 5 items 2–3): a heading type role
   drawn as written text with the existing `WRITE_COST` mechanics, accent-underlined.
   STATUS calls this Golpo's single biggest at-a-glance cue. Touches `sketch.ts` too (trap

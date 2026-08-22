@@ -16,6 +16,7 @@ import {
   HOSTED_PER_MINUTE,
   HOSTED_PER_MINUTE_TILE,
   PRICING_AS_OF,
+  signInRequired,
 } from './site-config';
 
 /**
@@ -82,9 +83,29 @@ const ROWS: Row[] = [
     inkcast: 'As long as the document needs',
   },
   {
+    /*
+     * The row that had to change, and the one it would have been most tempting
+     * to leave alone.
+     *
+     * It read "Yes — that is the default path" against a middle column saying
+     * "No — generation is server-side and gated", which is a direct dig at
+     * precisely the thing the hosted deployment now is. Leaving it would not
+     * have been a stale figure; it would have been the table's own rules broken
+     * on the table's own page — the section header above forbids dressing a
+     * number up as a saving, and this is the same offence in prose.
+     *
+     * The honest answer is a split answer, and it stays in the row rather than
+     * moving to the footnote: a reader scanning a comparison table reads the
+     * cells, and a qualification that only appears under it is a qualification
+     * designed not to be read. The middle column is untouched — it is still
+     * public list pricing for a category, and it is still true that those tools
+     * gate generation behind a paid account.
+     */
     label: 'Works with no account and no API key',
     hosted: 'No — generation is server-side and gated',
-    inkcast: 'Yes — that is the default path',
+    inkcast: signInRequired
+      ? 'Yes when you run it yourself. On this site, drawing one starts with a sign-in.'
+      : 'Yes — that is the default path',
   },
   {
     label: 'Source available',

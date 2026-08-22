@@ -4,7 +4,13 @@ import { Button, Input } from '@/components/ui';
 
 import { CommandSnippet } from './command-snippet';
 import { Reveal } from './reveal';
-import { STUDIO_HREF, STUDIO_TOPIC_MAX, STUDIO_TOPIC_PARAM, studioTopicHref } from './site-config';
+import {
+  signInRequired,
+  STUDIO_HREF,
+  STUDIO_TOPIC_MAX,
+  STUDIO_TOPIC_PARAM,
+  studioTopicHref,
+} from './site-config';
 
 /**
  * The try strip: one box, one button, straight into the studio.
@@ -20,12 +26,25 @@ import { STUDIO_HREF, STUDIO_TOPIC_MAX, STUDIO_TOPIC_PARAM, studioTopicHref } fr
  * The FAQ on this same page makes the same trade with `<details>`; this is that
  * argument applied to the one control that matters most.
  *
- * The consequence to be honest about: **the studio does not read `?topic=` yet.**
- * `components/studio/create-form.tsx` reads `?example=`, which selects a bundled
- * document by slug and cannot carry free text. Until that form seeds its textarea
- * from `STUDIO_TOPIC_PARAM`, a visitor who types here lands on the studio with an
- * empty box — friction, not a dead end, and the parameter name is pinned in
- * `site-config.ts` so the other side has something to implement against.
+ * **The studio reads `?topic=` now**, which closes the loop this section shipped
+ * without: `components/studio/create-form.tsx` seeds its textarea from
+ * `STUDIO_TOPIC_PARAM`, capped by the same `STUDIO_TOPIC_MAX` enforced on the
+ * input above. It used to read only `?example=`, a bundled-document slug that
+ * cannot carry free text, so a visitor who typed here arrived at an empty box.
+ *
+ * ## What a sign-in does to this form, and why it is still one line
+ *
+ * On a deployment with accounts the button leads to a door, and a zero-friction
+ * hook that drops the sentence at that door is worse than no hook — it makes
+ * somebody type the same thing twice and blames them for it. So the topic
+ * survives the round trip four different ways: `/studio` renders the wall in
+ * place rather than redirecting, so the query stays in the URL bar; the wall's
+ * buttons carry `redirect_url` back to that exact address; the wall shows the
+ * sentence back so it is visibly held rather than merely probably held; and it
+ * stashes it in `sessionStorage` for the sign-up that finishes in the tab an
+ * email client opened. None of that changes anything here — this is still a
+ * plain GET form, and that is the point: the handoff is a URL, and a URL is the
+ * one thing every one of those paths can carry.
  *
  * ## Why three suggestions
  *
@@ -52,6 +71,10 @@ export function TryStrip() {
             </h2>
             <p className="mt-2 text-md text-muted-foreground">
               One sentence is enough. It plans the lesson, writes the board, and narrates it.
+              {/* Said here rather than only in the hero, because this is the box
+                  somebody is typing into and the door is one click away. It
+                  doubles as the promise the wall then keeps. */}
+              {signInRequired ? ' Signing in comes next, and your sentence comes with you.' : ''}
             </p>
 
             <form action={STUDIO_HREF} method="get" className="mt-6">

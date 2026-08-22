@@ -45,6 +45,7 @@ Read it before writing any code. Key ideas you must respect:
   slide. Wiping is now a per-preset decision backed by a number, never a global
   default — and re-defaulting an accumulating preset would move the four pinned
   storyboard hashes, which is its own reason not to.
+
 - **Timing is fractional, then measured.** Authors set `enter.at` as a fraction
   (0–1) of a scene. The voice stage measures real audio and writes
   `scene.durationSec`. Re-voicing in another language reflows automatically.

@@ -642,3 +642,175 @@ test('an equation with no typeset geometry falls back to its TeX as text', () =>
   assert.equal(prim.text, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
   assert.match(warned, /no typeset geometry/, 'the fallback must say why it happened');
 });
+
+/* ------------------------------------------------- A6: the professional-at-a-glance layer */
+
+/**
+ * Every coordinate pair in a path `d`, in order.
+ *
+ * The sketch primitives emit `M x y C x y x y x y ...` and nothing else, so pulling
+ * the numbers out pairwise and reading the first and last pair is enough to answer
+ * the only questions these tests ask of a stroke: where did the hand start, where did
+ * it stop, and did it stay level on the way. Parsing rather than string-matching
+ * because the roughening is seeded — the digits change whenever a seed does, and a
+ * test that pinned them would fail for a reason that has nothing to do with A6.
+ */
+function pointsOf(d: string): [number, number][] {
+  const nums = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) out.push([nums[i] as number, nums[i + 1] as number]);
+  return out;
+}
+
+/**
+ * A one-scene board with a heading and the level accent rule under it.
+ *
+ * The rule is authored exactly as `planner/src/compile.ts` `titleRule` authors it —
+ * a two-point accent path, level, no wider than the heading's box and centred on it —
+ * because `titleRules` matches on that geometry rather than on an id, and a fixture
+ * that cheated by naming the element `..._rule` would pass while the shipped planner
+ * output failed.
+ */
+function signedBoard(outroSec: number, extra: unknown[] = [], role = 'heading') {
+  return parseStoryboard({
+    version: 1,
+    title: 'signed board',
+    meta: { fps: 30, outroSec, style: 'marker', palette: 'color' },
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    scenes: [
+      {
+        id: 's0',
+        narration: 'a patch of cells at the top fires',
+        durationSec: 2,
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'head',
+            type: 'text',
+            text: 'A patch of cells at the top fires',
+            role,
+            at: { x: 200, y: 100, w: 900, h: 80 },
+          },
+          {
+            id: 'rule',
+            type: 'path',
+            tone: 'accent',
+            points: [
+              { x: 200, y: 200 },
+              { x: 1100, y: 200 },
+            ],
+            at: { x: 200, y: 196, w: 900, h: 8 },
+          },
+          ...extra,
+        ],
+      },
+    ],
+  });
+}
+
+test('the outro is signed, and only when there is outro enough to sign it', () => {
+  // A6 was written, tested at the primitive level, and never called — `sketchBrandMark`
+  // and `BRAND_MARK` sat in `sketch.ts` with zero call sites while a rendered outro frame
+  // carried no plate at all. So this test is deliberately about the *wiring*, not the
+  // geometry: that `compilePlan` emits the item, inside the window A6 specifies, on a
+  // board that asked for nothing. `sketch.test.ts` owns whether the mark is shaped right.
+  assert.equal(
+    compilePlan(signedBoard(0.4), DIR).items.find((i) => i.id === PLATE),
+    undefined,
+    'a 0.4s outro is too short to sign — the mark would land on the last spoken word',
+  );
+
+  const plan = compilePlan(signedBoard(1.6), DIR);
+  const plate = plan.items.find((i) => i.id === PLATE);
+  assert.ok(plate, 'a 1.6s outro must carry the brand plate');
+  assert.ok(
+    plate.start >= plan.duration - 1.2 - 1e-6,
+    `plate starts at ${plate.start}s of ${plan.duration}s — A6 gives it the last 1.2s only`,
+  );
+  // Finished strictly before the end, which is the whole point of drawing for less time
+  // than the window lasts: the frame a viewer screenshots is the last one, and a mark
+  // still being drawn on it is not a watermark.
+  assert.ok(
+    plate.start + plate.dur < plan.duration,
+    `plate is still being drawn at the final frame (${plate.start}+${plate.dur} vs ${plan.duration})`,
+  );
+  assert.equal(plate.persist, true, 'the board ends with the mark, so it never fades');
+  // Four tile edges, the cast stroke, and the nib — the nib filled, because a closed
+  // filled path is what lets the runtime ramp it in as ink instead of switching it on.
+  assert.ok(plate.prims.length >= 6, `expected tile + cast + nib, got ${plate.prims.length} prims`);
+  const filled = plate.prims.filter((p) => (p as GeomPrim).fill !== 'none');
+  assert.equal(filled.length, 1, 'exactly one filled prim: the nib');
+});
+
+test('the brand plate goes to the emptiest corner of the last frame', () => {
+  // Stated as a rule rather than a fixed corner because a fixed corner is how a
+  // watermark ends up on top of a recap. Only ink that is still up can collide, so the
+  // blocker has to persist — a faded element is not in the way of anything.
+  // The canvas is 1920×1080 and the camera holds all of it at zoom 1, so the canvas
+  // midpoint is the frame midpoint and a `center` tuple names its own quadrant.
+  const cornerOf = (item: { center: [number, number] }) =>
+    `${item.center[1] > 540 ? 'bottom' : 'top'}-${item.center[0] > 960 ? 'right' : 'left'}`;
+
+  const empty = compilePlan(signedBoard(1.6), DIR).items.find((i) => i.id === PLATE);
+  assert.ok(empty);
+  assert.equal(cornerOf(empty), 'bottom-right', 'four empty corners tie toward the signature');
+
+  const blocked = compilePlan(
+    signedBoard(1.6, [
+      {
+        id: 'recap',
+        type: 'shape',
+        shape: 'rect',
+        persist: true,
+        at: { x: 1200, y: 700, w: 600, h: 300 },
+      },
+    ]),
+    DIR,
+  ).items.find((i) => i.id === PLATE);
+  assert.ok(blocked);
+  assert.notEqual(
+    cornerOf(blocked),
+    'bottom-right',
+    'held ink in the bottom-right must push the mark out of it',
+  );
+});
+
+test("a heading's accent rule is drawn as an underline, not as a level rule", () => {
+  // This replaces a treatment rather than adding one. The failure mode it guards is
+  // two rules on the board — the generic two-point branch drawing its level stroke and
+  // the underline drawing a second one over it — so the assertion is on the *only*
+  // stroke the element produces, and its identity is checked by shape.
+  const ruleOf = (sb: ReturnType<typeof signedBoard>) => {
+    const item = compilePlan(sb, DIR).items.find((i) => i.id === 'rule');
+    assert.ok(item, 'the accent rule must still be an item');
+    assert.equal(item.prims.length, 1, 'one gesture, one stroke — never a rule plus an underline');
+    return pointsOf((item.prims[0] as GeomPrim).d);
+  };
+
+  const pts = ruleOf(signedBoard(1.6));
+  const first = pts[0] as [number, number];
+  const last = pts[pts.length - 1] as [number, number];
+  // Overshoot: the hand runs past the last letter. 0.22 of a 62-unit heading is ~13
+  // canvas units, well clear of the roughening's own jitter.
+  assert.ok(
+    last[0] > 1100 + 5,
+    `underline must run past the words (ends at x=${last[0]}, words end at 1100)`,
+  );
+  // Lift: the right end sits higher than the left. This is the assertion that a level
+  // `sketchAlong` stroke cannot pass, and so it is the one that proves which primitive ran.
+  assert.ok(
+    first[1] - last[1] > 4,
+    `underline must lift to the right (left y=${first[1]}, right y=${last[1]})`,
+  );
+
+  // The same path under a body line is not a title rule and keeps today's treatment.
+  // `titleRules` matches on geometry, so this is what stops it claiming every level
+  // accent stroke on the board — a plot's baseline, a timeline's axis.
+  const plain = ruleOf(signedBoard(1.6, [], 'body'));
+  const plainFirst = plain[0] as [number, number];
+  const plainLast = plain[plain.length - 1] as [number, number];
+  assert.ok(
+    Math.abs(plainFirst[1] - plainLast[1]) < 4,
+    `a non-heading rule must stay level (${plainFirst[1]} vs ${plainLast[1]})`,
+  );
+});

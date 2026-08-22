@@ -106,6 +106,38 @@ export type { ProviderChoice, Providers } from './providers.js';
 export { costOf, emptyCost, formatCost } from './cost.js';
 export type { CostInputs, CostLine, CostReport } from './cost.js';
 
+/*
+ * The day's spend ledger, beside the pricing it books against.
+ *
+ * Exported because it was not, and a module nothing can import is a module nothing
+ * consults: `openSpendLedger`, `decide()` and `book()` were written, tested to 13 cases
+ * including 8 separate OS processes appending concurrently, and reachable from exactly
+ * nowhere — so past `INKCAST_DAILY_USD` a run still paid full price. That is the same
+ * written-and-never-read shape as `sketch.ts`'s brand plate, and it is worth naming here
+ * because the ledger is the one module whose silence costs money.
+ *
+ * `cast.ts` is still not calling `decide()` before a run or `book()` after one; see
+ * `docs/STATUS.md` (2026-08-22) for exactly what remains. This export is what makes those
+ * call sites — and the CLI's and the studio's — possible at all.
+ */
+export {
+  openSpendLedger,
+  dailyCeiling,
+  spendEntries,
+  formatSpendDecision,
+  utcDay,
+  DAILY_USD_ENV,
+  FREE_VOICE,
+} from './spend.js';
+export type {
+  SpendEntry,
+  DaySpend,
+  SpendOverrides,
+  SpendDecision,
+  SpendLedger,
+  SpendLedgerOptions,
+} from './spend.js';
+
 export { listProjects, readState, findVideo } from './state.js';
 export type { LessonSummary, PipelineState, ProjectSummary, SourceRef } from './state.js';
 

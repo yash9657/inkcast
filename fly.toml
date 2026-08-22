@@ -69,10 +69,22 @@ NEXT_TELEMETRY_DISABLED = "1"
 # `unattributable` bucket, which is safe but limits everyone together.
 INKCAST_TRUSTED_PROXY_HOPS = "1"
 
-# Provider keys are secrets, never [env]:
+# Secrets, never [env]. Anything in [env] is in the image's metadata and in
+# `fly config show`.
+#
+# INKCAST_SESSION_SECRET is the one that is not optional. With INKCAST_HOSTED=1
+# above and no secret, `requireSessionSecret` (app/api/_lib/session.ts:118)
+# throws at module import and the machine serves 500s on every route that touches
+# a session — a deploy that passes its health check and is nonetheless dead. There
+# is no default by design: "a fallback key would be a key every reader of this
+# source also has". Minimum 24 characters.
+#
+#   fly secrets set INKCAST_SESSION_SECRET="$(openssl rand -hex 32)"
 #   fly secrets set ANTHROPIC_API_KEY=... ELEVENLABS_API_KEY=... \
 #                   REPLICATE_API_TOKEN=... FAL_KEY=... INKCAST_BYPASS_TOKEN=...
-# Anything in [env] is in the image's metadata and in `fly config show`. Every
+#
+# The provider keys above are all genuinely optional — with none of them the
+# planner uses its heuristic and the voice uses the baked-in Kokoro. Every
 # provider adapter reads process.env directly (see docs/DEPLOY.md, "Server
 # keys"), and Fly injects secrets as environment variables, so secrets are all
 # that is needed — no vault, no passphrase.

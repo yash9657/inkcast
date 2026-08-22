@@ -4,10 +4,21 @@ dist/
 out/
 *.tsbuildinfo
 
-# Generated media and per-project working dirs
-.inkcast/
-projects/
-renders/
+# Generated media and per-project working dirs.
+#
+# ANCHORED WITH A LEADING SLASH, AND THAT IS NOT COSMETIC. A pattern like `projects/` —
+# no leading slash, trailing slash — matches a directory of that name at EVERY depth, so
+# it silently swallowed `apps/web/app/api/projects/**`: the library listing, the project
+# GET/DELETE, /edit, /rerender and the route that flips `shared: true`. Five source files,
+# the whole of the owner-scoped enforcement surface, untracked. `git status` says nothing
+# about an ignored file, so the only symptom was that a fresh clone had no such routes —
+# which nobody was going to notice until the first deploy served 404s at every one of them.
+# Anchoring is the fix rather than a `!apps/web/...` re-inclusion pair, because the intent
+# was always the three working dirs at the repo root and only those. Verify with
+# `git check-ignore -v apps/web/app/api/projects/route.ts`, which must now print nothing.
+/.inkcast/
+/projects/
+/renders/
 *.mp4
 *.wav
 *.webm
@@ -21,6 +32,10 @@ renders/
 .env.local
 .env*.local
 !.env.example
+
+# Screenshot gate output — `scripts/screens.mjs` writes ~70 PNGs and a report per run.
+# Untracked on purpose: they are evidence for one commit, not an artifact to carry.
+/.screens/
 
 .DS_Store
 *.log

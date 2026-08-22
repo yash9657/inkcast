@@ -97,27 +97,28 @@ export function MarketingHeader() {
 
           <ThemeToggle className="hidden sm:inline-flex" />
 
-          {/* The pill, and the two overrides on it are both forced rather than
-              chosen.
+          {/* The pill. `shape="pill"` is the cva variant, not a `rounded-pill`
+              in `className`: the shape is a specified, recurring state of the
+              button (DESIGN.md §4 names the nav CTA as one of the pill shapes)
+              and two call sites hand-writing the same override is exactly what
+              the variant exists to prevent — this one and its twin inside the
+              drawer below.
 
-              `rounded-pill` because C5 asks for one, and the base button is
-              `rounded-none` now that the radius ladder is flat — this is the
-              "occasional 999px pill" the system allows, and a nav CTA is exactly
-              the shape lazyweb spends it on.
-
-              `shadow-card` because `shadow-pop`, which `variant="default"`
-              carries, is `10px 10px 0` and this button lives inside an `h-14`
-              row. A 32px control centred in 56px has 12px of clearance, so a
-              10px offset plane very nearly touches the header's own bottom rule
-              and reads as a smear rather than as elevation. 6px sits inside the
-              clearance. The other half of the reason is the budget: DESIGN.md §5
-              caps `shadow-pop` at twice per *screen*, and the first screen
-              already spends both — the hero's primary CTA and the ink-demo frame
-              — so a third accent plane in the sticky header would break the cap
-              on every scroll position on the page rather than just one. */}
+              `shadow-card` stays an override, because it is a fact about this
+              row rather than about the button. `shadow-pop`, which
+              `variant="default"` carries, is `10px 10px 0` and this control is
+              32px tall inside an `h-14` header: 12px of clearance, so a 10px
+              offset plane very nearly touches the header's own bottom rule and
+              reads as a smear rather than as elevation. The other half of the
+              reason is the budget — DESIGN.md §5 caps `shadow-pop` at twice per
+              *screen*, and the first screen already spends both on the hero's
+              primary CTA and the ink-demo frame, so a third accent plane in a
+              sticky header would break the cap at every scroll position on the
+              page rather than at one. */}
           <Button
             size="sm"
-            className="rounded-pill px-4 shadow-card"
+            shape="pill"
+            className="px-4 shadow-card"
             render={<Link href={STUDIO_HREF} />}
           >
             Make one free
@@ -186,10 +187,13 @@ export function MarketingHeader() {
                 </div>
 
                 {/* `buttonVariants` rather than a hand-built button: the drawer's
-                    CTA must be the same object as the row's, not a lookalike. */}
+                    CTA must be the same object as the row's, not a lookalike —
+                    including its shape, which is why `pill` comes from the
+                    variant here too instead of a `rounded-pill` appended after
+                    it. */}
                 <DrawerClose
                   render={<Link href={STUDIO_HREF} />}
-                  className={cn(buttonVariants({ size: 'lg' }), 'mt-6 mb-6 w-full rounded-pill')}
+                  className={cn(buttonVariants({ size: 'lg', shape: 'pill' }), 'mt-6 mb-6 w-full')}
                 >
                   Make one free
                 </DrawerClose>

@@ -22,26 +22,56 @@
  * the create form calls before any render, so it is the point at which a key
  * saved on the settings page — or by `inkcast keys set`, since both now use the
  * same vault — becomes visible to the stages. See `app/api/keys/_store.ts`.
+ *
+ * ## Whose keys this reports, and why that had to change
+ *
+ * This route is unauthenticated and has to stay that way: the create form calls
+ * it before a session has made anything, and its own `accepts` list is what stops
+ * a newer studio 400ing against an older server. Everything it returns is
+ * therefore public on a shared deployment.
+ *
+ * Until this paragraph existed it returned `keyStatuses()` — the *operator's*
+ * vault, masked. Two things were wrong with that and neither is theoretical.
+ * First, a mask is not nothing: `maskSecret` in `components/settings/catalog.ts`
+ * keeps the provider prefix and some characters of the key, so an anonymous `curl
+ * /api/providers` against inkcast.video was reading fragments of live credentials
+ * belonging to whoever runs the box. Second, it became a lie the moment per-user
+ * BYOK landed (`app/api/_lib/secrets.ts`): a signed-in visitor with no key of
+ * their own saw four configured providers and concluded they were theirs.
+ *
+ * So on the hosted path `keys` is now the *caller's own* account status — theirs
+ * to see, and empty when they are signed out — and the operator's vault is not
+ * read at all. `providers`/`local`/`warnings` still describe what a render on this
+ * box would actually do, because that is a fact about the film the visitor is
+ * about to get rather than a fact about somebody's credentials, and the create
+ * form needs it to warn honestly before spending two minutes.
+ *
+ * The import of `_store.ts` is lazy and inside the local branch for the same
+ * reason `app/api/keys/route.ts` made its own lazy: on a hosted box the module
+ * that can read the operator's keychain is then absent from the module graph
+ * entirely, so "an anonymous request cannot reach the operator's vault" is a
+ * property of what is loaded rather than of an `if` somebody may later move. That
+ * guard was already in place on `/api/keys` while this route still imported the
+ * module at the top level, which made the guarantee true of one door and not the
+ * other — the exact `/settings`-vs-`/api/keys` shape recorded in `_lib/http.ts`.
  */
 
 import { isHosted, json, unexpected } from '../_lib/http';
 import { META_KEYS } from '../_lib/schemas';
 import { loadPipeline } from '@/lib/store';
 import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
-import { hydrateEnv, keyStatuses, type KeyStatus } from '../keys/_store.js';
+import type { KeyStatus } from '../keys/_store.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Saved keys become environment variables before the pipeline reads them.
-    await hydrateEnv();
+    const hosted = isHosted();
+    const keys = hosted ? await callersKeys(request) : await operatorKeys();
 
     const { providers, fullyLocal } = await loadPipeline();
     const chosen = providers();
-    const keys = await keyStatuses();
-    const hosted = isHosted();
 
     return json({
       providers: chosen,
@@ -69,13 +99,75 @@ export async function GET() {
         voice: 'elevenlabs',
         images: keys.find((k) => k.id === 'replicate')?.configured ? 'replicate' : 'fal',
       } satisfies Record<ProviderStage, string>,
-      warnings: warningsFor(keys, hosted),
+      /**
+       * Derived from the *provider selection*, not from `keys`, and on the hosted
+       * box those are two different facts.
+       *
+       * `keys` is now whose credentials the caller has stored, which on hosted is
+       * usually none. `chosen` is what the render will actually do, because
+       * `providers()` reads the same `process.env` every stage adapter reads. Wire
+       * the first into the warnings and a visitor on a box with fully funded
+       * server keys is told their video will "summarise rather than teach" —
+       * false, and false in the direction that talks somebody out of a render
+       * that would have worked.
+       *
+       * This is the mirror of the bug above it. Reporting the operator's masked
+       * keys was a disclosure; reporting the caller's keys as though they drove
+       * the pipeline was a lie. The fix for both is the same: say which fact you
+       * are answering. `keys` answers "what have I saved", `warnings` answers
+       * "what will this film be like".
+       */
+      warnings: warningsFor(chosen, keys, hosted),
       /** `meta` fields this build's generate endpoint validates. */
       accepts: META_KEYS,
     });
   } catch (err) {
     return unexpected('providers', err);
   }
+}
+
+/**
+ * Local: the operator's own vault, hydrated first so a key saved on the settings
+ * page is visible to the stages from here on. Loaded lazily so that this module
+ * never reaches `@inkcast/keyvault` on a hosted box — see the header.
+ *
+ * The one person who can read this response locally is the person who set the
+ * keys, so a mask is theirs by definition.
+ */
+async function operatorKeys(): Promise<KeyStatus[]> {
+  const { hydrateEnv, keyStatuses } = await import('../keys/_store.js');
+  await hydrateEnv();
+  return keyStatuses();
+}
+
+/**
+ * Hosted: the caller's own stored keys, or none.
+ *
+ * `accountOwner` is the same guard `/api/keys` uses, so there is one answer to
+ * "whose keys are these" on the hosted path rather than two. Its refusal is
+ * *swallowed* here rather than returned, which is the one place this route
+ * deliberately differs from that one: a 401 would break the create form for a
+ * signed-out visitor reading the landing page's capability copy, and the honest
+ * answer to "what keys do you have" from somebody with no account is an empty
+ * list, not an error. Nothing is disclosed by answering — an empty array is what
+ * a signed-in visitor with no keys gets too.
+ */
+async function callersKeys(request: Request): Promise<KeyStatus[]> {
+  // Lazy for a second reason, on top of the module-graph argument in the header:
+  // `_account.ts` imports `_lib/secrets.ts`, which *throws at import* when
+  // `INKCAST_HOSTED=1` and `INKCAST_SECRET_KEY` is unset. That check is right
+  // where it lives — a box that cannot encrypt a visitor's credential must not
+  // serve the endpoint that accepts one — but importing it at the top of this file
+  // would extend it to here, and this is the endpoint the create form calls on
+  // every visit to the studio. The result would be that a private team box running
+  // `INKCAST_HOSTED=1` with server-funded keys and no BYOK at all — a supported
+  // configuration, see docs/AUTH.md — could not render the studio until it
+  // invented a master key it had no use for. Behind the branch, the loud failure
+  // stays attached to `/api/keys`, which is the door it is guarding.
+  const { accountKeyStatuses, accountOwner } = await import('../keys/_account.js');
+  const who = await accountOwner(request);
+  if (!who.ok) return [];
+  return accountKeyStatuses(who.owner);
 }
 
 /**
@@ -95,22 +187,40 @@ export async function GET() {
  * live credentials on a box they do not administer. The degradation warnings
  * above stay in both modes, because those describe the film they are about to get
  * and that is their business either way.
+ *
+ * ## The first three read `chosen`, not `keys`
+ *
+ * They used to be derived from key status, which was the same fact by accident
+ * for as long as there was only one set of keys on a box. Per-account BYOK ended
+ * that: `keys` is now "what has the caller saved", which on the hosted box is
+ * usually nothing, while the render still runs on the operator's server keys. A
+ * degradation list built from `keys` therefore told a visitor their video would
+ * "summarise rather than teach" immediately before handing them a full lesson.
+ *
+ * `chosen` cannot drift from the render, because `providers()` reads the same
+ * `process.env` every stage adapter reads — and `cloud` is exactly the question
+ * being asked here, so the test is `!cloud` rather than a provider name. That
+ * also means these three sentences stop depending on the pipeline's spelling of
+ * `anthropic`/`elevenlabs`/`fal`, which is a coupling they never needed.
  */
-function warningsFor(keys: readonly KeyStatus[], hosted: boolean): string[] {
-  const configured = new Set(keys.filter((k) => k.configured).map((k) => k.id));
+function warningsFor(
+  chosen: { planner: { cloud: boolean }; voice: { cloud: boolean }; images: { cloud: boolean } },
+  keys: readonly KeyStatus[],
+  hosted: boolean,
+): string[] {
   const out: string[] = [];
 
-  if (!configured.has('anthropic')) {
+  if (!chosen.planner.cloud) {
     out.push(
       'No Anthropic key: the local planner splits the document into beats instead of building a lesson, so the video will summarise rather than teach.',
     );
   }
-  if (!configured.has('elevenlabs')) {
+  if (!chosen.voice.cloud) {
     out.push(
       'No ElevenLabs key: narration is synthesised locally in English only, and there are no word-level timings to land visuals on.',
     );
   }
-  if (!configured.has('replicate') && !configured.has('fal')) {
+  if (!chosen.images.cloud) {
     out.push(
       'No Replicate or fal key: illustrations come from the built-in icon set, so there are no drawn objects, characters or scenes.',
     );

@@ -1085,7 +1085,20 @@ function sweep(): void {
  */
 export const HOSTED_PRESET = 'explainer' as const;
 
-/** `PRESETS.explainer.maxSeconds` — quoted in copy, so it lives beside it. */
+/**
+ * `PRESETS.explainer.maxSeconds`, restated here because copy needs it and cannot
+ * reach it.
+ *
+ * Nothing quotes it yet, and that is worth saying plainly rather than implying a
+ * consumer that does not exist. It is not dead weight either: the number belongs
+ * in the sentence a waiting user reads ("each film is at most 75 seconds, which
+ * is why two at a time is the whole box"), and the only other place to get it is
+ * `packages/planner/src/presets.ts` — which `apps/web` does not depend on, and
+ * which a *client* component could not import anyway, since this module pulls in
+ * `node:path` and `./store`. So the figure is mirrored, and `jobs.test.ts` pins
+ * the mirror: a preset edit that moved `maxSeconds` without touching this line
+ * would otherwise put a wrong number in front of every hosted visitor.
+ */
 export const HOSTED_PRESET_SEC = 75;
 
 /**

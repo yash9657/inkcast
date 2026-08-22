@@ -51,6 +51,11 @@ import {
   type InkStyle,
   type Palette,
 } from '@/lib/api';
+import {
+  STUDIO_TOPIC_MAX,
+  STUDIO_TOPIC_PARAM,
+  takeStashedTopic,
+} from '@/components/marketing/site-config';
 import { cn } from '@/lib/utils';
 
 import { FileDrop } from './file-drop';
@@ -151,15 +156,53 @@ function depthOption(depth: Depth) {
 
 export function CreateForm() {
   const router = useRouter();
+  const params = useSearchParams();
   // `/studio?example=gradient-descent` arrives from the library's empty state,
   // so a link can hand the box its starting content.
-  const preset = findExample(useSearchParams().get('example'));
+  const preset = findExample(params.get('example'));
+  /**
+   * `/studio?topic=explain%20photosynthesis` arrives from the landing page's try
+   * strip, which is a plain GET form aimed straight at this route.
+   *
+   * This is the other end of the contract stated in `site-config.ts`, and it was
+   * an open loop until now: `STUDIO_TOPIC_PARAM` shipped with the strip so the
+   * link would resolve, but nothing read it, so a visitor who typed a sentence on
+   * the landing page arrived at an empty box. Capped by the same
+   * `STUDIO_TOPIC_MAX` the strip enforces, because a query string is not a
+   * container for a document and the textarea below is.
+   *
+   * A `?topic=` and a `?example=` in the same URL cannot both win. The example
+   * does, because it names a whole bundled document with a title, and a topic is
+   * one line — the more specific instruction is the one to honour.
+   */
+  const arriving = params.get(STUDIO_TOPIC_PARAM)?.trim().slice(0, STUDIO_TOPIC_MAX) || undefined;
 
   const [mode, setMode] = React.useState<Mode>('text');
-  const [text, setText] = React.useState(preset?.text ?? '');
+  const [text, setText] = React.useState(preset?.text ?? arriving ?? '');
   const [url, setUrl] = React.useState('');
   const [file, setFile] = React.useState<File | null>(null);
   const [title, setTitle] = React.useState(preset?.title ?? '');
+
+  /**
+   * The last line of defence for a topic typed before a sign-in.
+   *
+   * On the hosted deployment `/studio?topic=…` can bounce through Clerk, and a
+   * sign-up that finishes via an emailed link finishes in whatever tab the mail
+   * client opened — where the query string never existed. The wall stashed the
+   * sentence in `sessionStorage` on the way out; this claims it once, on mount,
+   * and only when the URL asked for nothing and the box is still empty. On a
+   * self-hosted box there is no wall, so there is never anything stashed and this
+   * effect reads `null` and stops.
+   */
+  const claimedStash = React.useRef(false);
+  React.useEffect(() => {
+    if (claimedStash.current) return;
+    claimedStash.current = true;
+    if (preset || arriving) return;
+    const stashed = takeStashedTopic();
+    if (!stashed) return;
+    setText((current) => (current.trim() === '' ? stashed : current));
+  }, [preset, arriving]);
 
   const [aspect, setAspect] = React.useState<Aspect>('16:9');
   const [depth, setDepth] = React.useState<Depth>(depthForAspect('16:9'));

@@ -16,7 +16,7 @@
  */
 
 import { badRequest, fail, json, unexpected } from '../../_lib/http';
-import { readSession, requireOwner, setSessionCookie } from '../../_lib/session';
+import { requireOwner, resolveIdentity, setSessionCookie } from '../../_lib/session';
 import { getJob } from '@/lib/jobs';
 import { isValidProjectId, mediaUrl } from '@/lib/store';
 
@@ -28,7 +28,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
 
-    const session = readSession(request);
+    // A read, but an owner-level one: a job snapshot carries the last failure
+    // message, which routinely names a provider or an absolute path on the box.
+    // So it is gated like a mutation rather than falling back to a stranger the
+    // way `/api/media/<id>/<path…>` does — nothing public fetches this route, and
+    // there is no share link that needs it to answer.
+    const who = await resolveIdentity(request);
+    if (!who.ok) return fail(who.status, who.message);
+    const session = who.session;
     /*
      * `requireOwner` answers 404 for a project with nothing on disk, which folds
      * in the old "no job and no project" check — with one difference worth

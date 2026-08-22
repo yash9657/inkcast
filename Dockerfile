@@ -71,9 +71,19 @@
 #      "bundle it", and webpack cannot bundle a `.node` addon. Install without
 #      `.npmrc` and the image builds, then fails on the first Kokoro call.
 #   3. `pnpm-workspace.yaml` holds `onlyBuiltDependencies`, the allow-list of
-#      packages permitted to run install scripts. sharp and onnxruntime-node are
-#      on it and both need their scripts to produce a working native binary, so
-#      `--ignore-scripts` is not available to us as a build accelerant.
+#      packages permitted to run install scripts, and sharp, playwright,
+#      esbuild, @tailwindcss/oxide and three more are on it. Their scripts are
+#      what produce a working native binary, so `--ignore-scripts` is not
+#      available to us as a build accelerant.
+#
+#      onnxruntime-node is *not* on that list, and both install stages say so out
+#      loud: `Ignored build scripts: onnxruntime-node@1.21.0, protobufjs@7.6.5`.
+#      That warning is expected rather than a thing to fix. onnxruntime-node
+#      ships its `.node` addons inside the published tarball under
+#      `bin/napi-v6/<platform>/<arch>/`, and its install script exists to fetch
+#      the *optional CUDA* build — which this image has no GPU for. The runtime
+#      verification below loads the module for real rather than trusting that
+#      reasoning.
 #
 # The host's `node_modules` is excluded by `.dockerignore` for a related reason
 # worth restating: it is darwin/arm64, and a copied tree fails at the first
@@ -263,6 +273,28 @@ ENV NEXT_PUBLIC_INKCAST_BASE_URL=${INKCAST_PUBLIC_URL}
 ARG INKCAST_REPO_URL=""
 ENV NEXT_PUBLIC_INKCAST_REPO_URL=${INKCAST_REPO_URL}
 
+# Clerk's publishable key, needed at BUILD time and not only at run time — which
+# is the whole reason this is an ARG and not just a runtime variable.
+#
+# `next build` prerenders the landing page (it reports `○ /` in the route table),
+# and `signInRequired` in components/marketing/site-config.ts is derived from this
+# variable. So the flag is frozen into the prerendered HTML at build. An image
+# built without it and run with it set still serves the *self-hosted* landing
+# copy — "no API keys", "No account, no key", and a comparison-table row claiming
+# no account is needed — on a site that requires an account before it will render
+# anything. That is the exact class of claim components/marketing/site-config.ts's
+# own honesty rules forbid, and it would be shipped by the happy path.
+#
+# Empty is the right default and means "this image has no accounts": the landing
+# page keeps the self-hosted wording, /sign-in and /sign-up 404, and identity
+# falls back to the anonymous HMAC cookie. See docs/AUTH.md.
+#
+# CLERK_SECRET_KEY is deliberately *not* an ARG. It is a secret, a build argument
+# is readable in the image history, and nothing at build time needs it — it is
+# read at request time only. Set it in the runtime environment.
+ARG CLERK_PUBLISHABLE_KEY=""
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+
 RUN pnpm --filter @inkcast/web build
 
 # ---------------------------------------------------------------- prod-deps --
@@ -348,6 +380,20 @@ COPY --from=prod-deps /app/packages/render/node_modules   ./packages/render/node
 COPY --from=prod-deps /app/packages/visuals/node_modules  ./packages/visuals/node_modules
 COPY --from=prod-deps /app/packages/voice/node_modules    ./packages/voice/node_modules
 
+# The root manifests, and they have to land *before* the `pnpm exec` below rather
+# than with the rest of the sources. This is not tidiness — it is a build failure
+# that was in this file until it was first built:
+#
+#     #45 [runtime 15/24] RUN pnpm exec playwright install --with-deps chromium
+#     ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE  No package found in this workspace
+#
+# `pnpm exec` resolves the bin from the *project* it is standing in, and with
+# node_modules present but no package.json, /app is not a project. The error names
+# workspaces and recursion, which sends you looking at pnpm-workspace.yaml; the
+# actual missing file is package.json. Copying it here costs nothing — these five
+# files change about as often as the lockfile, which is the layer above.
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc package.json tsconfig.base.json ./
+
 # `--with-deps` is the half that cannot be skipped: it apt-installs the ~40
 # shared libraries (libnss3, libatk, libgbm, pango, …) that a Debian slim image
 # does not carry and that Chromium refuses to start without. The failure without
@@ -357,7 +403,16 @@ RUN --mount=type=cache,id=apt-playwright,target=/var/cache/apt,sharing=locked \
  && rm -rf /var/lib/apt/lists/*
 
 # Sources, the compiled Next output, the fonts and figures, and the weights.
-COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc package.json tsconfig.base.json ./
+#
+# These trees carry the *build* stage's `packages/*/node_modules` and
+# `apps/web/node_modules` with them, and COPY merges into a directory rather than
+# replacing it, so the dev-dependency symlinks land on top of the pruned trees
+# copied above. Harmless at runtime and deliberately left alone: the links point
+# into `/app/node_modules/.pnpm`, which is prod-only, so a prod dependency
+# resolves (same lockfile, same path) and a dev dependency is a dangling link
+# nothing on the serving path ever reads. Worth knowing before running
+# `pnpm --filter … test` inside this image, where those links are the reason it
+# will not work.
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/assets   ./assets
 COPY --from=build /app/examples ./examples
@@ -382,6 +437,49 @@ RUN groupadd --system --gid 10001 inkcast \
  && chmod -R a+rX /ms-playwright
 
 USER inkcast
+
+# The one verification this image cannot do without, and it runs *after* `USER`
+# on purpose.
+#
+# Every failure mode this stage guards against is silent until the last minute of
+# a render the user has already been watching a progress bar for: Chromium
+# missing or unreadable by uid 10001 (`chromiumAvailable()` in
+# render/src/browser.ts:22 returns the CHROMIUM_HINT string rather than
+# throwing), the onnxruntime `.node` addon absent so the zero-key Kokoro voice
+# cannot load, ffmpeg not on PATH so the mux fails, or a weights tree the
+# non-root user cannot read. Each of those is a five-second check here and a
+# four-minute waste there.
+#
+# It runs as `inkcast` because permissions are the interesting half. `chmod a+rX
+# /ms-playwright` above is what makes the browser readable to a user that did not
+# install it, and a root-only check would pass with that line deleted.
+RUN <<'SH'
+set -eu
+node --input-type=module -e '
+  import { existsSync, accessSync, constants } from "node:fs";
+  const { chromium } = await import("playwright");
+  const exe = chromium.executablePath();
+  if (!existsSync(exe)) throw new Error("Chromium is not at " + exe);
+  accessSync(exe, constants.X_OK);
+  console.log("chromium: executable at " + exe);
+
+  const ort = await import("onnxruntime-node");
+  if (typeof (ort.InferenceSession ?? ort.default?.InferenceSession) !== "function") {
+    throw new Error("onnxruntime-node loaded but exposes no InferenceSession");
+  }
+  console.log("onnxruntime-node: native binding loaded");
+
+  const cache = process.env.INKCAST_MODEL_CACHE;
+  for (const repo of [
+    "onnx-community/Kokoro-82M-v1.0-ONNX",
+    "onnx-community/whisper-tiny.en_timestamped",
+  ]) {
+    accessSync(cache + "/" + repo, constants.R_OK);
+  }
+  console.log("weights: readable as " + process.getuid());
+'
+ffmpeg -version | head -1
+SH
 
 EXPOSE 3000
 

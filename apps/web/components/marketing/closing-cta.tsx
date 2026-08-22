@@ -5,7 +5,7 @@ import { Button, GithubIcon } from '@/components/ui';
 
 import { CommandSnippet } from './command-snippet';
 import { Reveal } from './reveal';
-import { COST_LOCAL, repoUrl, STUDIO_HREF } from './site-config';
+import { COST_LOCAL, repoUrl, signInRequired, STUDIO_HREF } from './site-config';
 
 /**
  * The last thing on the page: the two ways in, and nothing else.
@@ -51,9 +51,26 @@ export function ClosingCta() {
           <h2 id="closing-heading" className="text-4xl text-balance sm:text-5xl">
             Draw the first one in the next ten minutes.
           </h2>
+          {/* The last sentence on the page is the one a reader is most likely to
+              quote back, so it is the one that must not overstate the bargain.
+              "No account, no key, $0.00" is still exactly true of the thing you
+              clone; on the deployment with the sign-in it was a promise the very
+              next click broke. Both variants keep the closing clause, because the
+              storyboard being yours to edit is the claim that does not depend on
+              where it ran. */}
           <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
-            Point it at a document you already have. No account, no key, {COST_LOCAL} — and the
-            storyboard it produces is yours to edit line by line.
+            {signInRequired ? (
+              <>
+                Point it at a document you already have. Sign in to draw one here, or clone it and
+                run the whole thing on your own machine for {COST_LOCAL} — either way the storyboard
+                it produces is yours to edit line by line.
+              </>
+            ) : (
+              <>
+                Point it at a document you already have. No account, no key, {COST_LOCAL} — and the
+                storyboard it produces is yours to edit line by line.
+              </>
+            )}
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
