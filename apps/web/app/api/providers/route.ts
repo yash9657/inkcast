@@ -24,7 +24,7 @@
  * same vault — becomes visible to the stages. See `app/api/keys/_store.ts`.
  */
 
-import { json, unexpected } from '../_lib/http';
+import { isHosted, json, unexpected } from '../_lib/http';
 import { META_KEYS } from '../_lib/schemas';
 import { loadPipeline } from '@/lib/store';
 import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
@@ -41,12 +41,27 @@ export async function GET() {
     const { providers, fullyLocal } = await loadPipeline();
     const chosen = providers();
     const keys = await keyStatuses();
+    const hosted = isHosted();
 
     return json({
       providers: chosen,
       /** True when nothing in a run leaves this machine and nothing can be billed. */
       local: fullyLocal(chosen),
-      projectsDir: process.env.INKCAST_PROJECTS ?? null,
+      /**
+       * Where films are written — locally, and `null` on the shared deployment.
+       *
+       * This route is unauthenticated (it has to be: the create form calls it
+       * before a session has made anything), so on the hosted box every field
+       * here is public. An absolute filesystem path is a free map of the
+       * container for anyone probing the other end of `/api/media/<id>/<path…>`,
+       * and nothing in the studio reads this field — `lib/api.ts` parses the
+       * response and does not so much as name it, and the contract comment at the
+       * top of that file lists the five keys it does use. So hosted pays nothing
+       * for the redaction, while locally the value stays visible because the one
+       * person who can see it is the person who set `INKCAST_PROJECTS` and needs
+       * to confirm which directory the dev server actually picked up.
+       */
+      projectsDir: hosted ? null : (process.env.INKCAST_PROJECTS ?? null),
       keys,
       /** Which key each stage would need to reach its better path. */
       needs: {
@@ -54,7 +69,7 @@ export async function GET() {
         voice: 'elevenlabs',
         images: keys.find((k) => k.id === 'replicate')?.configured ? 'replicate' : 'fal',
       } satisfies Record<ProviderStage, string>,
-      warnings: warningsFor(keys),
+      warnings: warningsFor(keys, hosted),
       /** `meta` fields this build's generate endpoint validates. */
       accepts: META_KEYS,
     });
@@ -71,8 +86,17 @@ export async function GET() {
  * thing that mattered most. Planning is first by a wide margin — it decides
  * whether the video teaches at all, while the other two decide how it looks and
  * sounds while doing it.
+ *
+ * Two of these sentences are advice to the *operator* rather than to the viewer,
+ * and `hosted` is what separates the two audiences. On the shared deployment the
+ * reader of this list is an anonymous visitor who cannot set an environment
+ * variable, cannot re-paste a key and did not configure the vault — so telling
+ * them to is noise at best, and at worst it names the exact variables holding
+ * live credentials on a box they do not administer. The degradation warnings
+ * above stay in both modes, because those describe the film they are about to get
+ * and that is their business either way.
  */
-function warningsFor(keys: readonly KeyStatus[]): string[] {
+function warningsFor(keys: readonly KeyStatus[], hosted: boolean): string[] {
   const configured = new Set(keys.filter((k) => k.configured).map((k) => k.id));
   const out: string[] = [];
 
@@ -91,6 +115,9 @@ function warningsFor(keys: readonly KeyStatus[]): string[] {
       'No Replicate or fal key: illustrations come from the built-in icon set, so there are no drawn objects, characters or scenes.',
     );
   }
+
+  // Everything below is operator advice; see the header. Hosted stops here.
+  if (hosted) return out;
 
   for (const key of keys) {
     if (key.unreadable) {

@@ -29,9 +29,21 @@ import { findTerms, sameTerm } from './terms.js';
  *
  * So this vocabulary is not of *subjects*, it is of *marks*, and it is closed on purpose:
  * a box, an ellipse, a straight line, a freehand stroke, an arrow, a written label,
- * hatching, scattered dots. Everything a person draws on a whiteboard is a composition of
- * those eight, and composition — unlike enumeration — has no ceiling. The author writes
- * the composition; nothing here has to know what a chloroplast is.
+ * hatching, scattered dots, and a line of typeset mathematics. Everything a person draws
+ * on a whiteboard is a composition of those nine, and composition — unlike enumeration —
+ * has no ceiling. The author writes the composition; nothing here has to know what a
+ * chloroplast is.
+ *
+ * The ninth, `math`, is the newest and is a different *kind* of addition from the other
+ * eight: it does not draw a shape, it sets notation. It is here because `label` cannot
+ * write a fraction, an integral, a root, a matrix or a superscript that is really raised —
+ * a label carrying `E = mc^2` is a string in a handwriting font, so the caret is a caret
+ * and the exponent sits on the baseline. That is not rough-edged charm, it is the notation
+ * being wrong, and notation is the one thing on a maths board a learner cannot reinterpret
+ * charitably. `EquationElement` already typesets TeX to exact glyph outlines
+ * (`visuals/src/equation.ts`), so a mark that carries TeX reaches the board as real
+ * mathematics drawn glyph by glyph, in the same reveal, at the same cue, inside the same
+ * picture as the arrows and the hatching that explain it.
  *
  * Two properties this buys that a generated raster cannot:
  *
@@ -56,11 +68,24 @@ export const Mark = z.object({
    * beat, an emphasis, or a motion refers to.
    */
   id: z.string(),
-  kind: z.enum(['rect', 'ellipse', 'line', 'stroke', 'arrow', 'label', 'hatch', 'dots']),
+  kind: z.enum(['rect', 'ellipse', 'line', 'stroke', 'arrow', 'label', 'hatch', 'dots', 'math']),
   /** Left edge / first coordinate, for the box-shaped kinds. */
   x: z.number().optional(),
   /** Top edge. y grows *down*. */
   y: z.number().optional(),
+  /**
+   * Width and height, for the box-shaped kinds — and for `math`, where the box is a
+   * *reservation* rather than a size.
+   *
+   * The typesetter fits the notation inside the box preserving its aspect and centres it
+   * there (`resolveEquation`), because an equation stretched to fill a cell is a different,
+   * wrong equation. So a `math` box that is roomier than the maths costs whitespace and a
+   * tighter one costs size — never a stretched glyph. It is the top-left box the author is
+   * promising to keep other marks out of, which is exactly what the author needs to reason
+   * about: the repair pass treats it as ink a name may not be written across.
+   *
+   * `math` may omit them, and then the box is derived from `size` and the length of `tex`.
+   */
   w: z.number().optional(),
   h: z.number().optional(),
   /**
@@ -79,7 +104,27 @@ export const Mark = z.object({
   dashed: z.boolean().default(false),
   /** `label`: the words, spelled as they should appear. */
   text: z.string().optional(),
-  /** `label`: cap height in drawing units. */
+  /**
+   * `math`: TeX source, no delimiters — `\frac{dv}{dt} = -\frac{g}{L}\theta`, not
+   * `$...$`.
+   *
+   * Its own field rather than `text`, and the distinction is worth a field: `text` is
+   * handwriting and this is typesetting. They go down different lanes (`TextElement` and
+   * `EquationElement`), they are measured differently, and a `label` whose text happened
+   * to contain backslashes would be drawn with the backslashes in it. Anything reading a
+   * mark can tell which it has by the field that is filled in, not by guessing at the
+   * string.
+   *
+   * Not validated here, for the same reason `EquationElement.tex` is not: a TeX error is a
+   * typesetting outcome, not a schema violation, and refusing to parse a lesson over one
+   * bad exponent would lose the whole video. The typesetter names the error and the board
+   * falls back to drawing the source (`visuals/src/equation.ts`).
+   */
+  tex: z.string().optional(),
+  /**
+   * `label`: cap height in drawing units. `math`: the cap height the notation is set
+   * around when the mark carries no `w`/`h` of its own — see the note on `w`/`h` below.
+   */
   size: z.number().optional(),
   /** `dots`: how many. */
   count: z.number().optional(),
@@ -89,6 +134,13 @@ export const Mark = z.object({
    * Which ink draws this mark. See `Tone` in `./storyboard.ts` for what each one means
    * and for the rule they are held to — a second colour has to be telling two things
    * apart, not decorating one.
+   *
+   * A `math` mark is always drawn in the board's ordinary ink: the renderer paints an
+   * equation's glyphs from the typeset sidecar in `pal.ink` rather than through
+   * `toneInk`, so a tone on one would be recorded in the storyboard and then ignored.
+   * Said here because a field that is accepted and unread is the defect this repository
+   * keeps finding (`coreInsight`, `Lesson.kind`), and the honest place to say so is next
+   * to the field.
    */
   tone: z.enum(['ink', 'accent', 'contrast', 'muted']).optional(),
 });

@@ -58,8 +58,12 @@ import {
   requestedProvider,
 } from './providers/index.js';
 import type { ActiveProvider, OpenChainOptions } from './providers/index.js';
+import { VOICE_PROVIDER_IDS } from './providers/types.js';
 import type { VoiceProviderId, WordTiming } from './providers/types.js';
+import { elevenLabsCostUsd } from './providers/elevenlabs.js';
 import { SAY_NOT_FOR_PUBLISHING } from './providers/system.js';
+import { voiceMood } from './moods.js';
+import type { VoiceMoodId } from './moods.js';
 import { TEACHING_WPM_MAX, TEACHING_WPM_MIN, TEACHING_WPM_TARGET } from './voices.js';
 import { CLIP_SAMPLE_RATE, CLIP_SIGNATURE, findSpeechBounds } from './wav.js';
 
@@ -154,6 +158,58 @@ export type ResolvedVoice = {
   spoke: boolean;
   /** Fallbacks, in the `string[]` shape `LessonSummary.problems` already uses. */
   problems: string[];
+  /**
+   * The curated mood the run was cast in, when `meta.voice` named one. See `moods.ts`.
+   *
+   * Carried out because it is what the user chose, and neither `voice` nor `provider`
+   * can be read back into it: "Calm" is `21m00Tcm4TlvDq8ikWAM` on a paid run and
+   * `af_heart` on a local one, and the result UI has to be able to say which mood the
+   * film it is showing was made in.
+   */
+  mood?: VoiceMoodId;
+  /**
+   * The provider a **whole-film failover** abandoned, when one happened.
+   *
+   * Set only by the case described on `narrate()`: the run started on one provider,
+   * that provider died part-way through, and every scene was re-synthesised from
+   * scene 0 on the next one so the film speaks with a single voice. Absent means no
+   * failover — which is not the same as `problems` being empty, because a chain that
+   * demotes on the *first* phrase of the first scene has always produced a
+   * single-voiced film and does not need a restart.
+   */
+  fellBackFrom?: VoiceProviderId;
+  /**
+   * Characters synthesised for the film that was actually delivered.
+   *
+   * The sum of `charsByProvider`, which is a derived number the caller kept
+   * re-deriving — `cast.ts` reads one provider's entry out of the map and prices it,
+   * and every other consumer that wanted a total wrote its own loop over a
+   * `Partial<Record<…>>`. One number, computed where the tally lives.
+   */
+  chars: number;
+  /**
+   * What the delivered film cost at list price, in USD. Exactly 0 for a local run.
+   *
+   * Returned rather than inferred, which is the entire point of this type: the record
+   * used to be written from the *request* — a key being present — and `projects/cardiac8`
+   * was duly billed $0.4286 for audio a demotion had made free. A caller that reads
+   * this number cannot make that mistake, because the only way for it to be non-zero
+   * is for a paid provider to have actually spoken.
+   */
+  costUsd: number;
+  /**
+   * Characters spoken for an abandoned attempt and thrown away, and what they were
+   * worth. Absent when nothing was abandoned.
+   *
+   * `costUsd` above deliberately excludes them: the user is shown one film, and they
+   * are not shown any part of this audio, so it does not price the film. But it is
+   * not hidden either — an ElevenLabs partial that died on scene 7 may well have been
+   * billed by ElevenLabs, and a spend counter that never hears about it (D6 in
+   * `docs/PLAN-LAUNCH.md`) will under-count real money. Two fields, both true, rather
+   * than one number that has to be either a lie or a surprise.
+   */
+  abandonedChars?: number;
+  abandonedCostUsd?: number;
 };
 
 export type NarrateResult = {
@@ -234,6 +290,23 @@ type SynthContext = {
  */
 const EMPHASIS_SLOWDOWN = 0.92;
 const EMPHASIS_EXTRA_GAP = 0.18;
+
+/**
+ * How many times the whole film may be re-narrated before the stage stops restarting.
+ *
+ * A bound, not a policy. Every abandonment consumes one link of the chain permanently
+ * — `openVoiceChain` never walks backwards — and the last link is `silence`, which
+ * cannot fail, so a run can abandon at most `VOICE_PROVIDER_IDS.length - 1` attempts
+ * on its own. Sizing the bound to the chain therefore makes it unreachable in practice
+ * while keeping the loop a total function: the alternative is a `while (true)` that a
+ * future provider with a stateful failure mode could spin in forever, and the failure
+ * mode of *that* is a render that never finishes and never says why.
+ *
+ * If the bound is ever hit, the final attempt is allowed to run to completion with
+ * whatever the chain is on — a film that mixes two voices is bad, and a film missing
+ * its last four scenes is worse.
+ */
+const MAX_VOICE_ATTEMPTS = VOICE_PROVIDER_IDS.length;
 
 /** Does this phrase contain any of the scene's emphasised spans? */
 function carriesEmphasis(phrase: string, emphasis: readonly string[]): boolean {
@@ -440,6 +513,30 @@ async function synthesizeEmptyScene(
  * and this stage used to drop it on the floor, so every consumer downstream had to
  * infer the provider from the environment — and was wrong whenever the chain
  * demoted.
+ *
+ * ## One film, one voice
+ *
+ * `openVoiceChain` demotes **per phrase**, which is the right granularity for staying
+ * alive and the wrong one for a finished film: a key that expires on scene 7 of 10
+ * produced six scenes in the paid voice and four in the local one, and a listener does
+ * not hear a graceful degradation, they hear the narrator being replaced mid-sentence.
+ * That run exists on disk (`projects/cardiac8`) and it is the only keyed film this
+ * pipeline has ever finished.
+ *
+ * So a demotion is now a **restart**. The moment the chain reports a fallback the
+ * stage discards the attempt in progress — every measurement, the pace statistics, the
+ * cue log and, critically, the character tally — and re-narrates from scene 0 with the
+ * provider that took over. Nothing about the abandoned attempt reaches the caller
+ * except the two `abandoned*` fields that say it happened: `charsByProvider` no longer
+ * mentions the provider that quit, so the pipeline's cost line for it is zero without
+ * the pipeline needing to know any of this. The clips of the abandoned attempt are
+ * still on disk for a moment, but the restart happens *before* they are marked fresh,
+ * so nothing can serve them.
+ *
+ * The reason this is safe rather than merely hopeful is that the provider id is part of
+ * every scene's cache key: a cache hit therefore *proves* the clip on disk was made by
+ * the attempt's own provider, so "one film, one voice" holds across cached scenes,
+ * re-synthesised scenes and restarts alike.
  */
 export async function narrate(
   sb: Storyboard,
@@ -502,6 +599,25 @@ export async function narrate(
   const spoken = new Map<VoiceProviderId, number>();
   /** The engine each of them was running. See `ResolvedVoice.modelByProvider`. */
   const engines = new Map<VoiceProviderId, string>();
+
+  /* ------------------------------------------ whole-film failover bookkeeping */
+
+  /**
+   * How many demotions the chain had recorded when the current attempt began.
+   *
+   * The chain demotes *per phrase* — that is what keeps a render alive when a key
+   * expires — but a film is not allowed to be half one voice and half another, so
+   * this is the watermark the scene loop compares against to notice that the run it
+   * is in the middle of is no longer the run it started.
+   */
+  let fallbacksBefore = chain.fallbacks().length;
+  /** Attempts abandoned so far. Bounded — see `MAX_VOICE_ATTEMPTS`. */
+  let abandonedAttempts = 0;
+  /** The provider the *first* abandoned attempt started on. See `ResolvedVoice.fellBackFrom`. */
+  let fellBackFrom: VoiceProviderId | undefined;
+  /** Characters spoken for abandoned attempts, and what they were worth at list price. */
+  let abandonedChars = 0;
+  let abandonedCostUsd = 0;
 
   try {
     for (let i = 0; i < total; i++) {
@@ -603,6 +719,56 @@ export async function narrate(
           timing = await synthesizeEmptyScene(scene, i, ctx);
         } else {
           timing = await synthesizeScene(scene, i, phrases, ctx);
+        }
+
+        /* ------------------------------------------------ whole-film failover */
+
+        // Nothing below this point has been written to the cache yet, which is what
+        // makes the restart clean: the clip for this scene exists on disk but is not
+        // marked fresh, so the next attempt re-synthesises it rather than trusting a
+        // file that may be half one voice and half another.
+        if (abandonedAttempts + 1 < MAX_VOICE_ATTEMPTS && chain.fallbacks().length > fallbacksBefore) {
+          const fell = chain.fallbacks()[fallbacksBefore]!;
+          abandonedAttempts++;
+          fallbacksBefore = chain.fallbacks().length;
+          fellBackFrom ??= fell.from;
+
+          // The bill for what is being thrown away, taken before the tally is cleared.
+          // It is not charged to the film — see `ResolvedVoice.abandonedCostUsd` — but it
+          // is not forgotten either, because ElevenLabs may well have charged us for it.
+          const lost = spoken.get(fell.from) ?? 0;
+          abandonedChars += lost;
+          if (fell.from === 'elevenlabs')
+            abandonedCostUsd += elevenLabsCostUsd(lost, engines.get('elevenlabs'));
+
+          log.warn(
+            `${fell.from} failed at scene ${i + 1}/${total} (${fell.reason}) — re-synthesising the ` +
+              `whole film with ${fell.to} from scene 1, so it speaks with one voice. ` +
+              `${lost} character${lost === 1 ? '' : 's'} of ${fell.from} audio are discarded and billed to nobody.`,
+          );
+          report(opts, {
+            stage: 'voice',
+            pct: 0,
+            note: `${fell.from} failed — re-narrating all ${total} scene${total === 1 ? '' : 's'} with ${fell.to}`,
+          });
+
+          // Everything measured under the old provider is void, including the pace and
+          // cue statistics: they describe audio that will not be in the film.
+          sceneHashes.length = 0;
+          cueLog.length = 0;
+          unresolvedCues = 0;
+          spokenWords = 0;
+          spokenSeconds = 0;
+          spoken.clear();
+          engines.clear();
+
+          // Back to scene 0. `i = -1` and `continue` rather than a nested attempt loop
+          // because the alternative is re-indenting this whole body for a case that
+          // fires once in the life of a run; the accumulators reset just above are the
+          // entire state of an attempt, and `sceneHashes` being empty is the invariant
+          // that says so.
+          i = -1;
+          continue;
         }
 
         // Re-hash against the provider that actually produced the clip: the chain
@@ -731,6 +897,24 @@ export async function narrate(
   const problems = chain
     .fallbacks()
     .map((f) => `voice fell back to ${f.to} (${f.from}: ${f.reason})`);
+  // Said separately from the fallback lines above because it is a different fact, and
+  // the one the person watching is owed: not "a provider failed" but "this film is
+  // narrated locally, all of it, and you were not charged". The result UI shows this
+  // string; `docs/PLAN-LAUNCH.md` A5 calls the version of this that stayed silent the
+  // dominant failure mode of the whole pipeline.
+  if (fellBackFrom) {
+    // "Narrated locally" is the copy the plan asks for, and it is only said when it is
+    // true: every fallback from the paid provider does land on a local engine, but the
+    // unkeyed chain can also demote *towards* ElevenLabs (kokoro → system → elevenlabs),
+    // and claiming a local render there would be the same class of lie in reverse.
+    const where = resolved.id === 'elevenlabs' ? 'renarrated in the cloud' : 'narrated locally';
+    problems.push(
+      `${where}: ${fellBackFrom} failed part-way through, so all ${total} scene${
+        total === 1 ? '' : 's'
+      } were re-narrated with ${resolved.id} for one consistent voice, and the ` +
+        `${abandonedChars} discarded character${abandonedChars === 1 ? '' : 's'} are billed at $0`,
+    );
+  }
   for (const line of problems) log.warn(line);
 
   const wpm = spokenSeconds > 0 ? (spokenWords / spokenSeconds) * 60 : 0;
@@ -765,6 +949,8 @@ export async function narrate(
 
   const charsByProvider = Object.fromEntries(spoken) as ResolvedVoice['charsByProvider'];
   const modelByProvider = Object.fromEntries(engines) as ResolvedVoice['modelByProvider'];
+  // The bare id, so `kokoro:calm` — a mood pinned to the free provider — is still a mood.
+  const mood = voiceMood(bareVoiceId(requestedVoice));
   const voice: ResolvedVoice = {
     provider: resolved.id,
     label: resolved.label,
@@ -778,11 +964,30 @@ export async function narrate(
     // smaller version of the lie this whole return value exists to correct.
     spoke: spoken.size > 0,
     problems,
+    ...(mood ? { mood: mood.id } : {}),
+    ...(fellBackFrom ? { fellBackFrom } : {}),
+    chars: [...spoken.values()].reduce((a, n) => a + n, 0),
+    // The one number a caller must never compute for itself, and the only provider in
+    // the chain that can make it non-zero. Derived from the *delivered* tally, which a
+    // whole-film failover has already emptied of the abandoned attempt — so a film
+    // that fell back to the local engine costs exactly zero here, by construction
+    // rather than by a special case somebody has to remember to write.
+    costUsd: elevenLabsCostUsd(spoken.get('elevenlabs') ?? 0, engines.get('elevenlabs')),
+    ...(abandonedChars > 0
+      ? { abandonedChars, abandonedCostUsd: round4(abandonedCostUsd) }
+      : {}),
   };
   if (voice.spoke) {
     log.info(
       `spoken by ${[...spoken].map(([id, n]) => `${id} (${n} characters)`).join(', ')}` +
         (voice.model ? ` · ${voice.model}` : ''),
+    );
+  }
+  if (voice.abandonedChars) {
+    log.warn(
+      `${voice.abandonedChars} characters were synthesised for an abandoned attempt and thrown ` +
+        `away (list value $${(voice.abandonedCostUsd ?? 0).toFixed(4)}) — not billed to this film, ` +
+        'but a provider may still have charged for them',
     );
   }
 
@@ -791,4 +996,9 @@ export async function narrate(
 
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
+}
+
+/** Money, at the precision the cost report already uses. */
+function round4(v: number): number {
+  return Math.round(v * 10_000) / 10_000;
 }

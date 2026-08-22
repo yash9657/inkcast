@@ -39,9 +39,19 @@ import type {
 } from '@inkcast/core';
 import { frameSize, sceneLength, sceneOffsets, totalDuration } from '@inkcast/core';
 import { MANIFEST_PATH } from '@inkcast/visuals';
-import { boardMetrics, contentFill, reportFill, safeInsets } from '@inkcast/core';
-import type { SceneFraming } from '@inkcast/core';
-import { cumulativeLengths, easeFn, flattenPathData, pointAtLength, rectContains } from './geom.js';
+import { boardMetrics, contentFill, reportFill, safeInsets, viewRect } from '@inkcast/core';
+import type { FrameSize, Insets, SceneFraming } from '@inkcast/core';
+import {
+  boundsOfPoints,
+  cumulativeLengths,
+  easeFn,
+  flattenPathData,
+  inflateRect,
+  pointAtLength,
+  rectContains,
+  unionAll,
+  unionArea,
+} from './geom.js';
 import type { Pt as GPt } from './geom.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt, toneInk } from './palette.js';
@@ -50,7 +60,9 @@ import { curveTrace, plotArea, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
 import { dotPrim, geom, geoms, textPrim } from './prims.js';
 import {
+  BRAND_MARK,
   Rng,
+  TITLE_UNDERLINE,
   hachureEllipse,
   hachurePolygon,
   rectPoly,
@@ -58,12 +70,14 @@ import {
   sketchAlong,
   sketchArrowHead,
   sketchBracket,
+  sketchBrandMark,
   sketchCurve,
   sketchEllipse,
   sketchLine,
   sketchRect,
+  sketchUnderline,
 } from './sketch.js';
-import type { Pt, SketchStyle } from './sketch.js';
+import type { Pt, SketchStyle, WrittenRun } from './sketch.js';
 import type {
   GeomPrim,
   MorphTrack,
@@ -255,6 +269,15 @@ type Ctx = {
   elements: Map<string, Element>;
   /** Owning scene id per element, which the visuals seed is derived from. */
   sceneOf: Map<string, string>;
+  /**
+   * The heading each title rule underlines, by the rule's element id.
+   *
+   * Recognised once per board rather than per element: the test is a *relationship*
+   * between two elements of the same scene, and `primsFor` sees one element at a
+   * time. See `titleRules` for what the relationship is and why it is matched by
+   * geometry instead of by an id convention.
+   */
+  titleRules: Map<string, TextElement>;
   alpha: number | undefined;
   /** Plot frames and curves already on the board, so they are not re-inked. */
   drawn: Set<string>;
@@ -277,6 +300,71 @@ function plotSourceOf(el: PlotElement, ctx: Ctx): PlotSource | undefined {
   const src = ctx.visuals.plotFor(el);
   ctx.plots.set(el.id, src);
   return src;
+}
+
+/* -------------------------------------------------------------- title rules */
+
+/**
+ * How far below a heading's box a rule may sit and still be that heading's rule,
+ * as a fraction of the heading's type size.
+ *
+ * The planner writes the gap as a flat 10 canvas units (`planner/src/compile.ts`
+ * `titleRule`), which is a fifth of a heading's size on a 16:9 board — so this
+ * ceiling is loose by an order of magnitude on purpose. It is not trying to pin the
+ * planner's constant; it is separating "a rule tucked under these words" from the
+ * next thing down the board, and the nearest competitor on the shipped cardiac film
+ * is a plot's time axis 350 units below its heading.
+ */
+const TITLE_RULE_GAP = 0.6;
+
+/**
+ * Which two-point accent paths are the rules under a heading.
+ *
+ * Matched by geometry, and that choice is the whole reason this function exists as
+ * something other than `id.endsWith('_rule')`. Two planners emit these — the LLM
+ * compiler as an accent `path` (`planner/src/compile.ts` `titleRule`) and the
+ * heuristic as a `shape: 'underline'` — and neither promises the renderer an id.
+ * Root cause 1 in `docs/PIPELINE.md` is geometry written by one stage and never read
+ * by the next; an id convention shared by two packages without a type to hold it is
+ * the same failure with a longer fuse, because it breaks silently the first time a
+ * beat renames its elements and the board simply goes back to flat rules.
+ *
+ * So the signature is what the ink actually looks like: one straight horizontal
+ * accent stroke, no wider than the words above it, centred on them, sitting just
+ * below their box. Anything that passes all four is an underline whatever it is
+ * called, and anything that fails one keeps today's treatment.
+ */
+function titleRules(scenes: readonly Scene[], typeUnits: number): Map<string, TextElement> {
+  const out = new Map<string, TextElement>();
+  for (const scene of scenes) {
+    const headings = scene.elements.filter(
+      (e): e is TextElement => e.type === 'text' && e.role === 'heading',
+    );
+    if (headings.length === 0) continue;
+    for (const el of scene.elements) {
+      if (el.type !== 'path' || el.tone !== 'accent' || el.fill || el.closed) continue;
+      const pts = el.points;
+      if (!pts || pts.length !== 2) continue;
+      const [a, b] = pts as [{ x: number; y: number }, { x: number; y: number }];
+      // Level to within a stroke width: a rule is ruled, a leader line is not.
+      if (Math.abs(a.y - b.y) > 2) continue;
+      const span = Math.abs(b.x - a.x);
+      if (!(span > 0)) continue;
+      const mid = (a.x + b.x) / 2;
+      const head = headings.find((h) => {
+        const gap = a.y - (h.at.y + h.at.h);
+        const size = TYPE_SCALE[h.role] * typeUnits;
+        return (
+          gap >= -size * 0.1 &&
+          gap <= size * TITLE_RULE_GAP &&
+          span <= h.at.w * 1.02 &&
+          Math.abs(mid - (h.at.x + h.at.w / 2)) <= h.at.w * 0.06
+        );
+      });
+      if (head) out.set(el.id, head);
+    }
+  }
+  return out;
 }
 
 type SceneTiming = {
@@ -358,6 +446,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     boxes: new Map(),
     elements: new Map(),
     sceneOf: new Map(),
+    titleRules: titleRules(timed.scenes, scale * gain),
     alpha: ink.opacity < 1 ? ink.opacity : undefined,
     drawn: new Set<string>(),
     // Recorded geometry only. The stage resolved these at `boardMetrics`' scale — the
@@ -411,6 +500,17 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
   }
   items.sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
 
+  const safe = safeInsets(sb.meta.aspect, frame);
+  // After the sort and after the wipe pass, both deliberately. The plate is the last
+  // ink on the board, it must never pick up a `fadeAt`, and it is placed by looking at
+  // what the finished board actually holds — which is only knowable once every
+  // authored item exists.
+  const plate = brandPlateItem(sb.meta, canvas, frame, safe, scenes, duration, items, ctx);
+  if (plate) {
+    plate.order = [0, seq++];
+    items.push(plate);
+  }
+
   const fill = contentFill(framing, canvas, frame).map(round3);
   reportFill(fill, timed);
 
@@ -429,7 +529,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     fontFamily: opts.fontFamily ?? 'InkcastHand, cursive',
     scale,
     typeScale: ctx.type,
-    safe: safeInsets(sb.meta.aspect, frame),
+    safe,
     fill,
     scenes,
     items,
@@ -511,6 +611,192 @@ function wipeFadeAt(
     return anchor === scenes[item.scene] ? undefined : anchor.start + anchor.dur;
   }
   return anchor.start + anchor.speech + span;
+}
+
+/* -------------------------------------------------------------- brand plate */
+
+/**
+ * How much of the frame's short side the brand tile spans.
+ *
+ * 8.5% is 92 px on a 1080-tall frame, which is the size at which the mark's own
+ * proportions still resolve: the tile border is `2/24` of the side, so at 92 px it is
+ * a 7.6 px rule and the cast stroke inside it is 9.9 px. Smaller and `BrandMarkSpec`'s
+ * ratios collapse into a smudge; larger and a watermark starts competing with the
+ * lesson it is signing.
+ */
+const BRAND_PLATE_SPAN = 0.085;
+
+/**
+ * Seconds at the end of the film the plate owns, from `docs/PLAN-LAUNCH.md` A6
+ * ("last 1.2 s outro draws the new logo mark small in the corner").
+ */
+const BRAND_PLATE_WINDOW = 1.2;
+
+/**
+ * How long the hand takes to draw the plate, inside that window.
+ *
+ * Deliberately shorter than the window. A mark still being drawn on the last frame
+ * is not a watermark — the whole value of a brand plate is the finished thing sitting
+ * on the board while the film ends, which is also the frame a viewer screenshots.
+ */
+const BRAND_PLATE_DRAW = 0.8;
+
+/**
+ * An outro shorter than this gets no plate.
+ *
+ * `meta.outroSec` is the only silence the plate may draw in; every preset ships 1.0 s
+ * or more (`planner/src/presets.ts`), but `outroSec` is author-settable down to 0 and
+ * a mark scribbled over the last spoken word is worse than no mark.
+ */
+const BRAND_PLATE_MIN_OUTRO = 0.5;
+
+/** Clear space kept around the plate when judging a corner, as a fraction of its side. */
+const BRAND_PLATE_CLEAR = 0.3;
+
+/** Where the plate is allowed to sit, best corner first when corners tie. */
+const BRAND_PLATE_CORNERS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
+
+/** The rectangle a primitive's ink actually occupies, or null if it has none. */
+function primBounds(prim: PlanPrim): Rect | null {
+  if (prim.kind === 'text' || prim.kind === 'svg') return prim.box;
+  return unionAll(flattenPathData(prim.d).map(boundsOfPoints));
+}
+
+/** The part of `r` inside `box`, or null when they do not overlap. */
+function clipTo(r: Rect, box: Rect): Rect | null {
+  const x = Math.max(r.x, box.x);
+  const y = Math.max(r.y, box.y);
+  const w = Math.min(r.x + r.w, box.x + box.w) - x;
+  const h = Math.min(r.y + r.h, box.y + box.h) - y;
+  return w > 0 && h > 0 ? { x, y, w, h } : null;
+}
+
+/**
+ * The inkcast mark, drawn small in a corner of the last frame.
+ *
+ * `meta.outroSec` seconds of finished board play after the last word, and until now
+ * they played unsigned. This is the one item in a plan that is not compiled from an
+ * element, which is why it is built here rather than in `itemsFor`: there is nothing
+ * in the Storyboard IR that says "brand plate", and putting one there would make every
+ * hand-authored board responsible for remembering it.
+ *
+ * **Which corner.** Stated as a rule because the alternative — a fixed corner — is
+ * how a watermark ends up on top of a caption. The corners of the outro camera's safe
+ * rect are scored by how much authored ink they already hold, and the emptiest wins;
+ * ties, including the common case of four empty corners, break toward bottom-right,
+ * which is where a signature goes and where every player's own chrome is not. The
+ * score is real ink, not element boxes: a `d` string flattened and bounded, so a
+ * figure's raster counts for its box and a hachured bar counts for its hatch. Only
+ * ink that is still up counts — `persist` items — because everything else has already
+ * faded by the time the outro starts.
+ *
+ * **Which coordinates.** The plate is placed in the *view* the last scene's camera
+ * holds, converted through that camera's own units-per-pixel and not through
+ * `plan.scale`. `plan.scale` is the median framing across the film (`unitsPerPixel`
+ * in core), so using it would size the plate for a scene that is not on screen — on
+ * the shipped cardiac film the recap camera is 2.36× the median, which would have
+ * drawn the mark at 39 px instead of 92.
+ */
+function brandPlateItem(
+  meta: StoryboardMeta,
+  canvas: Rect,
+  frame: FrameSize,
+  safe: Insets,
+  scenes: readonly PlanScene[],
+  duration: number,
+  items: readonly PlanItem[],
+  ctx: Ctx,
+): PlanItem | null {
+  const last = scenes[scenes.length - 1];
+  if (!last) return null;
+  if (!(meta.outroSec >= BRAND_PLATE_MIN_OUTRO)) {
+    log.debug(
+      `outro is ${meta.outroSec.toFixed(2)}s — too short for a brand plate, skipping it. ` +
+        `Raise meta.outroSec to at least ${BRAND_PLATE_MIN_OUTRO}s to sign the film.`,
+    );
+    return null;
+  }
+
+  const view = viewRect(last.camera, canvas, frame);
+  // Canvas units per output pixel at *this* camera, which is the only conversion that
+  // makes a pixel-quoted size mean what it says on the last frame.
+  const upp = frame.h > 0 ? view.h / frame.h : 1;
+  const side = BRAND_PLATE_SPAN * Math.min(frame.w, frame.h) * upp;
+  const inner: Rect = {
+    x: view.x + safe.left * upp,
+    y: view.y + safe.top * upp,
+    w: Math.max(side, view.w - (safe.left + safe.right) * upp),
+    h: Math.max(side, view.h - (safe.top + safe.bottom) * upp),
+  };
+
+  const boxAt = (corner: (typeof BRAND_PLATE_CORNERS)[number]): Rect => ({
+    x: corner === 'bottom-right' || corner === 'top-right' ? inner.x + inner.w - side : inner.x,
+    y: corner === 'bottom-right' || corner === 'bottom-left' ? inner.y + inner.h - side : inner.y,
+    w: side,
+    h: side,
+  });
+
+  const held: Rect[] = [];
+  for (const item of items) {
+    if (!item.persist) continue;
+    for (const prim of item.prims) {
+      const r = primBounds(prim);
+      if (r) held.push(r);
+    }
+  }
+
+  let best: (typeof BRAND_PLATE_CORNERS)[number] = BRAND_PLATE_CORNERS[0];
+  let bestInk = Infinity;
+  for (const corner of BRAND_PLATE_CORNERS) {
+    const probe = inflateRect(boxAt(corner), side * BRAND_PLATE_CLEAR);
+    const ink = unionArea(held.map((r) => clipTo(r, probe)).filter((r): r is Rect => r !== null));
+    if (ink < bestInk) {
+      bestInk = ink;
+      best = corner;
+    }
+  }
+  const box = boxAt(best);
+  const probeArea = Math.pow(side * (1 + BRAND_PLATE_CLEAR * 2), 2);
+  const share = probeArea > 0 ? bestInk / probeArea : 0;
+  if (share > 0.02) {
+    // Every corner was busy. The plate still goes in the least busy one — a mark that
+    // vanishes when the board is full is not a brand — but say so, because this is the
+    // shape of the collision defect (0/0a) and a frame is the only way to judge it.
+    log.warn(
+      `brand plate corner ${best} already holds ${(share * 100).toFixed(0)}% authored ink — ` +
+        `the mark may overlap the recap. Every corner of the outro frame was busier.`,
+    );
+  } else {
+    log.debug(
+      `brand plate: ${best}, ${(side / upp).toFixed(0)}px, ${(share * 100).toFixed(1)}% ink`,
+    );
+  }
+
+  const window = Math.min(BRAND_PLATE_WINDOW, meta.outroSec);
+  const start = Math.max(last.start + last.dur, duration - window);
+  const dur = Math.max(0.2, Math.min(BRAND_PLATE_DRAW, window * 0.7));
+
+  const rng = new Rng(seedOf('brand-plate', last.id));
+  const mark = sketchBrandMark(rng, ctx.st, box);
+  return {
+    id: 'inkcast~brand',
+    scene: scenes.length - 1,
+    order: [0, 0],
+    start: round3(start),
+    dur: round3(dur),
+    style: 'draw',
+    // Never fades: the plate is the last thing on the board and the board ends with it.
+    persist: true,
+    sceneEnd: round3(duration),
+    center: center(box),
+    prims: [
+      ...geoms(mark.tile, ctx.pal.ink, mark.borderWidth),
+      ...geoms(mark.cast, BRAND_MARK.stroke, mark.castWidth),
+      // Closed and filled, so the runtime dash-reveals its three edges and ramps the
+      // fill in over the same window — the nib arrives as ink, not as a switch.
+      geom(mark.nib, BRAND_MARK.stroke, mark.castWidth * 0.4, { fill: BRAND_MARK.stroke }),
+    ],
+  };
 }
 
 /**
@@ -999,6 +1285,54 @@ function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
 }
 
 /**
+ * The accent rule under a heading, drawn as an underline instead of as a line.
+ *
+ * This replaces a treatment rather than adding one, and that is the point: the ink
+ * was already there and already accent-coloured, drawn by `pathPrims`' generic
+ * two-point branch as a level `sketchAlong` stroke. A level stroke of the width of
+ * the words is a *table border*; what a hand does under a title is start a little
+ * before the first letter, run past the last one and lift as it goes. `sketchUnderline`
+ * is that gesture, and `TITLE_UNDERLINE` is the one place its proportions live.
+ * Returning `null` for everything else is what keeps a single underline on the board:
+ * there is no second element and no second stroke, only a different `d`.
+ *
+ * The run's baseline is derived *backwards* from the authored y — `y - size * drop`,
+ * so the spec's own drop lands the stroke's left end exactly where the flat rule was
+ * — and not from the heading's letters, which is the one thing this could get wrong.
+ * The reason is measured: `page/runtime.js` binary-searches the type size down until
+ * the words fit their box, so the two-line headings on the shipped cardiac film are
+ * set at roughly 45 canvas units against the 60 that `TYPE_SCALE.heading` quotes here.
+ * A `drop` applied to the compile-time size would therefore push the rule 4–5 units
+ * further down than the descenders need, on a board whose captions are already
+ * colliding with pictures (defect 0). The planner placed this y against a measured
+ * box; the renderer has no better number, so it keeps that y and spends the type size
+ * only on the parts of the gesture that cannot collide with anything — the lift, the
+ * overshoot and the approach.
+ */
+function titleUnderlinePrims(
+  el: PathElement,
+  ctx: Ctx,
+  rng: Rng,
+  stroke: string,
+  width: number,
+  alpha: number | undefined,
+): PlanPrim[] | null {
+  const heading = ctx.titleRules.get(el.id);
+  const pts = el.points;
+  if (!heading || !pts || pts.length !== 2) return null;
+  const [a, b] = pts as [{ x: number; y: number }, { x: number; y: number }];
+  const size = TYPE_SCALE[heading.role] * ctx.type;
+  const run: WrittenRun = {
+    x0: Math.min(a.x, b.x),
+    x1: Math.max(a.x, b.x),
+    baseline: (a.y + b.y) / 2 - size * TITLE_UNDERLINE.drop,
+    size,
+  };
+  log.debug(`path "${el.id}" is the rule under "${heading.id}" — drawing it as an underline`);
+  return geoms(sketchUnderline(rng, ctx.st, run), stroke, width, alpha);
+}
+
+/**
  * A freeform stroke — the escape hatch for any shape the vocabulary lacks.
  *
  * `points` are roughened here so a hillside looks drawn rather than plotted; raw
@@ -1009,6 +1343,8 @@ function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
 function pathPrims(el: PathElement, ctx: Ctx, rng: Rng, alpha: number | undefined): PlanPrim[] {
   const width = ctx.sw * el.weight;
   const stroke = toneInk(ctx.pal, el.tone);
+  const rule = titleUnderlinePrims(el, ctx, rng, stroke, width, alpha);
+  if (rule) return rule;
   const out: PlanPrim[] = [];
   let poly: Pt[] = [];
 

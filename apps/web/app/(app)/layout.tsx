@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { Logo } from '@/components/marketing/logo';
 import { ThemeToggle } from '@/components/ui';
 import { AppNav } from '@/components/studio/app-nav';
 
@@ -20,25 +21,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-svh flex-col">
       <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4 sm:px-6">
-          <Link
-            href="/"
-            className="focus-ring flex items-center gap-2 rounded-md outline-none"
-            aria-label="Inkcast home"
-          >
-            <svg viewBox="0 0 32 32" aria-hidden className="size-6 shrink-0">
-              <rect width="32" height="32" rx="8" className="fill-primary" />
-              <path
-                d="M8 22c3-9 8-13 16-14"
-                className="stroke-primary-foreground"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                fill="none"
-              />
-              <path d="M19 21l5 3-1-5.6z" className="fill-primary-foreground" />
-            </svg>
-            <span className="text-base font-semibold tracking-tight text-foreground max-sm:sr-only">
-              Inkcast
-            </span>
+          <Link href="/" className="focus-ring rounded-md outline-none" aria-label="Inkcast home">
+            {/* Two elements, one visible: the app header has to hold the nav and
+                the theme toggle at 360px, so the wordmark drops below `sm` — the
+                behaviour the hand-inlined copy of the logo used to get from
+                `max-sm:sr-only` on its own text span. It is expressed as the
+                mark/lockup variants rather than as a prop that hides part of the
+                lockup, because a lockup with its wordmark switched off is not a
+                lockup, it is the mark. The `Link` carries the accessible name, so
+                the duplicated SVG is announced exactly once. */}
+            <Logo variant="mark" size={26} className="sm:hidden" />
+            <Logo size={26} className="max-sm:hidden" />
           </Link>
 
           <div className="flex-1 sm:ml-2">

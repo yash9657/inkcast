@@ -14,7 +14,15 @@ import { cn } from '@/lib/utils';
  * causes a visible reflow, which is worse than no skeleton at all.
  *
  *   <Skeleton className="h-4 w-32" />
- *   <Skeleton className="aspect-video w-full rounded-xl" />
+ *   <Skeleton className="aspect-video w-full" />
+ *
+ * The example used to carry a `rounded-xl` and the block itself a `rounded-md`.
+ * Both still compile and both resolve to `0px` — the radius ladder went flat in
+ * the C1 token swap — but a docstring is where the next person learns the system,
+ * and one that shows a rounded skeleton teaches a corner that no longer exists.
+ * A skeleton stands in for content, all content in this system is square, and a
+ * placeholder whose shape does not match what replaces it causes the reflow it
+ * was added to prevent.
  */
 export function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
@@ -22,7 +30,7 @@ export function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
       data-slot="skeleton"
       aria-hidden
       className={cn(
-        'animate-shimmer rounded-md bg-muted',
+        'animate-shimmer rounded-none bg-muted',
         'bg-[linear-gradient(90deg,var(--color-muted),color-mix(in_oklab,var(--color-foreground)_6%,var(--color-muted)),var(--color-muted))]',
         'bg-[length:200%_100%]',
         className,

@@ -3,9 +3,15 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * A card. In light mode it is pure white on warm off-white plus a hairline
- * border — no shadow at rest, because the lightness step already reads as
- * raised. In dark mode the border does the same job in reverse.
+ * A card: white paper, a 1px ink border, square corners, and a hard 6px offset
+ * shadow. The old description of this component ("no shadow at rest, because
+ * the lightness step already reads as raised") described the previous system
+ * and is now wrong in both halves — the 1.4% lightness step is no longer the
+ * elevation story, the border and the offset plane are, and docs/DESIGN.md §5
+ * lists cards first among the resting surfaces that carry `shadow-card`.
+ *
+ * A hard shadow costs nothing in layout: `box-shadow` does not contribute to
+ * scrollable overflow, so a full-width card cannot push the page sideways.
  *
  * Anatomy:
  *   <Card>
@@ -24,7 +30,8 @@ export function Card({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="card"
       className={cn(
-        'flex flex-col gap-6 rounded-xl border border-border bg-card py-6 text-card-foreground',
+        'flex flex-col gap-6 rounded-none border border-border bg-card py-6 text-card-foreground',
+        'shadow-card',
         className,
       )}
       {...props}
@@ -32,14 +39,30 @@ export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   );
 }
 
-/** Adds a shadow and a hover lift. For cards that are themselves a link. */
+/**
+ * A card that is itself a link or a button. Rests where `Card` rests and, on
+ * hover, lifts 2px up-left while its shadow deepens into the accent — the same
+ * physical vocabulary as the button's press, run backwards.
+ *
+ * Both of the old state classes were dead on arrival after the token swap and
+ * docs/DESIGN.md §11 names them: `hover:border-input` and
+ * `focus-within:border-input` cannot change anything, because `--border` and
+ * `--input` are now the same ink; and `hover:shadow-md` resolved to the same
+ * `6px 6px 0` the card already had at rest, so the hover lift had lost its
+ * shadow change entirely. The replacements are `border-accent-strong` (an
+ * accent edge, the one line that reads as "this responds") and `shadow-pop`.
+ *
+ * `focus-within` gets the accent border but NOT `shadow-pop`, so a focus ring
+ * inside the card is never laid over an accent-coloured shadow.
+ */
 export function CardInteractive({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <Card
       className={cn(
-        'shadow-xs transition-[box-shadow,border-color,transform] duration-brisk ease-out',
-        'hover:-translate-y-0.5 hover:border-input hover:shadow-md',
-        'focus-within:border-input',
+        'transition-[box-shadow,border-color,translate] duration-brisk ease-out',
+        'hover:border-accent-strong hover:shadow-pop',
+        'motion-safe:hover:-translate-x-0.5 motion-safe:hover:-translate-y-0.5',
+        'focus-within:border-accent-strong',
         className,
       )}
       {...props}

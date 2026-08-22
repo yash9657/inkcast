@@ -63,17 +63,28 @@ export function Slider({
           'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}
       >
-        <SliderPrimitive.Track className="inset-shadow-well relative h-1.5 w-full rounded-full bg-muted">
-          <SliderPrimitive.Indicator className="absolute h-full rounded-full bg-primary" />
+        {/* A bordered rail, not a soft lozenge: 8px tall, square, ink edge, and
+            still inset because a track is a hole in the paper rather than a
+            plane above it (docs/DESIGN.md §5). The fill is square too — a
+            rounded cap on a square rail is the concentric-corner problem the
+            flat radius ladder abolished. */}
+        <SliderPrimitive.Track className="inset-shadow-well relative h-2 w-full rounded-none border border-border bg-muted">
+          <SliderPrimitive.Indicator className="absolute h-full rounded-none bg-primary" />
           {Array.from({ length: thumbCount }, (_unused, i) => (
             <SliderPrimitive.Thumb
               key={i}
               index={i}
               className={cn(
-                'size-4 rounded-full border border-input bg-card shadow-xs',
-                'transition-[box-shadow,scale] duration-fast ease-out',
-                'focus-ring outline-none',
-                'hover:scale-110 data-dragging:scale-110 data-dragging:shadow-md',
+                // The thumb keeps the pill (§4: slider thumbs are geometrically
+                // round) and loses its shadow: `shadow-xs`/`shadow-md` are
+                // aliases for 6px offset planes now, and a 16px dot casting a
+                // 6px hard shadow across its own rail reads as a rendering bug.
+                // Dragging turns the thumb accent instead — a state you can see
+                // under your own finger, which a shadow on the far side is not.
+                'size-4 rounded-pill border border-input bg-card',
+                'transition-[background-color,scale] duration-fast ease-out',
+                'focus-ring outline-none focus-visible:ring-2 focus-visible:ring-background',
+                'hover:scale-110 data-dragging:scale-110 data-dragging:bg-primary',
               )}
             />
           ))}

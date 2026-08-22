@@ -1,0 +1,229 @@
+# Inkcast on a plain box: the app, Caddy for TLS, and a janitor on a timer.
+#
+#   cp .env.example .env      # then put the provider keys in it
+#   docker compose up -d --build
+#   open http://localhost:8080
+#
+# For a real deployment, set two variables in `.env` and nothing else changes:
+#
+#   INKCAST_PUBLIC_URL=https://films.example.com
+#   INKCAST_ACME_EMAIL=you@example.com
+#
+# ## Sizing, because this is the part that surprises people
+#
+# A render is four headless Chromium contexts and four ffmpeg encoders running
+# **concurrently** — `packages/render/src/render.ts` opens a capture and an
+# encoder per segment inside one `Promise.all`, so capture and encode are not
+# sequential phases. One measured render of a 176 s 1080p film (5289 frames, four
+# workers) peaked at 3.5 GB of summed RSS across 44 processes and took 255 s of
+# wall clock on an 8-core machine, with no network at all.
+#
+# Summed RSS overstates the true requirement — Chromium's processes share a great
+# deal of mapped memory, and a Linux memory cgroup charges a shared page once
+# rather than once per process — but it establishes the order of magnitude, and
+# the order of magnitude is gigabytes per render, not hundreds of megabytes. The
+# limits below assume the D1 render semaphore of 2. docs/DEPLOY.md has the full
+# numbers and the arithmetic behind them.
+#
+# ## What is deliberately not here
+#
+# No database (project directories and `meta.json` are the state), no Redis (the
+# rate limiter and job registry are in-process, correct for exactly one app
+# replica — see the storage note in `ratelimit.ts`), and **no `replicas:`**.
+# Scaling this service horizontally does not work today: two replicas each keep
+# half a rate limit and neither can see the other's jobs. One box, deliberately.
+
+name: inkcast
+
+# ---------------------------------------------------------------------------
+# Shared by the app and the janitor: both need the same volume and the same idea
+# of where projects live, and a drift between them means the janitor sweeps a
+# directory the app is not using — or worse, does not sweep the one it is.
+x-projects-env: &projects-env
+  INKCAST_PROJECTS: /data/projects
+  INKCAST_HOME: /data/state
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Passed at *build* time as well as run time. Next inlines a
+        # `NEXT_PUBLIC_` variable into the client bundle the moment a client
+        # component reads it; today only two server components do
+        # (app/layout.tsx, app/share/[id]/page.tsx) so the runtime value below is
+        # what takes effect, but a future client-side read would silently start
+        # using the build-time value instead. Setting both means that change
+        # cannot introduce a stale localhost into a production bundle.
+        INKCAST_PUBLIC_URL: ${INKCAST_PUBLIC_URL:-}
+        INKCAST_REPO_URL: ${INKCAST_REPO_URL:-}
+    image: inkcast:local
+    restart: unless-stopped
+
+    environment:
+      <<: *projects-env
+
+      # Turns on everything that only makes sense when strangers can reach this:
+      # the per-IP token bucket (`limiterEnabled` in ratelimit.ts), the 20k-char
+      # source cap, and the hiding of the bring-your-own-key panel on /settings.
+      INKCAST_HOSTED: "1"
+
+      # The app's own idea of its public address. Empty is a working value, not a
+      # missing one: `/share/<id>` then derives the base from the request's Host
+      # and X-Forwarded-Proto, which Caddy sets. Setting it explicitly is still
+      # better, because `metadataBase` (app/layout.tsx:28) has no request to fall
+      # back on and Open Graph images need an absolute URL.
+      NEXT_PUBLIC_INKCAST_BASE_URL: ${INKCAST_PUBLIC_URL:-}
+      NEXT_PUBLIC_INKCAST_REPO_URL: ${INKCAST_REPO_URL:-}
+
+      # One appending hop: client → Caddy → app. The Caddyfile sets
+      # X-Forwarded-For outright, so the app sees a one-entry chain; raising this
+      # without changing that line breaks per-IP limiting closed (every request
+      # lands in the shared `unattributable` bucket). See the long note in
+      # ratelimit.ts.
+      INKCAST_TRUSTED_PROXY_HOPS: "1"
+
+      # Server-side provider keys. Read from the host environment or `.env` and
+      # never baked into the image — a key in a layer is a key that gets pushed.
+      #
+      # Every provider adapter reads `process.env` directly and none of them
+      # consults the vault, so on this path the environment is not merely
+      # preferred, it is the only mechanism. Verified adapter by adapter in
+      # docs/DEPLOY.md, "Server keys".
+      #
+      # Unset is a supported state, not a broken one: with no key the planner
+      # falls back to its local heuristic and the voice to Kokoro, which is
+      # baked into the image. The product degrades, it does not fail.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      FAL_KEY: ${FAL_KEY:-}
+
+      # The team's escape hatch past the per-IP limit, as `X-Inkcast-Bypass`.
+      # Blank disables it entirely — `bypassAllowed` refuses to treat an empty
+      # secret as a match, which is the difference between a bypass and a bypass
+      # of the bypass.
+      INKCAST_BYPASS_TOKEN: ${INKCAST_BYPASS_TOKEN:-}
+
+    volumes:
+      # Named, not a bind mount. A bind mount inherits the host directory's
+      # ownership, and the container runs as uid 10001; the usual first symptom
+      # is every generation failing with EACCES at the first write. A named
+      # volume is chowned to the image's user on creation.
+      - projects:/data
+
+    # Chromium's shared-memory needs. `launchChromium` already passes
+    # `--disable-dev-shm-usage` (render/src/browser.ts:38), which moves shared
+    # memory to /tmp and is the reason this is 256m rather than the 1g a
+    # Chromium container usually needs. Docker's 64 MB default is small enough
+    # that a complex board can still trip it, and the failure mode is a renderer
+    # tab crashing mid-render rather than an error that names memory.
+    shm_size: 256m
+
+    deploy:
+      resources:
+        limits:
+          # Two concurrent renders (the D1 semaphore) plus the Next process.
+          # Below ~3 GB the second concurrent render is where the OOM killer
+          # arrives; see docs/DEPLOY.md for the measurement this comes from.
+          memory: 4G
+        reservations:
+          memory: 2G
+
+    # The image declares its own HEALTHCHECK against /api/health; it is repeated
+    # here only so Caddy's `depends_on` can wait for *healthy* rather than for
+    # *started*. Without that, Caddy comes up first and the first visitor gets a
+    # 502 during the ten seconds Next takes to boot.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      # 80 is not optional once TLS is in use: the ACME HTTP-01 challenge and the
+      # HTTP→HTTPS redirect both need it. On a laptop with the localhost default
+      # nothing is served on 443 and this is merely idle.
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+      # The localhost default in the Caddyfile is `http://localhost:8080`, so this
+      # is the port a developer opens. Harmless in production, where the site
+      # address is an https:// URL and Caddy never binds 8080.
+      - "8080:8080"
+    environment:
+      INKCAST_PUBLIC_URL: ${INKCAST_PUBLIC_URL:-http://localhost:8080}
+      INKCAST_ACME_EMAIL: ${INKCAST_ACME_EMAIL:-}
+      INKCAST_APP_UPSTREAM: app:3000
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means re-issuing
+      # on every restart, which is how a deployment discovers Let's Encrypt's
+      # rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+
+  # -------------------------------------------------------------------------
+  # The disk janitor, on a timer.
+  #
+  # Plan D5 describes this as an in-process cron, and docs/DEPLOY.md gives the
+  # one-line wiring for that. It is a separate container here for two reasons
+  # that are worth more than the tidiness of having one process: a recursive
+  # delete that runs in its own process cannot take the app down with it if it
+  # throws, and `docker compose logs janitor` is a complete audit trail of what
+  # was reclaimed and why — which is the thing you want when someone asks where
+  # their film went.
+  #
+  # Same image, same volume, same INKCAST_PROJECTS. It sleeps first so that a
+  # `compose up` does not begin with a sweep while the app is still starting.
+  janitor:
+    image: inkcast:local
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      <<: *projects-env
+      INKCAST_JANITOR_TTL_HOURS: ${INKCAST_JANITOR_TTL_HOURS:-48}
+    volumes:
+      - projects:/data
+    # Every six hours. Frequent enough that disk never surprises anyone, rare
+    # enough that a 48 h TTL is not effectively 42 h. `exec` so tini's signal
+    # handling reaches the sleep and `docker compose down` is not a ten-second
+    # wait.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          sleep 21600
+          node /app/scripts/janitor.mjs || echo "janitor: sweep reported errors"
+        done
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  # `projects` is the only stateful thing in this deployment. It holds both
+  # `/data/projects` (the films) and `/data/state` (the keyvault location and the
+  # cross-project asset cache that makes the tenth video cheaper than the first).
+  # Everything else in this file can be destroyed and rebuilt from the repo.
+  projects:
+  caddy-data:
+  caddy-config:

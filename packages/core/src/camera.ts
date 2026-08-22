@@ -33,6 +33,33 @@
  * storyboards and the older planner compose their own shots, and silently
  * overruling them would be a regression, not a fix.
  *
+ * ## Why there is no minimum-fill clamp
+ *
+ * `PLAN-LAUNCH` A4.3 asks for one — "clamp minimum content fill per scene at 55%" —
+ * and it was measured before it was written. Every derived shot in
+ * `projects/cardiac8f` is *already* the tight fit: the resolved zoom equals
+ * `fitCamera(target)` to within 3% on all ten scenes, and exactly on eight of them.
+ * There is no slack for a clamp to take back. What is left of the frame goes to two
+ * things this file does not decide:
+ *
+ * - the safe area, which is 76.5% of a 16:9 frame by construction (`safeInsets`) and
+ *   is the broadcast title-safe margin rather than a generosity to be trimmed;
+ * - how much of the rect it is framed by the ink actually covers — measured at
+ *   30–76% across those same ten scenes, because a card's element boxes sit apart
+ *   with paper between them.
+ *
+ * Their product is the ceiling on fill, so 55% needs coverage above 72% and the
+ * corpus never reaches it: mean fill is 24.7% accumulating against 34.2% for the same
+ * lesson wiped, with the wiped recap at 38% where the accumulating recap is 17%. The
+ * only mechanism that could tighten a shot further is dropping held ink, and dropping
+ * *all* of it is what `wipe` already does — 34.2% is the honest answer to A4.3, not
+ * 55%. The starved beats that remain are not framed badly, they are drawn thin:
+ * `longitude` at the `square` preset frames a two-line text beat whose ink is 831x129
+ * units inside a square frame and reports 5%, and no camera saves a 6:1 strip in a
+ * 1:1 frame. That is the type-and-layout fixed point (A7) and the work that makes the
+ * author ask for a picture (A4.1), not a number in here. Numbers reproduced with
+ * `fillcheck.mts` and `inkstat.mts`; the render is unchanged by this note.
+ *
  * All three rules are about ink that stays. `meta.board: 'wipe'` says none of it
  * does: the board carries one card at a time, so the history a scene is framed
  * against expires — at the element's own scene, or at the scene its `persistUntil`
@@ -457,6 +484,15 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
 
 /* --------------------------------------------------------------------- fill */
 
+/** The part of `r` that is inside `view`. Zero-sized when the two do not meet. */
+function clipTo(r: Rect, view: Rect): Rect {
+  const x = Math.max(r.x, view.x);
+  const y = Math.max(r.y, view.y);
+  const right = Math.min(r.x + r.w, view.x + view.w);
+  const bottom = Math.min(r.y + r.h, view.y + view.h);
+  return { x, y, w: Math.max(0, right - x), h: Math.max(0, bottom - y) };
+}
+
 /**
  * Fraction of the frame carrying content, per scene.
  *
@@ -465,6 +501,17 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
  * paper between the letters), so this is a relative measure, not an absolute one:
  * it is here to catch the failure mode where the camera frames a huge empty
  * board, which is exactly what the MVP did.
+ *
+ * Ink is clipped to the view before it is counted, and that correction is not
+ * cosmetic. Unclipped, this counted every box the scene could see *on the board*
+ * whether or not the camera was pointed at it, so the two shots that frame a window
+ * into something larger — a walked region and an accumulating recap — scored best
+ * precisely when they showed least: `longitude` compiled at the `short` preset
+ * reported **100%** on a recap holding a 6-beat board inside one phone frame, and
+ * `projects/cardiac8f`'s recap reported 17% where the ink actually on screen is 13%.
+ * A fill number that goes *up* as ink leaves the frame cannot be read as a fill
+ * floor, which is what A4.3 wanted to clamp against, and it flattered exactly the
+ * shots the metric exists to catch.
  */
 export function contentFill(
   framing: readonly SceneFraming[],
@@ -475,20 +522,106 @@ export function contentFill(
     const view = viewRect(f.camera, canvas, frame);
     const area = view.w * view.h;
     if (!(area > 0) || f.visible.length === 0) return 0;
-    return Math.min(1, unionArea(f.visible) / area);
+    return Math.min(
+      1,
+      unionArea(f.visible.map((r) => clipTo(r, view))) / area,
+    );
   });
 }
 
-export function reportFill(fills: readonly number[], sb: Storyboard): void {
+/**
+ * Which of fill's two factors is the thin one, said as advice rather than as a dump.
+ *
+ * Both are shares of the shot: how much of the frame the camera was asked to hold, and
+ * how much of *that* the ink covers. The first is capped by the safe area and cut again
+ * whenever the target's shape is unlike the frame's — a 6:1 strip of writing in a 1:1
+ * frame holds 12% of it however tightly it is fitted — and the second is a property of
+ * the drawing, not of the camera. Reporting the safe share alongside them is what stops
+ * the reader chasing the last 24%, which is margin the platforms take.
+ */
+function whyThin(sb: Storyboard, framing: readonly SceneFraming[]): string {
+  const frame = frameSize(sb.meta.aspect);
+  const insets = safeInsets(sb.meta.aspect, frame);
+  const share = (v: number): string => `${(v * 100).toFixed(0)}%`;
+  const held: number[] = [];
+  const covered: number[] = [];
+  for (const f of framing) {
+    if (!f.derived || f.target === null) continue;
+    const view = viewRect(f.camera, sb.canvas, frame);
+    const viewArea = view.w * view.h;
+    const targetArea = f.target.w * f.target.h;
+    if (!(viewArea > 0) || !(targetArea > 0)) continue;
+    held.push(Math.min(1, targetArea / viewArea));
+    covered.push(
+      Math.min(1, unionArea(f.visible.map((r) => clipTo(r, f.target as Rect))) / targetArea),
+    );
+  }
+  const grouped = sb.scenes.filter((s) => s.region).length;
+  if (held.length === 0) {
+    // No advice here: the `region` warning below carries it, and saying it twice in
+    // two lines of one render's log is how a real warning starts being scrolled past.
+    return `No scene set a \`region\`, so every camera here is the authored one — this file framed nothing.`;
+  }
+  const mean = (v: number[]): number => v.reduce((a, b) => a + b, 0) / v.length;
+  const safe =
+    ((frame.w - insets.left - insets.right) * (frame.h - insets.top - insets.bottom)) /
+    (frame.w * frame.h);
+  const numbers =
+    `The camera holds ${share(mean(held))} of the frame (the safe area is ${share(safe)} of it ` +
+    `at best) and the ink covers ${share(mean(covered))} of what it holds`;
+  if (grouped === 0) {
+    return (
+      `${numbers}. Group consecutive beats into one \`region\` so the camera frames an ` +
+      `accumulating board instead of one element per shot.`
+    );
+  }
+  if (mean(covered) <= mean(held)) {
+    return (
+      `${numbers}, and ${grouped} of ${sb.scenes.length} scenes are already grouped — so the ` +
+      `deficit is the drawing, not the shot. These beats ask for more board than they draw on: ` +
+      `a picture where there is a caption, more marks where there is one, is the lever. Framing ` +
+      `tighter would crop authored ink.`
+    );
+  }
+  return (
+    `${numbers}, and ${grouped} of ${sb.scenes.length} scenes are already grouped — so the ` +
+    `deficit is the *shape* of what each beat draws against a ${sb.meta.aspect} frame, or a beat ` +
+    `small enough that the close-up ceiling had to widen the shot. Lay the beat out closer to the ` +
+    `frame's proportions; the camera cannot fill it without cropping.`
+  );
+}
+
+/**
+ * The mean, and — when it is low — *which of the two terms it is made of* is low.
+ *
+ * The old warning said the board was mostly whitespace and told the caller to group
+ * consecutive beats into one `region`. On `projects/cardiac8f` that advice is
+ * unfollowable: every one of its ten scenes already sets a region, and the film still
+ * logs the warning on every render — `STATUS.md` quotes that line as evidence about
+ * the figure lane, which is what a misdirecting diagnostic costs. Fill is the product
+ * of how much of the frame the camera was asked to hold (bounded by the safe area, and
+ * cut further when the target's shape is unlike the frame's) and how much of that rect
+ * the ink covers, so naming the smaller factor is the difference between "frame it
+ * tighter", which the camera has usually already done, and "this beat draws too little
+ * for the space it takes", which no camera can fix. See the header note on why there is
+ * no clamp here.
+ *
+ * `framing` defaults to re-resolving the storyboard rather than being threaded through
+ * every call site: it is pure arithmetic over the IR, the renderer has already computed
+ * it, and a diagnostic that only works when someone remembers to pass an argument is a
+ * diagnostic that stops working.
+ */
+export function reportFill(
+  fills: readonly number[],
+  sb: Storyboard,
+  framing: readonly SceneFraming[] = resolveFraming(sb, frameSize(sb.meta.aspect)),
+): void {
   if (fills.length === 0) return;
   const mean = fills.reduce((a, b) => a + b, 0) / fills.length;
   const empty = fills.filter((v) => v < 0.14).length;
   const detail = `mean content fill ${(mean * 100).toFixed(0)}% of frame across ${fills.length} scenes`;
   if (mean < 0.25 || empty > fills.length / 3) {
-    log.warn(
-      `${detail} — the board is mostly whitespace. Group consecutive beats into one \`region\` ` +
-        `so the camera frames an accumulating board instead of one element per shot.`,
-    );
+    log.warn(`${detail} — the board is mostly whitespace. ${whyThin(sb, framing)}`);
   } else {
     log.debug(detail);
   }
@@ -504,12 +637,35 @@ export function reportFill(fills: readonly number[], sb: Storyboard): void {
 /* ------------------------------------------------------- the board's scale */
 
 /**
- * Type scale in canvas units, for a 1920x1080-class canvas.
+ * How big a role's letters are, in output pixels on a 1920x1080-class frame.
+ *
+ * **This is the only type scale in the repository.** It was one of three, and the other
+ * two are now derived from it: `FONT` in `packages/planner/src/elements.ts`, which the
+ * planner reserves text boxes at, and `ROLE_SCALE` in `packages/visuals/src/style.ts`,
+ * which sizes a diagram label and a plot caption. Three catalogues of one number is the
+ * pathology `docs/HANDOFF.md` records against `doubleWell` and the two ink engines, and
+ * here it had already drifted: `ROLE_SCALE.title` was 0.082 of the canvas, which is 88.6
+ * on a 1080-tall frame against this file's 96, so a title was 8% smaller wherever the
+ * visuals stage sized it than wherever the renderer did.
  *
  * Here rather than in the renderer's palette because it is one of the two numbers the
  * plot lane measures *everything else* against — see the file header. The renderer
  * still owns colour, the pen sprites and the sketch parameters; what moved is only
- * what decides how big things are.
+ * what decides how big things are. `@inkcast/core` is the bottom of the dependency
+ * graph: `planner`, `visuals` and `render` all import it and none of them imports
+ * another, so it is the only package that can hold a number all four have to agree on.
+ *
+ * ## Why output pixels and not canvas units
+ *
+ * A viewer sees pixels. `boardMetrics` converts these to canvas units through
+ * `unitsPerPixel`, which is decided by the camera, so type stays the same size on
+ * screen whether the shot is tight on one card or pulled back over a whole region. The
+ * naive unification — making the renderer draw at the planner's canvas-unit catalogue
+ * instead — was attempted and reverted, and the measurement says why it must be: over
+ * `projects/try`, `projects/cardiac8f` and the two shipped lessons at both presets,
+ * `scale * gain` runs 0.51 to 1.67. Drawing at a fixed canvas-unit size would have made
+ * `gradient-descent`'s establishing shots 55% larger and `cardiac8f`'s type 16% smaller
+ * than they are, for no reason a viewer could name.
  */
 export const TYPE_SCALE = {
   title: 96,
@@ -518,6 +674,19 @@ export const TYPE_SCALE = {
   label: 32,
   caption: 26,
 } as const;
+
+/**
+ * The frame height `TYPE_SCALE` is quoted against, so a consumer working in fractions
+ * of a canvas can derive the same numbers instead of restating them.
+ *
+ * `frameSize('16:9').h` rather than a literal 1080, because that function is what
+ * decides the output height and a second copy of it here would be a fourth catalogue of
+ * the same kind. The visuals stage's canvas-relative fallback is the caller this exists
+ * for: its contract is "assume the whole canvas is on screen", and when the whole canvas
+ * is on screen the canvas *is* the frame, so a fraction of canvas height and a size in
+ * output pixels are the same statement.
+ */
+export const TYPE_REFERENCE_HEIGHT = frameSize('16:9').h;
 
 export type TextRole = keyof typeof TYPE_SCALE;
 

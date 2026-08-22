@@ -19,8 +19,21 @@ import { Readable } from 'node:stream';
 import { pipeline as pipeStream } from 'node:stream/promises';
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
 
-import { badRequest, fail, json, parseJsonBody, unexpected, validate } from '../_lib/http';
+import {
+  badRequest,
+  fail,
+  forbidden,
+  isHosted,
+  json,
+  parseJsonBody,
+  tooLarge,
+  tooManyRequests,
+  unexpected,
+  validate,
+} from '../_lib/http';
 import type { Parsed } from '../_lib/http';
+import { admit } from '../_lib/ratelimit';
+import { readSession, requireOwner, sessionOwnerTag, setSessionCookie } from '../_lib/session';
 import {
   GenerateFields,
   MAX_UPLOAD_BYTES,
@@ -28,12 +41,13 @@ import {
   MetaPatch,
   NUMERIC_META_KEYS,
   UPLOAD_EXTENSIONS,
+  hostedSourceProblem,
   mergeMeta,
   safeUploadName,
   uploadExtension,
 } from '../_lib/schemas';
 import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
-import { startJob } from '@/lib/jobs';
+import { isRunning, startJob } from '@/lib/jobs';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
 export const runtime = 'nodejs';
@@ -43,6 +57,35 @@ type SourceRef = { kind: 'text' | 'url' | 'file'; ref: string };
 
 export async function POST(request: Request) {
   try {
+    /*
+     * Admission before anything else, and specifically before the body is read.
+     *
+     * This is the most expensive endpoint in the product — an Anthropic lesson
+     * call, ElevenLabs characters, then a Chromium context and an ffmpeg process
+     * for minutes — so the refusal has to be the cheapest thing the route can
+     * do. Reading a 32 MB multipart upload to disk and *then* saying "not today"
+     * would let a refused client cost us the whole transfer, which is a
+     * denial-of-service with extra steps. The limiter needs only headers.
+     *
+     * It is inert unless the deployment asked for it; see `limiterEnabled`.
+     *
+     * This first check does not *spend* a token — a request that turns out to be
+     * malformed must not cost one of three films for the day. The token is taken
+     * further down, at the point where the run is actually committed.
+     */
+    const probe = admit(request.headers, 'generation', { spend: false });
+    if (!probe.allowed) return tooManyRequests(probe);
+
+    /*
+     * Who is asking. This is the request that *creates* ownership, so the
+     * session is read before any work and its cookie travels back with the 202
+     * — a project stamped with a session the browser never receives is a project
+     * nobody can ever see again, and it would be created by the happy path.
+     * `readSession` mints one when the cookie is absent or forged, so there is
+     * always an owner to record.
+     */
+    const session = readSession(request);
+
     const contentType = request.headers.get('content-type') ?? '';
     const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
 
@@ -50,6 +93,15 @@ export async function POST(request: Request) {
     if (!parsed.ok) return parsed.response;
     const { fields, upload } = parsed.data;
     const meta = mergeMeta(fields);
+
+    /* ---------------------------------------------- the hosted source cap */
+
+    // Only on the hosted path: locally the person pasting the text is the person
+    // paying for the tokens, and a 200-page book is their business.
+    if (isHosted()) {
+      const overflow = hostedSourceProblem(fields.text);
+      if (overflow) return tooLarge(overflow);
+    }
 
     /* ------------------------------------------------- exactly one source */
 
@@ -105,13 +157,64 @@ export async function POST(request: Request) {
      * duplicates. Uploads are the exception: the bytes have to be written before
      * they could be hashed, and a fresh upload is a fresh intent anyway.
      */
-    const id =
+    const wanted =
       fields.projectId ??
       (upload
         ? core.projectId()
         : core.projectId(JSON.stringify({ source, meta, title: fields.title })));
 
+    /*
+     * ------------------------------------------------ whose project is that id
+     *
+     * The derived id is a hash of the *source*, which means two people casting
+     * the same document — the same popular blog post, the same textbook page —
+     * derive the same id. Left alone that is an ownership transfer and a
+     * cross-tenant read in one step: the second request's `upsertProject` patch
+     * carries its own `ownerSession`, and a patch field wins over the stored one
+     * in `mergeMeta`, so the second caster silently adopts the first caster's
+     * project, the first caster's library row disappears, and the render "resumes"
+     * from cached stages the second caster never made. On a single-user machine
+     * that resumption is the whole point of a content-addressed id; on a shared
+     * box it is a bug with no error message.
+     *
+     * So the collision is resolved by *who asked*:
+     *
+     *  - A **derived** id that belongs to somebody else becomes a fresh random
+     *    id. The caller never asked for that id, so branching quietly is right,
+     *    and they get their own project with their own cache.
+     *  - An **explicit** `projectId` that belongs to somebody else is a 403. The
+     *    caller named a specific project, and silently writing somewhere else
+     *    would be a worse answer than "not yours" — this is also the only way a
+     *    client can aim this route at an existing project at all.
+     *
+     * `requireOwner` is the arbiter rather than a comparison here, so the
+     * constant-time tag check and the local "unclaimed projects are yours" rule
+     * live in exactly one place. Hosted, an unclaimed project counts as somebody
+     * else's, which is what stops a visitor adopting a film the CLI made.
+     */
+    const claim = await requireOwner(wanted, session);
+    const takenByAnother = !claim.ok && claim.reason === 'not-owner';
+    if (takenByAnother && fields.projectId !== undefined) {
+      return setSessionCookie(forbidden(claim.message), session);
+    }
+    const id = takenByAnother ? core.projectId() : wanted;
+
     const project = await core.openProject(id);
+
+    /* ------------------------------------------------ charge the generation */
+
+    /*
+     * Now that the request is known-good and has an id, take the token.
+     *
+     * Except when a run for this id is already in flight, in which case
+     * `startJob` will hand back the existing job and this request causes no work
+     * at all — charging for it would mean a double-clicked button, or the
+     * studio's own retry after a dropped response, cost two of three films. The
+     * id is derived from the source, so "the same request twice" is exactly the
+     * case that lands here.
+     */
+    const admission = isRunning(id) ? probe : admit(request.headers, 'generation');
+    if (!admission.allowed) return tooManyRequests(admission);
 
     /* --------------------------------------------------------- the upload */
 
@@ -139,10 +242,28 @@ export async function POST(request: Request) {
       ...(meta === undefined ? {} : { meta }),
     };
 
+    /*
+     * `ownerSession` is the keyed digest of the session id, never the id itself
+     * — `/api/media/<id>/<path…>` will serve `meta.json` to anyone holding a
+     * share link, so the raw id in that file would be a bearer token handed to
+     * every viewer (see the header of `_lib/session.ts`).
+     *
+     * Written on the *first* upsert rather than after the render, because the
+     * window between them is minutes long and everything in it — the library
+     * row, the progress stream, the stream's error messages — is already
+     * ownership-gated, so a project that is only claimed at the end is a project
+     * that is unattributable for the entire time anybody is looking at it.
+     *
+     * Safe to write unconditionally *because* of the collision resolution above:
+     * `id` is either a project this session already owns (or may claim) or a
+     * fresh random one. A patch's `ownerSession` beats the stored value in
+     * `mergeMeta`, so without that step this line would be the transfer.
+     */
     await upsertProject(id, {
       status: 'running',
       title: fields.title ?? titleFor(source),
       source: indexSource(source),
+      ownerSession: sessionOwnerTag(session.id),
       ...(meta?.aspect === undefined ? {} : { aspect: meta.aspect }),
     });
 
@@ -161,15 +282,27 @@ export async function POST(request: Request) {
       };
     });
 
-    return json(
-      {
-        projectId: id,
-        status: 'running' as const,
-        /** False when an identical run was already in flight and was reused. */
-        started,
-        streamUrl: `/api/generate/${id}/stream`,
-      },
-      202,
+    return setSessionCookie(
+      json(
+        {
+          projectId: id,
+          status: 'running' as const,
+          /** False when an identical run was already in flight and was reused. */
+          started,
+          streamUrl: `/api/generate/${id}/stream`,
+          /**
+           * Films left today, so the studio can say "2 left" beside the button
+           * instead of only finding out at the 429. Omitted entirely when the
+           * limiter is off or was bypassed — `remaining` is `Infinity` there, and
+           * `JSON.stringify(Infinity)` is `null`, which would read as zero.
+           */
+          ...(Number.isFinite(admission.remaining)
+            ? { generationsLeftToday: admission.remaining }
+            : {}),
+        },
+        202,
+      ),
+      session,
     );
   } catch (err) {
     return unexpected('generate', err);

@@ -56,7 +56,7 @@ import { boxAt, buildDrawing, fitCanvas } from './drawing.js';
 import { readInkBox, underlayAsset } from './underlay.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
-import { FONT, makeAsset, makeDiagram, makeEquation, makeText } from './elements.js';
+import { FONT, makeAsset, makeDiagram, makeEmphasis, makeEquation, makeText } from './elements.js';
 import {
   blobPath,
   bowlPath,
@@ -67,8 +67,10 @@ import {
   makePath,
   walkerPaths,
 } from './figures.js';
-import type { BeatRole } from './regions.js';
+import type { BeatRole, Board } from './regions.js';
 import { planBoard } from './regions.js';
+import type { Recall, Referral } from './refer.js';
+import { findReferrals, nameOf, sameName, subjectOf } from './refer.js';
 import { buildPlot, describesAPlot, plotHints, recipeChosen, trim } from './plots.js';
 import { adaptLesson, resolvePreset } from './presets.js';
 import type { Preset } from './presets.js';
@@ -87,12 +89,20 @@ const log = logger('planner:compile');
  * reaches those caches, and this constant is the only part of it the planner controls;
  * without this the repair is real and no existing project ever sees it.
  *
+ * 3: a subject drawn once is referred to afterwards rather than drawn again (`./refer.ts`).
+ * A beat whose picture is an earlier beat's picture takes that beat's cell and points at
+ * the picture already there instead of minting a second one, and a recap that would
+ * re-label the board circles the names where they already are. Every board with two
+ * pictures of one subject in it therefore has a different number of cells, a smaller
+ * canvas and one fewer generated image — `cardiac8f` goes from 10 cells and 4 generated
+ * pictures to 8 and 2 — and no cached storyboard would show any of it without this.
+ *
  * This is a cache key and nothing else — it is not written into the storyboard — so a bump
  * must leave the pinned hashes exactly where they were:
  * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
  * b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 / c0f2ccc5024c.
  */
-export const COMPILER_VERSION = 2;
+export const COMPILER_VERSION = 3;
 
 /* ------------------------------------------------------------------ assets */
 
@@ -238,17 +248,45 @@ export function compileLesson(
       `${shaped.analogy?.maps.length ?? 0} mapped correspondences say they are the same thing`,
     );
   }
+  // Which beats point back at a drawing this lesson already has, instead of drawing it a
+  // second time. A separate decision from `findReuse` above, and deliberately so: that one
+  // asks where the *abstraction* arrives and reads the analogy to answer it, which is the
+  // decision the two pinned lessons are hashed on. This one asks whether a *subject* is
+  // being drawn twice and reads the pictures the beats ask for. Neither shipped lesson asks
+  // for a generated picture at all, so nothing here can reach them.
+  const referrals = findReferrals(beats, preset.board);
+  for (const [beat, r] of referrals.pictures) {
+    log.info(
+      `beat ${beat} refers to the picture beat ${r.host} drew instead of drawing it again`,
+      `both ask for "${r.subject.split('/')[1]}" in the same box — one image, one cell, ` +
+        `and this beat's ink is spent on what it has to add`,
+    );
+  }
+  if (referrals.recall) {
+    log.info(
+      `the recap re-reads the board instead of redrawing it in a panel of its own`,
+      `${referrals.recall.names.length} of the names it would have written are already on ` +
+        `the board (${referrals.recall.names.join(', ')}) — it circles them where they are`,
+    );
+  }
+
   // Every beat that builds on an earlier drawing shares that drawing's cell — words
   // included. A caption in a cell of its own, describing a picture in a different
   // cell, is what pulled the camera wide over an almost-empty panel.
-  const board = planBoard(
-    beats.map((b) => b.role),
-    {
-      aspect: preset.aspect,
-      maxPerRegion: preset.maxPerRegion,
-      sharesCellWith: reuse.annotates,
-      board: preset.board,
-    },
+  const shares = new Map<number, number>(reuse.annotates);
+  for (const [beat, r] of referrals.pictures) shares.set(beat, r.host);
+  if (referrals.recall) shares.set(referrals.recall.beat, referrals.recall.host);
+  const board = referTo(
+    planBoard(
+      beats.map((b) => b.role),
+      {
+        aspect: preset.aspect,
+        maxPerRegion: preset.maxPerRegion,
+        sharesCellWith: shares,
+        board: preset.board,
+      },
+    ),
+    shares,
   );
 
   // Which beats draw into each cell, in beat order. The host is first, because it is
@@ -257,7 +295,7 @@ export function compileLesson(
   // this single map.
   const cells = new Map<number, number[]>();
   beats.forEach((_, i) => {
-    const host = reuse.annotates.get(i) ?? i;
+    const host = shares.get(i) ?? i;
     const group = cells.get(host) ?? [];
     group.push(i);
     cells.set(host, group);
@@ -278,7 +316,7 @@ export function compileLesson(
   }
 
   const assets = registry();
-  const memory: BoardMemory = {};
+  const memory: BoardMemory = { pictures: new Map(), names: new Map() };
 
   const scenes: Scene[] = beats.map(({ step, role }, i) => {
     const cell = inset(board.cellOf(i), 10);
@@ -295,6 +333,8 @@ export function compileLesson(
       memory,
       annotatesEarlier: reuse.annotates.has(i),
       morphsAnchor: reuse.bridge?.beat === i,
+      ...(referrals.pictures.get(i) ? { refers: referrals.pictures.get(i) } : {}),
+      ...(referrals.recall?.beat === i ? { recalls: referrals.recall } : {}),
       cellBands: share?.bands ?? 1,
       cellBand: share?.band ?? 0,
       terms: vocab[i] ?? [],

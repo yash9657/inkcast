@@ -6,6 +6,27 @@
  * — they are working state rather than static assets, and `INKCAST_PROJECTS` can
  * point anywhere — so they need a real handler.
  *
+ * ## Who may read a project's files
+ *
+ * The owner, or anybody once the owner shared the project (`requireViewable`).
+ * This route is the only way project bytes leave the box, and it has no
+ * allow-list of filenames — any readable file inside the directory is fair game,
+ * including `pipeline.json` and `meta.json` — so it is where an unscoped read
+ * would hurt most: unguessable ids are not a permission system, and a hosted box
+ * with an open media route publishes every film on it to anyone who has seen an
+ * id in a log, a screen share or a referrer header.
+ *
+ * Two consequences to know before they look like bugs. **A shared film's whole
+ * directory is readable**, not just its mp4 — that is what makes the share page
+ * work (video, poster, per-scene audio) and it is why `meta.json` records a
+ * keyed digest of the owner's session rather than the session id itself; see the
+ * header of `_lib/session.ts`. And **the marketing showcase films must be
+ * shared**: `components/marketing/site-config.ts` points at real project ids
+ * through this route, so a showcase project that has not been published serves
+ * 403 here and the landing page degrades to its drawn placeholder. Publishing
+ * them with `POST /api/projects/<id>/share` is a launch-runbook step, not
+ * something this route should special-case.
+ *
  * ## Range support is not optional
  *
  * `<video>` will not let you seek a source that only answers plain 200s: Chrome
@@ -22,6 +43,7 @@ import { Readable } from 'node:stream';
 
 import { badRequest, fail, notFound } from '../../../_lib/http';
 import { contentTypeFor, parseRange, resolveMediaFile } from '../../../_lib/media';
+import { readSession, requireViewable } from '../../../_lib/session';
 import { isValidProjectId, projectDir } from '@/lib/store';
 
 export const runtime = 'nodejs';
@@ -46,6 +68,28 @@ async function serve(request: Request, context: Context, headOnly: boolean): Pro
 
   const dir = isValidProjectId(id) ? projectDir(id) : undefined;
   if (!dir) return badRequest(`"${id}" is not a valid project id`);
+
+  /*
+   * Permission before the filesystem, on every request including every range
+   * request.
+   *
+   * No cookie is set on the way out, unlike the JSON routes: this is a
+   * subresource fetched by `<video>` and `<img>`, so it is never the request
+   * where identity should be established — and attaching `Set-Cookie` to a 206
+   * is noise on the one response type that arrives dozens of times per playback.
+   * A viewer with no session simply gets the shared-project answer, which is the
+   * correct one for a stranger following a link.
+   *
+   * The cost is one `readProjectTruth` per range request — a `meta.json` read
+   * plus the pipeline's own project scan. That is the deliberate trade: a cached
+   * verdict would keep serving bytes after an owner clicked Unshare, and "the
+   * video kept playing for the person I revoked" is a worse defect than a few
+   * JSON reads per seek. If seeking ever measures slow, the fix is a short-lived
+   * *negative*-safe cache here, not a longer-lived permission.
+   */
+  const session = readSession(request);
+  const verdict = await requireViewable(id, session);
+  if (!verdict.ok) return fail(verdict.status, verdict.message);
 
   const resolved = await resolveMediaFile(dir, segments ?? []);
   if (!resolved.ok) {

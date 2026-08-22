@@ -13,6 +13,15 @@
       silently does nothing, that is why — and the fix is a token, not a hex.
    2. Components never contain a `dark:` variant of their own. Both themes are
       defined once, here, at the token layer.
+
+   2026-08-21 — the values below were replaced wholesale (plan item C1). The
+   architecture is unchanged; the look is not. We moved from a soft, layered,
+   warm-grey system to a neo-brutalist one: paper, a 24px dot grid, near-black
+   ink, ONE hot accent, 1px ink borders, hard zero-blur offset shadows, and a
+   radius ladder that is flat all the way down. Anything that reads as "gentle
+   SaaS" — a 4-layer ambient shadow, a 10px corner, a hairline grey border —
+   was the previous system and is gone on purpose. Do not reintroduce it one
+   component at a time.
    ========================================================================== */
 
 @import 'tailwindcss' source(none);
@@ -29,193 +38,303 @@
 
 /* ==========================================================================
    1. RAW TOKEN VALUES
-   Every value is OKLCH. Every value below was contrast-checked in both themes:
-   body text >= 4.5:1, large text and UI chrome >= 3:1, and each *-foreground
-   pair >= 4.5:1 against its own surface.
+   Every value is OKLCH. Every value below was contrast-checked in both themes
+   by converting OKLCH -> linear sRGB -> WCAG 2.1 relative luminance: body text
+   >= 4.5:1, large text and UI chrome >= 3:1, and each *-foreground pair
+   >= 4.5:1 against its own surface. The measured ratios are quoted inline; the
+   worst case in either theme is 5.25:1 (warning-foreground on warning), and
+   every non-decorative pair clears its bar with margin.
 
    Hue anchors:
-     primary   275-277  a considered indigo-violet. Deliberately adjacent to
-                        the indigo the category has trained users on, but lower
-                        chroma and a touch bluer, so it reads composed instead
-                        of loud.
-     neutral    75      light theme: a warm, paper-like grey. The product draws
-                        on a whiteboard; the chrome should feel like paper, not
-                        like a spreadsheet.
-     neutral   285      dark theme: the same ramp pulled toward the accent, so
-                        dark surfaces read as ink rather than as dead black.
+     accent    277      "cast violet". The same 275-277 family the product has
+                        always used, but punched from chroma 0.205 to 0.23 so
+                        it survives being used as a flat fill next to pure ink.
+                        oklch(0.51 0.23 277) resolves to #4F46E5 — note that
+                        docs/PLAN-LAUNCH.md C1 writes the target as "#5B45E0",
+                        which is actually oklch(0.513 0.223 282). We follow the
+                        OKLCH value, not the hex approximation, because OKLCH is
+                        the authoritative form in this file.
+     neutral    95      light theme: paper. The product draws on a whiteboard;
+                        the chrome is the paper the whiteboard is made of. Almost
+                        no chroma, warm side of neutral, so #FFFEFB rather than
+                        a screen white.
+     neutral   285      ink, and the dark theme's whole ramp. COLDER than the
+                        warm 75 the previous system used for greys: against a
+                        hot violet accent a warm grey reads as dirty, and the
+                        brutalist reference is a blue-black, not a sepia.
+     yellow     95      the second, hand-only accent — highlighter. It exists
+                        for ONE job (the marker underline in ink.tsx) and is not
+                        a status colour, not a chart colour, and not a surface.
    ========================================================================== */
 
 :root {
   color-scheme: light;
 
   /* -- surfaces --------------------------------------------------------- */
-  --background: oklch(0.9925 0.0025 75);
-  --foreground: oklch(0.205 0.014 285);
+  --background: oklch(0.995 0.004 95); /* #FEFDFA — paper */
+  --foreground: oklch(0.17 0.01 285); /* #0F0F14 — ink, 18.87:1 on paper */
 
-  /* Cards sit ABOVE the background: pure white against warm off-white. That
-     1.4% lightness step plus a hairline border is the whole elevation story in
-     light mode — no shadow needed for a resting card. */
+  /* Cards sit ABOVE the background: pure white against warm off-white. In the
+     previous system that 1.4% lightness step plus a hairline border WAS the
+     elevation story. It is not any more — a card is now white paper with a 1px
+     ink border and a hard 6px offset shadow. The lightness step survives
+     because it still separates a card from the dot grid behind it. */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0.014 285);
+  --card-foreground: oklch(0.17 0.01 285); /* 19.14:1 */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0.014 285);
+  --popover-foreground: oklch(0.17 0.01 285); /* 19.14:1 */
 
   /* -- text and quiet surfaces ------------------------------------------ */
-  --muted: oklch(0.97 0.0045 75);
-  --muted-foreground: oklch(0.51 0.015 282); /* 5.64:1 on background */
+  --muted: oklch(0.965 0.004 285); /* #F3F3F6 */
+  --muted-foreground: oklch(0.47 0.016 285); /* 6.75:1 on bg, 6.18:1 on muted */
 
-  /* -- lines ------------------------------------------------------------ */
-  --border: oklch(0.916 0.0055 75);
-  --input: oklch(
-    0.885 0.0065 75
-  ); /* stronger than --border: a control edge
-                                      must read as interactive */
+  /* -- lines ------------------------------------------------------------ *
+   * THE BIGGEST BEHAVIOURAL CHANGE IN THIS FILE. `--border` used to be a
+   * hairline grey (oklch(0.916 0.0055 75), ~1.4:1). It is now ink. The base
+   * layer applies `border-color: var(--color-border)` to every element, so
+   * every `border`, `border-b` and `border-border` in the app becomes a 1px
+   * solid black rule. That is the design target ("1px solid ink on every
+   * card/input"), not an accident.
+   *
+   * `--border-subtle` is new, and is the escape hatch for the places where a
+   * full ink rule is a bar rather than a line: separators inside a card,
+   * table row dividers, the inside edges of a segmented control. Reach for it
+   * deliberately; the default is ink. */
+  --border: oklch(0.17 0.01 285); /* 18.87:1 on bg */
+  --border-subtle: oklch(0.885 0.004 285); /* 1.41:1 on card — a line, not a rule */
 
-  /* -- accent (the one saturated hue) ----------------------------------- */
-  --primary: oklch(0.545 0.205 275);
-  --primary-foreground: oklch(0.988 0.006 275);
-  --ring: oklch(0.545 0.205 275); /* 5.18:1 on background */
+  /* A control edge is the same ink as a card edge now. The old rule ("stronger
+     than --border: a control edge must read as interactive") no longer needs a
+     separate value, but the token stays because 14 call sites say
+     `border-input` and because keeping the role named means we can diverge
+     again without a rename. */
+  --input: oklch(0.17 0.01 285);
 
-  /* `accent` is a tinted *interaction* surface (hover, highlighted menu item,
-     selected row) — never a page background. */
-  --accent: oklch(0.952 0.018 285);
-  --accent-foreground: oklch(0.33 0.12 278);
+  /* Filled control tracks — switch bed, scrollbar thumb, drawer grab handle.
+     These used `bg-input` when `--input` was a mid grey; with `--input` at full
+     ink an "off" switch would be a solid black pill, which reads as ON. New
+     token, and the three call sites are listed in docs/DESIGN.md. */
+  --track: oklch(0.885 0.005 285);
 
-  /* -- status ----------------------------------------------------------- */
-  --destructive: oklch(0.575 0.21 25);
-  --destructive-foreground: oklch(0.982 0.006 25);
-  --success: oklch(0.535 0.13 152);
-  --success-foreground: oklch(0.985 0.008 152);
-  --warning: oklch(0.63 0.145 72);
-  --warning-foreground: oklch(0.985 0.008 72);
+  /* -- accent (the one saturated hue) ----------------------------------- *
+   * `--primary` and `--accent-strong` are the same colour on purpose:
+   * `--primary` is the shadcn/Base-UI slot every existing component already
+   * targets, and `--accent-strong` is the name the brutalist rules read
+   * naturally in ("an accent-filled block with an ink border").
+   *
+   * `--accent` itself stays what it has always been in this codebase: a tinted
+   * INTERACTION surface (hover, highlighted menu item, selected row), never a
+   * page background and never a flat fill. It could not be repurposed as the
+   * hot accent, because five call sites paint it at partial alpha
+   * (`bg-accent/30`, `/40`, `/50`) with `--foreground` text on top; turning it
+   * saturated would drop those below 4.5:1, and one of them
+   * (components/studio/generation-view.tsx:167) is owned by another workflow
+   * and could not be fixed here. So `--accent` is now the violet-tinted wash
+   * that `--accent-soft` describes in alpha terms, and the solid is
+   * `--primary` / `--accent-strong`. */
+  --primary: oklch(0.51 0.23 277); /* #4F46E5 — 6.22:1 on bg */
+  --primary-foreground: oklch(0.99 0.005 277); /* 6.12:1 on primary */
+  --ring: oklch(0.51 0.23 277); /* 6.22:1 on bg */
 
-  /* -- secondary (a neutral button surface, not a second accent) -------- */
-  --secondary: oklch(0.962 0.005 75);
-  --secondary-foreground: oklch(0.27 0.014 285);
+  --accent: oklch(0.955 0.016 277); /* opaque twin of an 8% violet wash */
+  --accent-foreground: oklch(0.3 0.14 277); /* 12.51:1 on accent */
+  --accent-strong: oklch(0.51 0.23 277); /* alias of --primary */
+
+  /* The two derivatives the reference system builds everything from: an 8%
+     wash and a 28% border. Translucent on purpose — they compose over card,
+     popover and paper alike without three variants each. `--foreground` on
+     `--accent-soft` measures 17.60:1 over paper and 17.85:1 over card. */
+  --accent-soft: oklch(0.51 0.23 277 / 0.08);
+  --accent-border: oklch(0.51 0.23 277 / 0.28);
+
+  /* -- the second, hand-only accent ------------------------------------- *
+   * Highlighter yellow. This is a MARKER colour, not a UI colour: it is for the
+   * hand-drawn underline in components/ui/ink.tsx and the wordmark's flourish,
+   * and nothing else. It is deliberately too low-contrast (1.33:1 on paper) to
+   * carry information, which is exactly why it must never be a border, a
+   * status, or a text colour on its own. Text set ON it uses
+   * `--highlighter-foreground` (11.53:1). */
+  --highlighter: oklch(0.9 0.16 95); /* #FFDC4C */
+  --highlighter-foreground: oklch(0.26 0.06 95);
+
+  /* -- status ----------------------------------------------------------- *
+   * Darkened from the previous system so each one clears 4.5:1 against its own
+   * near-white foreground when used as a flat fill. In a system where the
+   * primary action is a flat block, a status colour has to survive the same
+   * treatment. */
+  --destructive: oklch(0.53 0.215 25); /* 5.83:1 on bg */
+  --destructive-foreground: oklch(0.99 0.006 25); /* 5.72:1 on destructive */
+  --success: oklch(0.5 0.135 152); /* 5.53:1 on bg */
+  --success-foreground: oklch(0.99 0.008 152); /* 5.47:1 on success */
+  --warning: oklch(0.53 0.14 72); /* 5.33:1 on bg */
+  --warning-foreground: oklch(0.99 0.008 72); /* 5.25:1 on warning — worst pair */
+
+  /* -- secondary (a neutral button surface, not a second accent) -------- *
+   * Kept a hair below `--card` rather than promoted to white, so a bare
+   * `bg-secondary` with no border is still a visible block. The brutalist
+   * secondary button is paper fill + ink border + `shadow-card`; the border is
+   * the component's job, and this value means the component is not broken
+   * until it grows one. */
+  --secondary: oklch(0.975 0.004 285);
+  --secondary-foreground: oklch(0.22 0.012 285); /* 16.12:1 on secondary */
+
+  /* -- the dot grid ----------------------------------------------------- *
+   * The paper's texture, and the one piece of ornament the system allows. A 1px
+   * dot every 24px, at 1.41:1 against the paper — visible as a field, invisible
+   * as individual marks, and it lands on the same 4px spacing base
+   * (24 = 6 x 4) so a grid dot never sits half a pixel off a padded edge. */
+  --grid-dot: oklch(0.88 0.005 95);
+  --grid-size: 24px;
+
+  /* -- categorical chart ramp (perceptually even, hue-spaced) ----------- */
+  --chart-1: oklch(0.51 0.23 277);
+  --chart-2: oklch(0.56 0.14 200);
+  --chart-3: oklch(0.55 0.14 152);
+  --chart-4: oklch(0.68 0.16 82);
+  --chart-5: oklch(0.55 0.2 25);
 
   /* -- ink: the whiteboard's own palette, for UI that quotes the canvas --
-     These mirror the marker colours the renderer draws with, so a legend chip
-     in the studio matches the stroke it describes. */
-  --paper: oklch(0.995 0.004 90);
-  --ink: oklch(0.32 0.03 275);
+     `--paper` and `--ink` are now the renderer's exact values, converted from
+     the hexes in packages/render/src/palette.ts (paper #fcfbf9, ink #1b232e),
+     so `bg-paper`/`text-ink` on a mini-board preview is the same colour a real
+     frame renders.
+
+     HONEST NOTE, because the previous comment overclaimed: the five chromatic
+     `--ink-*` tokens do NOT mirror the renderer. The renderer's COLOR palette
+     has exactly two marker colours — accent #2f6fed (oklch(0.574 0.202 262),
+     a blue) and contrast #c2410c (oklch(0.553 0.174 38), a burnt orange) — and
+     no violet at all. docs/PLAN-LAUNCH.md C1 claims cast violet "keeps brand
+     continuity with the whiteboard's --ink-violet so chips still match
+     strokes"; the truth is that --ink-violet (hue 292) matches neither the new
+     accent (277) nor anything the renderer draws. The five hues are kept as a
+     hue-separated ramp because that is what mini-board.tsx actually needs — a
+     legible five-stroke preview — and aligning two of them to 262/277 would
+     collapse them into each other. Closing the real gap means giving the
+     renderer more hues (plan item A4.4), which lives in packages/. */
+  --paper: oklch(0.988 0.003 85); /* = #fcfbf9, render palette */
+  --ink: oklch(0.2535 0.024 256); /* = #1b232e, render palette */
   --ink-blue: oklch(0.55 0.16 250);
   --ink-red: oklch(0.575 0.19 22);
   --ink-green: oklch(0.545 0.13 152);
   --ink-amber: oklch(0.665 0.14 72);
   --ink-violet: oklch(0.55 0.19 292);
 
-  /* -- categorical chart ramp (perceptually even, hue-spaced) ----------- */
-  --chart-1: oklch(0.545 0.205 275);
-  --chart-2: oklch(0.6 0.13 200);
-  --chart-3: oklch(0.62 0.14 152);
-  --chart-4: oklch(0.68 0.145 72);
-  --chart-5: oklch(0.58 0.19 22);
-
   /* -- elevation -------------------------------------------------------- *
-   * Layered, never a single blur, and tinted toward the neutral hue rather
-   * than pure black — that is what separates ambient depth from a sticker.
-   * Each level adds one wider, softer layer instead of scaling the last one. */
-  --elevation-1:
-    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.07), 0 1px 2px -1px oklch(0.24 0.03 285 / 0.08);
-  --elevation-2:
-    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.05), 0 2px 4px -2px oklch(0.24 0.03 285 / 0.07),
-    0 4px 8px -4px oklch(0.24 0.03 285 / 0.06);
-  --elevation-3:
-    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.04), 0 3px 6px -3px oklch(0.24 0.03 285 / 0.06),
-    0 8px 16px -8px oklch(0.24 0.03 285 / 0.07), 0 16px 32px -16px oklch(0.24 0.03 285 / 0.05);
-  --elevation-4:
-    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.04), 0 4px 8px -4px oklch(0.24 0.03 285 / 0.05),
-    0 12px 24px -8px oklch(0.24 0.03 285 / 0.07), 0 24px 48px -16px oklch(0.24 0.03 285 / 0.07),
-    0 40px 72px -32px oklch(0.24 0.03 285 / 0.05);
-  --elevation-5:
-    0 1px 1px -0.5px oklch(0.24 0.03 285 / 0.05), 0 6px 12px -4px oklch(0.24 0.03 285 / 0.06),
-    0 16px 32px -8px oklch(0.24 0.03 285 / 0.08), 0 32px 64px -16px oklch(0.24 0.03 285 / 0.09),
-    0 64px 112px -48px oklch(0.24 0.03 285 / 0.07);
+   * HARD, ZERO-BLUR, OFFSET. The five-step soft ladder that used to live here
+   * (each step adding a wider, more diffuse layer tinted toward the neutral
+   * hue) is deleted. It was a good ambient-depth system and it is the wrong
+   * one: an offset shadow with no blur does not simulate light, it states that
+   * one flat plane is in front of another, which is the entire idea here.
+   *
+   * There are three, and there is no fourth:
+   *   card    resting surfaces — cards, inputs, tiles, secondary buttons.
+   *   pop     the primary action and the one hero frame per page. Accent
+   *           coloured, so the shadow is brand rather than dirt.
+   *   overlay things that float over the page — dropdowns, dialogs, drawers,
+   *           toasts, tooltips. Deeper offset, still black: an accent-coloured
+   *           shadow on a menu is a distraction, not a signal.
+   *
+   * The press affordance is NOT a fourth shadow: a button collapses to
+   * `--shadow-none` and translates 2px on `:active`, so it visibly moves down
+   * onto the page. That belongs in the component, not here. */
+  --elevation-card: 6px 6px 0 oklch(0 0 0 / 0.12);
+  --elevation-pop: 10px 10px 0 var(--primary);
+  --elevation-overlay: 10px 10px 0 oklch(0 0 0 / 0.16);
 
-  /* A pressed/inset well, for toggled segments and code blocks. */
+  /* A pressed/inset well, for toggled segments and code blocks. Survives the
+     rewrite unchanged: a well is a hole in the paper, not a plane above it, so
+     a soft inset is still the honest description. */
   --elevation-inset: inset 0 1px 2px 0 oklch(0.24 0.03 285 / 0.07);
-
-  /* Coloured elevation for the primary action only. */
-  --elevation-primary:
-    0 1px 2px -1px oklch(0.42 0.2 275 / 0.28), 0 4px 12px -4px oklch(0.42 0.2 275 / 0.24);
 }
 
 .dark,
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --background: oklch(0.165 0.01 285);
-  --foreground: oklch(0.95 0.008 285);
+  --background: oklch(0.16 0.01 285); /* #0D0D11 — ink paper */
+  --foreground: oklch(0.955 0.008 285); /* 17.02:1 */
 
-  /* In dark mode elevation is LIGHTNESS, not shadow: each layer above the
-     background is lighter, because a shadow on a dark surface is invisible. */
-  --card: oklch(0.202 0.011 285);
-  --card-foreground: oklch(0.95 0.008 285);
-  --popover: oklch(0.222 0.012 285);
-  --popover-foreground: oklch(0.95 0.008 285);
+  /* In the previous system dark-mode elevation was LIGHTNESS, because a soft
+     shadow on a dark surface is invisible. That is still true of soft shadows
+     and irrelevant to hard ones: a 6px black offset reads perfectly well on
+     ink paper. The lightness steps stay anyway — they separate stacked
+     surfaces when a shadow is clipped by an overflow boundary. */
+  --card: oklch(0.198 0.012 285);
+  --card-foreground: oklch(0.955 0.008 285); /* 15.95:1 */
+  --popover: oklch(0.222 0.013 285);
+  --popover-foreground: oklch(0.955 0.008 285);
 
-  --muted: oklch(0.245 0.0125 285);
-  --muted-foreground: oklch(0.72 0.016 285); /* 7.75:1 on background */
+  --muted: oklch(0.245 0.013 285);
+  --muted-foreground: oklch(0.73 0.016 285); /* 8.10:1 on bg, 6.78:1 on muted */
 
-  --border: oklch(0.29 0.014 285);
-  --input: oklch(0.335 0.015 285);
+  /* Inverted, and inverted properly: "1px solid ink on paper" in a dark theme
+     is a 1px solid PAPER line on ink. Pulled to 0.93 rather than the full 0.985
+     of `--foreground` so a border never out-shouts the text it frames. */
+  --border: oklch(0.93 0.006 285); /* ~17.5:1 on card */
+  --border-subtle: oklch(0.32 0.014 285);
+  --input: oklch(0.93 0.006 285);
+  --track: oklch(0.33 0.015 285);
 
   /* Lifted and slightly desaturated: the same hue at light-mode chroma would
      glare against a dark field. */
-  --primary: oklch(0.685 0.165 277);
-  --primary-foreground: oklch(0.175 0.045 277);
-  --ring: oklch(0.685 0.165 277); /* 6.57:1 on background */
+  --primary: oklch(0.68 0.19 277); /* #7E87FF — 6.29:1 on bg */
+  --primary-foreground: oklch(0.16 0.045 277); /* 6.31:1 on primary */
+  --ring: oklch(0.68 0.19 277);
 
-  --accent: oklch(0.275 0.033 285);
-  --accent-foreground: oklch(0.93 0.025 285);
+  --accent: oklch(0.275 0.04 277);
+  --accent-foreground: oklch(0.93 0.03 277); /* 12.10:1 on accent */
+  --accent-strong: oklch(0.68 0.19 277);
 
-  --destructive: oklch(0.67 0.19 25);
-  --destructive-foreground: oklch(0.17 0.045 25);
-  --success: oklch(0.69 0.145 152);
-  --success-foreground: oklch(0.17 0.04 152);
-  --warning: oklch(0.77 0.14 75);
-  --warning-foreground: oklch(0.19 0.04 75);
+  /* The washes are heavier here. 8% of a light violet over near-black is
+     essentially invisible; 12% and 34% land at the same perceived weight the
+     light theme's 8%/28% do. */
+  --accent-soft: oklch(0.68 0.19 277 / 0.12);
+  --accent-border: oklch(0.68 0.19 277 / 0.34);
+
+  --highlighter: oklch(0.86 0.17 95);
+  --highlighter-foreground: oklch(0.22 0.06 95); /* 11.31:1 on highlighter */
+
+  --destructive: oklch(0.68 0.2 25); /* 6.15:1 on bg */
+  --destructive-foreground: oklch(0.16 0.05 25); /* 6.20:1 */
+  --success: oklch(0.72 0.15 152); /* 8.32:1 on bg */
+  --success-foreground: oklch(0.16 0.04 152); /* 8.27:1 */
+  --warning: oklch(0.79 0.15 75); /* 9.84:1 on bg */
+  --warning-foreground: oklch(0.18 0.04 75); /* 9.55:1 */
 
   --secondary: oklch(0.255 0.013 285);
-  --secondary-foreground: oklch(0.93 0.008 285);
+  --secondary-foreground: oklch(0.94 0.008 285); /* 13.24:1 */
+
+  /* 6% white: 2.11:1 against the ink paper. Any denser and the grid starts to
+     look like screen noise on a dark field. */
+  --grid-dot: oklch(1 0 0 / 0.06);
+  --grid-size: 24px;
+
+  --chart-1: oklch(0.68 0.19 277);
+  --chart-2: oklch(0.72 0.115 200);
+  --chart-3: oklch(0.74 0.13 152);
+  --chart-4: oklch(0.8 0.135 82);
+  --chart-5: oklch(0.7 0.17 25);
 
   /* The whiteboard stays a whiteboard in dark mode — the canvas is content,
-     not chrome. Only the ink brightens so chips stay legible on dark cards. */
-  --paper: oklch(0.995 0.004 90);
-  --ink: oklch(0.32 0.03 275);
+     not chrome. Only the chromatic ink brightens so chips stay legible on dark
+     cards; `--paper` and `--ink` hold the renderer's real values in both
+     themes because a rendered frame does not have a dark mode. */
+  --paper: oklch(0.988 0.003 85);
+  --ink: oklch(0.2535 0.024 256);
   --ink-blue: oklch(0.7 0.145 250);
   --ink-red: oklch(0.71 0.17 22);
   --ink-green: oklch(0.72 0.135 152);
   --ink-amber: oklch(0.8 0.135 72);
   --ink-violet: oklch(0.7 0.17 292);
 
-  --chart-1: oklch(0.685 0.165 277);
-  --chart-2: oklch(0.72 0.115 200);
-  --chart-3: oklch(0.74 0.13 152);
-  --chart-4: oklch(0.8 0.135 72);
-  --chart-5: oklch(0.7 0.17 22);
-
-  /* Deeper and more opaque, plus a 1px inner top highlight so raised
-     surfaces still have an edge where the shadow can't be seen. */
-  --elevation-1: 0 1px 2px -1px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.035);
-  --elevation-2:
-    0 1px 2px -1px oklch(0 0 0 / 0.45), 0 2px 6px -2px oklch(0 0 0 / 0.45),
-    inset 0 1px 0 0 oklch(1 0 0 / 0.04);
-  --elevation-3:
-    0 2px 4px -2px oklch(0 0 0 / 0.4), 0 8px 16px -6px oklch(0 0 0 / 0.45),
-    0 16px 32px -16px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.045);
-  --elevation-4:
-    0 2px 4px -2px oklch(0 0 0 / 0.4), 0 12px 24px -8px oklch(0 0 0 / 0.45),
-    0 24px 48px -16px oklch(0 0 0 / 0.5), 0 40px 72px -32px oklch(0 0 0 / 0.45),
-    inset 0 1px 0 0 oklch(1 0 0 / 0.05);
-  --elevation-5:
-    0 6px 12px -4px oklch(0 0 0 / 0.45), 0 16px 32px -8px oklch(0 0 0 / 0.5),
-    0 32px 64px -16px oklch(0 0 0 / 0.55), 0 64px 112px -48px oklch(0 0 0 / 0.5),
-    inset 0 1px 0 0 oklch(1 0 0 / 0.055);
+  /* Deeper alphas, same geometry. There is no inner top highlight any more:
+     that trick existed to give a soft-shadowed surface an edge it could not
+     otherwise show, and every surface here has a 1px border instead. */
+  --elevation-card: 6px 6px 0 oklch(0 0 0 / 0.5);
+  --elevation-pop: 10px 10px 0 var(--primary);
+  --elevation-overlay: 10px 10px 0 oklch(0 0 0 / 0.6);
 
   --elevation-inset: inset 0 1px 2px 0 oklch(0 0 0 / 0.35);
-  --elevation-primary:
-    0 1px 2px -1px oklch(0 0 0 / 0.5), 0 4px 16px -4px oklch(0.55 0.19 277 / 0.35);
 }
 
 /* ==========================================================================
@@ -227,13 +346,33 @@
 @theme {
   /* -- typefaces -------------------------------------------------------- *
    * The `--font-*` var each name points at is injected by next/font/local in
-   * lib/fonts.ts. `serif` is intentionally absent: display type is
-   * `font-display`, and there is no third option. */
+   * lib/fonts.ts, from woff2 files vendored in assets/fonts/ (zero-network
+   * builds are a contract requirement — see docs/CONTRACT.md).
+   *
+   * Three of the four faces changed on 2026-08-21 (plan item C2):
+   *   sans    Geist -> Inter. Geist is a fine grotesk; Inter is the one with
+   *           the tighter defaults and the larger x-height that a 14px dense UI
+   *           needs, and it is the reference system's body face.
+   *   mono    Geist Mono -> JetBrains Mono. Timecodes and figures, and it has
+   *           the more distinct 0/O and 1/l, which matters when the mono text
+   *           in this app is largely IDs and durations.
+   *   display Instrument Serif -> Space Grotesk. The old rule was "display type
+   *           is font-display and there is no third option", plus "never below
+   *           48px" — because a high-contrast condensed serif is illegible at
+   *           heading size. Space Grotesk has no such ceiling, so `--font-display`
+   *           is now the HEADING face as well: the base layer sets it on
+   *           h1-h6 and it is correct from 20px to 76px.
+   *   hand    Shantell Sans, unchanged. It is the same face the renderer writes
+   *           on the canvas with `meta.style: 'marker'`, which is the point —
+   *           the UI quotes the artefact.
+   *
+   * `serif` is intentionally absent. There is no serif in this system. */
   --font-*: initial;
   --font-sans:
-    var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  --font-display: var(--font-instrument-serif), ui-serif, Georgia, 'Times New Roman', serif;
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    var(--font-jetbrains-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-hand: var(--font-shantell-sans), 'Segoe Print', 'Bradley Hand', cursive;
 
   /* -- optical weights -------------------------------------------------- *
@@ -242,17 +381,23 @@
    * and `font-black` are gone on purpose: four weights is enough to build any
    * hierarchy, and a fifth is how a type system starts to look accidental.
    *
-   * Geist is variable, so we are not stuck with 100-step values. 560 and 650
-   * are noticeably more composed than 600/700 at UI sizes: heavy enough to
-   * carry hierarchy, light enough not to shout. */
+   * These used to be 400/500/560/650 — off-integer values chosen because Geist
+   * is variable and 560 reads as "more composed" than 600. That was the right
+   * call for a soft system and the wrong one here, for two reasons. First,
+   * brutalism wants weight to be unambiguous: 700 or nothing. Second, Space
+   * Grotesk's wght axis stops at 700, so 650 was a real weight but the top of
+   * the ramp had no headroom above it; 600/700 uses the axis as designed. All
+   * three new faces are variable, so these remain real interpolations rather
+   * than synthesised — and `font-synthesis-weight: none` in the base layer
+   * guarantees the browser never fakes one. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
-  --font-weight-semibold: 560;
-  --font-weight-bold: 650;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
 
   /* -- type scale ------------------------------------------------------- *
    * Optical, not geometric. Two things move with size:
-   *   - tracking tightens as size grows (+0.04em at 11px -> -0.034em at 76px),
+   *   - tracking tightens as size grows (+0.04em at 11px -> -0.035em at 76px),
    *     because letterfit that reads correctly at caption size looks loose at
    *     display size;
    *   - line-height loosens as size shrinks.
@@ -260,7 +405,17 @@
    *
    * Note `--text-base` is 14px, not 16px. This is a dense product UI in the
    * Linear/Raycast register; 14px body is deliberate. Marketing prose steps up
-   * to `text-lg`/`text-xl`. */
+   * to `text-lg`/`text-xl`.
+   *
+   * The SIZES are unchanged from the previous system and must stay that way at
+   * the top of the ramp for a boring reason: docs/HANDOFF.md records that the
+   * naive type-scale unification moved four pinned storyboard hashes and was
+   * reverted in 45d4ff9. (Those hashes key off the renderer's own scales in
+   * core/src/camera.ts and planner/src/elements.ts, not this file — but the
+   * lesson about touching type sizes casually stands.) What DID move is
+   * tracking: every step from `text-xl` up is now inside the -0.02 to -0.035em
+   * band the reference system uses, which is what makes a Space Grotesk
+   * heading read as a set block rather than as default letterfit. */
   --text-*: initial;
 
   --text-2xs: 0.6875rem; /* 11px — uppercase eyebrows, table meta, kbd */
@@ -287,44 +442,50 @@
 
   --text-lg: 1.0625rem; /* 17px — lead paragraph, marketing body */
   --text-lg--line-height: 1.625rem;
-  --text-lg--letter-spacing: -0.006em;
+  --text-lg--letter-spacing: -0.008em;
 
   --text-xl: 1.25rem; /* 20px — card titles, section subheads */
   --text-xl--line-height: 1.75rem;
-  --text-xl--letter-spacing: -0.011em;
-  --text-xl--font-weight: 560;
+  --text-xl--letter-spacing: -0.02em;
+  --text-xl--font-weight: 600;
 
   --text-2xl: 1.5rem; /* 24px — page titles */
   --text-2xl--line-height: 2rem;
-  --text-2xl--letter-spacing: -0.014em;
-  --text-2xl--font-weight: 560;
+  --text-2xl--letter-spacing: -0.022em;
+  --text-2xl--font-weight: 600;
 
   --text-3xl: 1.875rem; /* 30px — section headings */
   --text-3xl--line-height: 2.25rem;
-  --text-3xl--letter-spacing: -0.018em;
-  --text-3xl--font-weight: 560;
+  --text-3xl--letter-spacing: -0.025em;
+  --text-3xl--font-weight: 600;
 
   --text-4xl: 2.375rem; /* 38px */
-  --text-4xl--line-height: 2.625rem;
-  --text-4xl--letter-spacing: -0.022em;
-  --text-4xl--font-weight: 560;
+  --text-4xl--line-height: 2.5rem;
+  --text-4xl--letter-spacing: -0.028em;
+  --text-4xl--font-weight: 600;
 
-  --text-5xl: 3rem; /* 48px — display floor; use font-display from here up */
-  --text-5xl--line-height: 1.08;
-  --text-5xl--letter-spacing: -0.026em;
+  --text-5xl: 3rem; /* 48px — display floor */
+  --text-5xl--line-height: 1.06;
+  --text-5xl--letter-spacing: -0.03em;
+  --text-5xl--font-weight: 700;
 
   --text-6xl: 3.75rem; /* 60px */
-  --text-6xl--line-height: 1.04;
-  --text-6xl--letter-spacing: -0.03em;
+  --text-6xl--line-height: 1.02;
+  --text-6xl--letter-spacing: -0.032em;
+  --text-6xl--font-weight: 700;
 
   --text-7xl: 4.75rem; /* 76px — hero claim, one per page */
-  --text-7xl--line-height: 1;
-  --text-7xl--letter-spacing: -0.034em;
+  --text-7xl--line-height: 0.98;
+  --text-7xl--letter-spacing: -0.035em;
+  --text-7xl--font-weight: 700;
 
-  /* -- tracking --------------------------------------------------------- */
+  /* -- tracking --------------------------------------------------------- *
+   * `tighter`/`tight` moved with the rest of the system (-0.03/-0.015 ->
+   * -0.035/-0.02) so that overriding a step's tracking by hand lands in the
+   * same band the step itself uses. */
   --tracking-*: initial;
-  --tracking-tighter: -0.03em;
-  --tracking-tight: -0.015em;
+  --tracking-tighter: -0.035em;
+  --tracking-tight: -0.02em;
   --tracking-normal: 0em;
   --tracking-wide: 0.015em;
   --tracking-wider: 0.03em;
@@ -332,24 +493,37 @@
 
   /* -- spacing ---------------------------------------------------------- *
    * 4px base. Tailwind generates every multiple from this, so `p-3` is 12px,
-   * `gap-6` is 24px. Never write an arbitrary `[13px]`. */
+   * `gap-6` is 24px. Never write an arbitrary `[13px]`. The dot grid's 24px
+   * pitch is `gap-6`, which is why a padded card's edges land on grid. */
   --spacing: 0.25rem;
 
   /* -- radius ----------------------------------------------------------- *
-   * Nested corners must be concentric: an 8px-radius child inside a 12px
-   * parent with 4px padding. `--radius-lg` (10px) is the default for cards
-   * and inputs; `--radius-md` (8px) for buttons and menu items. */
+   * The ladder is FLAT. Every step from `xs` to `4xl` resolves to 0, which
+   * means the ~90 `rounded-*` classes already in the app go square without a
+   * single component edit — and, more importantly, means a component author
+   * cannot reintroduce a soft corner by reaching for `rounded-xl`. The ladder
+   * is kept rather than deleted precisely so those call sites keep resolving;
+   * deleting the namespace would make them silently no-op, which is the same
+   * result with none of the intent recorded.
+   *
+   * The one exception is the pill. `--radius-full` and its alias
+   * `--radius-pill` are 999px, for the shapes that are geometrically round
+   * rather than rounded: badges, tags, the nav CTA, switch knobs, slider
+   * thumbs, avatars, scrollbar thumbs. If it is a rectangle, it has square
+   * corners; if it is a lozenge or a circle, use the pill. There is nothing
+   * in between. */
   --radius-*: initial;
   --radius-none: 0px;
-  --radius-xs: 0.25rem; /* 4px */
-  --radius-sm: 0.375rem; /* 6px */
-  --radius-md: 0.5rem; /* 8px */
-  --radius-lg: 0.625rem; /* 10px */
-  --radius-xl: 0.875rem; /* 14px */
-  --radius-2xl: 1.125rem; /* 18px */
-  --radius-3xl: 1.5rem; /* 24px */
-  --radius-4xl: 2rem; /* 32px */
-  --radius-full: 9999px;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+  --radius-pill: 999px;
+  --radius-full: 999px;
 
   /* -- easing ----------------------------------------------------------- *
    * `ease-out` is overridden with an expo curve: things that enter should
@@ -376,15 +550,31 @@
   --default-transition-duration: 140ms;
   --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* -- shadows ---------------------------------------------------------- */
+  /* -- shadows ---------------------------------------------------------- *
+   * `shadow-card`, `shadow-pop` and `shadow-overlay` are the whole vocabulary.
+   *
+   * Everything below the blank line is a DEPRECATED ALIAS. The old ladder
+   * (`shadow-xs` .. `shadow-xl`, `shadow-primary`) has ~30 call sites across
+   * components/ui and components/studio, several of them in files this change
+   * does not own. Deleting the names would have made every one of them
+   * silently lose its shadow — the exact failure mode docs/HANDOFF.md calls the
+   * dominant one in this repo. So they are aliased instead, mapped by intent
+   * (resting -> card, floating -> overlay, primary action -> pop), and
+   * docs/DESIGN.md lists every call site for the component sweep to clean up.
+   * When that list is empty, delete this block. */
   --shadow-*: initial;
   --shadow-none: none;
-  --shadow-xs: var(--elevation-1);
-  --shadow-sm: var(--elevation-2);
-  --shadow-md: var(--elevation-3);
-  --shadow-lg: var(--elevation-4);
-  --shadow-xl: var(--elevation-5);
-  --shadow-primary: var(--elevation-primary);
+  --shadow-card: var(--elevation-card);
+  --shadow-pop: var(--elevation-pop);
+  --shadow-overlay: var(--elevation-overlay);
+
+  --shadow-xs: var(--elevation-card);
+  --shadow-sm: var(--elevation-card);
+  --shadow-md: var(--elevation-card);
+  --shadow-lg: var(--elevation-overlay);
+  --shadow-xl: var(--elevation-overlay);
+  --shadow-primary: var(--elevation-pop);
+
   --inset-shadow-*: initial;
   --inset-shadow-well: var(--elevation-inset);
 
@@ -416,7 +606,9 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
   --color-input: var(--input);
+  --color-track: var(--track);
   --color-ring: var(--ring);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
@@ -424,6 +616,11 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-border: var(--accent-border);
+  --color-highlighter: var(--highlighter);
+  --color-highlighter-foreground: var(--highlighter-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
@@ -438,6 +635,7 @@
   --color-ink-green: var(--ink-green);
   --color-ink-amber: var(--ink-amber);
   --color-ink-violet: var(--ink-violet);
+  --color-grid-dot: var(--grid-dot);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -492,12 +690,24 @@
 
   html {
     -webkit-text-size-adjust: 100%;
-    scrollbar-color: var(--color-border) transparent;
+    scrollbar-color: var(--color-border-subtle) transparent;
     scrollbar-width: thin;
   }
 
   body {
     background-color: var(--color-background);
+    /* THE DOT GRID. It lives on `body` rather than on a decorative element so
+       there is no stacking-context to escape and nothing to remember to add per
+       page. Left at the default `background-attachment: scroll` on purpose:
+       `fixed` is janky on iOS, and because the tile is exactly `--grid-size`
+       square the grid is seamless under scroll anyway.
+
+       Any section that needs to repaint the grid over its own background — a
+       hero with a card behind it, a full-bleed band — uses the `dot-grid`
+       utility below rather than redeclaring the gradient. */
+    background-image: radial-gradient(circle, var(--color-grid-dot) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    background-position: 0 0;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-size: var(--text-base);
@@ -514,13 +724,20 @@
     font-variant-numeric: proportional-nums;
   }
 
-  /* Headings inherit weight from the type scale rather than the UA's bold. */
+  /* Every heading is Space Grotesk now, not just the ones over 48px. That is
+     the substantive typographic change: the old display face was a serif that
+     could only be used at hero size, so headings from 20px to 38px were set in
+     the body face at a heavier weight and the hierarchy came from weight alone.
+     A grotesk display face carries the whole range, so a section heading and
+     the hero claim are visibly the same voice. Weight and tracking still come
+     from the type scale rather than from the UA's bold. */
   h1,
   h2,
   h3,
   h4,
   h5,
   h6 {
+    font-family: var(--font-display);
     font-weight: var(--font-weight-semibold);
     text-wrap: balance;
   }
@@ -591,22 +808,25 @@
   font-feature-settings: 'tnum' 1;
 }
 
-/* Marketing surfaces only. A sub-3% turbulence wash kills gradient banding and
-   reads as considered. NEVER use this in the studio: it competes with the
-   hand-drawn video content, which is the actual subject. */
-@utility surface-grain {
-  position: relative;
-  isolation: isolate;
+/* Repaints the paper's dot grid on any element that has its own background —
+   a full-bleed hero band, a bordered frame that should read as a piece of the
+   same sheet. Same gradient, same 24px pitch, same token, so a section can
+   never drift out of phase with the body grid as long as its box starts on a
+   multiple of 24px.
 
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    opacity: 0.028;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
+   This REPLACES `surface-grain`, which was deleted in the C1 token swap. The
+   grain utility painted a 2.8% turbulence wash on a `::after` at `z-index: -1`,
+   which put it between the element and the body background — so on any section
+   with a transparent background it sat directly on top of the dot grid and
+   visibly softened the 1px dots into smudges. The two do not compose, and of
+   the two the grid is the one the system is built on. There is also a taste
+   argument, which is the same argument: film-grain texture exists to make a
+   flat surface look less flat, and a flat surface is the point here. The one
+   call site was components/marketing/hero.tsx. */
+@utility dot-grid {
+  background-image: radial-gradient(circle, var(--color-grid-dot) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+  background-position: 0 0;
 }
 
 /* Hides the scrollbar without disabling scrolling. Only for short horizontal

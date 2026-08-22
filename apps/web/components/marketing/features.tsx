@@ -123,8 +123,13 @@ export function Features() {
           <Reveal as="li" key={feature.title} index={i} className="flex">
             <Card className="w-full gap-4">
               <CardHeader>
+                {/* The same bordered accent square as `how-it-works.tsx`. It was
+                    a soft `bg-primary/12` lozenge; the tint is now the
+                    `accent-soft` token and the edge is real, because in this
+                    system a fill without an edge reads as a smudge
+                    (docs/DESIGN.md §5, §11). */}
                 <span
-                  className="mb-2 grid size-9 place-items-center rounded-lg bg-primary/12 text-primary"
+                  className="mb-2 grid size-10 place-items-center border border-accent-border bg-accent-soft text-accent-strong"
                   aria-hidden
                 >
                   <feature.Icon className="size-4" />

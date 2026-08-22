@@ -1,0 +1,183 @@
+# Caddy in front of the Inkcast studio.
+#
+# Caddy rather than nginx for one reason that actually matters here: automatic
+# HTTPS. This deployment is one box with no load balancer and no certificate
+# pipeline, and Caddy will obtain and renew a Let's Encrypt certificate with no
+# configuration beyond the site address below.
+#
+# ## The one variable
+#
+# Everything is keyed off `INKCAST_PUBLIC_URL`, and it is a *URL*, not a
+# hostname, because Caddy accepts a full URL as a site address and derives its
+# whole TLS posture from the scheme. That makes one variable do the entire job:
+#
+#   INKCAST_PUBLIC_URL=http://localhost:8080      → plain HTTP, no certificate
+#                                                   attempt, no ACME, works
+#                                                   offline on a laptop
+#   INKCAST_PUBLIC_URL=https://films.example.com  → automatic HTTPS, HTTP→HTTPS
+#                                                   redirect, renewal
+#
+# The localhost default is deliberate: an unconfigured Caddy must come up
+# serving something a developer can open, not spend five minutes failing an ACME
+# challenge for a domain nobody owns. There is no hostname anywhere in this file.
+#
+# The same variable is passed to the app (see docker-compose.yml) so the studio's
+# `metadataBase` and its absolute `/share/<id>` links agree with the address
+# people actually typed. A mismatch there is not cosmetic — it is what makes an
+# Open Graph preview point at localhost in someone else's Slack.
+
+{
+	# Where ACME failures and renewals are reported. An operator who cannot see
+	# this is an operator who finds out about an expired certificate from a user.
+	log {
+		output stderr
+		format console
+	}
+	# `admin off` closes the localhost:2019 admin API. Nothing in this deployment
+	# drives Caddy over the API, and inside a container-shared network namespace
+	# an open admin endpoint is a configuration-rewrite primitive for anything
+	# that gets a foothold in the app container.
+	admin off
+	email {$INKCAST_ACME_EMAIL:}
+}
+
+{$INKCAST_PUBLIC_URL:http://localhost:8080} {
+	log {
+		output stderr
+		format console
+	}
+
+	# ------------------------------------------------------------- body limit --
+	#
+	# The app's own ceiling is `MAX_UPLOAD_BYTES` = 32 × 1024 × 1024 =
+	# 33 554 432 bytes (apps/web/app/api/_lib/schemas.ts:172), enforced while
+	# streaming the upload to disk.
+	#
+	# This guard is set slightly *above* that, and the gap is the point. A
+	# legitimate 32 MB file arrives as `multipart/form-data`, so the request body
+	# is the file plus part headers and boundaries — a few hundred bytes more than
+	# the file itself. Setting Caddy to exactly 32 MiB would therefore have Caddy
+	# cut off the largest *allowed* upload before the app ever saw it, and the
+	# user would get Caddy's bare 413 instead of the app's "the upload exceeds the
+	# 32 MB limit". Same refusal, worse product.
+	#
+	# So Caddy's job here is not to enforce the product rule — the app does that,
+	# with copy — but to stop a body so large that streaming it to disk is itself
+	# the attack. 33 MiB is comfortably past multipart framing and nowhere near
+	# enough to matter.
+	#
+	# MiB, not MB: Caddy parses `MB` as 10^6 and `MiB` as 2^20, and the app counts
+	# in 2^20. Writing `32MB` here would silently be ~1.5 MB *below* the app's
+	# limit and would reject files the app documents as acceptable.
+	request_body {
+		max_size 33MiB
+	}
+
+	# ------------------------------------------------------------ compression --
+	#
+	# `match` is doing real work. The heaviest responses this app serves are
+	# finished films from `/api/media/...`; gzipping an already-compressed H.264
+	# stream spends CPU that the render queue needs in order to produce a byte-for
+	# -byte larger response. Restricting compression to the text types leaves
+	# video, audio and PNG alone.
+	encode {
+		zstd
+		gzip
+		match {
+			header Content-Type text/*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type image/svg+xml*
+		}
+	}
+
+	# ------------------------------------------------ progress streams (SSE) --
+	#
+	# `GET /api/generate/<id>/stream` is Server-Sent Events, and it is the only
+	# thing the user watches for the four minutes a render takes.
+	#
+	# `flush_interval -1` disables response buffering for this route. Without it a
+	# proxy is free to accumulate the small `data:` lines and deliver them in
+	# batches, which turns a live progress bar into a bar that sits at 3% and then
+	# jumps to done — indistinguishable, from the user's side, from a hung render.
+	# Caddy does detect `text/event-stream` and stop buffering on its own; stating
+	# it explicitly means the behaviour does not depend on the app remembering to
+	# set that content type on an error path.
+	#
+	# The transport timeouts have to outlast a whole render, not a whole request:
+	# the stream is quiet while a stage thinks, and the app sends a comment-line
+	# heartbeat every 15 s (stream/route.ts, `HEARTBEAT_MS`) precisely so an
+	# intermediary can tell "thinking" from "dead". 30 minutes is past the longest
+	# plausible queue wait plus render.
+	@sse path /api/generate/*/stream
+	reverse_proxy @sse {$INKCAST_APP_UPSTREAM:app:3000} {
+		flush_interval -1
+		transport http {
+			read_timeout 30m
+			write_timeout 30m
+		}
+	}
+
+	# ------------------------------------------------------------- everything --
+	reverse_proxy {$INKCAST_APP_UPSTREAM:app:3000} {
+		# The headers the rate limiter depends on, set rather than appended.
+		#
+		# `apps/web/app/api/_lib/ratelimit.ts` reads the **rightmost**
+		# `X-Forwarded-For` entry, `parts.length - hops` with `hops` = 1 by default
+		# (`trustedProxyHops`). Its header comment explains why: Caddy *appends* the
+		# peer address, so the list is `<whatever the client made up>, <the address
+		# Caddy actually saw>`, and only the last entry was not written by the
+		# client. Reading the leftmost entry — the naive choice — would make the
+		# whole limiter decorative, since `curl -H 'X-Forwarded-For: 1.2.3.4'` with
+		# a fresh address per request buys unlimited generations.
+		#
+		# Setting the header outright (`header_up X-Forwarded-For {remote_host}`,
+		# no `+`) is defence in depth on top of that. It discards anything the
+		# client sent, so the list this app sees is exactly one entry long and the
+		# client cannot influence its length at all. That keeps the limiter correct
+		# even if `INKCAST_TRUSTED_PROXY_HOPS` is later set wrong: with a
+		# single-entry list, `parts.length < hops` fails closed into the shared
+		# `unattributable` bucket instead of trusting a forged address.
+		#
+		# If a CDN is ever put in front of Caddy, this line is what has to change
+		# (append the CDN's chain instead of discarding it) *and*
+		# INKCAST_TRUSTED_PROXY_HOPS has to go up by one. Changing only one of the
+		# two silently breaks per-IP limiting.
+		header_up X-Forwarded-For {remote_host}
+
+		# Read by `app/share/[id]/page.tsx` when no public URL is configured, to
+		# build absolute share URLs from the request. Without it a TLS deployment
+		# advertises `http://` share links, which browsers then downgrade-block.
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		header_up Host {host}
+
+		# A render is minutes of work behind a request that returns in
+		# milliseconds (`POST /api/generate` answers 202 with a project id), so
+		# these timeouts are not about renders. They cover the genuinely slow
+		# request: a 32 MB upload over a poor connection, and `/api/media` serving
+		# a 33 MB film to a phone.
+		transport http {
+			read_timeout 5m
+			write_timeout 5m
+		}
+	}
+
+	# ---------------------------------------------------------------- headers --
+	header {
+		# HSTS only makes sense once TLS is actually in use, and asserting it over
+		# plain HTTP on localhost would pin a developer's browser to https for
+		# `localhost` across every project on their machine. Caddy strips this
+		# automatically on non-TLS connections, which is why it is safe to state
+		# unconditionally here.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The studio is the only thing that should frame the studio. `/share/<id>`
+		# is meant to be *unfurled* by Slack and X, which fetches Open Graph tags
+		# rather than framing the page, so this costs no sharing behaviour.
+		X-Frame-Options "SAMEORIGIN"
+		# `Server: Caddy` tells a scanner what to look up. It has no other reader.
+		-Server
+	}
+}

@@ -38,9 +38,15 @@ export const metadata: Metadata = {
   icons: {
     // An inline SVG mark: a nib on a board. No binary favicon to keep in sync,
     // and it inherits nothing from the theme so it reads on any browser chrome.
+    //
+    // Held to the token swap only as far as a data URI can be: the tile is now
+    // square (`rx` gone, because the radius ladder is flat) and filled with cast
+    // violet #4F46E5 rather than the old #535ae4. This is a placeholder with a
+    // shelf life — the real mark, `favicon.svg`, the apple-touch-icon and the OG
+    // image are plan item C4, and that change replaces this whole block.
     icon: [
       {
-        url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23535ae4'/%3E%3Cpath d='M8 22c3-9 8-13 16-14' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M19 21l5 3-1-5.6z' fill='white'/%3E%3C/svg%3E",
+        url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%234F46E5'/%3E%3Cpath d='M8 22c3-9 8-13 16-14' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M19 21l5 3-1-5.6z' fill='white'/%3E%3C/svg%3E",
         type: 'image/svg+xml',
       },
     ],
@@ -50,9 +56,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     // Matches --background in each theme, so the mobile browser chrome blends
-    // into the page instead of drawing a seam across the top.
-    { media: '(prefers-color-scheme: light)', color: '#fefcfb' },
-    { media: '(prefers-color-scheme: dark)', color: '#0e0e13' },
+    // into the page instead of drawing a seam across the top. These are the sRGB
+    // conversions of the OKLCH tokens in globals.css — light
+    // `oklch(0.995 0.004 95)`, dark `oklch(0.16 0.01 285)`. Meta tags cannot
+    // take a `var()`, so this is the one place a hex is allowed to exist; if
+    // `--background` moves in either theme, it has to move here in the same
+    // change or the phone draws a seam.
+    { media: '(prefers-color-scheme: light)', color: '#fefdfa' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d0d11' },
   ],
   colorScheme: 'light dark',
 };

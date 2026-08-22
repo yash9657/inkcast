@@ -74,6 +74,28 @@ export type {
   VoiceProfile,
 } from './voices.js';
 
+/* --------------------------------------------------------- the curated moods */
+
+/**
+ * Four moods, not twenty-eight voice ids — the typed catalogue the CLI and the studio
+ * both read so neither has to mirror a list by hand. `apps/web/components/studio/
+ * options.ts` mirrors ids today because `@inkcast/voice` cannot be imported into a
+ * browser bundle; `VOICE_MOODS` is small, string-only and dependency-free, so a
+ * server component can hand it straight to the client and the mirror can go.
+ */
+export {
+  isVoiceMoodId,
+  moodCatalogueProblems,
+  moodVoiceId,
+  unverifiedMoods,
+  voiceMood,
+  DEFAULT_MOOD,
+  MOODS_UNVERIFIED_NOTE,
+  VOICE_MOODS,
+  VOICE_MOOD_IDS,
+} from './moods.js';
+export type { VoiceMood, VoiceMoodId } from './moods.js';
+
 /* ------------------------------------------------------- optional alignment */
 
 export {
@@ -109,12 +131,15 @@ export {
   parseSayVoices,
   pickSayVoice,
   alignmentToWords,
+  elevenLabsCostUsd,
+  elevenLabsCreditsPerChar,
   elevenLabsDelivery,
   elevenLabsModel,
   failureReason,
   VoiceProviderError,
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_USD_PER_CREDIT,
 } from './providers/index.js';
 export { SAY_NOT_FOR_PUBLISHING, sayRateForWpm } from './providers/system.js';
 export { estimateClipSeconds } from './providers/silence.js';

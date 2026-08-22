@@ -10,6 +10,13 @@
  * Trimming only ever cuts at sentence boundaries. The MVP cut mid-sentence and
  * produced fragments like "under you gets gentler", which is worse than saying
  * less.
+ *
+ * `explainer` is the same argument made a second time, against a measurement instead of
+ * against intuition. It is landscape like `standard` and it is *not* a shorter
+ * `standard`: 165 words instead of 330, eight beats instead of fourteen, a hold ceiling
+ * instead of a global one, and a board that wipes. Read its entry in `PRESETS` for where
+ * each of those numbers comes from — every one of them is a line from the side-by-side
+ * timing in `docs/HANDOFF-PARITY.md` rather than a preference.
  */
 import type { BoardMode, StoryboardMeta, TextElement } from '@inkcast/core';
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
@@ -18,7 +25,7 @@ import { keywords, sentences, wordCount } from './text.js';
 
 const log = logger('planner:presets');
 
-export type PresetName = 'standard' | 'short' | 'square';
+export type PresetName = 'standard' | 'short' | 'square' | 'explainer';
 
 export type Preset = {
   name: PresetName;
@@ -41,6 +48,36 @@ export type Preset = {
   /** Extra silence after every beat, on top of what the lesson asked for. */
   holdBonus: number;
   /**
+   * Ceiling on the silence a beat may *ask* for, in seconds. Absent means no ceiling
+   * beyond the one the cadence already imposes.
+   *
+   * Silence is the second half of the script-economy defect and it was the invisible
+   * half. A measured 174s film spent **26.8s in pauses of 0.35s or longer — 15.4% of
+   * its runtime** against Golpo's 3.2s (5.4%) on the same lesson, and none of that was
+   * anybody's decision: `CADENCE` in `@inkcast/core` is a global table, so the only
+   * ceilings in the pipeline were 0.8s for a `punchy` beat and **3s** for a
+   * `slow_deliberate` one, which is what a worked example and a misconception are read
+   * as. A sixty-second film cannot afford a three-second pause and a two-and-a-half
+   * minute one can, and a single global number cannot say both.
+   *
+   * So the ceiling is a property of the format, and it lives here rather than in
+   * `CADENCE` for the reason `CADENCE`'s own comment gives about two catalogues of one
+   * fact: the cadence table says what a *delivery* means and this says what a *format*
+   * can afford, and they are different facts that happen to meet in one `Math.min`.
+   *
+   * Applied in `trimStep`, which is the boundary this package owns — it caps the
+   * author's request before the compiler's cadence floor is added to it. That makes it
+   * binding on the length estimate (`lessonSeconds` reads `step.hold`) and on every
+   * hold the cadence does not raise a floor under. It is **not yet** binding on the
+   * finished scene: `holdFor` in `compile.ts` takes `max(CADENCE[c].hold, step.hold)`
+   * and clamps to `CADENCE[c].maxHold`, so a `slow_deliberate` beat still floors at
+   * 0.9s and a trailing question still adds its full second. Closing that needs one
+   * line in `holdFor` — `Math.min(paced.hold, preset.maxHold ?? Infinity)` — and it is
+   * named here rather than left implicit because a cap that is silently half-applied is
+   * exactly the kind of quiet degradation this repo keeps paying for.
+   */
+  maxHold?: number;
+  /**
    * Narration pace used for *estimating*, in words a second.
    *
    * Not the same number as the speaking rate the voice stage targets: this one has to
@@ -57,10 +94,13 @@ export type Preset = {
   /**
    * What the board does between beats — see `BoardMode` in `@inkcast/core`.
    *
-   * `accumulate` on every preset, because the two shipped lessons are pinned to
-   * compile byte-identically and a new default would move both. `Preset` is never
-   * serialised, so a required field here costs no bytes downstream; what reaches the
-   * storyboard is `meta.board`, and only when it is `wipe`.
+   * `accumulate` on `standard`, `short` and `square`, because the two shipped lessons
+   * are pinned to compile byte-identically and changing any of those three would move
+   * both. `explainer` is `wipe`, and it is the only preset that is — a *new* key cannot
+   * move a pinned hash, which is why the mode arrives as a new format rather than as a
+   * changed default on an old one. `Preset` is never serialised, so a required field
+   * here costs no bytes downstream; what reaches the storyboard is `meta.board`, and
+   * only when it is `wipe`.
    */
   board: BoardMode;
 };
@@ -115,6 +155,74 @@ export const PRESETS: Record<PresetName, Preset> = {
     outroSec: 1,
     board: 'accumulate',
   },
+  /**
+   * The one measured against a competitor, and the shape that won.
+   *
+   * Same lesson, both tools, timed (`docs/HANDOFF-PARITY.md`): theirs ran 59.5s on ~145
+   * words with 3.2s of silence; ours ran 174s on 348 words with 26.8s of silence. The
+   * in-speech rate was never the problem — measured 142–151 wpm, inside the teaching
+   * band on both sides. **We simply said two and a half times as much and stalled
+   * between saying it.** So this preset is not "standard, shorter": every field below is
+   * the same landscape film with the two defects taken out, and the numbers are derived
+   * from that comparison rather than chosen.
+   *
+   * THE WORD BUDGET, IN WORDS, WHICH IS THE ONLY UNIT THE AUTHOR CAN COUNT.
+   * 75 seconds × 2.2 words a second (`DELIVERED_WPS`, measured, gaps included) = **165
+   * words for the whole film** — the ~160 the comparison asks for, landing at 75s in the
+   * 60–90s target band. `teachingBrief` states that number to the model directly; this
+   * is where it comes from.
+   *
+   * `maxWordsPerBeat` is that budget divided by the beats, and the arithmetic has one
+   * wrinkle worth writing down. `wordBudget` gives the hook and the worked example a
+   * 1.6× leash, so eight beats are 6 + 2×1.6 = **9.2 shares**, and 165 ÷ 9.2 = 18 words
+   * a share. It is set to 20 rather than 18 on purpose: `clampNarration` cuts whole
+   * sentences, so a ceiling pinned to the average would take the last sentence off
+   * nearly every beat and turn a backstop into scissors. At 20 the ceiling sums to
+   * 6×20 + 2×32 = 184 words, just inside the ≤190 the gate allows, and it only bites on
+   * a beat that has genuinely run away with the film.
+   *
+   * THE SILENCE. `maxHold` 0.8 and `holdBonus` 0. Eight beats at the ceiling plus a 1.0s
+   * outro is 7.4s of authored pause in a 75s film — 9.9% at the absolute ceiling, well
+   * under it in practice, against 15.4% measured. Note what this does *not* claim: most
+   * of that 26.8s was the voice stage's per-sentence gaps, and those come out with the
+   * word count rather than with this number. The two fields work the same seam from
+   * opposite ends. `holdBonus` goes to zero because 0.15s a beat is a decision nobody
+   * made, taken eight times.
+   *
+   * `board: 'wipe'` is A3, and it is measured too: content fill 55.5% → 62.3%, regions
+   * 4 → 1. At 90 seconds or less there is no board tour worth taking — nobody re-reads
+   * beat four at a quarter size — so the film trades the accumulated summary for
+   * per-idea framing. `docs/CONTRACT.md` carries the amended clause and the date.
+   *
+   * `maxPerRegion` 3 is dead under `wipe` (`planBoard` dispatches to `oneCardBoard`,
+   * which lays one frame-shaped cell per beat and never asks). It is a real number
+   * anyway because `resolvePreset` lets `--board accumulate` override the mode, and a 1
+   * there would silently lay eight regions and send the camera on the tour this preset
+   * exists to avoid.
+   *
+   * `captionRole` and `captionWords` deliberately stay where `standard` has them. The
+   * 62.3% fill above was measured with `--board wipe` at exactly these type roles, and
+   * moving them would re-litigate a measured configuration on no evidence — with a live
+   * text-clipping defect (`empty stac`, `AV nod`) waiting on the other side. Type scale
+   * is not this preset's argument.
+   */
+  explainer: {
+    name: 'explainer',
+    aspect: '16:9',
+    maxSeconds: 75,
+    maxPerRegion: 3,
+    visualsPerBeat: 2,
+    maxBeats: 8,
+    maxWordsPerBeat: 20,
+    captionRole: 'label',
+    captionWords: 8,
+    vertical: false,
+    holdBonus: 0,
+    maxHold: 0.8,
+    wordsPerSecond: DELIVERED_WPS,
+    outroSec: 1,
+    board: 'wipe',
+  },
   square: {
     name: 'square',
     aspect: '1:1',
@@ -141,7 +249,16 @@ export type PresetInput = {
   board?: BoardMode;
 };
 
-/** The preset an option bag selects: explicit name first, then the aspect. */
+/**
+ * The preset an option bag selects: explicit name first, then the aspect.
+ *
+ * `explainer` is reachable by name only, and that is deliberate rather than an
+ * oversight of the aspect table below. It shares 16:9 with `standard`, so an aspect
+ * cannot choose between them — and the two disagree about the *film*, not the frame.
+ * The CLI keeps `standard` as its default because a local run is where a
+ * two-and-a-half-minute cut is still wanted; the hosted studio asks for `explainer` by
+ * name, because a stranger's first video has ninety seconds to earn the next one.
+ */
 export function resolvePreset(opts: PresetInput = {}): Preset {
   const base =
     PRESETS[
@@ -222,6 +339,31 @@ function wordBudget(preset: Preset, role: 'hook' | 'worked' | 'other'): number {
   return role === 'other' ? preset.maxWordsPerBeat : Math.round(preset.maxWordsPerBeat * 1.6);
 }
 
+/**
+ * The silence a beat is allowed to *ask* for, once the format has had its say.
+ *
+ * Two ceilings, and they are different rules rather than one rule twice. The vertical
+ * one is about the medium: a short is watched with a thumb on the scroll and a
+ * half-second of nothing is where it gets scrolled, so `short` has always clamped hard
+ * and given the hook the only long pause in the film. The preset one is about the
+ * budget, and it is new: a 75-second film cannot spend three seconds on one pause
+ * (see `Preset.maxHold` for the measurement that says so).
+ *
+ * Both are floors-in-reverse rather than the final word. `holdForCadence` in
+ * `@inkcast/core` still raises a beat to its cadence's baseline afterwards and
+ * `holdFor` in `compile.ts` still adds the question bonus, so what this changes for
+ * certain is the author's request and the length estimate that reads it —
+ * `lessonSeconds` sums `step.hold`, so an un-capped request used to inflate the
+ * estimate and cost a beat before a single frame was drawn.
+ *
+ * A preset without `maxHold` comes through this function byte-identically: `standard`,
+ * `short` and `square` compile exactly as they did, which the pinned hashes require.
+ */
+function cappedHold(step: LessonStep, preset: Preset, role: 'hook' | 'worked' | 'other'): number {
+  const asked = preset.vertical ? Math.min(step.hold, role === 'hook' ? 1.2 : 0.5) : step.hold;
+  return preset.maxHold === undefined ? asked : Math.min(asked, preset.maxHold);
+}
+
 function trimStep(
   step: LessonStep,
   preset: Preset,
@@ -232,7 +374,7 @@ function trimStep(
     ...step,
     narration: clampNarration(step.narration, wordBudget(preset, role)),
     visuals,
-    hold: preset.vertical ? Math.min(step.hold, role === 'hook' ? 1.2 : 0.5) : step.hold,
+    hold: cappedHold(step, preset, role),
   };
 }
 
@@ -275,13 +417,125 @@ export function pickVisuals(visuals: VisualIntent[], limit: number): VisualInten
     .map((x) => x.v);
 }
 
-/** Steps ranked by how much they serve the objective — used only when cutting. */
+/**
+ * Steps ranked by how much they serve the one insight the lesson exists to install —
+ * used only when cutting.
+ *
+ * `coreInsight` leads the goal sentence, and that is the whole change. The field was
+ * added to the schema, prompted for at length ("the sentence the whole video exists to
+ * install… a beat that does not serve it is a beat to cut") and then read by nothing but
+ * an is-it-empty check in `critiqueLesson`. This function is the one place in the
+ * codebase that asks the question the field was written to answer, and it was asking it
+ * of the wrong sentence.
+ *
+ * The objective is a bad proxy for it, and measurably so. It is the *acceptance test* —
+ * "explain why the AV node delay is necessary for ventricular filling" — so it is written
+ * in the technical register, and several of its words are usually in `jargonBudget`, which
+ * the beats are forbidden to use until they have earned them. Overlap with the objective
+ * is therefore *lowest* for the lessons that follow the vocabulary rule best. On the
+ * cardiac lesson that actually shipped (`projects/cardiac8f/lesson.json`), all seven steps
+ * score **zero** against objective + topic: the ideas talk about patches, sparks, walls,
+ * doorways, a cable and a mesh, and the objective says "SA node", "Purkinje fibres",
+ * "atrioventricular". A ranking that is all zeroes is not a ranking, so the drop order
+ * fell through to the tie-break — the later beat first — and every preset deleted `step7`,
+ * "Starting at the bottom wrings blood upward into the outflow vessels": the payoff, the
+ * beat the other six exist to reach. The pedagogy decision this file's comments are proud
+ * of was, on the only keyed film we have, "drop the last one".
+ *
+ * With `coreInsight` in the goal the same seven steps score `[1, 0, 2, 1, 6, 0, 5]`, which
+ * is a ranking rather than a coin toss: `step5` (the cable that reaches the bottom) and
+ * `step7` (squeezing from the bottom up) are what the insight is *about*, and `step2` and
+ * `step6` are the plumbing. `coreInsight` reads that way because it is written by the same
+ * author in the same plain register as the narration, in the same pass, so its words are
+ * the words the beats actually use.
+ *
+ * And it changes nothing yet, which is worth writing down rather than hiding. Measured on
+ * all three real lessons — both shipped ones at every preset and the cardiac lesson that
+ * was rendered — **every cut this trimmer makes has exactly one candidate at the moment it
+ * is made**, because `derivedFrom` forms a chain and `droppableIds` only offers the tail of
+ * it. A ranking cannot choose between one thing. So the score is not where the field bites;
+ * it earns its keep the first time a lesson has two independent tails, and the decision
+ * `coreInsight` actually has to reach is *what may be cut at all* — see `insightArrival`.
+ *
+ * The objective and topic stay in the set rather than being replaced. They are weak
+ * signal, not wrong signal, and on a lesson whose insight is thin they are all there is.
+ * Union, not substitution: this is a tie-break getting information it never had.
+ */
 function stepScores(lesson: Lesson): number[] {
-  const goal = new Set(keywords(`${lesson.objective} ${lesson.topic}`));
+  const goal = new Set(keywords(`${lesson.coreInsight} ${lesson.objective} ${lesson.topic}`));
   return lesson.steps.map((s) => {
     const hit = keywords(`${s.idea} ${s.because}`).filter((w) => goal.has(w)).length;
     return hit;
   });
+}
+
+/**
+ * How much of the core insight a beat has to actually say before it counts as the place
+ * that insight arrives.
+ *
+ * A share of the insight's own content words, not a count, because the sentence varies in
+ * length. The line sits where the measurement put a gap. Scoring every step of the three
+ * real lessons against its own `coreInsight` — unique content words of the insight that the
+ * beat's *narration* says, over the insight's content words — gives 0.00, 0.00, 0.18, 0.18
+ * (gradient descent), 0.07, 0.14, 0.00 (longitude) and 0.00, 0.19, 0.25, 0.06, 0.06, 0.06,
+ * 0.31 (cardiac). Thirteen of the sixteen beats are at or below 0.19 and one is at 0.31:
+ * a quarter is the empty band between "uses a word the insight also uses" and "is the beat
+ * the insight is made of".
+ */
+const INSIGHT_ARRIVAL_SHARE = 0.25;
+
+/**
+ * The one step where the core insight arrives — the beat the trimmer may not spend.
+ *
+ * This is the field's real consumer, and the cardiac film is why it exists. Its
+ * `coreInsight` reads "…the bottom ones must squeeze all at once from the base upward", and
+ * the beat that delivers exactly that — `step7`, "Starting at the bottom wrings blood
+ * upward into the outflow vessels" — is the one the trimmer deleted, at **every** preset.
+ * The film that shipped therefore states the second half of its own thesis nowhere: 10
+ * scenes, and the only place "from the bottom up" survives is the recap, retracing a step
+ * the viewer was never shown. (`recap.derivedFrom` still names `step7`, which is why the
+ * canary in `remapDerivations` fires on that lesson.)
+ *
+ * The cut was not even a trade. Dropping `step7` bought about 16 seconds and the estimate
+ * still overran: 165s against the 150s `standard` target, 149s against `square`'s 90s. So
+ * the trimmer spent the payoff on a budget it missed anyway — and the dependency rule
+ * guarantees it will keep doing that, because the tail of the chain is both the only thing
+ * ever legal to cut and, in a lesson that builds to something, the thing the building was
+ * for. Choosing the victim more cleverly cannot help; the victim is forced.
+ *
+ * Two properties keep this from becoming a licence to run long:
+ *
+ *  - **A threshold**, so a beat that merely shares a word is not promoted to the arrival.
+ *  - **At most one beat**, the strongest, ties going to the *later* one — the arrival, not
+ *    the setup. The teaching brief tells the author that *every* beat should serve the
+ *    insight, so a rule that spared every beat serving it would disable trimming entirely
+ *    on exactly the lessons that followed the brief best. Sparing one beat costs the
+ *    trimmer at most one candidate, and when that leaves nothing to cut the existing
+ *    "runs long" path reports it and the video runs long — which this file already argues
+ *    is the right trade against a missing link.
+ *
+ * Judged on the author's own narration rather than the trimmed copy: `trimStep` clamps
+ * narration to the preset's word budget, so asking the clamped text would let a preset
+ * decide *where the lesson's thesis is*, which is not a preset's business. Beat ids are in
+ * original-lesson space here for the same reason.
+ */
+export function insightArrival(lesson: Lesson): string | undefined {
+  const insight = new Set(keywords(lesson.coreInsight));
+  if (!insight.size) return undefined;
+
+  let best = 0;
+  let arrival: string | undefined;
+  lesson.steps.forEach((step, i) => {
+    const said = new Set(keywords(step.narration).filter((w) => insight.has(w))).size;
+    if (said / insight.size < INSIGHT_ARRIVAL_SHARE) return;
+    // `>=` so a tie goes to the later beat: two beats saying the same amount of the
+    // insight is a build-up and a landing, and it is the landing that must survive.
+    if (said >= best) {
+      best = said;
+      arrival = `step${i + 1}`;
+    }
+  });
+  return arrival;
 }
 
 /**
@@ -311,12 +565,19 @@ function stepScores(lesson: Lesson): number[] {
  *  - **The recap's references do not count as dependencies.** It retraces the argument and
  *    adds nothing, so a beat only the recap mentions is still droppable — otherwise
  *    almost nothing ever is, since a good recap names most of the lesson.
+ *  - **The beat where the core insight arrives is spine too**, for the reason
+ *    `insightArrival` measures: the dependency rule makes the tail of the chain the only
+ *    legal victim, and in a lesson that builds to something the tail *is* the payoff.
  *
  * When nothing is droppable and the lesson still overruns, that is reported and the video
  * runs long. A followable lesson at 140 seconds is worth more than a 120-second one with
  * two links missing, and that is a deliberate product decision rather than a fallback.
  */
-function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>): Set<string> {
+function droppableIds(
+  lesson: Lesson,
+  doomed: ReadonlySet<string>,
+  spared?: string,
+): Set<string> {
   const beats = lessonBeats(lesson).filter((b) => !doomed.has(b.id));
   /** Ids some surviving beat derives from. The recap is excluded: see above. */
   const needed = new Set<string>();
@@ -328,6 +589,7 @@ function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>): Set<string> 
   for (const { role, id } of beats) {
     if (role !== 'step' && role !== 'misconception') continue;
     if (needed.has(id)) continue;
+    if (id === spared) continue;
     out.add(id);
   }
   return out;
@@ -338,9 +600,10 @@ function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>): Set<string> 
  * lands inside the target runtime.
  *
  * The drop order is a pedagogy decision, so it is explicit rather than "last in
- * wins": the hook, the anchor, the worked example and the recap are the spine of
- * the lesson and are never dropped. Steps that do the least for the stated
- * objective go first, then the misconception, and only then a step that matters.
+ * wins": the hook, the anchor, the worked example, the recap and the beat where the
+ * core insight arrives are the spine of the lesson and are never dropped. Steps that
+ * do the least for that insight go first, then the misconception, and only then a
+ * step that matters.
  */
 export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
   const trimmed: Lesson = {
@@ -354,7 +617,12 @@ export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
   if (lesson.misconception) trimmed.misconception = trimStep(lesson.misconception, preset);
 
   const scores = stepScores(lesson);
-  /** Objective score for a beat id, so one comparator covers steps and the misconception. */
+  /**
+   * The beat that lands the lesson's thesis, taken from the *untrimmed* lesson so a
+   * preset's word budget cannot move where the thesis is.
+   */
+  const spared = insightArrival(lesson);
+  /** Insight score for a beat id, so one comparator covers steps and the misconception. */
   const scoreOf = (id: string): number => {
     const m = /^step(\d+)$/.exec(id);
     // The misconception loses to every step: it is a caveat on the argument rather than a
@@ -382,20 +650,27 @@ export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
     // At least one step always survives: the schema requires it, and a lesson with no
     // steps is not a lesson.
     const stepsLeft = shaped.steps.length;
-    const candidates = [...droppableIds(trimmed, doomed)].filter(
+    const candidates = [...droppableIds(trimmed, doomed, spared)].filter(
       (id) => !(stepsLeft <= 1 && id.startsWith('step')),
     );
     if (!candidates.length) {
       const seconds = Math.round(lessonSeconds(shaped, preset));
+      // Which of the two rules ran out matters to whoever reads this: "nothing is legal to
+      // cut" is a lesson to shorten, while "the only thing left is the payoff" is a
+      // deliberate refusal and the author should hear it said that way.
+      const held =
+        spared && !doomed.has(spared) && droppableIds(trimmed, doomed).has(spared)
+          ? `the only beat left to cut is ${spared}, where the lesson's core insight lands, ` +
+            'so it is being kept and the video runs long instead. '
+          : 'every remaining beat is one another beat derives from, so nothing more can be ' +
+            'cut without breaking the chain — the video runs long instead. ';
       log.warn(
         `this lesson needs about ${seconds}s and the ${preset.name} target is ${preset.maxSeconds}s`,
-        'every remaining beat is one another beat derives from, so nothing more can be cut ' +
-          'without breaking the chain — the video runs long instead. Ask the author for ' +
-          'shorter beats if the length matters more than the argument.',
+        `${held}Ask the author for shorter beats if the length matters more than the argument.`,
       );
       break;
     }
-    // Weakest for the objective first; among equals, the later beat, as before.
+    // Weakest for the insight first; among equals, the later beat, as before.
     candidates.sort((a, b) => scoreOf(a) - scoreOf(b) || b.localeCompare(a));
     const victim = candidates[0]!;
     doomed.add(victim);

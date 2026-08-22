@@ -16,6 +16,9 @@
 import { NextResponse } from 'next/server';
 import type { z } from 'zod';
 
+import { limitMessage } from './ratelimit';
+import type { Denied } from './ratelimit';
+
 // Imported for its module side effect as much as its exports: `lib/store` is the
 // environment bootstrap, and importing it here means no route can reach the
 // pipeline before `INKCAST_PROJECTS` is settled. See the header of that file.
@@ -37,6 +40,58 @@ export const badRequest = (error: string, details?: string[]) => fail(400, error
 export const notFound = (error: string) => fail(404, error);
 export const unprocessable = (error: string, details?: string[]) => fail(422, error, details);
 export const serverError = (error: string) => fail(500, error);
+
+/**
+ * 403 for a project that exists but is not the caller's.
+ *
+ * Deliberately *not* a 404. Project ids are unguessable, so a caller holding one
+ * either owns it or was given the link, and telling the second person "no such
+ * project" when they can see the id in their address bar reads as a bug rather
+ * than a rule. The 404-instead-of-403 dodge is for resources whose existence is
+ * itself a secret; a shareable video is the opposite of that.
+ */
+export const forbidden = (error: string) => fail(403, error);
+
+/**
+ * 413 for a request that is well-formed but larger than the hosted deployment
+ * will carry. Distinct from `badRequest` because the client's fix is different:
+ * nothing is malformed, there is simply too much of it.
+ */
+export const tooLarge = (error: string) => fail(413, error);
+
+/**
+ * 429, with the copy and the wait that `ratelimit.ts` computed.
+ *
+ * Two things travel with it. `Retry-After` in seconds, because that is the only
+ * part of a 429 that automated clients read — without it a retry loop hammers a
+ * box that is already saying no. And the friendly sentence in `error`, which the
+ * studio renders directly (see this file's header): a bare 429 shows up in the UI
+ * as "Too Many Requests", which tells a user neither what the limit is nor when
+ * it lifts. `limit` and `retryAfterSec` are structured alongside so the client can
+ * render a countdown instead of re-parsing English.
+ */
+export function tooManyRequests(denied: Denied) {
+  return json<ApiError & { limit: Denied['limit']; retryAfterSec: number }>(
+    { error: limitMessage(denied), limit: denied.limit, retryAfterSec: denied.retryAfterSec },
+    429,
+    { 'Retry-After': String(denied.retryAfterSec) },
+  );
+}
+
+/**
+ * True on the shared deployment, false in the local studio.
+ *
+ * The distinction earns its keep in three places: the rate limiter is inert
+ * locally (see `limiterEnabled`), the source-text cap only applies to text we
+ * are paying to plan, and D5 hides the BYOK settings UI when the server holds
+ * the keys. It is a single env var (`INKCAST_HOSTED=1`) rather than a guess at
+ * `NODE_ENV`, because "production build" and "public deployment" are not the
+ * same claim — `next build && next start` on a laptop is the former, not the
+ * latter, and a laptop must not inherit a stranger's limits.
+ */
+export function isHosted(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.INKCAST_HOSTED === '1';
+}
 
 /**
  * 409 for an operation that cannot proceed while a run is in flight.

@@ -19,6 +19,22 @@ import type { GeomPrim, SvgPrim, TextPrim } from './types.js';
 
 const DIR = '/tmp/inkcast-compile-test';
 
+/**
+ * The brand plate's item id.
+ *
+ * Named here because it is the one item in a plan that no element asked for, so every
+ * test that enumerates a whole board has to say what it does about it rather than
+ * quietly matching a length. `~` is the same separator a plot's phases use — element
+ * ids are slugs from every author we have (`planner/src/compile.ts` `eid`, the LLM
+ * schema's "stable slug"), so it keeps the plate out of their namespace.
+ */
+const PLATE = 'inkcast~brand';
+
+/** Everything an element actually asked for, with the outro's watermark removed. */
+function authored<T extends { id: string }>(items: readonly T[]): T[] {
+  return items.filter((i) => i.id !== PLATE);
+}
+
 test('the same storyboard compiles to a byte-identical plan', () => {
   const sb = fixtureStoryboard();
   const a = JSON.stringify(compilePlan(sb, DIR));
@@ -94,10 +110,16 @@ test('items are ordered by explicit z, then declaration order', () => {
       },
     ],
   });
+  const items = compilePlan(sb, DIR).items;
   assert.deepEqual(
-    compilePlan(sb, DIR).items.map((i) => i.id),
+    authored(items).map((i) => i.id),
     ['below', 'first', 'second', 'above'],
   );
+  // The brand plate is appended after the sort, not sorted into it, and that is a
+  // decision rather than an accident: a watermark has to paint over the board it signs,
+  // and `z` is authored per element, so any beat that raised its own `z` would otherwise
+  // draw over the mark. Last in the array is last in the DOM is on top.
+  assert.equal(items[items.length - 1]?.id, PLATE);
 });
 
 test('emphasis effects resolve against their target, and survive a bad target', () => {
@@ -613,7 +635,7 @@ test('an equation with no typeset geometry falls back to its TeX as text', () =>
   const warned = capture(() => {
     plan = compilePlan(sb, DIR);
   });
-  const prims = plan.items.flatMap((i) => i.prims);
+  const prims = authored(plan.items).flatMap((i) => i.prims);
   assert.equal(prims.length, 1, 'expected exactly one fallback prim');
   const prim = prims[0] as TextPrim;
   assert.equal(prim.kind, 'text');

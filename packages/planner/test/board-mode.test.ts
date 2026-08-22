@@ -233,23 +233,49 @@ test('a wiped recap draws its own summary, because there is no board behind it',
   );
 });
 
-test('at the default the mode is absent, not defaulted, in every storyboard', () => {
+test('the mode is written only by a preset that asks for it, never defaulted', () => {
   // A `.default('accumulate')` on `StoryboardMeta` would pass every assertion above
   // and still rewrite every `storyboard.json` on disk through `cast.ts`'s reparse.
+  //
+  // This test used to read "at the default the mode is absent in EVERY storyboard",
+  // and `explainer` (PLAN-LAUNCH A3) is the preset that made that phrasing wrong
+  // rather than the code wrong: it asks for `wipe` as its own default, because the
+  // measurements at <=90s favour per-idea framing over the board tour — content fill
+  // 55.5% -> 62.3%, regions 4 -> 1. So the guarantee is not "nobody writes the key",
+  // it is "the key appears if and only if a preset asked for it", which is what keeps
+  // the three pinned presets byte-identical while letting a new format differ. Driving
+  // the expectation off `PRESETS[preset].board` rather than off a list of names also
+  // means the next preset to choose `wipe` is covered without editing this test.
   for (const lesson of [gradient, longitude]) {
     for (const preset of Object.keys(PRESETS) as (keyof typeof PRESETS)[]) {
       const sb = compileLesson(lesson, { preset });
-      assert.equal('board' in sb.meta, false, `${preset} wrote a board key nobody asked for`);
+      const asked = PRESETS[preset].board === 'wipe';
+      assert.equal(
+        'board' in sb.meta,
+        asked,
+        asked
+          ? `${preset} asks to wipe and the storyboard does not say so`
+          : `${preset} wrote a board key nobody asked for`,
+      );
+      if (asked) assert.equal(sb.meta.board, 'wipe', `${preset} wrote the wrong mode`);
       assert.deepEqual(
         JSON.parse(JSON.stringify(parseStoryboard(sb))),
         JSON.parse(JSON.stringify(sb)),
         `${preset} does not survive the reparse cast.ts performs`,
       );
-      assert.equal(
-        every(sb).some((el) => el.persistUntil !== undefined),
-        false,
-        `${preset} wrote persistUntil onto an accumulating board`,
-      );
+      // `persistUntil` stays forbidden on an accumulating board, and stays *optional*
+      // on a wiped one. Under `wipe` ink already expires at its own scene by default —
+      // the field is the opt-in that lets a particular element outlive that, so its
+      // absence here means no beat asked to hold anything over, not that the wipe
+      // stopped working. Asserting its presence would have been asserting that the
+      // explainer preset's lessons happen to want a carry-over.
+      if (!asked) {
+        assert.equal(
+          every(sb).some((el) => el.persistUntil !== undefined),
+          false,
+          `${preset} wrote persistUntil onto an accumulating board`,
+        );
+      }
     }
   }
 });

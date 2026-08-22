@@ -225,6 +225,39 @@ function parseViewBox(attr: string | null): Box | undefined {
   return { x, y, w, h };
 }
 
+/**
+ * MathJax's own complaint about this source, if it has one.
+ *
+ * **This is the check that keeps a bad exponent from drawing a censor bar.** MathJax does
+ * not throw on TeX it cannot parse: it typesets an `merror` node instead, and in SVG output
+ * an `merror` is a `<rect data-background="true">` the width of the whole message with the
+ * message itself in a `<text>`. The walker below collects `<path>` and `<rect>` and ignores
+ * `<text>`, so the *entire* output of a malformed equation was one filled rectangle. Three
+ * measured examples, each resolving to exactly one mark spanning the full width of its box:
+ * `\frav{a}{b}` (Undefined control sequence), `\frac{1}{` (Missing close brace), and
+ * `\int_0^1 x^2\,dx = \tfrac{1}{3}` — which is not even a typo, it is `\tfrac` not being in
+ * the `base` package this lane loads. A solid black bar where the maths should be, no
+ * warning, and a storyboard that cached it.
+ *
+ * So the error is found and named, and the mark is dropped: the caller draws the TeX source
+ * as handwriting, which is poor notation but *is* the author's own string, legible and
+ * obviously wrong to whoever has to fix it. That is the same trade the rest of this module
+ * makes — see note 2 in the module header. A wrong equation is worse than a missing one,
+ * and a rectangle is the most wrong an equation can be.
+ */
+function texError(node: LiteNode, a: LiteAdaptor): string | undefined {
+  // Text and comment nodes have no attributes and asking for one throws — and MathJax's
+  // error output is exactly where they turn up, which is the reachable path here.
+  if (a.kind(node).startsWith('#')) return undefined;
+  const own = a.getAttribute(node, 'data-mjx-error');
+  if (own) return own;
+  for (const child of a.childNodes(node) ?? []) {
+    const found = texError(child, a);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** Depth-first to the first `<svg>` — MathJax wraps it in an `<mjx-container>`. */
 function findSvg(node: LiteNode, a: LiteAdaptor): LiteNode | undefined {
   if (a.kind(node) === 'svg') return node;
@@ -270,8 +303,9 @@ function collect(node: LiteNode, a: LiteAdaptor, m: Matrix, into: Mark[]): void 
 /**
  * Typeset `spec.tex` and resolve it into ordered, revealable glyph geometry.
  *
- * Returns `undefined` when the engine is unavailable or the source produces no
- * marks; the caller is expected to fall back to text rather than to draw nothing.
+ * Returns `undefined` when the engine is unavailable, when MathJax reports an error on
+ * the source (`texError`), or when the source produces no marks; the caller is expected to
+ * fall back to text rather than to draw nothing.
  */
 export async function resolveEquation(
   spec: EquationSpec,
@@ -289,6 +323,15 @@ export async function resolveEquation(
   } catch (err) {
     // A TeX error is the author's problem, not a reason to lose the video.
     log.warn(`could not typeset "${tex}": ${String(err)}`);
+    return undefined;
+  }
+  const bad = texError(root, mj.adaptor);
+  if (bad) {
+    log.warn(
+      `could not typeset "${tex}": ${bad} — drawing its TeX source as text instead. ` +
+        'Only MathJax\'s `base` TeX package is loaded here (see `loadEngine`), so a valid ' +
+        'macro from another package fails exactly like a typo does.',
+    );
     return undefined;
   }
   const svg = findSvg(root, mj.adaptor);

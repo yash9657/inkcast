@@ -174,7 +174,33 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // (the whole teaching diagram in colour, shown as a raster and never traced). The brief
   // is not in this stage's cache key, so without this bump the new advice is invisible and
   // every cached lesson keeps the old one-lane answer.
-  lesson: 11,
+  // 12: script economy, and the third attempt at making the author ask for a picture.
+  // Two changes to the brief, and both of them move the lesson for identical inputs.
+  //   The budget is now three numbers instead of one: the total in words, the beat count,
+  //   and what the trimmer does with the overflow — stated as its own block rather than as
+  //   one clause inside the narration list. The measurement it answers is the whole of
+  //   PLAN-GOLPO-PARITY Phase 3: on the same lesson, 348 words against a competitor's
+  //   ~145, a 174s film against 59.5s, at a speaking rate that was never wrong (142-151
+  //   wpm). A budget stated once, in the middle of a long brief, read as a limit nobody
+  //   was near. It also reads the preset now, so a run at `explainer` is briefed for 165
+  //   words across 8 beats where `standard` is briefed for 330 across 14 — the same brief
+  //   could not say both, and one number for every format is how a 60s cut got written to
+  //   a 150s budget.
+  //   The underlay advice moved *within* the `draw` bullet, from its end to its opening.
+  //   Read the note above `UNDERLAY_LEAD` for why position was the defect: at 10 the block
+  //   was already inside the bullet, but the bullet opens by promising "it can draw
+  //   anything: a battery cut open, a chloroplast…", so the brief made the claim and then
+  //   took it back sixty words later. The first answer is the one a model keeps. The fork
+  //   is now the first sentence of the bullet and the promise is narrowed to what marks can
+  //   honestly do, which is a different edit from either previous attempt rather than the
+  //   same one said louder — those are recorded at 10 and 11 above precisely so this one
+  //   had to be different.
+  // Also: the `explainer` preset exists (`planner/src/presets.ts`), and its `maxHold`
+  // caps what a beat may ask for in `trimStep`. That alone would not need a bump — a new
+  // preset key invalidates only the runs that ask for it, and `presetShape.name` is
+  // already inside this stage's key in `cast.ts` — but the brief edits above do, and they
+  // are the same change arriving from the other end.
+  lesson: 12,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.

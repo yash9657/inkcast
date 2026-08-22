@@ -81,7 +81,23 @@ export function SiteFooter() {
                 <nav key={column.heading} aria-labelledby={`footer-${column.heading}`}>
                   <h2
                     id={`footer-${column.heading}`}
-                    className="mb-3 text-2xs uppercase text-muted-foreground"
+                    // Mono, matching every other uppercase micro-label in the
+                    // system (`SelectGroupLabel`, `DropdownMenuLabel`,
+                    // `CommandGroup`'s heading). A column heading in a footer is
+                    // the same object as a group label in a menu: a 10px all-caps
+                    // signpost, not prose.
+                    //
+                    // It also un-does something the C1 base layer did to this
+                    // element by accident. `globals.css` now sets
+                    // `font-family: var(--font-display)` on every `h1`–`h6`, on
+                    // the stated assumption that nothing in the app renders a
+                    // heading below `text-xl` — and this is an `<h2>` at
+                    // `text-2xs`, so it was the counter-example. Space Grotesk at
+                    // 10px with `0.04em` of tracking is a display face doing a
+                    // caption's job: the counters close up and it reads muddier
+                    // than the 13px links beneath it, which inverts the
+                    // hierarchy the heading exists to establish.
+                    className="mb-3 font-mono text-2xs uppercase text-muted-foreground"
                   >
                     {column.heading}
                   </h2>
@@ -120,7 +136,16 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <div className="mt-12 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+        {/* `border-subtle`, not ink, and the footer's own outer edge above is why.
+            That one is a structural boundary between the page and its footer and
+            is correctly a full ink rule; this one divides the footer's columns
+            from its licence line, 200px below it. Two ink rules that close a
+            distance that short read as two frames stacked, and the eye assigns
+            the second one the same weight as the first — so the footer looks like
+            two sections rather than one section with a colophon. docs/DESIGN.md
+            §2 names exactly this case as what `--border-subtle` was added for:
+            "a line rather than a rule". */}
+        <div className="mt-12 flex flex-col gap-4 border-t border-border-subtle pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
             Free software under {LICENCE}. Run it on your own machine; nothing phones home.
           </p>

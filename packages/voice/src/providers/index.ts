@@ -36,10 +36,13 @@ export {
 export { parseSayVoices, pickSayVoice } from './system.js';
 export {
   alignmentToWords,
+  elevenLabsCostUsd,
+  elevenLabsCreditsPerChar,
   elevenLabsDelivery,
   elevenLabsModel,
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_USD_PER_CREDIT,
 } from './elevenlabs.js';
 
 /**

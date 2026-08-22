@@ -55,15 +55,20 @@ export function Progress({
         </div>
       ) : null}
 
+      {/* Same rail as `Slider`: 8px, square, ink-bordered, inset. Deliberately
+          identical, because a progress bar and a slider track are the same
+          object with different agency, and in a system this reduced two
+          near-identical rails that differ by 2px of height and a corner radius
+          look like an accident rather than a decision. */}
       <ProgressPrimitive.Track
         className={cn(
-          'relative h-1.5 w-full overflow-hidden rounded-full bg-muted',
+          'relative h-2 w-full overflow-hidden rounded-none border border-border bg-muted',
           'inset-shadow-well',
         )}
       >
         <ProgressPrimitive.Indicator
           className={cn(
-            'h-full rounded-full bg-primary',
+            'h-full rounded-none bg-primary',
             'transition-[width] duration-slow ease-out',
             // Indeterminate: a sweep across the full track, so the bar reads as
             // "working, duration unknown" rather than as a stalled 0%.

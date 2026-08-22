@@ -25,6 +25,26 @@ Read it before writing any code. Key ideas you must respect:
   large canvas. Elements default to `persist: true` and stay on the board so
   later scenes can annotate them. Wiping the board every scene is the single
   biggest quality failure of competing tools — do not reintroduce it.
+
+  **Amended 2026-08-21, and the original rule still stands where it was aimed.**
+  Accumulation remains the default and the right answer for a long lesson: at two
+  minutes and up the finished board _is_ the summary, the recap's pull-back over
+  it is the payoff for never having wiped, and that is why `standard`, `short` and
+  `square` all still accumulate. What changed is that we measured the rule at
+  ninety seconds and under, where it does not hold. The evidence: on the same
+  lesson, `--board wipe` moved mean content fill from **55.5% to 62.3%** and
+  regions from **4 to 1** — because at eight beats in a four-cell region a beat is
+  framed at a quarter of the screen, and nobody re-reads beat four at that size.
+  There is no board tour worth taking in a film that ends before the tour would.
+  So the `explainer` preset (`packages/planner/src/presets.ts`) defaults to
+  `board: 'wipe'` and trades the accumulated summary for per-idea framing, and it
+  is the only preset that does. The prohibition it replaces was about wiping
+  _instead of_ having a canvas at all, which is the competitors' failure and is
+  still forbidden: `wipe` keeps the single canvas, the fractional timing and the
+  entity library, and expires ink by `persistUntil` rather than by starting a new
+  slide. Wiping is now a per-preset decision backed by a number, never a global
+  default — and re-defaulting an accumulating preset would move the four pinned
+  storyboard hashes, which is its own reason not to.
 - **Timing is fractional, then measured.** Authors set `enter.at` as a fraction
   (0–1) of a scene. The voice stage measures real audio and writes
   `scene.durationSec`. Re-voicing in another language reflows automatically.

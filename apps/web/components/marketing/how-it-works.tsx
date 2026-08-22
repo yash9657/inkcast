@@ -8,9 +8,19 @@ import { CodeChip, Section, SectionHeading } from './section';
  * The pipeline, as it actually exists.
  *
  * Each step names the real package and the real entry signature from
- * `docs/CONTRACT.md`, because for the audience that will actually adopt this, a
- * function signature is more persuasive than an adjective. Nothing here is a
- * roadmap: every stage listed has a local default that runs with no API key.
+ * `docs/CONTRACT.md` §"Stage contracts", because for the audience that will
+ * actually adopt this, a function signature is more persuasive than an
+ * adjective. Nothing here is a roadmap: every stage listed has a local default
+ * that runs with no API key.
+ *
+ * `PLAN-LAUNCH.md` C5 asks this section to read *source → lesson → voice → drawn
+ * in sync*, and that is now the heading — but there are still five cards under
+ * it, not four. Collapsing `visuals` and `render` into one beat would have meant
+ * dropping one of the five real signatures, and the receipts are the reason
+ * anybody believes the paragraph. So the four-beat phrasing does the narrative
+ * work in the heading and the five stages keep doing the evidential work
+ * underneath: the shape of the story is the plan's, the contents are the
+ * compiler's.
  */
 
 type Step = {
@@ -96,18 +106,47 @@ const STEPS: Step[] = [
   },
 ];
 
+/**
+ * The separator in the section title.
+ *
+ * An arrow glyph is read out as "right arrow" by some screen readers and skipped
+ * entirely by others, so the punctuation is spoken and the glyph is drawn:
+ * "Source, then lesson, then voice, then drawn in sync". Same trick as the
+ * uppercase eyebrows in `section.tsx` — the visual and the spoken form are
+ * allowed to differ, as long as they say the same thing.
+ */
+function Then() {
+  return (
+    <>
+      <span className="sr-only">, then </span>
+      <span aria-hidden className="text-muted-foreground">
+        {' → '}
+      </span>
+    </>
+  );
+}
+
 export function HowItWorks() {
   return (
     <Section id="how-it-works" aria-labelledby="how-it-works-heading">
       <SectionHeading
         eyebrow="How it works"
         headingId="how-it-works-heading"
-        title="Five stages, each one only adding to the same JSON"
+        title={
+          <>
+            Source
+            <Then />
+            lesson
+            <Then />
+            voice
+            <Then />
+            drawn in sync
+          </>
+        }
         lead={
           <>
-            Inkcast is a compiler, not a model. Every stage takes the storyboard, enriches it, and
-            hands it on — which is why a change to scene seven re-renders scene seven and nothing
-            else.
+            Inkcast is a compiler, not a model. Five stages, each one only adding to the same JSON —
+            which is why a change to scene seven re-renders scene seven and nothing else.
           </>
         }
       />
@@ -118,16 +157,18 @@ export function HowItWorks() {
             key={step.stage}
             as="li"
             index={i}
-            className="relative flex gap-4 rounded-xl border border-border bg-card p-5 sm:gap-6 sm:p-6"
+            className="relative flex gap-4 border border-border bg-card p-5 shadow-card sm:gap-6 sm:p-6"
           >
             <div className="flex flex-col items-center gap-3">
               <span
-                className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/12 text-primary"
+                className="grid size-10 shrink-0 place-items-center border border-accent-border bg-accent-soft text-accent-strong"
                 aria-hidden
               >
                 <step.Icon className="size-4" />
               </span>
-              <span className="tabular text-2xs text-muted-foreground" aria-hidden>
+              {/* The number is decorative — the `<ol>` already conveys order to a
+                  screen reader, and hearing "01" before every heading is noise. */}
+              <span className="tabular font-mono text-2xs text-muted-foreground" aria-hidden>
                 {String(i + 1).padStart(2, '0')}
               </span>
             </div>
@@ -138,7 +179,11 @@ export function HowItWorks() {
                 <span className="font-mono text-xs text-muted-foreground">{step.pkg}</span>
               </div>
               <p className="mt-2 text-md text-muted-foreground">{step.body}</p>
-              <p className="mt-3 overflow-x-auto font-mono text-xs whitespace-nowrap text-foreground/70 scrollbar-none">
+              {/* The signature is the receipt. It scrolls rather than wraps
+                  because a broken signature is worth less than a scrollbar, and
+                  `scrollbar-none` is legal here: docs/DESIGN.md §7 allows it for
+                  a short horizontal rail, never for a vertical region. */}
+              <p className="mt-4 overflow-x-auto border-t border-border-subtle pt-3 font-mono text-xs whitespace-nowrap text-muted-foreground scrollbar-none">
                 {step.signature}
               </p>
             </div>

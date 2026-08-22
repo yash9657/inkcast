@@ -17,7 +17,7 @@ import type { Lesson } from '@inkcast/core';
 import { Lesson as LessonSchema, critiqueLesson, logger, report } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
 import { drawLesson } from './draw-anthropic.js';
-import { DELIVERED_WPS } from './presets.js';
+import { DELIVERED_WPS, resolvePreset } from './presets.js';
 import { lessonJsonSchema } from './schema.js';
 import type { LessonOptions, SourceDoc } from './types.js';
 
@@ -62,34 +62,75 @@ export function lessonModel(opts?: { model?: string }): string {
  * asks for something the run cannot provide gets a worse picture than one that never
  * asked. Without a key an `underlay` is ignored and the beat is drawn in marks alone.
  *
- * ## Why this reads the way it does
+ * ## Why this reads the way it does, and the two attempts that failed first
  *
- * The first version led with the trigger and then spent a paragraph on everything the lane
- * must not be used for, ending "if you are unsure, leave it out". It was appended after the
- * lane list, where a model has already chosen. On a full keyed render of *the cardiac
- * conduction system* — the lesson this lane was built for, with a paid image key
- * configured — the author wrote twelve `draw` intents and **not one underlay**, and the
- * film has the valentine in it exactly as before.
+ * The first version (stage `lesson@9`) led with the trigger and then spent a paragraph on
+ * everything the lane must not be used for, ending "if you are unsure, leave it out". It
+ * was appended after the lane list, where a model has already chosen. On a full keyed
+ * render of *the cardiac conduction system* — the lesson this lane was built for, with a
+ * paid image key configured — the author wrote twelve `draw` intents and **not one
+ * underlay**, and the film has the valentine in it exactly as before. A caution the model
+ * obeys everywhere is not caution, it is an off switch.
  *
- * A caution the model obeys everywhere is not caution, it is an off switch. So the advice
- * now sits inside the `draw` bullet, where the choice is actually made, and it leads with
- * the case rather than the exclusions: the exclusions are still here, and they are one
- * sentence rather than a paragraph with a moral. The lane cannot be gated on a keyword
- * table — that is the wrong axis, and this file's own history says so — but a brief that
- * asks a question the model can answer about *the object* is not a keyword table.
+ * The second (`lesson@10`, then `@11` for `underlay.kind`) moved the block *into* the
+ * `draw` bullet and led with the case rather than the exclusions. That was the right axis
+ * and it still did not fire, and the reason is visible the moment you read the bullet in
+ * order rather than reading the diff. The block was appended to the *end* of the bullet,
+ * and the bullet's own opening promises "it can draw anything: a battery cut open, a
+ * chloroplast…". So the brief made the claim and then took it back sixty words later: by
+ * the time an author reaches "a composed drawing asked for a heart draws the valentine",
+ * it has already been told the marks can do it, and the first answer is the one it keeps.
+ * The advice was in the right bullet and behind the sentence that had already decided.
+ *
+ * So the split is now by *position inside the bullet*, not by presence in it. `LEAD` runs
+ * before the promise and states the fork as the first decision — a real object starts from
+ * a picture of it, every time — and it is also where the "draws anything" claim is made
+ * honest, because a claim that needs a later correction is a claim that should have been
+ * narrower. `KINDS` keeps the `figure`/`form` mechanics, which are legitimately a second
+ * decision and only reached once the first has gone the picture's way.
+ *
+ * The lane still cannot be gated on a keyword table — that is the wrong axis, and this
+ * file's own history says so — but a brief that asks a question the model can answer about
+ * *the object* is not a keyword table.
  */
-const UNDERLAY_ADVICE = `
-  A \`draw\` visual may also carry \`underlay\` — \`{"prompt": "<the object, as a picture>"}\` — and this is how you draw a REAL THING that has a real shape. An image generator draws the object's form; the illustrator then composes its marks **while looking at that picture**, so the parts, the pathways and the names land on a real anatomical heart instead of on a symmetrical cartoon of one. Neither half can do it alone: an image model cannot spell or name a part, and a composed drawing asked for a heart draws the valentine ❤️ from a text message.
-  ASK ONE QUESTION: would a learner recognise this thing if they saw the real one, and does its actual shape carry meaning? A heart, a kidney, a neuron, a bone, a leaf, a beetle, a violin, a jet engine, a lathe, a telescope, a cathedral — yes, every time. Set \`underlay\` on that beat. A structural lesson about a real object should use it on most of its beats, not one.
-  THEN CHOOSE \`underlay.kind\`, because there are two ways to use a generated picture and they want opposite prompts.
+const UNDERLAY_LEAD = ` BEFORE YOU WRITE \`describe\`, DECIDE WHAT KIND OF THING THIS IS, because this is where that is decided and there is no later. Would a learner recognise this thing if they met the real one, and does its actual shape carry meaning? A heart, a kidney, a neuron, a bone, a leaf, a beetle, a violin, a jet engine, a lathe, a telescope, a cathedral — **yes, every time**, and every time means set \`underlay\` on that beat: \`{"kind": "figure" | "form", "prompt": "<the object, as a picture>"}\`. An image generator makes the object's form and the illustrator then composes its marks **while looking at that picture**, so the parts, the pathways and the names land on a real anatomical heart. This is the default for a real thing and not a flourish on top of one: a structural lesson about a real object carries an \`underlay\` on most of its beats, not on one of them. Marks alone cannot make the shape of something that has a true shape — asked for a heart the illustrator draws the valentine ❤️ from a text message, and no amount of detail in \`describe\` repairs that, because the failure is in what marks are, not in what you wrote. The other half is just as unable: an image model cannot spell, cannot name a part and cannot label a pathway, which is why neither half is offered alone.`;
+
+const UNDERLAY_KINDS = `
+  CHOOSE \`underlay.kind\`, because there are two ways to use a generated picture and they want opposite prompts.
   - \`"figure"\` — the picture IS the teaching diagram, in colour, and your marks only name a part or two around the outside. Write \`underlay.prompt\` as the whole figure: the view, the internal structures, the pathway, the state — "cutaway cross-section of a human heart showing all four chambers, the septum and the valves, the atrioventricular node a small nodule at the junction, orange arrows fanning down through both ventricle walls, chambers red and blue". Choose this when the beat needs to see INSIDE something, or when what teaches is the whole picture rather than a label on it: a cutaway, a cross-section, a system in colour, a stage of a process shown in situ. \`describe\` should then ask for very little — a name and a leader, no more — because everything else is already in the picture. A lesson about a real object should carry a \`figure\` on every beat where the learner has to see inside the thing — for a cutaway, a cross-section or a pathway through a structure, that is most of them.
   - \`"form"\` — the picture is the object's SHAPE and your marks carry the mechanism on top of it. Write \`underlay.prompt\` as the OBJECT and nothing else: "a human heart, anatomical, external front view, whole organ with great vessels". One centred subject, the view you want, no scene, no labels, no arrows — what an illustrator would draw before anyone wrote on it. \`describe\` then says what goes ON it, written as if the form is already there: "mark the SA node high in the right atrium, run the pathway down the septum". Choose this when the beat is about parts, pathways or relations that have to be placed exactly and named.
   **\`figure\` is the normal choice for anything you would have to cut open to teach, and \`form\` is the exception for beats whose whole job is placing and naming parts on an outline.** If you are unsure, choose \`figure\`: a picture that already shows the mechanism teaches even when the labels are sparse, and an outline with labels on it does not teach when the mechanism is inside.
   The answer is no to both for anything with no true form to draw: an abstraction, a process, a comparison, a timeline, a graph, a flow, a hierarchy, a schematic, "the concept of X". Leave \`underlay\` out there and let the composed drawing have the board to itself.
 `;
 
+/**
+ * The brief, written to the format the film is actually being cut to.
+ *
+ * `seconds` was the only thing the brief knew about the format, and one number was not
+ * enough. The measured failure is the whole of Phase 3: on the same lesson the film ran
+ * 174s against a competitor's 59.5s, and the cause was not pace — 142–151 wpm, inside
+ * the teaching band — but volume. **348 words where about 145 was needed.** A budget of
+ * 330 words stated as one sentence in the middle of a long brief was read as a limit
+ * nobody was near rather than as the shape of the film, and the model spread it over
+ * fourteen beats because nothing said how many beats there were.
+ *
+ * So the brief now takes the preset, and states three numbers instead of one: the total
+ * in words, the beat count, and what happens to the overflow. `resolvePreset` rather
+ * than a passed-in `Preset` because that is what the caller has — `LessonOptions`
+ * carries `preset`/`aspect`/`maxSeconds`, and the pipeline only fills `preset` when the
+ * run asked for one by name, so resolving here gets the same shape `cast.ts` resolved
+ * and not a second guess at it. `seconds` still wins for the word budget: it is the
+ * target after `depth` and `--seconds` have had their say, which the preset's own
+ * `maxSeconds` has not seen.
+ */
 function teachingBrief(opts: LessonOptions, seconds: number): string {
   const audience = opts.audience ?? 'a curious beginner with no background in the subject';
+  const shape = resolvePreset(opts);
+  /** The budget, in the only unit a language model can count: words. */
+  const words = Math.round(seconds * DELIVERED_WPS);
+  const beats = shape.maxBeats;
+  /** Spread evenly. Stated because "165 words" alone does not say how thin that is. */
+  const perBeat = Math.floor(words / beats);
   return `You are the lesson stage of Inkcast. You do not write summaries, outlines, scripts or slide decks. You design ONE explanation that leaves a specific person able to do a specific thing, and you hand it over by calling the ${TOOL} tool exactly once.
 
 Downstream, a compiler turns your lesson into a hand-drawn whiteboard video: one persistent canvas that fills up as the narrator speaks, with real plotted curves, drawn figures and things that move. It can only draw what you ask for, so what you write in \`visuals[].describe\` decides whether the video teaches or just talks.
@@ -129,6 +170,12 @@ NAME THE MISCONCEPTION
 
 NARRATION
 - Spoken English at about 150 words per minute. Contractions. Short clauses. Whole sentences only — never a fragment, never a sentence continued into the next beat.
+- Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.
+- \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation. Note that \`cadence\` below sets a floor and a ceiling on it, so a beat marked \`punchy\` will not be given a long pause however much you ask for.${
+    shape.maxHold === undefined
+      ? ''
+      : ` This format caps every pause at ${shape.maxHold}s on top of that, so a longer number is not refused, it is simply reduced — a measured film at this length spent 15.4% of its runtime in silence, and that is time the explanation needed. Ask for a pause where the learner has something to do in it, and nowhere else.`
+  }
 
 WRITE IT AS PLAIN AS IT WILL GO. THIS IS THE DIFFERENCE BETWEEN A VIDEO THAT TEACHES AND ONE THAT IS ENDURED.
 This is heard once, aloud, with no way to rewind and nothing on the page to re-read. A listener who has to hold a clause in their head to find out how it ends has stopped thinking about the subject and started decoding the sentence — and the harder the concept, the less of them is left over for that. So the rule runs the other way round from how it feels: **the more difficult the idea, the simpler the language carrying it must be.** Elaborate phrasing on a hard idea is not rigour, it is two problems handed over at once.
@@ -140,9 +187,12 @@ This is heard once, aloud, with no way to rewind and nothing on the page to re-r
 - **No throat-clearing.** Not "it is important to note that", not "essentially", not "in other words" — if the first phrasing needed a second one, delete the first. Every wasted word is spent from a budget that costs you a beat when it runs out.
 
 Read each beat back as if saying it out loud to one person who is interested and has never met the subject. If you would not say it that way to them, it is not narration yet.
-- Roughly 18–42 words per beat. **The whole lesson gets about ${Math.round(seconds * DELIVERED_WPS)} words, total, across every beat.** That is the real budget: it is ${Math.round(seconds)} seconds at the pace this narrator actually speaks, silences included. Count them. A lesson that runs long is not trimmed gently — a beat gets dropped, and the only beats that *can* be dropped are the ones nothing else derives from, so overrunning costs you your own last step.
-- Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.
-- \`hold\` is silence *after* the beat, in seconds. Use 0.3–0.5 to let an idea land, and 1.2–2 after a question you want the learner to attempt. Silence is part of the explanation. Note that \`cadence\` below sets a floor and a ceiling on it, so a beat marked \`punchy\` will not be given a long pause however much you ask for.
+
+THE BUDGET, AND IT IS THE HARDEST CONSTRAINT IN THIS BRIEF
+**${words} words for the whole lesson, across AT MOST ${beats} BEATS.** Both numbers are real: ${words} words is ${Math.round(seconds)} seconds at the pace this narrator actually delivers, gaps and all, and ${beats} beats is what this format lays out. Spread evenly that is about ${perBeat} words a beat — roughly ${Math.max(2, Math.round(perBeat / 9))} short spoken sentences. Count them as you write; do not estimate.
+- **A beat that says more than its share is cut, and it is cut at a sentence boundary.** Nothing gentler happens and there is no negotiation: whole sentences are kept from the start of the beat and the rest is thrown away, so the last thing you wrote in a long beat is the thing nobody hears. If the reason lives in your closing sentence, the reason is what you lose. Write the beat short and the cut never comes.
+- **A lesson with more than ${beats} beats does not get compressed, it gets a beat DELETED** — and only a beat nothing else derives from may go, so overrunning costs you your own last step. Plan the beat count before you write the first one.
+- This budget is not a target to fill. A ${Math.round(seconds)}-second explanation that lands beats a two-minute one that wanders, and the shorter one is *harder to write*: it is the same argument with every sentence that was not carrying anything taken out. Cut the throat-clearing, not the reasoning.
 
 PACING IS ONE DECISION, AND IT IS \`cadence\`
 \`cadence\` sets how fast a beat is spoken *and* how long the silence after it may run. Set it only where you actually have an opinion; left out, it is read off what the beat is doing, and that default is good.
@@ -165,8 +215,8 @@ VISUALS — WRITE A DRAWING INSTRUCTION, NOT A CAPTION
 Every beat needs at least one entry in \`visuals\`, and \`describe\` must say what the learner SEES, as an instruction to someone holding a marker. "A bowl-shaped curve with a ball high on the left slope and a straight tangent line touching it, sloping up to the right" is a drawing instruction. "Gradient descent finds the minimum" is a caption and will produce nothing worth watching.
 
 The compiler recognises these, and the words in **bold** are what select them, so use them literally. **\`draw\` is the normal choice** — read it first and reach for another kind only when that kind is plainly better:
-- **draw** — a composed drawing, made of boxes, ellipses, freehand strokes, arrows, hatching, scattered dots and written labels, placed one by one by an illustrator who reads your \`describe\` and nothing else. It can draw anything: a battery cut open, a chloroplast, a wire looping through a bulb, a ship heading for the rocks, two things side by side with an arrow between them. It is free, it is drawn in the same hand as the rest of the board, and it can spell — so it labels its own parts. Write \`describe\` as the picture you want, in the detail you would use telling a person what to put on a whiteboard: what the parts are, where they sit relative to each other, what crosses what, what is inside what. Say the RELATION, because the relation is what teaches: "two flat stacks facing each other across a narrow gap, a plus charge crossing the gap freely, an electron turned back at it and going the long way round through a wire and a bulb" is a drawing instruction. "A battery" is not.
-${opts.illustrations ? UNDERLAY_ADVICE : ''}- **plot** — anything with axes. Say which shape and which overlays: **bowl**/**parabola**/**loss curve**; **tangent** at a point; **steps** of descent; **two wells** or **local minimum** for a second, shallower valley; **three plots** comparing **too small**, **too large** and **about right**; **sigmoid**; **bell curve**; **exponential**; **logarithm**; **sine wave**; **threshold**; **straight line**; **overfitting** (training versus unseen data); **supply and demand**.
+- **draw** — a composed drawing, made of boxes, ellipses, freehand strokes, arrows, hatching, scattered dots and written labels, placed one by one by an illustrator who reads your \`describe\` and nothing else.${opts.illustrations ? UNDERLAY_LEAD : ''} It can compose anything you can build out of marks: a battery cut open, a chloroplast, a wire looping through a bulb, a ship heading for the rocks, two things side by side with an arrow between them. It is free, it is drawn in the same hand as the rest of the board, and it can spell — so it labels its own parts. Write \`describe\` as the picture you want, in the detail you would use telling a person what to put on a whiteboard: what the parts are, where they sit relative to each other, what crosses what, what is inside what. Say the RELATION, because the relation is what teaches: "two flat stacks facing each other across a narrow gap, a plus charge crossing the gap freely, an electron turned back at it and going the long way round through a wire and a bulb" is a drawing instruction. "A battery" is not.
+${opts.illustrations ? UNDERLAY_KINDS : ''}- **plot** — anything with axes. Say which shape and which overlays: **bowl**/**parabola**/**loss curve**; **tangent** at a point; **steps** of descent; **two wells** or **local minimum** for a second, shallower valley; **three plots** comparing **too small**, **too large** and **about right**; **sigmoid**; **bell curve**; **exponential**; **logarithm**; **sine wave**; **threshold**; **straight line**; **overfitting** (training versus unseen data); **supply and demand**.
   Those named shapes are the ones it knows how to build; a plot that names none of them, and no quantity varying against anything, is not drawn as axes at all — it is handed to whichever lane can draw what you described. Put the numbers in the describe text and the drawn picture will be built from them: "w = 3, slope = +4, learning rate 0.1" derives a curve whose slope at w really is +4, and the drawn steps come from running the algorithm on it. Give real numbers whenever the beat has any.
 - **path** — freeform ink with no axes, and it can draw EXACTLY SIX THINGS: a **hillside**, a **bowl** (a valley, a basin), a container **blob**, a stick **figure**, **fog**, and **steps** down a slope. That list is not an example, it is the whole implementation. There is no seventh shape: this lane cannot draw a battery, a ship, a cell, a wire, a stack of layers or a cross-section of anything, and asking it for one gets you the drawing of that thing from another lane at best. Use \`path\` when the picture in your head really is terrain, a container, a person, fog or a walk downhill. Otherwise do not.
 - **motion** — something that moves. Pair it with a plot in the same beat and the moving thing follows that curve.

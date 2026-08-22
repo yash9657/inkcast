@@ -96,18 +96,46 @@ export type CostInputs = {
   narratedChars: number;
   /** Assets synthesised by a cloud image model this run. */
   generatedAssets: number;
+  /**
+   * Did the lesson stage actually reach the model **this run**?
+   *
+   * The voice line has had `narratedChars > 0` under it since `b829d98`; the lesson
+   * line had nothing, and the difference is measurable on disk.
+   * `projects/cardiac/pipeline.json` lists `lesson` in its own `skipped` array and
+   * books `$0.2567` against `anthropic/claude-opus-5` in the same file — 41% of that
+   * project's recorded `$0.627` for a request that was never sent, because the cached
+   * lesson was still 9,868 characters long when it was priced. A zero-network
+   * `rerender` is the same defect with the numbers rounded down: no source, no lesson,
+   * `~2000 in` tokens of imagined system prompt, `cost.usd = 0.01`.
+   *
+   * `false` is a statement that the stage did no work, and it wins over every other
+   * input. Absent means "not stated", and then the character guard below decides —
+   * so an older caller that cannot answer the question still cannot be billed for
+   * producing nothing.
+   */
+  lessonAuthored?: boolean;
 };
 
 export function costOf(sb: Storyboard, input: CostInputs): CostReport {
   const lines: CostLine[] = [];
   const { planner, voice, images } = input.providers;
 
-  if (planner.cloud) {
+  // The same rule as the voice line, one field over: a stage that did not run may not
+  // be billed, whatever the provider block says. Two guards, because the two ways this
+  // failed on disk are genuinely different. `lessonAuthored: false` is the caller
+  // stating that the stage was skipped — the `projects/cardiac` case, where the cached
+  // lesson is real text and its length is no evidence at all that anybody paid for it.
+  // Zero authored characters is the defensive floor under a caller that says nothing —
+  // the `rerender()` case, which passes `sourceChars: 0`, `storyboardChars: 0` and no
+  // lesson, and was charged a cent for the system prompt it never sent.
+  const authoredChars = input.lessonChars ?? input.storyboardChars;
+  const lessonRan = input.lessonAuthored !== false && authoredChars > 0;
+  if (planner.cloud && lessonRan) {
     const model = planner.model ?? 'claude-opus-5';
     const price = PRICES.anthropic[model] ?? { in: 5, out: 25 };
     // The planner also sends a system prompt and the JSON schema; ~2k tokens.
     const inTok = input.sourceChars / CHARS_PER_TOKEN + 2000;
-    const outTok = (input.lessonChars ?? input.storyboardChars) / CHARS_PER_TOKEN;
+    const outTok = authoredChars / CHARS_PER_TOKEN;
     const usd = (inTok / 1e6) * price.in + (outTok / 1e6) * price.out;
     lines.push({
       // The lesson stage is where the model actually runs; the storyboard stage

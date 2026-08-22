@@ -14,6 +14,7 @@ import {
   boardMetrics,
   contentFill,
   elementBounds,
+  fitCamera,
   resolveFraming,
   safeInsets,
   unitsPerPixel,
@@ -386,6 +387,51 @@ test('a tall region walks the canvas instead of shrinking its own ink', () => {
   // The oldest ink is what scrolls away, not the newest.
   const lastTarget = framing.at(-1)!.target!;
   assert.ok(lastTarget.y > 200, 'the walk window drops the top of the board');
+
+  // And the ink that scrolled away stops counting as fill. This is the shot the
+  // clipping correction in `contentFill` exists for: a window onto something larger
+  // used to be credited with every box on the board, whether or not the camera was
+  // pointed at it, so it scored best at the exact moment it showed least — the
+  // flattery that made "clamp minimum content fill" (PLAN-LAUNCH A4.3) unreadable as a
+  // floor. The extreme case measured was `longitude` at the `short` preset, whose recap
+  // reported a perfect 100% while holding a six-beat board inside one phone frame; that
+  // is a planner-level lesson and not reachable from this package, so what is pinned
+  // here is the mechanism rather than that number. The walk has just been asserted to
+  // drop the top of the board, so ink is provably off screen, and the clipped measure
+  // must therefore come in strictly under the measure that ignores the frame. Asserting
+  // the mechanism is the durable half anyway: the 100% only appears once enough of the
+  // board is off screen, and a fixture tuned to reach it would pin the arithmetic of
+  // this fixture instead of the rule.
+  const walked = framing.at(-1)!;
+  const view = views.at(-1)!;
+  const unclipped = walked.visible.reduce((a, r) => a + r.w * r.h, 0) / (view.w * view.h);
+  const fill = contentFill(framing, stacked.canvas, vFrame).at(-1)!;
+  assert.ok(
+    fill < unclipped,
+    `the scrolled-away ink still counts: ${fill} against ${unclipped.toFixed(2)} unclipped`,
+  );
+  assert.ok(fill < 0.8, `fill counts only what is on screen, got ${fill}`);
+  assert.ok(fill > 0.2, `and it does count what is on screen, got ${fill}`);
+});
+
+test('no derived shot is tighter than its own fit, so a fill clamp would have to crop', () => {
+  // The measurement PLAN-LAUNCH A4.3's "clamp minimum content fill at 55%" died on, kept
+  // as a test because the next person to want that clamp will reach for a crop. Every
+  // derived camera here is already the tight fit of what it holds — the resolved zoom is
+  // never *above* `fitCamera`'s — so the only frame left to reclaim belongs to the safe
+  // area or to the paper between an authored beat's own marks. Raising fill past that
+  // means cutting ink out of the shot, which is the one thing this file never does.
+  const insets = { '16:9': safeInsets('16:9', FRAME) };
+  for (const sb of [lessonStoryboard(), wipeStoryboard(), board({ region: 'board', beats: 6 })]) {
+    for (const [i, f] of resolveFraming(sb, FRAME).entries()) {
+      if (!f.derived || f.target === null) continue;
+      const tight = fitCamera(f.target, sb.canvas, FRAME, insets['16:9']).zoom;
+      assert.ok(
+        f.camera.zoom <= tight + 1e-9,
+        `scene ${i} was framed at ${f.camera.zoom} against a tight fit of ${tight}`,
+      );
+    }
+  }
 });
 
 test('the unit scale follows the resolved camera, not the authored one', () => {

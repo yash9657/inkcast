@@ -1,0 +1,58 @@
+{
+  "$comment": [
+    "The inkcast mark, as numbers. This file is the record of the geometry across a",
+    "package boundary: apps/web draws it from the `MARK` const in",
+    "apps/web/components/marketing/logo.tsx, the favicon/apple-icon/OG rasters are cut",
+    "from it by ./make-brand-assets.mjs, and the video brand plate in packages/render",
+    "draws it into the last 1.2s of every film. Three consumers, two of which cannot",
+    "import a .tsx file, which is why the numbers live here as JSON as well.",
+    "make-brand-assets.mjs asserts that logo.tsx still contains the same path strings",
+    "and fails loudly if it does not, so the duplication cannot drift silently.",
+    "Coordinates are in a 32-unit box. See ./README.md for what the shapes mean and",
+    "docs/DESIGN.md for the tokens the colours come from."
+  ],
+  "viewBox": "0 0 32 32",
+  "viewBoxCropped": "0.4 0.4 27.2 27.2",
+  "shadow": { "x": 5, "y": 5, "size": 26 },
+  "tile": { "x": 2, "y": 2, "size": 24, "strokeWidth": 2 },
+  "strokePath": "M6.2 22.9Q9.6 17.2 19.4 10.7",
+  "strokeWidth": 3.3,
+  "strokeLinecap": "round",
+  "nibPath": "M24.3 10.5 18.05 15.83 16.35 6.37Z",
+  "roles": {
+    "shadow": "fill: --primary (cast violet)",
+    "tile": "fill: --card, stroke: --border (ink on paper, paper on ink)",
+    "strokePath": "stroke: --primary, no fill",
+    "nibPath": "fill: --primary, no stroke"
+  },
+  "tokens": {
+    "$comment": [
+      "The OKLCH values of the tokens the mark uses, copied from",
+      "apps/web/app/globals.css. The generator converts these to sRGB hex itself",
+      "rather than carrying hand-typed hexes: a favicon has no token layer, so the",
+      "assets must contain literal colours, but nobody should be typing them.",
+      "If a token moves in globals.css, move it here and re-run the generator."
+    ],
+    "light": {
+      "background": "oklch(0.995 0.004 95)",
+      "card": "oklch(1 0 0)",
+      "border": "oklch(0.17 0.01 285)",
+      "foreground": "oklch(0.17 0.01 285)",
+      "mutedForeground": "oklch(0.47 0.016 285)",
+      "primary": "oklch(0.51 0.23 277)",
+      "highlighter": "oklch(0.9 0.16 95)",
+      "gridDot": "oklch(0.88 0.005 95)"
+    },
+    "dark": {
+      "background": "oklch(0.16 0.01 285)",
+      "card": "oklch(0.198 0.012 285)",
+      "border": "oklch(0.93 0.006 285)",
+      "foreground": "oklch(0.955 0.008 285)",
+      "mutedForeground": "oklch(0.73 0.016 285)",
+      "primary": "oklch(0.68 0.19 277)",
+      "highlighter": "oklch(0.86 0.17 95)",
+      "gridDot": "oklch(1 0 0 / 0.06)"
+    }
+  },
+  "gridSize": 24
+}

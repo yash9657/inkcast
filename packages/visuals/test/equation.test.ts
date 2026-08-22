@@ -167,10 +167,35 @@ test('unusable source falls back rather than drawing nothing', async () => {
   // or returning empty geometry would lose the beat instead.
   assert.equal(await resolve(''), undefined);
   assert.equal(await resolve('   '), undefined);
-  const broken = await resolve('\\frac{1}{');
-  if (broken) {
-    // MathJax may typeset an error indicator instead of failing; either is fine, so
-    // long as it is finite geometry and not a crash.
-    for (const d of ds(broken)) assert.ok(!/NaN|Infinity/.test(d));
+});
+
+test('malformed TeX is refused, not drawn as a filled bar', async () => {
+  // The version of this test that shipped said "MathJax may typeset an error indicator
+  // instead of failing; either is fine, so long as it is finite geometry" — and it was
+  // not fine. MathJax does not throw on bad TeX: it sets an `merror`, which in SVG is a
+  // `<rect data-background="true">` as wide as its message plus a `<text>` this lane does
+  // not read. So each of these resolved to exactly ONE mark, a filled rectangle spanning
+  // the whole box, and the old assertion passed because a rectangle has no NaN in it.
+  // Measured before the fix: `\frav{a}{b}` gave `M4 114.65 L596 114.65 L596 85.35 L4
+  // 85.35 Z`, filled, 592x29 units of solid ink where an equation belonged.
+  //
+  // `\tfrac` is the case that makes this more than a typo guard: it is real TeX that a
+  // maths author would reasonably write, and it fails here only because this lane loads
+  // MathJax's `base` package alone. That has to be a warning a human can read, not a bar.
+  for (const tex of ['\\frav{a}{b}', '\\frac{1}{', '\\int_0^1 x^2\\,dx = \\tfrac{1}{3}']) {
+    assert.equal(await resolve(tex), undefined, `${tex} typeset to something`);
   }
+  // And the good neighbour of each still sets, so the guard is not simply refusing maths.
+  const good = await resolve('\\int_0^1 x^2\\,dx = \\frac{1}{3}');
+  assert.ok(good && good.layout.marks >= 8, 'a valid integral no longer typesets');
+});
+
+test('a rectangle is never the whole of an equation', async () => {
+  // The shape of the failure above, as a property rather than a list of three strings: an
+  // equation made of one flat filled box is an error indicator, whatever produced it.
+  const r = await resolve('\\frac{a}{b} + c');
+  assert.ok(r);
+  const boxes = ds(r).map((d) => pathBBox(d));
+  const wide = boxes.filter((b) => b.w > r.layout.bounds.w * 0.9);
+  assert.equal(wide.length, 0, 'a mark spans the whole equation — that is an error bar');
 });

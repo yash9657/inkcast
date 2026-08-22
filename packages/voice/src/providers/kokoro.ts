@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from '@inkcast/core';
 import { clipWavFromFloat32 } from '../wav.js';
+import { voiceMood } from '../moods.js';
 import { splitSentences } from '../text.js';
 import { TEACHING_VOICE, voiceProfile } from '../voices.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
@@ -275,6 +276,15 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
 
     async resolveVoice(requested: string) {
       if ((KOKORO_VOICES as readonly string[]).includes(requested)) return requested;
+      // A mood names its own local twin, and that twin is the whole point of the
+      // catalogue: a run that asked for "Warm" and fell back to here gets the voice
+      // chosen to stand in for Warm, not the global teaching default. Without this the
+      // warning below fired on every mood id and every film sounded the same.
+      const mood = voiceMood(requested);
+      if (mood) {
+        log.info(`mood "${mood.label}" → Kokoro ${mood.kokoro}`);
+        return mood.kokoro;
+      }
       log.warn(
         `voice "${requested}" is not a Kokoro voice — falling back to ${KOKORO_DEFAULT_VOICE}`,
       );

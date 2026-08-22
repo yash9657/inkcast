@@ -5,11 +5,17 @@
  * builders fill them in explicitly so the planner always produces fully-formed
  * elements (and so `Storyboard.parse` is a validation step, not a repair step).
  *
- * `at` boxes are *measured*: the planner knows how big a piece of text is at its
- * own type scale, which is what makes collision-free layout possible. The
+ * `at` boxes are *measured*: the planner knows how big a piece of text is at the
+ * board's type scale, which is what makes collision-free layout possible. The
  * renderer owns the exact typeface, so it should fit text to the box rather than
  * assume a font size.
+ *
+ * "The board's type scale" and not "its own" — that distinction is defect 0. The
+ * planner had its own catalogue of type sizes and it disagreed with the one the renderer
+ * draws at, so a box measured here was not the box the letters landed in. `FONT` below
+ * is now `TYPE_SCALE` from `@inkcast/core`, and its comment carries the measurement.
  */
+import { TYPE_SCALE } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -38,17 +44,64 @@ export type Point = ArrowElement['from'];
 type Z = { x: number; y: number };
 type Role = TextElement['role'];
 
-/** Canvas units per role. Matches the renderer's type scale by convention. */
-export const FONT: Record<Role, number> = {
-  title: 76,
-  heading: 50,
-  body: 34,
-  label: 27,
-  caption: 22,
-};
+/**
+ * Canvas units per role — `TYPE_SCALE` from `@inkcast/core`, not a second catalogue.
+ *
+ * It used to be one: `{title: 76, heading: 50, body: 34, label: 27, caption: 22}`, said
+ * to match the renderer "by convention", and it did not. The renderer draws at
+ * `TYPE_SCALE` (96/62/42/32/26), so every box the planner reserved was 18–26% too small
+ * for the letters that would land in it, and `docs/HANDOFF.md` ranks the consequence as
+ * defect 0 — the thing a viewer notices first. Deriving it here rather than restating it
+ * is the whole fix: there is now one number, in the package both stages already import,
+ * and a change to it cannot reach one side and not the other.
+ *
+ * ## Why the pixel catalogue is also the right canvas-unit estimate
+ *
+ * `TYPE_SCALE` is quoted in output pixels and this is canvas units, which sounds like a
+ * unit error and is the reason the two were allowed to differ. It is not one, because
+ * the conversion factor is `scale * gain` from `boardMetrics` and that was measured
+ * rather than assumed. Over the six boards in the repository — `projects/try`,
+ * `projects/cardiac8f`, and `gradient-descent` and `longitude` at both presets — it runs
+ * 0.511, 0.948, 0.967, 0.986, 1.660, 1.667, with a **median of 0.98**. So the pixel
+ * number is, to within 2%, the best canvas-unit estimate that can be made before the
+ * camera exists, and no constant fudge factor could do better: the spread is a factor of
+ * three and it is the camera's, not the typeface's.
+ *
+ * What that leaves is the residual, and the residual is the honest remaining defect.
+ * A board framed tighter than the median (`gradient-descent` at 0.51) reserves boxes
+ * roughly twice as large as the letters need, which costs whitespace; a 9:16 short at
+ * 1.66 reserves half of what they need, and there the renderer's shrink-to-fit still has
+ * to rescue the string. Closing that needs the fixed point `docs/PLAN-LAUNCH.md` A7
+ * describes — measure, frame, re-measure with the framing in hand — which is a second
+ * pass over a compiled storyboard and belongs to the compiler, not to a constant. What
+ * this file can promise is that the estimate is now centred on the truth instead of
+ * being 20% below all of it.
+ *
+ * Measured effect, with the renderer's own wrap run against the real handwriting metrics
+ * over all six boards: 169 of 216 text prims had to be shrunk below the size their role
+ * asked for, at a mean of 83% of it, and every heading in `cardiac8f` was drawn at 72%.
+ */
+export const FONT: Record<Role, number> = { ...TYPE_SCALE };
 
 const LINE_HEIGHT = 1.34;
-/** Mean glyph advance as a fraction of the font size, for Latin prose. */
+/**
+ * Mean glyph advance as a fraction of the font size, for Latin prose.
+ *
+ * Measured, not guessed, and it survives the measurement: over the 189 real strings in
+ * the six boards above, typeset by the board's own hand at the size it draws them, the
+ * per-string mean advance runs p10 0.459, **p50 0.504**, p90 0.596, p99 0.660. So 0.52
+ * is an honest mean and this is not where the clipping came from.
+ *
+ * That matters for `LABEL_SLACK` in `./draw-geom.ts`, which widens a label's measured box
+ * by half again on the stated grounds that "the estimate is always the narrow one". It is
+ * not always the narrow one — it is the narrow one for a little over half of strings, and
+ * the widest string in the corpus is 0.660/0.520 = **1.27x** the estimate, not 1.5x. With
+ * the size gap above closed, 1.5 over-reserves every label's width by at least 18% and
+ * the median label's by 55%, which the drawing lane pays for in labels shoved out of the
+ * picture they name. The re-derived value is 1.27; it cannot be applied here, because
+ * `labelFootprint` and the builder in `./drawing.ts` have to reserve the identical box
+ * (see the header of `labelFootprint` for what happened the last time they disagreed).
+ */
 const ADVANCE = 0.52;
 
 export function charWidth(role: Role): number {

@@ -10,20 +10,28 @@
  * heading for the rocks came out as a hillside because nothing matched at all. Adding
  * entries does not fix that — it is the wrong axis. A topic space cannot be enumerated.
  *
- * A *mark* space can. Eight marks — box, ellipse, line, freehand stroke, arrow, written
- * label, hatching, scattered dots — compose into any whiteboard drawing anyone has ever
- * made, and the author (see `./draw-anthropic.ts`) does the composing. Nothing in this
- * file knows what a chloroplast is, and that is the point.
+ * A *mark* space can. Nine marks — box, ellipse, line, freehand stroke, arrow, written
+ * label, hatching, scattered dots, typeset mathematics — compose into any whiteboard
+ * drawing anyone has ever made, and the author (see `./draw-anthropic.ts`) does the
+ * composing. Nothing in this file knows what a chloroplast is, and that is the point.
  *
  * ## Why the output is ordinary elements
  *
- * A mark becomes a `PathElement`, `ShapeElement`, `ArrowElement` or `TextElement` — the
- * same elements the compiler has always emitted. So a drawing is not a new rendering
- * path: the visuals stage roughens it, the voice stage cues it, the renderer reveals it
- * stroke by stroke, the camera frames it, `persist` keeps it on the board. All of that is
- * inherited rather than rebuilt, and every element carries the part's own name — so
- * `b3_v0_left-stack` can be cued to the words "the left stack", highlighted later, or
- * moved, which is exactly what a generated raster can never offer.
+ * A mark becomes a `PathElement`, `ShapeElement`, `ArrowElement`, `TextElement` or
+ * `EquationElement` — the same elements the compiler has always emitted. So a drawing is
+ * not a new rendering path: the visuals stage roughens it (and typesets it), the voice
+ * stage cues it, the renderer reveals it stroke by stroke, the camera frames it, `persist`
+ * keeps it on the board. All of that is inherited rather than rebuilt, and every element
+ * carries the part's own name — so `b3_v0_left-stack` can be cued to the words "the left
+ * stack", highlighted later, or moved, which is exactly what a generated raster can never
+ * offer.
+ *
+ * The `math` mark is the clearest case of that inheritance paying for itself. It compiles
+ * to the same `EquationElement` a worked example's update line has used since the equation
+ * lane was built, so the TeX is typeset by MathJax into exact glyph outlines, recorded in
+ * `assets/visuals.json`, and revealed by the page runtime one glyph at a time in the order
+ * the typesetter laid them out. Not one line of renderer or typesetter code was needed to
+ * put a derivative inside a drawing; what was missing was a way for the *author* to ask.
  *
  * ## The two things this file decides
  *
@@ -42,6 +50,8 @@ import { round } from './curves.js';
 import { cueMarks } from './draw-cues.js';
 import {
   ADRIFT,
+  ADVANCE,
+  LABEL_SIZE,
   LABEL_SLACK,
   TYPICAL_FIT,
   type Ink,
@@ -60,7 +70,7 @@ import {
   waypoints,
 } from './draw-geom.js';
 import type { Box, Point } from './elements.js';
-import { makeArrow, makeShape, makeText } from './elements.js';
+import { makeArrow, makeEquation, makeShape, makeText } from './elements.js';
 import { makePath } from './figures.js';
 
 const log = logger('planner:drawing');
@@ -131,6 +141,135 @@ const at = (fit: Fit, x: number, y: number): Point => ({
   x: round(fit.ox + x * fit.s, 2),
   y: round(fit.oy + y * fit.s, 2),
 });
+
+/* --------------------------------------------------------------------- maths */
+
+/**
+ * Width of one typeset symbol, as a fraction of the type size it is set at.
+ *
+ * Measured, not guessed. MathJax reports its own layout in units of 1000 to the em, and
+ * over five real lesson equations the drawn width comes out at 0.57–0.77 em per drawn mark
+ * (`E = mc^2` is 3.85 em wide for 5 marks; `2H₂ + O₂ → 2H₂O` is 8.14 em for 11;
+ * `\frac{dv}{dt} = -\frac{g}{L}\theta` is 5.15 em for 11). 0.75 is the wide end of that,
+ * because the number is only ever used to reserve a box and reserving slightly too much
+ * costs whitespace while reserving too little costs a collision.
+ *
+ * Notably wider than `ADVANCE`'s 0.52 for handwritten prose, which is the arithmetic
+ * reason a `label` carrying an equation was never going to be measured correctly: TeX puts
+ * real space around a relation and a binary operator, and prose does not.
+ */
+const MATH_ADVANCE = 0.75;
+
+/**
+ * Height of a line of maths, as a multiple of its type size.
+ *
+ * A flat expression measures 0.85–0.95 em tall and one containing a fraction 2.07–2.10 em
+ * (measured, same five). The tall case is the one to reserve for: the typesetter fits the
+ * notation inside this box *preserving its aspect*, so a box too tall for its contents
+ * letterboxes and costs nothing, while a box too short shrinks the glyphs.
+ */
+const MATH_HEIGHT = 2.2;
+
+/**
+ * Seconds per symbol, for how long an equation takes to write itself.
+ *
+ * The board's other marks enter in `enter.duration`'s default 0.8s, and that number was
+ * chosen for things that are one or two strokes. An equation is one element made of a
+ * dozen tiny filled outlines, and the page runtime divides the element's window between
+ * them by ink (`layoutAll` in `page/runtime.js`), so 0.8s spread over eleven glyphs is 73ms
+ * each — under two frames at 30fps, which is not a hand writing but a row of symbols
+ * flickering on. Nine hundredths of a second a symbol puts each glyph on screen for about
+ * three frames of being drawn, which is what the handwriting lane already spends per word.
+ */
+const MATH_GLYPH_SECONDS = 0.09;
+
+/**
+ * Roughly how many symbols this TeX will set — for measurement only, never for meaning.
+ *
+ * One character per control sequence, and braces, alignment marks, sub/superscript
+ * operators and spacing dropped: those are structure, not ink. Deliberately crude, and it
+ * can afford to be. It is used for two things, and both are forgiving in the same
+ * direction — the box an equation is *reserved* (the typesetter fits inside it preserving
+ * aspect, so an over-estimate is whitespace) and how long it takes to draw (an
+ * over-estimate is a slower, more legible reveal). It is never used to place a glyph.
+ *
+ * Checked against MathJax's own count on five lesson equations: exact on two, one short on
+ * `E = mc^2`, four long on a chemical equation full of `\mathrm` (which sets no ink of its
+ * own). `elements.ts`'s `texAsGlyphs` does the same job for the *text* metric of a worked
+ * example's update line; the two are not shared because they answer to different
+ * measurements — that one feeds handwriting metrics, this one feeds MathJax's em.
+ */
+function mathSymbols(tex: string): number {
+  const flat = tex.replace(/\\[a-zA-Z]+/g, 'x').replace(/[{}&\\^_$\s,]/g, '');
+  return Math.max(1, flat.length);
+}
+
+/**
+ * How long this equation spends being written, in seconds.
+ *
+ * Bounded at both ends: a two-symbol equation still gets long enough to read as drawn
+ * rather than blinked, and a long one is not allowed to spend the whole beat on itself —
+ * `itemsFor` in the renderer clamps a duration to the room left in the scene anyway, and an
+ * element that fills its beat leaves the marks after it nowhere to go.
+ */
+function mathDuration(tex: string): number {
+  return Math.min(2.6, Math.max(0.9, 0.3 + mathSymbols(tex) * MATH_GLYPH_SECONDS));
+}
+
+/**
+ * A `math` mark with the box it will be typeset into, filled in if the author left it out.
+ *
+ * `math` is a box-shaped kind — `x`,`y` is its top-left corner, exactly as for `rect` and
+ * `hatch` — so `markBounds` needs no knowledge of it and the fit, the repair and the audit
+ * all measure an equation without a special case. An author that omits the box gets one
+ * derived from `size` and the length of the TeX rather than having the mark dropped, which
+ * is the difference between "the equation is where I asked for it, sized as the board saw
+ * fit" and a blank space where the maths was supposed to be.
+ *
+ * **Idempotent, and that is load-bearing.** `prepareMarks` promises to be, because the
+ * audit, the preview shown to the correcting model and the builder all run it over marks
+ * that may already have been through it. So this only ever *fills* `w`/`h` and never moves
+ * `x`/`y`: a normalisation that recentred the box would walk the equation half its own
+ * width across the canvas every time something asked what the drawing looks like.
+ */
+function withMathBox(m: Mark): Mark {
+  if (m.kind !== 'math' || (m.w !== undefined && m.h !== undefined)) return m;
+  const size = m.size ?? LABEL_SIZE;
+  return {
+    ...m,
+    w: m.w ?? Math.max(size, Math.round(mathSymbols(m.tex ?? '') * size * MATH_ADVANCE)),
+    h: m.h ?? Math.round(size * MATH_HEIGHT),
+  };
+}
+
+/**
+ * An equation as ink a name may not be written across.
+ *
+ * The same judgement `underlayInk` makes, for the same reason and against the same
+ * counter-example. Our hatching is deliberately *writable-on* — the version of the audit
+ * that treated it as an obstacle moved `N` and `S` out of a bar magnet and into the field
+ * lines, which is worse — but that argument is about a light wash behind a word. Typeset
+ * mathematics is not a wash: a fraction has a rule straight through the middle of its box
+ * and the glyphs are filled outlines at the density of print, so a part name written on top
+ * of one is unreadable, and worse, it is unreadable in the one place on the board where a
+ * learner cannot guess what was meant.
+ *
+ * It lives here rather than in `markInk` because `markInk` answers `undefined` for a kind
+ * it does not know, which makes an unhandled kind invisible to the repair rather than
+ * visibly wrong. The repair below is the caller that must not be blind to an equation, so
+ * this is next to it; `draw-audit.ts` builds its own ink list from `inkOf` and therefore
+ * still cannot see one.
+ */
+export function mathInk(m: Mark): Ink | undefined {
+  if (m.kind !== 'math') return undefined;
+  const b = markBounds(withMathBox(m));
+  return b ? { id: m.id, kind: 'math', segs: [], solid: b } : undefined;
+}
+
+/** The ink of every `math` mark in a drawing, which `inkOf` does not report. */
+function mathInkOf(marks: Mark[]): Ink[] {
+  return marks.map(mathInk).filter((i): i is Ink => i !== undefined);
+}
 
 /* -------------------------------------------------------------------- repair */
 
@@ -212,8 +351,11 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
   // The generated picture counts as ink, and as the one kind that cannot be written on.
   // Without it a name landing in the middle of the organ scores as free space and is left
   // exactly where it was — `inkOf` knows about marks and nothing else. See `underlayInk`.
+  // A typeset equation is the other kind of ink `inkOf` cannot report — `markInk` has no
+  // case for `math`, so an equation would be free space to write across. See `mathInk`.
   const ink: Ink[] = [
     ...(underlay ? [underlayInk(underlay)] : []),
+    ...mathInkOf(marks),
     ...inkOf(marks.filter((m) => m.kind !== 'label')),
   ];
   const placed: Box[] = [];
@@ -333,12 +475,24 @@ function isTitle(m: Mark, canvas: Box | undefined): boolean {
 
 /** Marks worth drawing: real geometry, no self-titling, no duplicates, capped. */
 export function cleanMarks(marks: Mark[]): Mark[] {
-  const canvas = contentBounds(marks);
+  const canvas = contentBounds(marks.map(withMathBox));
   const seen = new Set<string>();
   const out: Mark[] = [];
-  for (const m of marks) {
+  for (const raw of marks) {
+    // An equation gets the box it will be typeset into before anything measures it, so
+    // every consumer downstream of here — the fit, the repair, the audit, the builder —
+    // sees one box and not four opinions about how wide a fraction is.
+    const m = withMathBox(raw);
     if (markBounds(m) === undefined) continue;
     if (m.kind === 'label' && !(m.text ?? '').trim()) continue;
+    if (m.kind === 'math' && !(m.tex ?? '').trim()) {
+      // Said out loud, and it is the only drop in this function that is. An author asking
+      // for notation and getting empty space is precisely the silent degradation this lane
+      // keeps paying for: a `label` with no text is a mark that was never going to say
+      // anything, but a `math` with no `tex` is a beat whose whole point was the equation.
+      log.warn(`math mark "${m.id}" carries no tex — dropping it; the board draws nothing`);
+      continue;
+    }
     if (isTitle(m, canvas)) {
       log.debug(`dropped the drawing's own title: "${m.text}"`);
       continue;
@@ -446,6 +600,28 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
         w: el.at.w,
         h: el.at.h,
       };
+      return [el];
+    }
+    case 'math': {
+      const tex = (m.tex ?? '').trim();
+      const b = markBounds(withMathBox(m));
+      if (!tex || !b) return [];
+      // The box is everything this branch decides. `resolveEquation` in the visuals stage
+      // typesets the TeX and fits the result inside `at` preserving its aspect, centred —
+      // so the size of the glyphs is a consequence of the box the author reserved and the
+      // shape of the notation, and nothing here has to know how wide a `\partial` is. The
+      // measured box `makeEquation` computes from the source is discarded for that reason:
+      // it estimates handwriting metrics, and this element is not handwritten.
+      //
+      // `display: true` always. Inline style tucks a sum's limits beside the sigma to fit
+      // in running text, and there is no running text on a whiteboard — the maths is the
+      // thing being looked at, so it is set the way it would be on a blackboard.
+      const el = makeEquation(id, tex, roleFor((m.size ?? LABEL_SIZE) * fit.s), {
+        align: 'center',
+        display: true,
+        enter: { duration: mathDuration(tex) },
+      });
+      el.at = boxAt(fit, b);
       return [el];
     }
     case 'hatch': {

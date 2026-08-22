@@ -8,6 +8,8 @@ import {
   fitCanvas,
   fitDrawing,
   markBounds,
+  mathInk,
+  prepareMarks,
   repairLabels,
   MAX_MARKS,
 } from '../src/drawing.js';
@@ -440,4 +442,144 @@ test('a stroke keeps its corners when it is not smooth, and loses them when it i
   const [curved] = buildDrawing([{ ...zig, smooth: true }], { id: 'b', box: BOX });
   assert.ok(curved && curved.type === 'path');
   assert.ok((curved.points?.length ?? 0) >= 4, 'a smooth stroke lost its waypoints');
+});
+
+/* ---------------------------------------------------------------------- maths */
+
+/** A drawing that needs notation: a pendulum, and the law that governs it. */
+const PENDULUM: Mark[] = [
+  mark({ id: 'pivot', kind: 'ellipse', x: 470, y: 40, w: 30, h: 30 }),
+  mark({
+    id: 'rod',
+    kind: 'line',
+    points: [
+      [485, 55],
+      [620, 300],
+    ],
+  }),
+  mark({ id: 'bob', kind: 'ellipse', x: 590, y: 300, w: 60, h: 60 }),
+  mark({
+    id: 'restoring-law',
+    kind: 'math',
+    x: 80,
+    y: 380,
+    w: 380,
+    h: 90,
+    tex: '\\frac{d^2\\theta}{dt^2} = -\\frac{g}{L}\\theta',
+  }),
+];
+
+test('a math mark becomes an equation element carrying its TeX, in the box it was given', () => {
+  const els = buildDrawing(PENDULUM, { id: 'b4_v0', box: BOX });
+  const eq = els.find((e) => e.type === 'equation');
+  assert.ok(eq && eq.type === 'equation', 'the math mark did not reach the board');
+  // The point of the whole lane: real TeX, in the element the typesetter already knows how
+  // to set, with the part's own name on it so a later beat can circle it.
+  assert.equal(eq.tex, '\\frac{d^2\\theta}{dt^2} = -\\frac{g}{L}\\theta');
+  assert.equal(eq.id, 'b4_v0_restoring-law');
+  // Display style: a whiteboard has no running text for an inline setting to sit in.
+  assert.equal(eq.display, true);
+  // Boxed where the author placed it, scaled by the same fit as every other mark — so the
+  // equation cannot drift away from the picture it annotates.
+  const { s, ox, oy } = fitDrawing(cleanMarks(PENDULUM), BOX);
+  assert.ok(Math.abs(eq.at.x - (ox + 80 * s)) < 0.05, `x ${eq.at.x} is not the fitted box`);
+  assert.ok(Math.abs(eq.at.y - (oy + 380 * s)) < 0.05, `y ${eq.at.y} is not the fitted box`);
+  assert.ok(Math.abs(eq.at.w - 380 * s) < 0.05 && Math.abs(eq.at.h - 90 * s) < 0.05);
+  // Inside the cell, like everything else the drawing puts on the board.
+  assert.ok(eq.at.x >= BOX.x - 1 && eq.at.x + eq.at.w <= BOX.x + BOX.w + 1);
+});
+
+test('an equation writes itself for longer than a stroke takes to draw', () => {
+  // The page runtime divides an item's window between its parts by ink, so an equation of
+  // a dozen glyphs at the default 0.8s puts each symbol on screen for under two frames —
+  // which reads as type switching on, not as maths being written. It has to be paid for in
+  // time, and paid in proportion to how much notation there is.
+  const els = buildDrawing(PENDULUM, { id: 'b', box: BOX });
+  const eq = els.find((e) => e.type === 'equation');
+  const rod = els.find((e) => e.id === 'b_rod');
+  assert.ok(eq && rod);
+  assert.ok(
+    eq.enter.duration > rod.enter.duration,
+    `the equation draws in ${eq.enter.duration}s, the same as a single line`,
+  );
+  const short = buildDrawing(
+    [mark({ id: 'mass', kind: 'math', x: 80, y: 380, w: 200, h: 80, tex: 'E = mc^2' })],
+    { id: 'b', box: BOX },
+  );
+  const long = buildDrawing(
+    [
+      mark({
+        id: 'chem',
+        kind: 'math',
+        x: 80,
+        y: 380,
+        w: 600,
+        h: 80,
+        tex: '2\\mathrm{H}_2 + \\mathrm{O}_2 \\rightarrow 2\\mathrm{H}_2\\mathrm{O}',
+      }),
+    ],
+    { id: 'b', box: BOX },
+  );
+  assert.ok(
+    (long[0]?.enter.duration ?? 0) > (short[0]?.enter.duration ?? 0),
+    'a long equation is given no more time than a short one',
+  );
+  // And never so long that the equation eats the beat the rest of the drawing needs.
+  assert.ok((long[0]?.enter.duration ?? 0) <= 2.6);
+});
+
+test('an equation with no box is given one, and given the same one twice', () => {
+  // An author that omits `w`/`h` gets a derived box rather than a dropped mark — but the
+  // derivation has to be idempotent, because `prepareMarks` is run over marks that have
+  // already been through it (the audit, the critic's preview, then the builder). A
+  // normalisation that recentred the box would walk the equation across the canvas once
+  // per caller.
+  const loose = mark({ id: 'law', kind: 'math', x: 100, y: 200, size: 34, tex: 'F = ma' });
+  const once = cleanMarks([loose])[0];
+  assert.ok(once, 'a math mark without a box was dropped');
+  assert.ok((once.w ?? 0) > 0 && (once.h ?? 0) > 0, 'no box was derived');
+  assert.deepEqual(cleanMarks([once])[0], once, 'the derived box is not idempotent');
+  assert.deepEqual(prepareMarks(prepareMarks([loose]))[0], prepareMarks([loose])[0]);
+  // The box is a reservation the typesetter fits inside, so it has to be about the shape
+  // of the notation: six symbols at size 34 is a wide, short strip, not a square.
+  assert.ok((once.w ?? 0) > (once.h ?? 0), `${once.w}x${once.h} is not the shape of a line`);
+  // Still placed where the author put it — x,y is the top-left corner, as for `rect`.
+  assert.equal(once.x, 100);
+  assert.equal(once.y, 200);
+});
+
+test('a math mark with no tex is dropped loudly, not drawn as empty space', () => {
+  const dropped = cleanMarks([
+    mark({ id: 'kept', kind: 'rect', x: 0, y: 0, w: 100, h: 100 }),
+    mark({ id: 'blank', kind: 'math', x: 200, y: 200, w: 300, h: 80 }),
+    mark({ id: 'spaces', kind: 'math', x: 200, y: 300, w: 300, h: 80, tex: '   ' }),
+  ]);
+  assert.deepEqual(
+    dropped.map((m) => m.id),
+    ['kept'],
+  );
+});
+
+test('a name is moved off an equation, which the ink table cannot see on its own', () => {
+  // `markInk` has no case for `math`, so an equation is invisible to `inkOf` and a label
+  // dropped on top of one would score as sitting in clear space. Typeset glyphs are the
+  // densest ink on the board — a fraction has a rule straight through the middle of its
+  // box — so this is the one place a name must never land.
+  const drawing: Mark[] = [
+    mark({ id: 'law', kind: 'math', x: 300, y: 200, w: 400, h: 120, tex: 'F = ma' }),
+    mark({ id: 'note', kind: 'label', x: 500, y: 260, text: 'force', size: 28 }),
+  ];
+  const repaired = repairLabels(drawing, undefined, 1);
+  const note = repaired.find((m) => m.id === 'note');
+  assert.ok(note);
+  const box = labelFootprint(note, 1);
+  const overlap =
+    Math.max(0, Math.min(box.x + box.w, 700) - Math.max(box.x, 300)) *
+    Math.max(0, Math.min(box.y + box.h, 320) - Math.max(box.y, 200));
+  assert.equal(overlap, 0, `"force" is still written across the equation by ${overlap} units`);
+  // And it is the ink of the equation that says so, priced as a solid region.
+  const ink = mathInk(drawing[0] as Mark);
+  assert.ok(ink && ink.solid, 'an equation is not solid ink');
+  assert.deepEqual(ink.solid, { x: 300, y: 200, w: 400, h: 120 });
+  assert.equal(mathInk(drawing[1] as Mark), undefined, 'a label is not equation ink');
 });

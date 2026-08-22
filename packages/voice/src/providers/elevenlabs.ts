@@ -16,6 +16,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { logger } from '@inkcast/core';
+import { voiceMood } from '../moods.js';
 import { CLIP_SAMPLE_RATE, encodeWav } from '../wav.js';
 import type {
   SynthesisRequest,
@@ -61,6 +62,45 @@ export function elevenLabsModel(env: NodeJS.ProcessEnv = process.env): string {
 }
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
 const FALLBACK_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
+
+/* ------------------------------------------------------------------- pricing */
+
+/**
+ * What a credit costs, and how many credits a character costs.
+ *
+ * Here rather than only in `@inkcast/pipeline`'s `cost.ts` because the voice stage now
+ * returns what the film cost as part of its provenance, and it cannot ask the pipeline
+ * — that would be a cycle. The adapter is also the honest owner of the second number:
+ * credits-per-character is a property of the *engine*, and this file is the one that
+ * decides which engine speaks (`elevenLabsModel`). `cost.ts` still carries its own copy
+ * of the table for the pipeline's cost lines; the two must agree, and the intended end
+ * state is that it reads this one. Until then, changing a rate means changing both.
+ */
+export const ELEVENLABS_USD_PER_CREDIT = 0.00022;
+
+const CREDITS_PER_CHAR: Record<string, number> = {
+  eleven_multilingual_v2: 1,
+  eleven_turbo_v2_5: 0.5,
+  eleven_flash_v2_5: 0.5,
+};
+
+/**
+ * Credits one character costs on `model`, defaulting to the full rate.
+ *
+ * An unrecognised engine — `eleven_v3` today, whose per-character rate this repo has
+ * not confirmed — is billed at 1 credit rather than guessed at downwards. The wrong
+ * direction to fail is the cheap one: a table that silently discounts what it does not
+ * know under-states a real bill and nobody finds out until the invoice arrives.
+ */
+export function elevenLabsCreditsPerChar(model: string | undefined): number {
+  return (model === undefined ? undefined : CREDITS_PER_CHAR[model]) ?? 1;
+}
+
+/** List-price cost of `chars` characters spoken by `model`, in USD. */
+export function elevenLabsCostUsd(chars: number, model: string | undefined): number {
+  if (!(chars > 0)) return 0;
+  return chars * elevenLabsCreditsPerChar(model) * ELEVENLABS_USD_PER_CREDIT;
+}
 
 /**
  * Delivery, pinned per request rather than inherited from the voice.
@@ -319,6 +359,21 @@ export function createElevenLabsProvider(): VoiceProvider {
       const override = process.env.ELEVENLABS_VOICE_ID;
       if (override) return override;
       if (looksLikeVoiceId(requested)) return requested;
+
+      // A curated mood pins its ElevenLabs voice by id, so it resolves here and stops:
+      // no `/voices` call, no name matching, and no dependence on what the account
+      // happens to have in its library. That last part is the substantive fix — the
+      // path below resolves `af_heart` by *name preference* against whatever the key
+      // can see, so two accounts could cast the same lesson with two different voices
+      // and the record would look identical. See `moods.ts`.
+      const mood = voiceMood(requested);
+      if (mood) {
+        log.info(
+          `mood "${mood.label}" → ElevenLabs ${mood.elevenlabs.name} (${mood.elevenlabs.voiceId})` +
+            (mood.verified ? '' : ' · unheard: a human has not confirmed this voice yet'),
+        );
+        return mood.elevenlabs.voiceId;
+      }
 
       const list = await loadCatalogue();
       if (!list.length) return FALLBACK_VOICE_ID;

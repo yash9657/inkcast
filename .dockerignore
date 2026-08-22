@@ -1,0 +1,60 @@
+# What must never enter the build context, and why.
+#
+# The context is uploaded to the daemon before the first instruction runs, so
+# anything listed here is a straight saving on every build. Three of these
+# entries are correctness rather than speed:
+#
+#   node_modules/  — the host's tree is darwin/arm64 with native `.node` addons
+#     (onnxruntime-node, sharp, @neplex/vectorizer). Copying it into a
+#     linux/amd64 image produces a container that fails at the first require()
+#     with an ELF-class error, which reads as a code bug rather than a packaging
+#     one. The image installs its own from the lockfile instead.
+#   .models/       — 130 MB of ONNX weights that the image *fetches itself* (see
+#     the `weights` stage in the Dockerfile). Copying the host's copy would make
+#     the image reproducible only on a machine that had already run the pipeline.
+#   .env           — real API keys. They belong in the runtime environment, and
+#     `hydrate.ts`'s own header says why a key in the environment of a long-lived
+#     server is already the weaker of two options; baking one into a layer is
+#     worse again, because layers get pushed.
+#
+# `projects/` is here for size (481 MB on the development machine, 33 MB per
+# finished film) and because project directories are per-deployment state that
+# lives on a volume, never in an image.
+
+node_modules
+**/node_modules
+
+.git
+.gitignore
+.github
+
+.next
+**/.next
+dist
+**/dist
+out
+**/out
+*.tsbuildinfo
+
+.models
+projects
+renders
+.inkcast
+playwright-report
+test-results
+.pnpm-store
+
+.env
+.env.local
+.env*.local
+!.env.example
+
+*.log
+.DS_Store
+
+# Deployment descriptors are read by the host, not by the image.
+Dockerfile
+.dockerignore
+docker-compose.yml
+fly.toml
+Caddyfile

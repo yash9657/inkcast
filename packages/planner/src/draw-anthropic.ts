@@ -53,7 +53,15 @@ const log = logger('planner:drawing:anthropic');
 export const DEFAULT_DRAW_MODEL = 'claude-sonnet-5';
 
 const TOOL = 'emit_drawing';
-/** Bump when `DRAW_BRIEF` or the mark vocabulary changes: it is part of the cache key. */
+/**
+ * Bump when `DRAW_BRIEF` or the mark vocabulary changes: it is part of the cache key.
+ *
+ * It has not moved for `FIGURE_BRIEF`, and deliberately. Every brief is hashed into the
+ * key *by its text* (see `drawKey`), so a brief that did not exist before invalidates
+ * nothing that did — the machine's cached blank-board and form drawings are still every
+ * bit of work they always were. Bumping this would throw them all away to ship a lane
+ * that never used any of them.
+ */
 const BRIEF_VERSION = 'draw/v2';
 
 export function drawModel(opts?: { drawModel?: string }): string {
@@ -162,6 +170,99 @@ DRAW IN THE ORDER A PERSON WOULD: the pathway or structure first, then the parts
 
 10 to 20 marks. Fewer marks drawn bigger, every time. Emit the drawing by calling the ${TOOL} tool exactly once.`;
 
+/**
+ * Where a figure sits, resolved once so the brief and the box handed to the author cannot
+ * disagree. Pure arithmetic over `FIGURE_AREA`, so it is safe at module scope.
+ */
+const FIGURE_BOX = figureBox();
+
+/**
+ * The brief for marks composed on top of a **finished colour figure**.
+ *
+ * A third job, not a variation on the second. `UNDERLAY_BRIEF` annotates a *form*: a traced
+ * outline whose whole mechanism is still missing, so the marks carry the pathway, the parts
+ * and their relation, and the picture only supplies the shape. A figure arrives with the
+ * mechanism already in it — a cutaway, a cross-section, arrows in hue — and the one thing it
+ * cannot have is words, because the prompt that makes an image legible has to say "no text".
+ * So the marks shrink to almost nothing: names, and the leaders that reach them.
+ *
+ * ## What composing blind actually produced
+ *
+ * Until now this lane sent the author no picture at all, so it fell through to `DRAW_BRIEF`
+ * — "fill the canvas", "draw the structure and the relation", "10 to 25 marks" — and the
+ * compiler laid the result over a picture the author had never seen. Measured on
+ * `projects/cardiac8f`, across its three figure beats: 45 marks, of which **23 are a
+ * structure the figure already draws**. A 17-point `closed: true` `heart-outline` spanning
+ * x=290..710, drawn on a colour cutaway of a heart. Four `rect`s and two `hatch`es covering
+ * x=110..870, y=60..510 of another. Two ellipses over the atria and two closed strokes over
+ * the ventricles on a beat whose instruction, in full, was "Name the two upper chambers with
+ * a leader line to the word atria, and the two lower chambers with a leader to the word
+ * ventricles" — it was asked for four marks and it drew ten.
+ *
+ * Every prohibition below therefore names a mark that was really emitted, and the positive
+ * half of the brief is short because on this lane there is very little left to say.
+ *
+ * ## The margin is not where the names go, and this brief has to say so
+ *
+ * `UNDERLAY_BRIEF` can send every name to the clear board either side, because a form is
+ * given 620 of the canvas's 1000 units and leaves 190 on each flank. A figure claims 840, so
+ * the flanks are 80 units — narrower than one word at label size. Repeating the form's
+ * instruction here would send every name somewhere it cannot fit. What the figure has
+ * instead is its own white paper: these rasters are drawn on
+ * white, the board composites them with `multiply`, and white multiplied by the paper is the
+ * paper — so the pale regions of the picture *are* clear board, and the author can see
+ * exactly where they are. That is a place only a model looking at the picture can find,
+ * which is one more reason this lane could never have worked unseen.
+ */
+const FIGURE_BRIEF = `You are putting NAMES on a finished colour figure that is already on the board.
+
+THE ATTACHED IMAGE IS THE BOARD ITSELF, at exactly the size you are drawing on: ${DRAW_W} wide and ${DRAW_H} tall, x right, y DOWN, origin top-left. The figure occupies x=${Math.round(FIGURE_BOX.x)}..${Math.round(FIGURE_BOX.x + FIGURE_BOX.w)}, y=${Math.round(FIGURE_BOX.y)}..${Math.round(FIGURE_BOX.y + FIGURE_BOX.h)} of it. What you see at a point in that image is at that point on your canvas — so read every coordinate off the picture instead of deciding where a structure ought to be.
+
+STAY ON THE BOARD. Every x you emit is between 0 and ${DRAW_W}. Every y you emit is between 0 and ${DRAW_H}. **${DRAW_H}, not 1000** — the board is much wider than it is tall, and the commonest mistake here by far is running a leader or a name off the bottom. That includes every point of an arrow and the whole extent of a name, not just where it starts.
+
+THE FIGURE ALREADY TEACHES, and that is the whole difference between this job and drawing on a blank board. It is a cutaway, a cross-section, a system in colour: the chambers, the layers, the pathway, the flow arrows and the state are drawn already, in hue, at a fidelity marks cannot reach. What it does not have is a single word on it — the prompt that makes a figure legible has to say "no text" — so **you are the words**.
+
+SO DRAW ALMOST NOTHING. 3 to 8 marks, and most of them a name with its leader. Two or three names is a good figure. If the instruction you are given describes something the picture already shows — shading, a wave front, arrows through a valve, chambers in colour — then it is already shown: name it, do not draw it a second time.
+
+NEVER REDRAW THE SUBJECT. Its outline, its chambers, its layers, its internal pathway and its arrows are in the picture in front of you, drawn better than marks can draw them, and a mark that repeats one lands as ink across the thing it repeats. This is measured, not cautionary: on three beats of one shipped lesson, 23 of 45 marks were a second picture laid over the first, including a closed heart outline drawn on top of a heart.
+
+NEVER RING A STRUCTURE. A closed stroke or an ellipse drawn around a part of a colour figure is a loop across the picture, not a highlight — the ink is opaque and the part it circles is the part it hides. Point at a part with a short arrow coming in from outside it. An \`ellipse\` is only right when the part is one small feature sitting on pale paper and the ellipse is the size of that feature.
+
+NEVER SHADE. \`hatch\`, \`dots\` and a plain \`rect\` belong to a drawing composed from nothing. Over a picture that is already in colour they read as a grid drawn on top of it, which is exactly what four boxes and two hatched blocks over an anatomical cutaway looked like.
+
+THE MARKS YOU USE, and there are five:
+- label {x,y,text,size} — real handwriting, in the same hand as the rest of the board. x,y is the CENTRE of the words. size 26–32. One or two words: a phrase is a caption, and the beat already has a sentence written above the picture.
+- arrow {points:[[x,y],…]} — a line with a head on the LAST point. This is your leader: from the name, to the thing. Two points is straight; three bends it through the middle one.
+- line {points:[[x1,y1],[x2,y2]]} — one straight segment, for a leader that should not carry a head.
+- ellipse {x,y,w,h} — the ellipse inscribed in that box. For marking one small feature, at the size of that feature.
+- stroke {points:[[x,y],…], smooth?, closed?} — only for a pathway the figure does not already draw. If the figure draws it, leave it alone.
+
+Every mark also takes \`tone\`. The figure carries its own colour, so a mark in a third colour beside it is noise: leave \`tone\` out unless one mark genuinely has to be told apart from the others, and then \`accent\` for the one thing this beat is about.
+
+WHERE THE NAMES GO. There are only ${Math.round(FIGURE_BOX.x)} units of bare board on each side of the figure, which is narrower than one word — so the flanks are not where the names live. Look at the attached image and find the PALE PAPER inside the picture. Every one of these figures is drawn on white and the board multiplies the white away, so the light parts of the picture are clear board you can write on. Put each name on the palest space nearest the part it names and run a short leader in. Never write across the coloured structures themselves, and never write across another name.
+
+ID EVERY MARK BY WHAT IT IS — \`av-node\`, \`left-bundle-branch\`, \`apex\` — the part, not the shape. That id is how the narration finds this mark and writes it on the words that name it, so a mark called \`label-3\` is a mark nobody can cue.
+
+DRAW IN THE ORDER A PERSON WOULD: one part at a time, the leader and then the name it carries.
+
+Emit the drawing by calling the ${TOOL} tool exactly once.`;
+
+/**
+ * Which half of the hybrid lane a picture belongs to: a traced outline, or a colour figure.
+ *
+ * The same two words `Lesson`'s `underlay.kind` uses, because they have to mean the same
+ * thing on both sides of the stage — the author's choice travels from `lesson.json` to the
+ * brief the marks are composed under, and a lane that renamed it here would silently
+ * compose a form's marks for a figure.
+ */
+export type UnderlayKind = 'form' | 'figure';
+
+/** The brief marks are composed under, given what is already on the board. */
+function briefFor(underlay: boolean, kind: UnderlayKind | undefined): string {
+  if (!underlay) return DRAW_BRIEF;
+  return kind === 'figure' ? FIGURE_BRIEF : UNDERLAY_BRIEF;
+}
+
 /* ------------------------------------------------------------------- schema */
 
 /**
@@ -193,7 +294,7 @@ const DrawingSchema = z.object({
  * picture, so a second video about batteries reuses the first one's cross-section — free,
  * instant, and identical, which is the entity-consistency problem solving itself.
  */
-export function drawKey(instruction: string, underlay?: Uint8Array): string {
+export function drawKey(instruction: string, underlay?: Uint8Array, kind?: UnderlayKind): string {
   // The brief itself is in the key, not just its version number. Every word of it
   // changes what comes back — the canvas dimensions most of all — and a cache that
   // survived a brief change would serve drawings composed for a canvas that no longer
@@ -205,9 +306,15 @@ export function drawKey(instruction: string, underlay?: Uint8Array): string {
   // returns for the same words. Keying on the prompt alone would serve marks annotating a
   // picture nobody can see any more — which on the board looks exactly like the model being
   // bad at aiming, and is the one failure that would be diagnosed wrong.
+  //
+  // `briefFor` rather than a two-way choice, and hashing the brief's *text* is what makes
+  // the third lane free: `form` and the blank board resolve to the exact strings they
+  // always did, so every drawing already on this machine stays cached, and only a figure —
+  // which never had a picture in its key at all, because it was never shown one — gets a
+  // key it has not seen before.
   return hash(
     BRIEF_VERSION,
-    underlay ? UNDERLAY_BRIEF : DRAW_BRIEF,
+    briefFor(Boolean(underlay), kind),
     instruction.trim().toLowerCase(),
     underlay ? hash(Buffer.from(underlay).toString('base64')) : '',
   ).slice(0, 16);
@@ -278,11 +385,19 @@ export type DrawOneOptions = {
   preview?: DrawPreview;
   /**
    * The board this drawing is composed on top of: `png` is the generated subject already
-   * drawn, at canvas size, and `box` is where its ink sits in canvas units. Switches the
-   * author to `UNDERLAY_BRIEF`, sends the picture ahead of the instruction, and makes the
-   * picture an obstacle every name has to keep off. See `./underlay.ts`.
+   * drawn, at canvas size, and `box` is where it sits in canvas units. Sends the picture
+   * ahead of the instruction and makes it an obstacle every name has to keep off. See
+   * `./underlay.ts`.
+   *
+   * `kind` chooses the brief, and the two are different jobs rather than two settings —
+   * `form` marks carry the mechanism a traced outline lacks, `figure` marks carry only the
+   * names a finished colour picture cannot have. Absent means `form`, which is what keeps
+   * every drawing already cached on this machine cached: see `drawKey`. `box` is the
+   * measured ink box for a form and `figureBox()` for a figure, and either way it is the
+   * box the compiler will really place the picture at, because the author's aim and the
+   * picture's position are one number and not two.
    */
-  underlay?: { png: Uint8Array; box: Box };
+  underlay?: { png: Uint8Array; box: Box; kind?: UnderlayKind };
   /** Default `true`. `INKCAST_DRAW_FIX=0` turns the correction pass off for a whole run. */
   revise?: boolean;
 };
@@ -321,7 +436,7 @@ export async function drawOne(
   instruction: string,
   opts: DrawOneOptions = {},
 ): Promise<Mark[] | undefined> {
-  const key = drawKey(instruction, opts.underlay?.png);
+  const key = drawKey(instruction, opts.underlay?.png, opts.underlay?.kind);
   const short = instruction.slice(0, 60);
 
   // Only when corrections are wanted. `revise: false` means "the drawing as it was
@@ -383,8 +498,16 @@ async function compose(
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
 
+  // A figure's instruction is the one place the lesson author reliably over-asks: it writes
+  // `describe` as the whole picture ("both upper chambers shaded with a spreading wave
+  // front, arrows pointing down through the open valves") because that is also roughly the
+  // sentence that generated the figure. Read as an order it is an order to redraw the
+  // figure, and read blind that is exactly what happened. So the ask says plainly which
+  // half of it is still to do, and the brief says it again.
   const ask = opts.underlay
-    ? `ANNOTATE THE ATTACHED BOARD: ${instruction}` +
+    ? (opts.underlay.kind === 'figure'
+        ? `NAME THE PARTS OF THE ATTACHED FIGURE: ${instruction}\n\nWhatever of that the figure already shows is already shown — put names on it, do not draw it again.`
+        : `ANNOTATE THE ATTACHED BOARD: ${instruction}`) +
       (opts.context
         ? `\n\nThe beat this belongs to says: "${opts.context}"\nAdd only what the instruction asks for; the sentence is context for what matters in it.`
         : '')
@@ -409,7 +532,7 @@ async function compose(
       raw = await callTool(
         c,
         opts.model ?? drawModel(),
-        opts.underlay ? UNDERLAY_BRIEF : DRAW_BRIEF,
+        briefFor(Boolean(opts.underlay), opts.underlay?.kind),
         messages,
         schema,
         { name: TOOL, description: 'Emit the finished drawing as a list of marks.' },
@@ -493,6 +616,37 @@ function drawable(lesson: Lesson): { step: LessonStep; intent: VisualIntent }[] 
 }
 
 /**
+ * How the figure a drawing annotates is made visible to the author who annotates it.
+ *
+ * A separate seam from `DrawUnderlay`, because the box travels the other way. A form's box
+ * is an *answer*: the picture is generated, traced, and the box measured from wherever its
+ * ink turned out to be, so the seam is the only thing that can report it. A figure is never
+ * traced, so there is nothing to measure and nothing to report — `figureBox()` decides the
+ * box here and hands it *in*, and all that comes back is the board as the author will see
+ * it. Folding this into `DrawUnderlay` would mean returning a number the caller had just
+ * supplied, which is how the two sides of this lane begin disagreeing about one number.
+ *
+ * The raster behind that board has to be the one the visuals stage will resolve for this
+ * asset — same id, same prompt, same seed, same aspect, generated as a figure and not as a
+ * line-art form — or the marks annotate a picture the film never shows. `drawKey` hashes
+ * the picture into the drawing's key for the same reason.
+ */
+export type DrawFigure = (prompt: string, box: Box) => Promise<Uint8Array | undefined>;
+
+/**
+ * The figure seam, off the options bag.
+ *
+ * Read through a widening rather than declared, because `LessonOptions` lives in `types.ts`
+ * with the rest of the shared stage surface and this is the only file that reads a figure
+ * board. Until the caller that owns an image provider supplies it — `@inkcast/pipeline`, the
+ * same seam that already supplies `drawUnderlay` — every figure takes the path it has always
+ * taken, and `underlayFor` says so in the log rather than letting it pass in silence.
+ */
+function figureSeam(opts: LessonOptions): DrawFigure | undefined {
+  return (opts as LessonOptions & { drawFigure?: DrawFigure }).drawFigure;
+}
+
+/**
  * The picture this intent is to be drawn on top of, generated, and recorded where it lands.
  *
  * `inkBox` is written back onto the intent — so `lesson.json` carries the geometry the
@@ -506,24 +660,63 @@ function drawable(lesson: Lesson): { step: LessonStep; intent: VisualIntent }[] 
  * generation: the intent keeps its marks and is drawn the way every drawing has always been
  * drawn. That matters more than it looks — this lane is the one that needs a paid key, and
  * a lesson that only works with one is not the lesson this project ships.
+ *
+ * Exported for its own test, as `compile.ts`'s `findReuse` is: the seam it reaches for and
+ * the box it records are the two facts the whole hybrid lane rests on, and both are
+ * checkable without a model, a key or a browser.
  */
-async function underlayFor(
+export async function underlayFor(
   intent: VisualIntent,
   opts: LessonOptions,
-): Promise<{ png: Uint8Array; box: Box } | undefined> {
+): Promise<{ png: Uint8Array; box: Box; kind: UnderlayKind } | undefined> {
   const prompt = intent.underlay?.prompt?.trim();
   if (!intent.underlay) return undefined;
   delete intent.underlay.inkBox;
   if (!prompt) return undefined;
 
-  // A figure is generated by the visuals stage, not here, and is never traced. So there is
-  // no raster to measure and none to show the mark author: it simply claims its box, which
-  // is what makes the compiler emit it. Everything below exists to find out where a
-  // *traced* subject's ink actually landed, and none of it applies.
+  // A figure is never traced — a binary trace erases the hues that carry its teaching, and
+  // `visuals/src/image.ts` has the picture of what that does to an orange arrow — so there
+  // is no ink to measure and none needs measuring. It simply claims its box, which is what
+  // makes the compiler emit it, and everything below, which exists to find out where a
+  // *traced* subject's ink actually landed, does not apply.
+  //
+  // What does not follow from that, and was assumed here anyway, is that there is nothing
+  // to *show* the mark author either. Never traced is not never seen. Composing blind, the
+  // author has no picture, falls through to `DRAW_BRIEF` — "fill the canvas", "draw the
+  // structure and the relation", 10 to 25 marks — and the compiler lays the result over a
+  // picture it was never shown. Measured on `projects/cardiac8f`: 23 of the 45 marks across
+  // its three figure beats redraw something the figure already has, one of them a closed
+  // 17-point heart outline on a colour cutaway of a heart. See `FIGURE_BRIEF`.
+  //
+  // So the figure is handed to the author the way a form is: the raster, drawn at the box it
+  // will really occupy, on a canvas of exactly the size the marks are composed on, sent
+  // ahead of the instruction and hashed into the drawing's cache key. The box is recorded on
+  // the intent *before* the picture is asked for, so it is recorded whether or not one can
+  // be had and the compiler's behaviour is identical either way — a run with no figure seam
+  // composes exactly the drawings it composed yesterday.
   if (intent.underlay.kind === 'figure') {
     const box = figureBox();
     intent.underlay.inkBox = [box.x, box.y, box.w, box.h];
-    return undefined;
+    const seam = figureSeam(opts);
+    if (!seam) {
+      log.info(
+        `no figure board for "${prompt.slice(0, 60)}" — composing its marks without ` +
+          'showing the author the picture they annotate',
+      );
+      return undefined;
+    }
+    let png: Uint8Array | undefined;
+    try {
+      png = await seam(prompt, box);
+    } catch (err) {
+      log.warn(`could not draw the figure board for "${prompt.slice(0, 60)}"`, errorDetail(err));
+      return undefined;
+    }
+    if (!png) {
+      log.info(`no figure came back for "${prompt.slice(0, 60)}" — composing its marks unseen`);
+      return undefined;
+    }
+    return { png, box, kind: 'figure' };
   }
 
   if (!opts.drawUnderlay) return undefined;
@@ -544,7 +737,10 @@ async function underlayFor(
     return undefined;
   }
   intent.underlay.inkBox = made.inkBox;
-  return { png: made.png, box };
+  // Named rather than left to the default, and it costs nothing to say: `briefFor` maps
+  // `form` and `undefined` to the same string, so this key is byte-identical to the one
+  // every form drawing on this machine was cached under.
+  return { png: made.png, box, kind: 'form' };
 }
 
 /** How many drawings are in flight at once. Politeness, not a rate limit. */

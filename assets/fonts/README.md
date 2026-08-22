@@ -11,16 +11,46 @@ that phones fonts.gstatic.com is a build that fails on a plane.
 
 ## `ui/` — chrome (the web app)
 
-Latin-subset `woff2`, byte-identical to what Google Fonts serves. Loaded by
-`apps/web/lib/fonts.ts` through `next/font/local`.
+Latin-subset variable `woff2`, byte-identical to what Google Fonts serves.
+Loaded by `apps/web/lib/fonts.ts` through `next/font/local`.
 
-| File                               | Family                      | Role                                     | Size  |
-| ---------------------------------- | --------------------------- | ---------------------------------------- | ----- |
-| `Geist-Variable.woff2`             | Geist, wght 100–900         | all UI text (`font-sans`)                | 29 KB |
-| `GeistMono-Variable.woff2`         | Geist Mono, wght 100–900    | figures, timecodes, IDs (`font-mono`)    | 23 KB |
-| `InstrumentSerif-Regular.woff2`    | Instrument Serif 400        | display headlines ≥48px (`font-display`) | 15 KB |
-| `InstrumentSerif-Italic.woff2`     | Instrument Serif 400 italic | display emphasis                         | 16 KB |
-| `hand/ShantellSans-Variable.woff2` | Shantell Sans, wght 300–800 | ink accents in chrome (`font-hand`)      | 79 KB |
+| File                               | Family                       | Role                                  | Size  |
+| ---------------------------------- | ---------------------------- | ------------------------------------- | ----- |
+| `Inter-Variable.woff2`             | Inter, wght 100–900          | all UI text (`font-sans`)             | 47 KB |
+| `JetBrainsMono-Variable.woff2`     | JetBrains Mono, wght 100–800 | figures, timecodes, IDs (`font-mono`) | 39 KB |
+| `SpaceGrotesk-Variable.woff2`      | Space Grotesk, wght 300–700  | headings and display (`font-display`) | 22 KB |
+| `hand/ShantellSans-Variable.woff2` | Shantell Sans, wght 300–800  | ink accents in chrome (`font-hand`)   | 79 KB |
+
+### Re-vendoring the three UI faces
+
+They were pulled out of `@fontsource-variable`, which is why those three
+packages sit in `apps/web` devDependencies without anything importing them.
+Nothing in the build reads `node_modules` for a font — the committed `woff2`
+files are the only source — but the packages mean re-vendoring is a `cp` rather
+than a hunt:
+
+```sh
+pnpm add -D @fontsource-variable/inter @fontsource-variable/jetbrains-mono \
+            @fontsource-variable/space-grotesk --filter @inkcast/web
+cd apps/web/node_modules/@fontsource-variable
+cp inter/files/inter-latin-wght-normal.woff2                   ../../../../assets/fonts/ui/Inter-Variable.woff2
+cp jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2 ../../../../assets/fonts/ui/JetBrainsMono-Variable.woff2
+cp space-grotesk/files/space-grotesk-latin-wght-normal.woff2   ../../../../assets/fonts/ui/SpaceGrotesk-Variable.woff2
+```
+
+Take the `-wght-` cut, not the `-standard-` or `-opsz-` one: `standard` is a
+static instance and `opsz` carries an optical-size axis this design never
+varies. Each package's `LICENSE` is the OFL text and becomes `OFL-<family>.txt`.
+
+### Retired 2026-08-21 (plan item C2)
+
+Geist, Geist Mono and Instrument Serif were deleted, not deprecated. Geist and
+Geist Mono lost to Inter and JetBrains Mono on x-height at 14px and on
+glyph disambiguation (`0`/`O`, `1`/`l`) in ID-heavy mono text. Instrument Serif
+lost for a structural reason rather than a taste one: it was usable only at
+48px and up, which forced every heading between 20px and 38px into the body
+face and left the system without a real heading voice. `git show
+13c7fe8:assets/fonts/ui/` has the files if any of that turns out to be wrong.
 
 ## `hand/` — content (inside the rendered video)
 

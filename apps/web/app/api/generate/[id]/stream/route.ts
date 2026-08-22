@@ -10,6 +10,18 @@
  * A `done` or `error` message is always last, and the server closes the stream
  * straight after it.
  *
+ * ## Owner-only, said in the stream rather than in the status line
+ *
+ * A run's events are the owner's: progress notes carry stage names and the
+ * terminal `error` carries a pipeline failure message, which routinely names a
+ * provider or a path on the box. But a 403 would break the contract below — the
+ * client cannot read the body of a non-2xx `EventSource` response, so a refusal
+ * would surface as an unexplained connection error and a reconnect loop. So the
+ * refusal is delivered the same way every other condition is: one `error` event
+ * on a 200 stream that then closes, which the client already knows how to
+ * display. It is the *terminal* event, so a client that closes on `error` (which
+ * the studio's hook does) stops there.
+ *
  * ## Why this endpoint always answers 200
  *
  * `EventSource` has no way to read a non-2xx body and reconnects forever when it
@@ -21,6 +33,8 @@
  */
 
 import { badRequest } from '../../../_lib/http';
+import { readSession, requireOwner, sessionCookieHeader } from '../../../_lib/session';
+import type { Session } from '../../../_lib/session';
 import { getProject, isValidProjectId, projectExists } from '@/lib/store';
 import { isTerminal, subscribe } from '@/lib/jobs';
 import type { JobEvent } from '@/lib/jobs';
@@ -41,6 +55,10 @@ export async function GET(
 ): Promise<Response> {
   const { id } = await context.params;
   if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
+
+  const session = readSession(request);
+  const verdict = await requireOwner(id, session);
+  if (!verdict.ok) return oneShot({ error: verdict.message }, session);
 
   const encoder = new TextEncoder();
 
@@ -147,17 +165,42 @@ export async function GET(
     },
   });
 
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      // Tell nginx and friends not to buffer, which would defeat the whole
-      // point by delivering every event at once when the run ends.
-      'X-Accel-Buffering': 'no',
-    },
-  });
+  return new Response(stream, { status: 200, headers: sseHeaders(session) });
+}
+
+/**
+ * The SSE headers, plus the session cookie when this request minted one.
+ *
+ * A raw `Response` around a `ReadableStream` has no `cookies` helper — which is
+ * why `session.ts` exports the header form — and skipping it here would matter:
+ * a browser whose first request to the studio is a stream would keep being handed
+ * a new session on every subsequent request, and the projects it created would
+ * each be owned by an identity it never held.
+ */
+function sseHeaders(session: Session): Record<string, string> {
+  return {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    // Tell nginx and friends not to buffer, which would defeat the whole
+    // point by delivering every event at once when the run ends.
+    'X-Accel-Buffering': 'no',
+    ...(session.fresh ? { 'Set-Cookie': sessionCookieHeader(session) } : {}),
+  };
+}
+
+/**
+ * One event, then end of stream — the refusal path, as a valid SSE body.
+ *
+ * A plain string body rather than a `ReadableStream`: there is nothing to stream,
+ * and a fixed body cannot leak a subscription or a heartbeat. The comment
+ * preamble is kept so the client's `onopen` fires before the event arrives,
+ * exactly as it does on the real stream, and `retry` is long here because
+ * whatever a refused client reconnects for is not going to change.
+ */
+function oneShot(event: JobEvent, session: Session): Response {
+  const body = `: inkcast stream open\n\nretry: 60000\n\ndata: ${JSON.stringify(event)}\n\n`;
+  return new Response(body, { status: 200, headers: sseHeaders(session) });
 }
 
 /**

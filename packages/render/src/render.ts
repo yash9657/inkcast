@@ -18,6 +18,7 @@ import { hash, isFresh, logger, markFresh, report } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
 import { chromiumAvailable, CHROMIUM_HINT, launchChromium, openCapture } from './browser.js';
 import type { FrameFormat } from './browser.js';
+import { emitCaptions } from './captions.js';
 import { compilePlan } from './compile.js';
 import { resolveFont } from './font.js';
 import {
@@ -144,6 +145,11 @@ export async function render(
   );
   if (!opts.force && (await isFresh(dir, 'render', cacheKey, [outName, 'thumbnail.png']))) {
     log.info(`${outName} is up to date — skipping ${frames} frames`);
+    // Captions are outside the render cache on purpose: they are a pure function of the
+    // storyboard, cost milliseconds, and are not part of the key that says the pixels are
+    // current. Emitting them here is what gives every already-rendered project a caption
+    // track on its next `rerender` instead of only films made after this landed.
+    await emitCaptions(sb, plan, dir, opts, outName);
     report(opts, { stage: 'render', pct: 100, note: 'cached' });
     return { videoPath, thumbnailPath, durationSec, frames, cached: true };
   }
@@ -237,6 +243,8 @@ export async function render(
   }
 
   await markFresh(dir, 'render', cacheKey);
+  // After the mux, because the optional burn-in pass reads the finished mp4.
+  await emitCaptions(sb, plan, dir, opts, outName);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   log.info(
     `wrote ${shortPath(videoPath)} — ${durationSec.toFixed(2)}s of video in ${secs}s${audio ? '' : ' (no audio)'}`,

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0.4 0.4 27.2 27.2">
+  <style>
+    .tile { fill: #ffffff; stroke: #0f0f14; }
+    .cast-line { fill: none; stroke: #4f46e5; }
+    .cast-fill { fill: #4f46e5; stroke: none; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #15151b; stroke: #e7e7ec; }
+      .cast-line { stroke: #7e87ff; }
+      .cast-fill { fill: #7e87ff; }
+    }
+  </style>
+  <rect class="tile" x="2" y="2" width="24" height="24" stroke-width="2" shape-rendering="crispEdges"/>
+  <path class="cast-line" d="M6.2 22.9Q9.6 17.2 19.4 10.7" stroke-width="3.3" stroke-linecap="round"/>
+  <path class="cast-fill" d="M24.3 10.5 18.05 15.83 16.35 6.37Z"/>
+</svg>

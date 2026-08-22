@@ -68,10 +68,22 @@ import { parseSayVoices, pickSayVoice, sayRateForWpm } from './providers/system.
 import {
   alignmentToWords,
   createElevenLabsProvider,
+  elevenLabsCostUsd,
+  elevenLabsCreditsPerChar,
   elevenLabsDelivery,
   elevenLabsModel,
   ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_USD_PER_CREDIT,
 } from './providers/elevenlabs.js';
+import {
+  moodCatalogueProblems,
+  moodVoiceId,
+  unverifiedMoods,
+  voiceMood,
+  DEFAULT_MOOD,
+  VOICE_MOODS,
+  VOICE_MOOD_IDS,
+} from './moods.js';
 import {
   chunkForKokoro,
   createKokoroProvider,
@@ -79,7 +91,7 @@ import {
   KOKORO_VOICES,
 } from './providers/kokoro.js';
 import { failureReason, VoiceProviderError } from './providers/types.js';
-import type { VoiceProvider, VoiceProviderId } from './providers/types.js';
+import type { SynthesisRequest, VoiceProvider, VoiceProviderId } from './providers/types.js';
 import type { Element, Scene, Storyboard } from '@inkcast/core';
 
 /* ------------------------------------------------------------------ fixtures */
@@ -370,6 +382,16 @@ function stubProvider(
   opts: {
     model?: string;
     fail?: VoiceProviderError;
+    /**
+     * Which calls `fail` applies to. Absent means all of them.
+     *
+     * A provider that dies *part-way* is a different failure from one that never
+     * speaks, and only the first exercises the whole-film restart: the run has already
+     * committed several scenes to a voice it is about to lose. See `sceneOfClip`.
+     */
+    failWhen?: (req: SynthesisRequest) => boolean;
+    /** Every call that produced audio, in order — who spoke, and for which scene. */
+    onSpoke?: (id: VoiceProviderId, req: SynthesisRequest) => void;
     /** What the call cost, when that is not `text.length`. See `SynthesisResult`. */
     billedChars?: (text: string) => number;
   } = {},
@@ -383,12 +405,26 @@ function stubProvider(
     naturalWpm: () => 150,
     modelId: () => opts.model,
     synthesize: async (req) => {
-      if (opts.fail) throw opts.fail;
+      if (opts.fail && (opts.failWhen?.(req) ?? true)) throw opts.fail;
+      opts.onSpoke?.(id, req);
       await writeSilenceWav(req.outPath, Math.max(0.4, req.text.length / 15));
       return opts.billedChars ? { billedChars: opts.billedChars(req.text) } : {};
     },
     dispose: async () => undefined,
   };
+}
+
+/**
+ * Which scene a phrase clip belongs to, read back out of its scratch path.
+ *
+ * `synthesizeScene` writes `audio/.phrases/{scene}-{phrase}.wav`, and that is the only
+ * thing in the request that says which beat is being spoken — the stage does not tell a
+ * provider where it is in the film. It is enough to prove the property that matters:
+ * that after a failover, every scene index is spoken again by the provider that took
+ * over.
+ */
+function sceneOfClip(req: SynthesisRequest): number {
+  return Number(path.basename(req.outPath).split('-')[0]);
 }
 
 /** Characters the stage will hand a provider for one narration, split as it splits. */
@@ -436,14 +472,305 @@ test('the record names the provider that actually spoke, not the one that was as
       lines.reduce((n, l) => n + phraseChars(l), 0),
     );
 
-    // The fallback is carried out of the stage in the shape `lessonProblems` uses.
-    assert.deepEqual(voice.problems, ['voice fell back to kokoro (elevenlabs: quota_exceeded)']);
+    // The fallback is carried out of the stage in the shape `lessonProblems` uses. The
+    // provider refused its very first phrase, so scene 1 was already being re-narrated
+    // before anything was committed — hence a whole-film restart *and* its second line.
+    assert.deepEqual(voice.problems, [
+      'voice fell back to kokoro (elevenlabs: quota_exceeded)',
+      'narrated locally: elevenlabs failed part-way through, so all 2 scenes were re-narrated ' +
+        'with kokoro for one consistent voice, and the 0 discarded characters are billed at $0',
+    ]);
 
     // And the failover cost the film nothing: every scene still has real audio.
     for (let i = 0; i < out.scenes.length; i++) {
       assert.equal(out.scenes[i]?.audioPath, sceneAudioPath(i));
       assert.ok((out.scenes[i]?.durationSec ?? 0) > 0.3);
     }
+  });
+});
+
+/* ------------------------------------------- one film, one voice (A5, deliverable 2) */
+
+/** Four beats, so a provider can die in the middle of the film rather than at its edge. */
+const FOUR_BEATS = [
+  'The heart has its own pacemaker, and it fires without being told to.',
+  'The signal spreads across the atria, and they squeeze together.',
+  'At the gate it waits, for a tenth of a second, while the ventricles fill.',
+  'Then it runs down the bundle and the ventricles contract from the bottom up.',
+];
+
+test('a provider that dies mid-film sends the whole film back to scene 0 in one voice', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(FOUR_BEATS);
+    /** Who spoke, for which scene, in order. The record the assertions are made from. */
+    const spoke: Array<{ id: VoiceProviderId; scene: number }> = [];
+    const seen = (id: VoiceProviderId, req: SynthesisRequest) =>
+      spoke.push({ id, scene: sceneOfClip(req) });
+
+    const { storyboard: out, voice } = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        id === 'elevenlabs'
+          ? stubProvider(id, {
+              model: ELEVENLABS_FLASH_MODEL,
+              onSpoke: seen,
+              // Two beats in the paid voice, then the balance runs out. This is the run
+              // that produced `projects/cardiac8`: six scenes paid, four free, and a
+              // narrator who changes person half way through the film.
+              failWhen: (req) => sceneOfClip(req) >= 2,
+              fail: new VoiceProviderError('ElevenLabs /text-to-speech -> 401', {
+                provider: 'elevenlabs',
+                reason: 'quota_exceeded',
+                status: 401,
+              }),
+            })
+          : stubProvider(id, { model: KOKORO_MODEL_ID, onSpoke: seen }),
+    });
+
+    // The paid provider really did speak first — otherwise this test is not exercising
+    // a mid-film death at all, it is exercising the trivial "never available" path.
+    const lastPaid = spoke.map((s) => s.id).lastIndexOf('elevenlabs');
+    assert.ok(lastPaid >= 0, 'the paid provider must have spoken before it failed');
+    assert.ok(
+      spoke.slice(0, lastPaid + 1).some((s) => s.scene === 0),
+      'and it must have committed at least scene 1 of the film',
+    );
+
+    // THE PROPERTY: everything after the last paid phrase is one provider, and it covers
+    // every scene in the film. Not "the tail was re-done" — the whole film was.
+    const after = spoke.slice(lastPaid + 1);
+    assert.deepEqual(
+      [...new Set(after.map((s) => s.id))],
+      ['kokoro'],
+      'the film after the failover must be spoken by exactly one provider',
+    );
+    assert.deepEqual(
+      [...new Set(after.map((s) => s.scene))].sort((a, b) => a - b),
+      [0, 1, 2, 3],
+      'every scene must be re-synthesised, including the ones already finished',
+    );
+
+    // Provenance is returned, not inferred — the whole point of A5's second deliverable.
+    assert.equal(voice.provider, 'kokoro');
+    assert.equal(voice.fellBackFrom, 'elevenlabs');
+    assert.equal(voice.model, KOKORO_MODEL_ID);
+    assert.equal(voice.spoke, true);
+
+    // The abandoned ElevenLabs partial is billed at zero, and the tally it was counted
+    // in no longer mentions it at all — which is what makes the *pipeline's* cost line
+    // zero without the pipeline knowing any of this happened.
+    assert.equal(voice.charsByProvider.elevenlabs ?? 0, 0);
+    assert.equal(voice.costUsd, 0);
+    assert.equal(voice.chars, FOUR_BEATS.reduce((n, l) => n + phraseChars(l), 0));
+    assert.equal(voice.charsByProvider.kokoro, voice.chars);
+
+    // But it is not hidden: the discarded audio is reported, with what it was worth.
+    assert.ok((voice.abandonedChars ?? 0) > 0, 'discarded characters must be reported');
+    assert.equal(
+      voice.abandonedCostUsd,
+      Math.round(
+        elevenLabsCostUsd(voice.abandonedChars ?? 0, ELEVENLABS_FLASH_MODEL) * 10_000,
+      ) / 10_000,
+    );
+
+    // And the viewer is told, in the field the result UI reads.
+    assert.ok(
+      voice.problems.some((p) => p.startsWith('narrated locally:') && p.includes('all 4 scenes')),
+      `expected a whole-film fallback line, got ${JSON.stringify(voice.problems)}`,
+    );
+
+    // The film itself is complete and playable.
+    for (let i = 0; i < out.scenes.length; i++) {
+      assert.equal(out.scenes[i]?.audioPath, sceneAudioPath(i));
+      assert.ok((out.scenes[i]?.durationSec ?? 0) > 0.3);
+    }
+  });
+});
+
+test('the restart leaves a cache that describes the film that was actually made', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(FOUR_BEATS);
+    const quota = new VoiceProviderError('ElevenLabs /text-to-speech -> 401', {
+      provider: 'elevenlabs',
+      reason: 'quota_exceeded',
+      status: 401,
+    });
+
+    await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        id === 'elevenlabs'
+          ? stubProvider(id, {
+              model: ELEVENLABS_FLASH_MODEL,
+              failWhen: (req) => sceneOfClip(req) >= 2,
+              fail: quota,
+            })
+          : stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+
+    // The scenes the abandoned attempt had already finished are the ones a naive restart
+    // gets wrong: their clips were written by the provider that quit, and if the restart
+    // had marked them fresh, this second run would serve them and the film would be two
+    // voices again — permanently, because nothing would ever look at them a third time.
+    const spoke: Array<{ id: VoiceProviderId; scene: number }> = [];
+    const second = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        stubProvider(id, {
+          model: KOKORO_MODEL_ID,
+          onSpoke: (who, req) => spoke.push({ id: who, scene: sceneOfClip(req) }),
+        }),
+    });
+
+    assert.deepEqual(spoke, [], 'every scene must already be cached under the voice that spoke it');
+    assert.equal(second.voice.spoke, false);
+    assert.equal(second.voice.chars, 0);
+    assert.equal(second.voice.costUsd, 0);
+    assert.equal(second.voice.fellBackFrom, undefined);
+    assert.deepEqual(second.voice.problems, []);
+  });
+});
+
+test('a film that stays on the paid provider is priced from what it actually spoke', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(FOUR_BEATS);
+    const { voice } = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) => stubProvider(id, { model: ELEVENLABS_FLASH_MODEL }),
+    });
+
+    const chars = FOUR_BEATS.reduce((n, l) => n + phraseChars(l), 0);
+    assert.equal(voice.fellBackFrom, undefined);
+    assert.equal(voice.chars, chars);
+    // Flash bills half a credit per character; the number is the tally, not the request.
+    assert.equal(voice.costUsd, chars * 0.5 * ELEVENLABS_USD_PER_CREDIT);
+    assert.equal(voice.abandonedChars, undefined);
+  });
+});
+
+test('an engine with no published rate is priced at the ceiling, not discounted', () => {
+  assert.equal(elevenLabsCreditsPerChar(ELEVENLABS_FLASH_MODEL), 0.5);
+  assert.equal(elevenLabsCreditsPerChar('eleven_multilingual_v2'), 1);
+  // `eleven_v3` is the A/B candidate in `docs/PLAN-LAUNCH.md` A5 and this repo has not
+  // confirmed its rate. Guessing downwards under-states a real invoice.
+  assert.equal(elevenLabsCreditsPerChar('eleven_v3'), 1);
+  assert.equal(elevenLabsCreditsPerChar(undefined), 1);
+  assert.equal(elevenLabsCostUsd(0, ELEVENLABS_FLASH_MODEL), 0);
+  assert.equal(elevenLabsCostUsd(1000, ELEVENLABS_FLASH_MODEL), 1000 * 0.5 * 0.00022);
+});
+
+/* ------------------------------------------- the curated moods (A5, deliverable 1) */
+
+test('every mood pins a voice pair the pipeline can actually deliver', () => {
+  assert.deepEqual(moodCatalogueProblems(), []);
+  assert.equal(VOICE_MOODS.length, VOICE_MOOD_IDS.length);
+  assert.ok(VOICE_MOODS.length >= 3 && VOICE_MOODS.length <= 4, 'curate, do not enumerate');
+
+  for (const mood of VOICE_MOODS) {
+    // The twin has to be a voice kokoro-js will accept, or the fallback the whole
+    // catalogue exists for lands on the global default and the mood is a lie.
+    assert.ok(
+      (KOKORO_VOICES as readonly string[]).includes(mood.kokoro),
+      `${mood.id}: ${mood.kokoro} is not a kokoro-js voice`,
+    );
+    // And it has to be able to reach the teaching band without smearing consonants.
+    assert.ok(speedForWpm(mood.kokoro) > 0.7, `${mood.id}: ${mood.kokoro} cannot be slowed enough`);
+    assert.ok(voiceProfile(mood.kokoro), `${mood.id}: ${mood.kokoro} is unmeasured`);
+  }
+});
+
+test('no mood claims to have been chosen by ear', () => {
+  // The requirement is the honesty, not the flag: A5 asks for voices selected by
+  // listening, nobody has listened, and every entry says so where a human will see it.
+  assert.deepEqual(
+    unverifiedMoods().map((m) => m.id),
+    VOICE_MOODS.map((m) => m.id),
+  );
+  for (const mood of VOICE_MOODS) assert.equal(mood.verified, false);
+});
+
+test('a mood resolves from anything already stored on disk or in a UI', () => {
+  assert.equal(voiceMood('calm')?.id, 'calm');
+  assert.equal(voiceMood('Warm')?.id, 'warm');
+  assert.equal(voiceMood('BRIGHT')?.id, 'bright');
+  // Every storyboard written before the catalogue existed says `af_heart`, and it must
+  // land on the mood that voice is the twin of rather than on nothing.
+  assert.equal(voiceMood('af_heart')?.id, 'calm');
+  assert.equal(voiceMood(TEACHING_VOICE)?.id, 'calm');
+  assert.equal(voiceMood('21m00Tcm4TlvDq8ikWAM')?.id, 'calm');
+  // A real voice that is not one of the four is not a mood, and must not be coerced
+  // into one — the adapters still resolve it their own way.
+  assert.equal(voiceMood('bm_fable'), undefined);
+  assert.equal(voiceMood(undefined), undefined);
+  assert.equal(voiceMood(''), undefined);
+  assert.equal(DEFAULT_MOOD, 'calm');
+});
+
+test('a mood names one voice per provider, and Calm keeps the pinned teaching delivery', () => {
+  const calm = voiceMood('calm')!;
+  assert.equal(moodVoiceId(calm, 'elevenlabs'), calm.elevenlabs.voiceId);
+  assert.equal(moodVoiceId(calm, 'kokoro'), calm.kokoro);
+  // `system` and `silence` have no catalogue to map into, so they get the twin and let
+  // their own `resolveVoice` do what it already did with a Kokoro id.
+  assert.equal(moodVoiceId(calm, 'system'), calm.kokoro);
+  // A5: "Calm = keep stability 0.55, style 0". Those live in the adapter, pinned for
+  // every mood, and the delivery signature is what proves they are still in the key.
+  assert.ok(elevenLabsDelivery().includes('pinned-settings'));
+});
+
+test('the adapters resolve a mood to its own pinned voice, without asking the network', async () => {
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ELEVENLABS_API_KEY;
+  const realOverride = process.env.ELEVENLABS_VOICE_ID;
+  process.env.ELEVENLABS_API_KEY = 'sk_test_never_spent';
+  delete process.env.ELEVENLABS_VOICE_ID;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    throw new Error('the mood catalogue must not need the voice list');
+  }) as typeof fetch;
+  try {
+    const el = createElevenLabsProvider();
+    // The substantive part: resolution by *id*, so two accounts with different libraries
+    // cast the same lesson identically. The old path asked `/voices` and matched names.
+    assert.equal(await el.resolveVoice('warm'), voiceMood('warm')!.elevenlabs.voiceId);
+    assert.equal(await el.resolveVoice('af_heart'), voiceMood('calm')!.elevenlabs.voiceId);
+    assert.equal(calls, 0, 'a pinned mood must not cost a round trip');
+
+    // And the local engine speaks the twin of the same mood rather than the default.
+    const ko = createKokoroProvider();
+    assert.equal(await ko.resolveVoice('warm'), voiceMood('warm')!.kokoro);
+    assert.equal(await ko.resolveVoice('narrator'), voiceMood('narrator')!.kokoro);
+    assert.equal(await ko.resolveVoice('af_nicole'), 'af_nicole');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = realKey;
+    if (realOverride !== undefined) process.env.ELEVENLABS_VOICE_ID = realOverride;
+  }
+});
+
+test('a storyboard cast in a mood reports the mood it was cast in', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(['A mood is what the person chose, and it has to survive the run.']);
+    sb.meta.voice = 'narrator';
+    const { voice } = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) => stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+    // Neither `provider` nor `voice` can be read back into the mood — "Narrator" is one
+    // id on a paid run and another locally — so the choice is carried out explicitly.
+    assert.equal(voice.mood, 'narrator');
   });
 });
 

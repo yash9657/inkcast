@@ -434,8 +434,17 @@ export function InkDemo({ className }: { className?: string }) {
         {STYLESHEET}
       </style>
 
-      <div className="rounded-2xl border border-border bg-card p-2 shadow-lg">
-        <div className="overflow-hidden rounded-lg bg-paper">
+      {/* The frame, and it is the only place on the landing page that spends
+          `shadow-pop`'s accent offset on something that is not a button —
+          docs/DESIGN.md §5 allots exactly one hero frame per page and this is it.
+          `border border-border` is not decoration under that shadow: a hard
+          offset plane with no edge looks like a rendering bug (§10), so the
+          border is the plane's edge. `shadow-lg` used to sit here and now
+          resolves to `shadow-overlay` through the deprecated alias block — the
+          board would have kept a soft-system shadow forever without this edit,
+          which is the exact silent-degradation case §11 was written for. */}
+      <div className="border border-border bg-card p-2 shadow-pop">
+        <div className="overflow-hidden border border-border-subtle bg-paper">
           <svg
             key={run}
             viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
@@ -609,9 +618,9 @@ export function InkDemo({ className }: { className?: string }) {
           </svg>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 pt-3 pb-1">
-          <p className="text-xs text-muted-foreground">
-            One canvas, three camera framings, nothing erased.
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-3 pb-1">
+          <p className="font-mono text-2xs uppercase text-muted-foreground">
+            One canvas · three framings · nothing erased
           </p>
           <Button variant="ghost" size="xs" onClick={() => setRun((n) => n + 1)}>
             <RotateCcwIcon aria-hidden />

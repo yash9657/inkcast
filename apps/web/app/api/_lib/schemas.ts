@@ -146,6 +146,27 @@ export const RerenderBody = z
   })
   .strict();
 
+/**
+ * `POST /api/projects/<id>/share` — publish or unpublish one project.
+ *
+ * `shared` defaults to **true** because the overwhelmingly common call is a
+ * Share button with no body at all, and `parseJsonBody` already treats an empty
+ * body as `{}`. Unpublishing is the deliberate act here (`{"shared":false}`),
+ * which inverts the default in `ProjectRecordSchema` — and it should: the
+ * dangerous direction is the one that makes a film public, and that direction is
+ * the one that requires an explicit request to this route.
+ *
+ * One field rather than a `PUT` of the whole record: sharing is the only piece
+ * of project metadata a client is allowed to set directly, and a schema that
+ * accepted more would be a schema someone eventually used to rewrite a title or
+ * a cost. `.strict()` makes that refusal explicit rather than silent.
+ */
+export const ShareBody = z
+  .object({
+    shared: z.boolean().default(true),
+  })
+  .strict();
+
 /* --------------------------------------------------------------- multipart */
 
 /**
@@ -170,6 +191,49 @@ export const UPLOAD_EXTENSIONS = [
 
 /** 32 MB. Comfortably above any explainer source, well below trouble. */
 export const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
+
+/**
+ * 20 000 characters of pasted source, on the hosted deployment only.
+ *
+ * The 32 MB body cap above protects the *box* — disk and memory. This one
+ * protects the *bill*, which is a different resource with a different limit, so
+ * it sits beside it rather than replacing it.
+ *
+ * The number is not arbitrary. `packages/planner/src/lesson-anthropic.ts:265`
+ * already truncates its prompt at 60 000 characters, so a 500 000-character
+ * paste does not buy a better film — it buys the first 12% of one, at three
+ * times the prompt cost of this cap, and the user cannot tell from the output
+ * that the rest was dropped. An `explainer` preset speaks about 165 words over
+ * eight beats; 20 k characters is already an order of magnitude more material
+ * than that can use. So the cap makes the lesson stage's cost bounded *and*
+ * makes the truncation honest: refused up front, with a number, instead of
+ * silently discarded four fifths of the way through.
+ *
+ * The local studio keeps the 500 000-character ceiling on `SourceText`, because
+ * there the person paying for the tokens is the person pasting the text.
+ */
+export const MAX_HOSTED_SOURCE_CHARS = 20_000;
+
+/**
+ * The message for a paste that is over the hosted cap, or `undefined` when it
+ * fits. Returns the copy rather than a boolean so the number, the overage and
+ * the advice are written once — a limit the user is told about in two slightly
+ * different ways is a limit they do not believe.
+ *
+ * Only `text` can be measured here. A `url` or `filePath` source is fetched and
+ * converted inside the pipeline, where the planner's own 60 k truncation is
+ * currently the only ceiling; tightening that belongs in the ingest stage, not
+ * at the HTTP boundary that cannot see the bytes.
+ */
+export function hostedSourceProblem(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  // `text.length` — UTF-16 units, exactly what the `SourceText` ceiling counts.
+  // Counting code points here instead would make the two limits disagree about
+  // the same string, which is how a document that passes one check fails the next.
+  if (text.length <= MAX_HOSTED_SOURCE_CHARS) return undefined;
+  const cap = MAX_HOSTED_SOURCE_CHARS.toLocaleString('en-US');
+  return `That's ${text.length.toLocaleString('en-US')} characters and the hosted studio takes up to ${cap} — around eight pages. A film is eight beats and a couple of hundred spoken words, so paste the section you actually want explained: it will be a better video for it.`;
+}
 
 /**
  * Reduce a client-supplied filename to something safe to create.

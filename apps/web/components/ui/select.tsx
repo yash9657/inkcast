@@ -38,11 +38,14 @@ export function SelectTrigger({
       data-slot="select-trigger"
       className={cn(
         'group/select-trigger',
-        'flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-card px-3',
-        'text-base text-foreground shadow-xs select-none',
+        'flex h-9 w-full items-center justify-between gap-2 rounded-none border border-input bg-card px-3',
+        'text-base text-foreground shadow-card select-none',
         'transition-[border-color,background-color] duration-fast ease-out',
         'hover:bg-accent/40',
-        'focus-ring outline-none data-[popup-open]:border-ring',
+        // Same colour, honest name: `--ring` and `--accent-strong` are both the
+        // hot accent, but docs/DESIGN.md §2 reserves `ring` for focus and
+        // nothing else, and "the popup is open" is not focus.
+        'focus-ring outline-none data-[popup-open]:border-accent-strong',
         'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         'data-invalid:border-destructive',
         '[&>span]:truncate data-[placeholder]:[&>span]:text-muted-foreground',
@@ -88,7 +91,7 @@ export function SelectContent({
         <SelectPrimitive.Popup
           className={cn(
             'max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-hidden',
-            'rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
+            'rounded-none border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
             'origin-[var(--transform-origin)]',
             'transition-[opacity,transform,translate] duration-brisk ease-out',
             'data-starting-style:scale-[0.97] data-starting-style:opacity-0',
@@ -118,9 +121,16 @@ export function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        'relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8',
+        'relative flex cursor-default items-center gap-2 rounded-none py-1.5 pr-2 pl-8',
         'text-sm text-foreground outline-none select-none',
-        'data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+        // A shape as well as a tint on the highlighted row, matching
+        // `dropdown-menu.tsx` — see the long note above `itemClasses` there for
+        // why `--accent` alone is not an adequate keyboard-position indicator.
+        // Kept identical rather than shared because the two files are separate
+        // primitives over separate Base UI parts, and a shared string here would
+        // couple a select's rows to a menu's for the sake of nine words.
+        'border-l-2 border-transparent',
+        'data-highlighted:border-primary data-highlighted:bg-accent data-highlighted:text-accent-foreground',
         'data-disabled:pointer-events-none data-disabled:opacity-50',
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
@@ -142,7 +152,9 @@ export function SelectGroupLabel({
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-group-label"
-      className={cn('px-2 py-1.5 text-2xs uppercase text-muted-foreground', className)}
+      // Mono: every uppercase micro-label in the system is set in the third face.
+      // See `command.tsx`'s group heading for the argument.
+      className={cn('px-2 py-1.5 font-mono text-2xs uppercase text-muted-foreground', className)}
       {...props}
     />
   );
@@ -153,7 +165,12 @@ export function SelectSeparator({ className, ...props }: React.ComponentProps<'d
     <div
       data-slot="select-separator"
       role="presentation"
-      className={cn('-mx-1 my-1 h-px bg-border', className)}
+      // `bg-border` is full ink now, which inside a 1px-bordered popup reads as
+      // a second frame cutting the menu in half. docs/DESIGN.md §2 names
+      // exactly this case as what `--border-subtle` is for. (The utility is
+      // `border-border-subtle`/`bg-border-subtle` — the token is
+      // `--color-border-subtle`, so the colour's name is `border-subtle`.)
+      className={cn('-mx-1 my-1 h-px bg-border-subtle', className)}
       {...props}
     />
   );

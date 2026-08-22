@@ -10,6 +10,7 @@
  * Numbers are in **canvas units** (the IR's coordinate space, 1920×1080 by
  * default), not output pixels — the camera scales them at render time.
  */
+import { TYPE_REFERENCE_HEIGHT, TYPE_SCALE } from '@inkcast/core';
 import type { StoryboardMeta } from '@inkcast/core';
 
 export type InkStyleName = StoryboardMeta['style'];
@@ -201,24 +202,35 @@ export function inkColour(style: InkStyle, role: InkRole = 'primary'): string {
 }
 
 /**
- * Type scale for the IR's text roles, as a fraction of canvas height.
+ * Type scale for the IR's text roles, as a fraction of canvas height — derived from
+ * `TYPE_SCALE` in `@inkcast/core` rather than restated here.
  *
- * The renderer owns pixels; we own canvas units. A title at 0.082 of a
- * 1080-unit canvas is ~88 units, which reads as a confident hand-lettered
- * headline at 1080p.
+ * This was the third of three catalogues of one number (`docs/HANDOFF.md`, defect 0), and
+ * being a *fraction* is exactly what let it drift unnoticed: 0.082 of a 1080-tall frame
+ * is 88.6, where the renderer draws a title at 96, so the visuals stage lettered every
+ * title 8% smaller than the renderer does and nothing compared the two. Deriving it makes
+ * that class of drift impossible, and it is not merely deduplication — it is what this
+ * function's own contract already says. Sizing type as a fraction of canvas height
+ * assumes the whole canvas is on screen (`PlotTypeSizes` in `./plot.ts` says so in as
+ * many words), and when the whole canvas is on screen the canvas *is* the frame, so a
+ * fraction of canvas height and a size in output pixels are the same statement. The
+ * fraction is therefore `TYPE_SCALE[role] / TYPE_REFERENCE_HEIGHT`, and nothing else can
+ * be right.
+ *
+ * It stays the *fallback*. Every caller that knows the camera passes the real sizes in
+ * from `boardMetrics` — `resolvePlot`'s `typeSizes`, `resolveOne`'s `board` — because a
+ * renderer framing a region of the board shows a fraction of it and the whole-canvas
+ * assumption is then false by a factor of up to five. This is what a caller with no
+ * camera in hand gets.
  */
-const ROLE_SCALE = {
-  title: 0.082,
-  heading: 0.058,
-  body: 0.04,
-  label: 0.03,
-  caption: 0.024,
-} as const;
+function roleFraction(role: TextRole): number {
+  return TYPE_SCALE[role] / TYPE_REFERENCE_HEIGHT;
+}
 
-export type TextRole = keyof typeof ROLE_SCALE;
+export type TextRole = keyof typeof TYPE_SCALE;
 
 export function roleFontSize(role: TextRole, canvasHeight: number): number {
-  return Math.max(8, (ROLE_SCALE[role] ?? ROLE_SCALE.body) * canvasHeight);
+  return Math.max(8, roleFraction(role in TYPE_SCALE ? role : 'body') * canvasHeight);
 }
 
 /** Stroke width for a given semantic weight, in canvas units. */

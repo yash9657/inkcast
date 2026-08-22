@@ -110,8 +110,18 @@ function round(n: number): string {
 
 /* ------------------------------------------------------------- components */
 
-/** Ink colour, named so callers pick from the palette rather than a hex. */
-export type InkTone = 'primary' | 'ink' | 'blue' | 'red' | 'green' | 'amber' | 'violet';
+/**
+ * Ink colour, named so callers pick from the palette rather than a hex.
+ *
+ * `highlighter` is the newest and the most restricted: it is the system's second
+ * accent (`--highlighter`, marker yellow at hue 95) and docs/DESIGN.md §7 says it
+ * belongs on a hand flourish and nowhere else — a hero underline and the
+ * wordmark's stroke under the `k`. It is deliberately NOT in the five `--ink-*`
+ * hues, because those five are the whiteboard's marker set and the renderer has
+ * to be able to draw them; the highlighter is chrome.
+ */
+export type InkTone =
+  'primary' | 'ink' | 'blue' | 'red' | 'green' | 'amber' | 'violet' | 'highlighter';
 
 const toneStroke: Record<InkTone, string> = {
   primary: 'stroke-primary',
@@ -121,6 +131,7 @@ const toneStroke: Record<InkTone, string> = {
   green: 'stroke-ink-green',
   amber: 'stroke-ink-amber',
   violet: 'stroke-ink-violet',
+  highlighter: 'stroke-highlighter',
 };
 
 const toneFill: Record<InkTone, string> = {
@@ -131,6 +142,7 @@ const toneFill: Record<InkTone, string> = {
   green: 'fill-ink-green',
   amber: 'fill-ink-amber',
   violet: 'fill-ink-violet',
+  highlighter: 'fill-highlighter',
 };
 
 type InkCommon = {
@@ -152,16 +164,32 @@ function resolveSeed(seed: string | number | undefined, children: React.ReactNod
 /**
  * Underlines its children by hand.
  *
- *   <InkUnderline tone="primary">one growing canvas</InkUnderline>
+ *   <InkUnderline>one growing canvas</InkUnderline>
  *
  * Two overlapping passes, because a marker underline is never one stroke. The
  * SVG stretches with the text (`preserveAspectRatio="none"`) while
  * `vector-effect="non-scaling-stroke"` keeps the line weight honest.
+ *
+ * The default tone is `highlighter`, not `primary`, and this is the one place in
+ * the app where marker yellow is the right answer rather than a decoration.
+ * docs/DESIGN.md §7 reserves `--highlighter` for exactly this: "an
+ * `InkUnderline` or `InkHighlight` drawn in marker yellow under a hero phrase".
+ * There is also a colour-blindness argument for it — the accent violet is
+ * already carrying every interactive state in the chrome, so underlining a word
+ * in the same violet says "this is a link" to anyone who has learned the rest of
+ * the page. Yellow says "somebody drew on this", which is what is meant.
+ *
+ * It is safe here in a way it is NOT safe as a fill: the strokes sit at
+ * `-bottom-[0.18em]` in a `0.34em` box, i.e. BELOW the baseline and outside the
+ * glyphs, so they never come between the text and the eye and cannot move the
+ * text's contrast ratio in either theme. `--highlighter` is 1.33:1 against paper
+ * — decorative by design, documented as such in `globals.css`, and legitimate
+ * only because nothing is being read off it.
  */
 export function InkUnderline({
   children,
   seed,
-  tone = 'primary',
+  tone = 'highlighter',
   draw = true,
   weight = 2.4,
   className,
@@ -250,6 +278,29 @@ export function InkCircle({
 /**
  * A marker highlight behind its children. Quieter than a circle; use it for a
  * phrase you want warm rather than urgent.
+ *
+ * This one draws a wide stroke BEHIND the glyphs, which makes it the one
+ * flourish that can damage the text it decorates — so the two jobs are separated
+ * and the tone decides which one you get.
+ *
+ * A **tint** (every tone except `highlighter`) stays at 22% and leaves the text
+ * colour alone: at that alpha the wash moves the background's luminance by a few
+ * percent, so whatever contrast the surrounding text had it still has, in both
+ * themes. That is the whole reason the alpha is so low.
+ *
+ * A **marker** (`tone="highlighter"`) is the real thing: 88% coverage, and the
+ * text is repainted `--highlighter-foreground`, which exists precisely as the
+ * measured-safe twin of `--highlighter` (11.53:1 light / 11.31:1 dark on the
+ * solid colour). The pairing is not optional decoration — it is what keeps the
+ * band legible, and the arithmetic says why the middle ground is not available:
+ * marker yellow is L≈0.9 in both themes, so on ink paper a 22% wash under
+ * near-white text lands at about 4.3:1 and fails the floor, while at 88% under
+ * its own dark foreground it lands at about 7.6:1 and clears it. A yellow
+ * highlight either commits or it is a bug.
+ *
+ * Keep it to a short phrase. The stroke has round caps and tapers over the outer
+ * ~2% of its length, the way a real marker does, so a long sentence ends with a
+ * word sitting on thinning ink.
  */
 export function InkHighlight({
   children,
@@ -259,10 +310,13 @@ export function InkHighlight({
 }: Omit<InkCommon, 'draw'> & { children: React.ReactNode }) {
   const rand = randomFromSeed(resolveSeed(seed, children));
   const path = inkStrokePath(rand, { x: 2, y: 5.5 }, { x: 98, y: 5 }, { amplitude: 1.1 });
+  const marker = tone === 'highlighter';
 
   return (
     <span data-slot="ink-highlight" className={cn('relative inline-block', className)}>
-      <span className="relative z-10">{children}</span>
+      <span className={cn('relative z-10', marker && 'text-highlighter-foreground')}>
+        {children}
+      </span>
       <svg
         aria-hidden
         viewBox="0 0 100 10"
@@ -277,7 +331,7 @@ export function InkHighlight({
           fill="none"
           strokeWidth={9}
           strokeLinecap="round"
-          opacity={0.22}
+          opacity={marker ? 0.88 : 0.22}
           vectorEffect="non-scaling-stroke"
         />
       </svg>
@@ -363,17 +417,38 @@ export function InkArrow({
 }
 
 /**
- * A small dot-grid "board" texture, for surfaces that stand in for the canvas
- * (an empty project card, a drop target). Marketing and empty states only —
- * never behind the real canvas.
+ * A dot-grid "board" texture, for surfaces that stand in for the canvas (an
+ * empty project card, a drop target). Marketing and empty states only — never
+ * behind the real canvas.
+ *
+ * Both of its numbers changed in the C1 token swap and neither could be left
+ * alone, because this is the silent-degradation case docs/DESIGN.md §11 warns
+ * about: the classes still resolved, so nothing broke loudly.
+ *
+ *   - The dot was `--color-border`, which used to be a 91.6% grey hairline and is
+ *     now full ink. A 16px lattice of solid black dots is not a texture, it is a
+ *     screen door. `--grid-dot` is the token that means "a dot of the paper's
+ *     grid" and is the only honest source for it.
+ *   - The pitch was a hardcoded 16px while the body's grid is `--grid-size`
+ *     (24px). Two dot grids at different pitches in the same viewport read as a
+ *     moiré rather than as one sheet, and every call site here (`library-view`'s
+ *     empty state, `file-drop`, the closing CTA) is a panel sitting directly on
+ *     the body's paper. Reading `--grid-size` means this surface cannot drift out
+ *     of phase with the page as long as its box starts on a multiple of 24px —
+ *     the same contract the `dot-grid` utility documents.
+ *
+ * `dot-grid` in `globals.css` does exactly this and is preferable in new code;
+ * this component survives because it is a real element with `aria-hidden`, an
+ * `opacity` and children at three of its call sites, which a utility class on
+ * someone else's box cannot be.
  */
 export function InkBoard({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="ink-board"
       className={cn(
-        'bg-[radial-gradient(circle_at_center,var(--color-border)_1px,transparent_1px)]',
-        'bg-[length:16px_16px]',
+        'bg-[radial-gradient(circle_at_center,var(--color-grid-dot)_1px,transparent_1px)]',
+        'bg-[length:var(--grid-size)_var(--grid-size)]',
         className,
       )}
       {...props}
