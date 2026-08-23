@@ -84,8 +84,19 @@ re-audit in Phase 8 is the exit.
 > `render.problems` in `pipeline.json` (inherited on cached renders — they describe
 > the artifact, not the run). `final-169` (47.6%) passes; photosynthesis (21.8%)
 > passes the recalibrated floor and its separation is Tier 2's job (3.3), per W2.
-> Red/green tests in `boardcheck.test.ts`; auditcheck line added. Next: 2.4 + 2.5,
-> then 2.7.
+> Red/green tests in `boardcheck.test.ts`; auditcheck line added.
+>
+> **Progress (2026-08-23, same session): 2.5 is landed.** `resolveFraming` pass 3
+> derives a derived camera's transition from its pan distance:
+> `max(current floor, dist / viewWidth / MAX_VIEWS_PER_SEC)`, capped at 2.5s (past
+> that a move reads better as a cut). The speed is measured in _view-widths per
+> second at the incoming zoom_ — raw canvas units would be a different perceptual
+> speed on every board, since canvases run 1520–4448 units wide. The ceiling (2.4)
+> sits just above the fastest walk in the corpus (2.35 views/s on `projects/try`;
+> fastest in a shipped film 1.84 on `cardiac8f`), so no reviewed walk slows down and
+> only the degenerate constructed case stretches. Pinned in `camera.test.ts`
+> (exact-formula pin plus the cap case); S7-b line in `auditcheck.mts`. Next: 2.4 and
+> 2.7, which close Phase 2.
 
 **Two rules that shape everything here:**
 

@@ -11,6 +11,8 @@ import test from 'node:test';
 import { frameSize, parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
 import {
+  MAX_VIEWS_PER_SEC,
+  basePxPerUnit,
   boardMetrics,
   contentFill,
   elementBounds,
@@ -192,6 +194,67 @@ test('a scene with no region keeps the camera its author composed', () => {
   const plan = compilePlan(fixtureStoryboard(), DIR);
   assert.equal(plan.scenes[1]?.camera.x, 1700);
   assert.equal(plan.scenes[1]?.camera.zoom, 1.8);
+});
+
+test('a long walk between regions gets the time its distance needs (plan 2.5)', () => {
+  // Two regions at opposite ends of a canvas five frames wide: under the old fixed
+  // transition classes this walk would cross several view-widths inside one 0.45s
+  // window. Pass 3 now derives the time from the distance, bounded by
+  // MAX_VIEWS_PER_SEC — measured against the corpus so no shipped walk slows down
+  // (the fastest shipped is 1.84 views/s; the ceiling sits at 2.4).
+  const walk = (farX: number): Storyboard =>
+    parseStoryboard({
+      version: 1,
+      title: 'walk',
+      canvas: { x: 0, y: 0, w: 10000, h: 1800 },
+      scenes: [
+        {
+          id: 'near',
+          narration: 'a',
+          durationSec: 4,
+          region: 'left',
+          camera: { x: 600, y: 500, zoom: 1, transition: 0 },
+          elements: [
+            { id: 'e1', type: 'text', text: 'left side', at: { x: 200, y: 300, w: 700, h: 300 } },
+          ],
+        },
+        {
+          id: 'far',
+          narration: 'b',
+          durationSec: 4,
+          region: 'right',
+          camera: { x: farX + 400, y: 500, zoom: 1, transition: 0 },
+          elements: [
+            {
+              id: 'e2',
+              type: 'text',
+              text: 'right side',
+              at: { x: farX, y: 300, w: 700, h: 300 },
+            },
+          ],
+        },
+      ],
+    });
+
+  const sb = walk(4200);
+  const framing = resolveFraming(sb, FRAME);
+  const [a, b] = [framing[0]!, framing[1]!];
+  assert.equal(b.derived, true, 'a region scene gets a derived camera');
+  const dist = Math.hypot(b.camera.x - a.camera.x, b.camera.y - a.camera.y);
+  const viewW = FRAME.w / (basePxPerUnit(sb.canvas, FRAME) * b.camera.zoom);
+  assert.ok(dist / viewW > 2.3, `this fixture must be a genuinely long walk (${dist / viewW})`);
+  // Pinned: the transition is exactly what the distance demands at the ceiling.
+  const needed = Math.round((dist / viewW / MAX_VIEWS_PER_SEC) * 100) / 100;
+  assert.equal(b.camera.transition, needed);
+  assert.ok(b.camera.transition > 0.95, 'longer than any fixed transition class');
+  // And the speed the viewer sees never exceeds the ceiling.
+  assert.ok(dist / viewW / b.camera.transition <= MAX_VIEWS_PER_SEC + 0.01);
+
+  // A pathological distance is capped rather than eating the scene: past 2.5s the
+  // move reads better as a cut, and the settle clamp downstream bounds what a
+  // transition may consume of the narration.
+  const extreme = resolveFraming(walk(8800), FRAME);
+  assert.equal(extreme[1]!.camera.transition, 2.5);
 });
 
 test('a recap pulls back over everything drawn, across every region', () => {

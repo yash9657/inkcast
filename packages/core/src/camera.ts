@@ -477,10 +477,39 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
     } else if (scene.region && scene.region === prev.region) {
       f.camera.transition = Math.max(f.camera.transition, 0.45);
     }
+    // Pan speed is bounded by deriving the transition from the distance (audit
+    // S7-b, plan 2.5): a walk gets the time it needs at a watchable speed instead
+    // of a fixed window whatever the distance. Speed is measured in *view-widths
+    // per second at the incoming zoom* — canvas units per second would be a
+    // different perceptual speed on every board, since canvases run 1520 to 4448
+    // units wide. The ceiling sits just above the fastest walk in the corpus
+    // (measured 2026-08-23: 2.35 views/s on projects/try s5→s6; the fastest in a
+    // *shipped* film is 1.84 on cardiac8f), so nothing anyone has reviewed slows
+    // down, and the degenerate case this exists for — a constructed two-region
+    // walk that would otherwise cross five screens inside one fixed 0.95s window —
+    // gets stretched to a speed a viewer can follow. Capped so a pathological
+    // distance cannot eat a whole scene: past ~2.5s a move reads better as a cut,
+    // and the reveal-settle clamp downstream bounds what a transition may consume.
+    const prevCam = (out[i - 1] as SceneFraming).camera;
+    const dist = Math.hypot(f.camera.x - prevCam.x, f.camera.y - prevCam.y);
+    if (dist > 0) {
+      const viewW = frame.w / (basePxPerUnit(canvas, frame) * f.camera.zoom);
+      const needed = Math.min(MAX_TRANSITION, dist / viewW / MAX_VIEWS_PER_SEC);
+      if (needed > f.camera.transition) f.camera.transition = Math.round(needed * 100) / 100;
+    }
   }
 
   return out;
 }
+
+/**
+ * The fastest a camera walk may cross the frame, in view-widths per second at the
+ * incoming zoom. See pass 3 above for the corpus measurement this sits on.
+ */
+export const MAX_VIEWS_PER_SEC = 2.4;
+
+/** A move longer than this reads better as a cut than as a pan. */
+const MAX_TRANSITION = 2.5;
 
 /* --------------------------------------------------------------------- fill */
 

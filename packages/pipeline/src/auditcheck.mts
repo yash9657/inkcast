@@ -201,6 +201,16 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S7-b (2.5): pan time is derived from pan distance ---- */
+{
+  const camera = read('packages/core/src/camera.ts');
+  check(
+    'S7-b: resolveFraming bounds pan speed (MAX_VIEWS_PER_SEC)',
+    /MAX_VIEWS_PER_SEC/.test(camera) && /dist \/ viewW \/ MAX_VIEWS_PER_SEC/.test(camera),
+    'a long walk fits inside a fixed transition window again — five screens in 0.95s',
+  );
+}
+
 /* ---- S6-b (1.3): the aligner cannot return fake word timings ---- */
 {
   const align = read('packages/voice/src/align.ts');

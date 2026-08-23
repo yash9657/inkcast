@@ -9,7 +9,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, 2.1–2.3, and 2.6 are landed, tested, and committed:**
+**Phases 0, 1, 2.1–2.3, 2.5, and 2.6 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -53,6 +53,10 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   progress block. `--degrade` overrides now persist: `plan.problems` →
   `RenderResult.problems` → `pipeline.json` `render.problems` (inherited on cached
   renders). This plumbing is also what 3.4 will ride.
+- 2026-08-23 — **2.5, pan speed.** `resolveFraming` pass 3:
+  `transition = max(floor, dist / viewWidth / MAX_VIEWS_PER_SEC)` (2.4 views/s at the
+  incoming zoom — just above the corpus's fastest walk, so nothing reviewed slows),
+  capped at 2.5s. Pinned in `camera.test.ts`; S7-b auditcheck line.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -107,7 +111,7 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phases 2.4, 2.5, 2.7, then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phases 2.4 and 2.7 (which close Phase 2), then 3 → 4 → 5 → 6 → 7 → 8
 
 The plan is authoritative on scope and done-bars; what follows is session-found
 context per item, so the next session does not re-derive it. (2.2 landed 2026-08-23,
@@ -119,8 +123,6 @@ has the inventory; 2.3 landed the same day — `boardcheck.ts`, see above.)
 - **2.4 Min glyph height post-zoom** — measure the corpus first, pick the number that
   fails the illegible and passes the shipped (~14px, not the spec's 18), write the
   reasoning down. Needs 2.7's realized-layout report for the runtime shrink half.
-- **2.5 Pan speed** — `resolveFraming` pass 3 in `core/src/camera.ts`; pick
-  `MAX_UNITS_PER_SEC` by watching the fastest existing walk; pin in `camera.test.ts`.
 - **2.7 Realized-layout report** — the capture page (`render/src/page/runtime.js`,
   shrink floor at `:400`) reports realized boxes back through CDP
   (`render/src/browser.ts`) before frame 0; re-run 2.3's sweeps against them.
