@@ -10,7 +10,7 @@
  * Numbers are in **canvas units** (the IR's coordinate space, 1920×1080 by
  * default), not output pixels — the camera scales them at render time.
  */
-import { HAND_FONTS, TYPE_REFERENCE_HEIGHT, TYPE_SCALE } from '@inkcast/core';
+import { HAND_FONTS, TYPE_REFERENCE_HEIGHT, TYPE_SCALE, paletteFor } from '@inkcast/core';
 import type { StoryboardMeta } from '@inkcast/core';
 
 export type InkStyleName = StoryboardMeta['style'];
@@ -39,11 +39,17 @@ export type InkStyle = {
   linecap: 'round' | 'butt' | 'square';
   linejoin: 'round' | 'miter' | 'bevel';
 
-  /* --- colour --- */
+  /* --- colour ---
+   * Read from the one table in `@inkcast/core` (`paletteFor`), never stated here:
+   * this stage's own colour set had drifted to a red accent and an off-by-a-shade
+   * black that the film never painted (plan item 2.2). The field names keep this
+   * lane's vocabulary; the values are the board's. */
   paper: string;
   ink: string;
   accent: string;
+  /** The board palette's `contrast` — the second marker. */
   secondary: string;
+  /** The board palette's `inkSoft`. */
   muted: string;
   highlight: string;
 
@@ -58,15 +64,21 @@ export type InkStyle = {
   textOpacity: number;
 };
 
+type InkPersonality = Omit<
+  InkStyle,
+  'palette' | 'paper' | 'ink' | 'accent' | 'secondary' | 'muted' | 'highlight'
+>;
+
 /**
  * Font mapping is from `docs/research/design-stack.md` §3, which assigns one
  * OFL handwriting face per ink style. The assignment itself (family, filename
  * stems, tracking) lives in `HAND_FONTS` in `@inkcast/core`, next to the metrics
  * stack that measures with it — spread in here rather than restated, so the
  * planner reserving a box and this table lettering into it can never disagree
- * about which face that is.
+ * about which face that is. Colours are not here at all: they come from the one
+ * palette table in `@inkcast/core` (see `inkStyleFor`).
  */
-const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
+const STYLES: Record<InkStyleName, InkPersonality> = {
   marker: {
     name: 'marker',
     roughness: 1.15,
@@ -82,12 +94,6 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     strokeOpacity: 0.94,
     linecap: 'round',
     linejoin: 'round',
-    paper: '#fdfdfb',
-    ink: '#1c1f26',
-    accent: '#d7263d',
-    secondary: '#1b6ca8',
-    muted: '#7b8494',
-    highlight: '#f5c445',
     ...HAND_FONTS.marker,
     textOpacity: 0.96,
   },
@@ -106,12 +112,6 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     strokeOpacity: 0.74,
     linecap: 'round',
     linejoin: 'round',
-    paper: '#fbfaf6',
-    ink: '#3d434f',
-    accent: '#a8503f',
-    secondary: '#4f6d7a',
-    muted: '#98a0ac',
-    highlight: '#cbb994',
     ...HAND_FONTS.pencil,
     textOpacity: 0.82,
   },
@@ -130,12 +130,6 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     strokeOpacity: 0.86,
     linecap: 'round',
     linejoin: 'round',
-    paper: '#1f2a30',
-    ink: '#f2f5f3',
-    accent: '#ffd166',
-    secondary: '#8ecae6',
-    muted: '#a3b4bb',
-    highlight: '#ef8354',
     ...HAND_FONTS.chalk,
     textOpacity: 0.9,
   },
@@ -154,29 +148,34 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     strokeOpacity: 1,
     linecap: 'round',
     linejoin: 'round',
-    paper: '#fffef8',
-    ink: '#111820',
-    accent: '#bf1b26',
-    secondary: '#00606f',
-    muted: '#5f6b73',
-    highlight: '#e8b419',
     ...HAND_FONTS.ink,
     textOpacity: 1,
   },
 };
 
-/** Build the working ink style for a storyboard's meta block. */
+/**
+ * Build the working ink style for a storyboard's meta block.
+ *
+ * Personality (stroke, roughness, face) comes from `STYLES`; colour comes from the
+ * one palette table in `@inkcast/core`, so this stage and the renderer can never
+ * again disagree about what black, what accent, or what paper the board uses —
+ * `packages/pipeline/test/styles.test.ts` holds the two to it. Mono needs no
+ * special-casing here any more: `paletteFor('mono')` is the same mono the film is
+ * painted with.
+ */
 export function inkStyleFor(meta: Pick<StoryboardMeta, 'style' | 'palette'>): InkStyle {
   const base = STYLES[meta.style] ?? STYLES.marker;
-  const style: InkStyle = { ...base, palette: meta.palette };
-  if (meta.palette === 'mono') {
-    // Mono is not "grey everything" — it keeps one ink and leans on the muted
-    // tone for secondary marks so hierarchy survives.
-    style.accent = base.ink;
-    style.secondary = base.ink;
-    style.highlight = base.muted;
-  }
-  return style;
+  const pal = paletteFor(meta.palette);
+  return {
+    ...base,
+    palette: meta.palette,
+    paper: pal.paper,
+    ink: pal.ink,
+    accent: pal.accent,
+    secondary: pal.contrast,
+    muted: pal.inkSoft,
+    highlight: pal.highlight,
+  };
 }
 
 export type InkRole = 'primary' | 'accent' | 'secondary' | 'muted' | 'highlight';

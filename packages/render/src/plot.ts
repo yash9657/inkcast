@@ -134,14 +134,13 @@ function phaseKeyFor(record: PlotPartRecord): string {
  * Ink for each part of a plot, from the *board's* palette.
  *
  * Geometry comes from the visuals stage; colour does not, and the distinction is
- * deliberate. The two packages keep different palettes — visuals' accent is a red
- * (`#d7263d`), the renderer's is a blue (`#2f6fed`), and even their blacks differ by
- * a shade — because visuals draws standalone SVGs and the renderer draws one
- * coherent board. Adopting the manifest's literal colours would make the plot the
- * one element on screen using a different set of pens.
- *
- * So the manifest's *roles* are mapped onto the palette the rest of the film is
- * drawn with. Weight, opacity and every coordinate still come from the stage.
+ * deliberate: the manifest's *roles* are mapped onto the palette the rest of the
+ * film is drawn with, so a plot recorded under an older sidecar can never be the one
+ * element on screen using a different set of pens. (Both packages now read one
+ * colour table in `@inkcast/core` — plan item 2.2 killed the red-vs-blue accent
+ * split that used to make this remap load-bearing — but the role mapping stays: it
+ * is the contract that makes recorded geometry colour-stable across palette
+ * changes.) Weight, opacity and every coordinate still come from the stage.
  *
  * One accent for the whole film is a hard rule (see `palette.ts`), so a curve's
  * `accent` index selects between the three inks the palette actually has rather than

@@ -571,9 +571,12 @@ test('accent indices walk the palette and are clamped, not wrapped', () => {
   assert.equal(curveInk(style, 1).colour, style.accent);
   assert.equal(curveInk(style, 99).colour, curveInk(style, 5).colour);
   assert.equal(curveInk(style, -4).colour, curveInk(style, 0).colour);
-  // Mono collapses the palette on purpose; nothing here should crash on that.
+  // Mono separates by value instead of hue (one colour table, plan 2.2): the accent
+  // is its own near-ink dark — the film's mono has always drawn it so — not a
+  // collapse onto the ink, which was this stage's private drift.
   const mono = inkStyleFor({ style: 'ink', palette: 'mono' });
-  assert.equal(curveInk(mono, 1).colour, mono.ink);
+  assert.equal(curveInk(mono, 1).colour, mono.accent);
+  assert.notEqual(mono.accent, mono.ink);
 });
 
 test('labels never overlap each other', () => {

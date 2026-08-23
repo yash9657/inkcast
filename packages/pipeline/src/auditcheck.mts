@@ -155,6 +155,20 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S5-c (2.2): one colour table — the red accent stays deleted ---- */
+{
+  const visualsStyle = read('packages/visuals/src/style.ts');
+  const renderPalette = read('packages/render/src/palette.ts');
+  check(
+    'S5-c: visuals and render read colours from @inkcast/core, not tables of their own',
+    /paletteFor/.test(visualsStyle) &&
+      /export \{ paletteFor, toneInk \} from '@inkcast\/core'/.test(renderPalette) &&
+      !/#d7263d/i.test(visualsStyle) &&
+      !/accent:\s*'#/.test(renderPalette),
+    'a package has grown a colour table of its own again — the film and the visuals lane will drift apart',
+  );
+}
+
 /* ---- S6-b (1.3): the aligner cannot return fake word timings ---- */
 {
   const align = read('packages/voice/src/align.ts');

@@ -34,7 +34,22 @@ re-audit in Phase 8 is the exit.
 > (`repair-log.test.ts`, `draw-critic.test.ts`); four A-4 lines added to
 > `auditcheck.mts`. Done-bar held: one advance table in the repo; the "empty
 > stac"-class defect is structurally closed (the check measures what the renderer
-> draws). Next: 2.2.
+> draws).
+>
+> **Progress (2026-08-23, same session): 2.2 is landed.** The colour table lives in
+> `@inkcast/core` (`palette.ts`: `Palette`, `paletteFor`, `toneInk`, plus the
+> `highlight` wash visuals needed); `render/palette.ts` re-exports it and keeps only
+> pen personality; `visuals/style.ts` keeps per-style _personality_ (stroke,
+> roughness, face) and composes colours from `paletteFor` — its four never-shipped
+> per-style colour sets are deleted. The accent decision was made from frames: the
+> film paints the renderer's blue `#2f6fed` in every shipped frame (the plot remap in
+> `render/plot.ts` meant visuals' red never reached a pixel), so the blue survives
+> and `#d7263d` is deleted, not aliased. The visuals mono collapse (accent→ink) also
+> dies — the film's mono accent was always the distinct `#39434f`. Mirror test:
+> `pipeline/test/styles.test.ts` (the CAST_POSES pattern); S5-c line added to
+> `auditcheck.mts`. Fresh visuals manifests now record the film's own colours; a
+> per-style colour pack (dark chalk) is deliberately 7.3's StylePack decision, not a
+> second table. Next: 2.3.
 
 **Two rules that shape everything here:**
 

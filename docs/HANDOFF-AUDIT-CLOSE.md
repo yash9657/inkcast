@@ -1,4 +1,4 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.2
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.3
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after 2.1 landed. **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
@@ -9,7 +9,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, and 2.1 are landed, tested, and committed:**
+**Phases 0, 1, 2.1, and 2.2 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -28,6 +28,16 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   affordable) and `draw-critic.test.ts` (the repair now genuinely fixes stacked labels,
   so "worse" is a broken-word defect instead). `auditcheck.mts` gained four A-4 lines
   and its S4-b line follows the moved file.
+- 2026-08-23 — **2.2, one style table.** Colours live in `core/src/palette.ts`
+  (`Palette`/`paletteFor`/`toneInk`, plus `highlight`); `render/palette.ts` re-exports
+  and keeps pen personality; `visuals/style.ts` keeps per-style personality and
+  composes colours from `paletteFor` — its four per-style colour sets are deleted. The
+  blue accent `#2f6fed` won on frame evidence (the plot-role remap in
+  `render/plot.ts` meant visuals' red `#d7263d` never reached a shipped pixel; the
+  red is deleted, not aliased). The visuals mono accent→ink collapse died too — the
+  film's mono accent was always `#39434f`. Mirror test:
+  `pipeline/test/styles.test.ts`; S5-c line in `auditcheck.mts`. Dark-chalk-style
+  colour packs are deliberately deferred to 7.3's StylePack loader.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -50,10 +60,10 @@ with no gate problems. That project directory is disposable evidence, not a fixt
   so degrade stays an escape and the message format stays uniform.
 - **The harness.** `packages/pipeline/src/auditcheck.mts`
   (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
-  re-checkable facts, currently 16, all green. **The plan (item 0.3) says each Phase
+  re-checkable facts, currently 17, all green. **The plan (item 0.3) says each Phase
   1–2 item adds its line here as it closes.** 2.1's four A-4 lines are in.
 - **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
-  (real cmap) in `packages/visuals/src/fontmetrics.ts`; wired at the top of
+  (real cmap) in `packages/core/src/fontmetrics.ts` (moved there in 2.1); wired at the top of
   `resolveVisuals`. Tests in `packages/visuals/test/glyphgate.test.ts`.
 - **Math routing.** `sniffMath` + promotion in `packages/planner/src/elements.ts`
   (`makeText` now returns `TextElement | EquationElement`); briefs advertise the
@@ -82,14 +92,15 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phase 2.2–2.7, then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phase 2.3–2.7, then 3 → 4 → 5 → 6 → 7 → 8
 
 The plan is authoritative on scope and done-bars; what follows is session-found
-context per item, so the next session does not re-derive it.
+context per item, so the next session does not re-derive it. (2.2 landed 2026-08-23,
+same session as 2.1: colours live in `core/src/palette.ts`, the blue accent won —
+the plot-role remap in `render/plot.ts` meant visuals' red never reached a shipped
+pixel — and `pipeline/test/styles.test.ts` is the mirror. The plan's progress block
+has the inventory.)
 
-- **2.2 One style table** — `render/src/palette.ts` + `visuals/src/style.ts` →
-  `@inkcast/core`; kill the `#d7263d` vs `#2f6fed` accent split by _opening frames of
-  both_ before deciding; add the mirror test in pipeline (the `CAST_POSES` pattern).
 - **2.3 Board assertions** — in `render/src/compile.ts` `compilePlan` (per-scene AABB
   sweep, `rectContains(viewRect(camera), elementBounds(el))`, dwell). Block through
   `gate(ctx.gates, ...)` — the plumbing already exists (`Ctx.gates`). Also add
