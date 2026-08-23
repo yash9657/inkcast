@@ -14,8 +14,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { hash, isFresh, logger, markFresh, report } from '@inkcast/core';
+import { gate, hash, isFresh, logger, markFresh, report } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
+import { realizedTextViolations } from './boardcheck.js';
 import { chromiumAvailable, CHROMIUM_HINT, launchChromium, openCapture } from './browser.js';
 import type { FrameFormat } from './browser.js';
 import { emitCaptions } from './captions.js';
@@ -204,8 +205,34 @@ export async function render(
   const browser = await launchChromium();
   const encoders = new Set<SegmentEncoder>();
   const segFiles: string[] = [];
+  const realizedProblems: string[] = [];
 
   try {
+    // The realized-layout report (plan 2.7), before frame 0: the browser's
+    // shrink-to-fit is invisible to the solver, so what it actually laid out is
+    // read back over CDP and swept the way compile swept the estimates. A box
+    // narrowed past the legibility floor fails here, from reality, not from the
+    // estimate that said it was fine.
+    {
+      const probe = await openCapture(browser, plan.frame, html, shot);
+      try {
+        const violations = realizedTextViolations(await probe.realizedLayout(), plan);
+        if (violations.length > 0) {
+          gate(
+            opts.gates,
+            `${violations.length} realized-layout violation${violations.length === 1 ? '' : 's'}:\n` +
+              violations.map((v) => `  - ${v.message}`).join('\n'),
+            (m) => {
+              log.warn(m);
+              realizedProblems.push(m);
+            },
+          );
+        }
+      } finally {
+        await probe.close();
+      }
+    }
+
     await Promise.all(
       segments.map(async (seg) => {
         const out = path.join(segDir, `seg-${String(seg.index).padStart(3, '0')}.mp4`);
@@ -259,13 +286,14 @@ export async function render(
   );
   report(opts, { stage: 'render', pct: 100, note: outName });
 
+  const problems = [...(plan.problems ?? []), ...realizedProblems];
   return {
     videoPath,
     thumbnailPath,
     durationSec,
     frames,
     cached: false,
-    ...(plan.problems ? { problems: plan.problems } : {}),
+    ...(problems.length > 0 ? { problems } : {}),
   };
 }
 

@@ -57,6 +57,7 @@ import {
 import type { Pt as GPt } from './geom.js';
 import {
   dwellWarnings,
+  glyphFloorViolations,
   inkOnInkViolations,
   offFrameViolations,
   overrunViolations,
@@ -562,6 +563,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
       ...inkOnInkViolations(timed.scenes, wipes),
       ...frameCheck.errors,
       ...overrunViolations(timedItems),
+      ...glyphFloorViolations(timed.scenes, framing, canvas, frame, ctx.type),
     ];
     if (blocking.length > 0) {
       gate(

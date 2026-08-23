@@ -211,6 +211,28 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S4-f (2.4): the legibility floor, at the corpus-derived number ---- */
+{
+  const boardcheck = read('packages/render/src/boardcheck.ts');
+  check(
+    'S4-f: MIN_GLYPH_PX exists and compilePlan sweeps roles against it',
+    /MIN_GLYPH_PX = 10/.test(boardcheck) &&
+      /glyphFloorViolations/.test(read('packages/render/src/compile.ts')),
+    'the legibility floor is gone — a caption at the pull-out floor ships at single-digit pixels again',
+  );
+}
+
+/* ---- S4-a gap (2.7): the browser reports what it really laid out ---- */
+{
+  const runtime = read('packages/render/src/page/runtime.js');
+  const render = read('packages/render/src/render.ts');
+  check(
+    'S4-a: the realized-layout report exists and render sweeps it before frame 0',
+    /realizedLayout/.test(runtime) && /realizedTextViolations/.test(render),
+    'the shrink-to-fit is invisible to the solver again — browser wrap can clip without anything noticing',
+  );
+}
+
 /* ---- S6-b (1.3): the aligner cannot return fake word timings ---- */
 {
   const align = read('packages/voice/src/align.ts');

@@ -25,14 +25,27 @@
  * All three surface through `gate(...)` so `--degrade` stays the escape and the
  * message format stays uniform.
  */
-import { elementBounds, viewRect } from '@inkcast/core';
+import { TYPE_SCALE, basePxPerUnit, elementBounds, viewRect } from '@inkcast/core';
 import type { Element, FrameSize, Rect, Scene, SceneFraming } from '@inkcast/core';
 import { rectContains } from './geom.js';
 
 export type BoardViolation = {
-  kind: 'ink-on-ink' | 'off-frame' | 'overrun';
+  kind: 'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible';
   message: string;
 };
+
+/**
+ * The smallest handwriting the board may introduce, in output pixels (plan 2.4).
+ *
+ * Measured against the corpus on 2026-08-23, not taken from the spec (18) or the
+ * plan's provisional guess (14). Across seven boards the corpus letters at 26px and
+ * up everywhere except the recap pull-backs, where newly revealed labels and
+ * captions ship at 10.9–13.9px — reviewed films, readable text, deliberately wide
+ * shots. A 14px floor would fail three shipped, watched reveals; the honest floor
+ * sits just under the shipped minimum (10.9px), where everything below it really is
+ * the illegible class: handwriting under 10 output pixels has no x-height left.
+ */
+export const MIN_GLYPH_PX = 10;
 
 /** Element kinds whose box is solid content — the ones the overlap sweep covers. */
 const SOLID = new Set(['text', 'equation', 'asset', 'diagram', 'plot', 'shape']);
@@ -166,6 +179,108 @@ export function offFrameViolations(
     }
   });
   return { errors, warnings };
+}
+
+/**
+ * (2.4, static half) Text a scene reveals at a size its own camera renders illegible.
+ *
+ * The renderer letters a role at `TYPE_SCALE[role] × typeUnit` canvas units, and the
+ * scene's zoom decides how many output pixels that lands as. Equations are skipped:
+ * their glyph size is a consequence of typeset geometry fitted to a box, which only
+ * the realized report (2.7) can see.
+ */
+export function glyphFloorViolations(
+  scenes: readonly Scene[],
+  framing: readonly SceneFraming[],
+  canvas: Rect,
+  frame: FrameSize,
+  typeUnit: number,
+): BoardViolation[] {
+  const base = basePxPerUnit(canvas, frame);
+  const out: BoardViolation[] = [];
+  scenes.forEach((scene, i) => {
+    const zoom = framing[i]?.camera.zoom;
+    if (!zoom) return;
+    const seen = new Set<string>();
+    for (const el of scene.elements) {
+      if (el.type !== 'text' || seen.has(el.role)) continue;
+      seen.add(el.role);
+      const px = TYPE_SCALE[el.role] * typeUnit * base * zoom;
+      if (px < MIN_GLYPH_PX) {
+        out.push({
+          kind: 'illegible',
+          message:
+            `scene ${scene.id} reveals ${el.role} text ("${el.id}") at ${px.toFixed(1)} output ` +
+            `pixels — below the ${MIN_GLYPH_PX}px legibility floor. The camera is framed too ` +
+            'wide for the type it introduces',
+        });
+      }
+    }
+  });
+  return out;
+}
+
+/** One text item as the browser really laid it out — `RealizedText` in browser.ts. */
+export type RealizedReport = {
+  id: string;
+  text: string;
+  asked: number;
+  size: number;
+  lines: number;
+  boxW: number;
+  boxH: number;
+  blockH: number;
+  fits: boolean;
+};
+
+/**
+ * (2.7) The realized-layout sweep: checks the solver cannot run, because the
+ * browser's shrink-to-fit is invisible to it. Two failure classes, both real
+ * clipping-or-illegibility the estimate said were fine:
+ *
+ *  - text that does not fit its box even at the shrink floor (`fits: false`) —
+ *    the next thing the runtime would do is overflow the box;
+ *  - text shrunk below `MIN_GLYPH_PX` at its scene's zoom — legible in the
+ *    estimate at the asked size, illegible as lettered.
+ */
+export function realizedTextViolations(
+  reports: readonly RealizedReport[],
+  plan: {
+    canvas: Rect;
+    frame: { w: number; h: number };
+    scenes: readonly { camera: { zoom: number } }[];
+    items: readonly { id: string; scene: number }[];
+  },
+): BoardViolation[] {
+  const base = basePxPerUnit(plan.canvas, plan.frame);
+  const sceneOf = new Map(plan.items.map((it) => [it.id, it.scene]));
+  const out: BoardViolation[] = [];
+  for (const r of reports) {
+    const scene = sceneOf.get(r.id);
+    const zoom = scene === undefined ? undefined : plan.scenes[scene]?.camera.zoom;
+    if (!zoom) continue;
+    if (!r.fits) {
+      out.push({
+        kind: 'illegible',
+        message:
+          `"${r.id}" ("${r.text}…") does not fit its ${Math.round(r.boxW)}×${Math.round(r.boxH)} ` +
+          `box even at the shrink floor (${r.lines} lines, ${Math.round(r.blockH)} units tall) — ` +
+          'the browser will overflow the box the solver reserved',
+      });
+      continue;
+    }
+    const px = r.size * base * zoom;
+    if (px < MIN_GLYPH_PX && r.size < r.asked) {
+      out.push({
+        kind: 'illegible',
+        message:
+          `"${r.id}" ("${r.text}…") was shrunk from ${Math.round(r.asked)} to ` +
+          `${r.size.toFixed(1)} canvas units to fit its box — ${px.toFixed(1)} output pixels ` +
+          `at its scene's zoom, below the ${MIN_GLYPH_PX}px legibility floor`,
+      });
+    }
+  }
+  return out;
 }
 
 /** The slice of a `PlanItem` the timing checks need — importable by tests. */

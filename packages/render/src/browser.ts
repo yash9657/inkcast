@@ -120,7 +120,30 @@ export type FrameCapturer = {
   frame(): Promise<Buffer>;
   /** A PNG straight to disk, for the poster. */
   savePng(file: string): Promise<void>;
+  /**
+   * The page's realized-layout report (plan 2.7): what the browser actually laid
+   * out per text item — post-shrink size, line count, whether it fits its box.
+   * Available as soon as the capturer opens; `openStagePage` waits for
+   * `inkcastReady`, which runs `layoutAll` before frame 0.
+   */
+  realizedLayout(): Promise<RealizedText[]>;
   close(): Promise<void>;
+};
+
+/** One text item as the browser really laid it out. Mirrors `layoutText` in runtime.js. */
+export type RealizedText = {
+  id: string;
+  text: string;
+  /** The size the plan asked for, in canvas units. */
+  asked: number;
+  /** The size the shrink-to-fit settled on, in canvas units. */
+  size: number;
+  lines: number;
+  boxW: number;
+  boxH: number;
+  blockH: number;
+  /** False when the text overflows its box even at the shrink floor. */
+  fits: boolean;
 };
 
 /**
@@ -175,6 +198,19 @@ export async function openCapture(
     frame: () => shoot(format),
     async savePng(file) {
       await writeFile(file, await shoot({ type: 'png' }));
+    },
+    async realizedLayout() {
+      const res = (await cdp.send('Runtime.evaluate', {
+        expression: 'JSON.stringify(window.inkcast.realizedLayout())',
+        returnByValue: true,
+      })) as { result?: { value?: unknown } };
+      const raw = res.result?.value;
+      if (typeof raw !== 'string') return [];
+      try {
+        return JSON.parse(raw) as RealizedText[];
+      } catch {
+        return [];
+      }
     },
     async close() {
       await cdp.detach().catch(() => undefined);

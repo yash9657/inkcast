@@ -10,9 +10,11 @@ import type { Storyboard } from '@inkcast/core';
 import {
   dwellFloor,
   dwellWarnings,
+  glyphFloorViolations,
   inkOnInkViolations,
   offFrameViolations,
   overrunViolations,
+  realizedTextViolations,
 } from './boardcheck.js';
 import { compilePlan } from './compile.js';
 
@@ -212,6 +214,91 @@ test('a mostly-empty board fails the fill floor; --degrade records it on the pla
   });
   const ok = compilePlan(composed, '/tmp', { gates: 'strict' });
   assert.equal(ok.problems, undefined);
+});
+
+test('text introduced below the legibility floor blocks; readable type passes', () => {
+  // A caption on a camera zoomed far out: 26px × 0.3 zoom = 7.8 output px of
+  // handwriting. The corpus's shipped minimum is 10.9px (recap reveals) — the floor
+  // at 10 passes everything reviewed and fails exactly this class.
+  const make = (zoom: number) =>
+    board({
+      elements2: [
+        {
+          id: 'cap',
+          type: 'text',
+          text: 'tiny words',
+          role: 'caption',
+          at: { x: 800, y: 500, w: 300, h: 60 },
+        },
+      ],
+      camera2: { zoom },
+    });
+  const wide = make(0.3);
+  const wideFraming = resolveFraming(wide, FRAME);
+  const v = glyphFloorViolations(wide.scenes, wideFraming, wide.canvas, FRAME, 1);
+  assert.equal(v.length, 1);
+  assert.match(v[0]!.message, /"cap".*legibility floor/s);
+
+  const near = make(1);
+  assert.equal(
+    glyphFloorViolations(near.scenes, resolveFraming(near, FRAME), near.canvas, FRAME, 1).length,
+    0,
+  );
+});
+
+test('the realized report catches the shrink the estimate cannot see', () => {
+  const plan = {
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    frame: { w: 1920, h: 1080 },
+    scenes: [{ camera: { zoom: 1 } }],
+    items: [
+      { id: 'squeezed', scene: 0 },
+      { id: 'overflowing', scene: 0 },
+      { id: 'calm', scene: 0 },
+    ],
+  };
+  const reports = [
+    // Shrunk from 34 to 9 canvas units = 9px at zoom 1: below the floor.
+    {
+      id: 'squeezed',
+      text: 'long words',
+      asked: 34,
+      size: 9,
+      lines: 4,
+      boxW: 120,
+      boxH: 100,
+      blockH: 46.8,
+      fits: true,
+    },
+    // Does not fit even at the shrink floor: the browser will overflow the box.
+    {
+      id: 'overflowing',
+      text: 'far too much',
+      asked: 34,
+      size: 14.3,
+      lines: 6,
+      boxW: 120,
+      boxH: 46,
+      blockH: 111,
+      fits: false,
+    },
+    // Lettered exactly as asked: nothing to report.
+    {
+      id: 'calm',
+      text: 'fits fine',
+      asked: 34,
+      size: 34,
+      lines: 1,
+      boxW: 500,
+      boxH: 60,
+      blockH: 44.2,
+      fits: true,
+    },
+  ];
+  const v = realizedTextViolations(reports, plan);
+  assert.equal(v.length, 2);
+  assert.ok(v.some((x) => x.message.includes('"squeezed"') && x.message.includes('legibility')));
+  assert.ok(v.some((x) => x.message.includes('"overflowing"') && x.message.includes('fit its')));
 });
 
 test('a NaN coordinate or a zero-sized box never parses', () => {

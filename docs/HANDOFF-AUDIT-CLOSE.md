@@ -1,4 +1,4 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.4
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 3
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after 2.1 landed. **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
@@ -9,7 +9,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, 2.1–2.3, 2.5, and 2.6 are landed, tested, and committed:**
+**Phases 0, 1, and all of Phase 2 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -57,6 +57,16 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   `transition = max(floor, dist / viewWidth / MAX_VIEWS_PER_SEC)` (2.4 views/s at the
   incoming zoom — just above the corpus's fastest walk, so nothing reviewed slows),
   capped at 2.5s. Pinned in `camera.test.ts`; S7-b auditcheck line.
+- 2026-08-23 — **2.4 + 2.7, which close Phase 2.** The legibility floor is
+  `MIN_GLYPH_PX = 10` output px — corpus-derived (shipped minimum 10.9px on recap
+  reveals; the plan's provisional 14 fails three reviewed reveals) — swept statically
+  per scene/role by `compilePlan` (`glyphFloorViolations`) and against reality by the
+  realized-layout report: `runtime.js` `layoutText` records post-shrink size/lines/
+  fits per text item, `FrameCapturer.realizedLayout()` reads it over CDP, and
+  `render()` sweeps it (`realizedTextViolations`) before frame 0 — strict blocks,
+  degrade records into `problems`. The done-bar browser test (`page.test.ts`) builds
+  a narrowed box that passes every compile check and fails from the realized report
+  alone.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -111,21 +121,21 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phases 2.4 and 2.7 (which close Phase 2), then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phase 3 (QC becomes a stage), then 4 → 5 → 6 → 7 → 8
 
-The plan is authoritative on scope and done-bars; what follows is session-found
-context per item, so the next session does not re-derive it. (2.2 landed 2026-08-23,
-same session as 2.1: colours live in `core/src/palette.ts`, the blue accent won —
-the plot-role remap in `render/plot.ts` meant visuals' red never reached a shipped
-pixel — and `pipeline/test/styles.test.ts` is the mirror. The plan's progress block
-has the inventory; 2.3 landed the same day — `boardcheck.ts`, see above.)
+The plan is authoritative on scope and done-bars. Session-found context for Phase 3:
 
-- **2.4 Min glyph height post-zoom** — measure the corpus first, pick the number that
-  fails the illegible and passes the shipped (~14px, not the spec's 18), write the
-  reasoning down. Needs 2.7's realized-layout report for the runtime shrink half.
-- **2.7 Realized-layout report** — the capture page (`render/src/page/runtime.js`,
-  shrink floor at `:400`) reports realized boxes back through CDP
-  (`render/src/browser.ts`) before frame 0; re-run 2.3's sweeps against them.
+- **3.1's gate stage re-runs the Phase 2 assertions** — they live in
+  `render/src/boardcheck.ts` as pure exported functions (`inkOnInkViolations`,
+  `offFrameViolations`, `overrunViolations`, `glyphFloorViolations`,
+  `realizedTextViolations`, `dwellWarnings`) precisely so a `check` stage can call
+  them without compiling a plan.
+- **3.4's "nothing degrades silently" already has its rail:** degrade-mode gate
+  messages flow `plan.problems` → `RenderResult.problems` → `pipeline.json`
+  `render.problems` (built in 2.6). qc.json can subsume or mirror that shape.
+- The realized-layout report (2.7) is fetched per render in `render()`; a `check`
+  stage that wants it without an encode can use `openCapture` +
+  `FrameCapturer.realizedLayout()` the way `page.test.ts`'s last test does.
 
 ## How to verify any phase as it lands
 

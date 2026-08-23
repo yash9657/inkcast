@@ -95,8 +95,25 @@ re-audit in Phase 8 is the exit.
 > sits just above the fastest walk in the corpus (2.35 views/s on `projects/try`;
 > fastest in a shipped film 1.84 on `cardiac8f`), so no reviewed walk slows down and
 > only the degenerate constructed case stretches. Pinned in `camera.test.ts`
-> (exact-formula pin plus the cap case); S7-b line in `auditcheck.mts`. Next: 2.4 and
-> 2.7, which close Phase 2.
+> (exact-formula pin plus the cap case); S7-b line in `auditcheck.mts`.
+>
+> **Progress (2026-08-23, same session): 2.4 and 2.7 are landed — Phase 2 is
+> complete.** The legibility floor (`MIN_GLYPH_PX`) is **10 output px**, not the
+> plan's provisional 14 or the spec's 18, and the number is the corpus's: seven
+> boards letter at ≥26px everywhere except recap pull-backs, whose newly revealed
+> labels/captions ship at 10.9–13.9px — reviewed films, readable text. A 14px floor
+> fails three shipped, watched reveals; 10 sits just under the shipped minimum,
+> where what it fails really is the class with no x-height left. Static half:
+> `glyphFloorViolations` in `boardcheck.ts`, swept by `compilePlan` per scene per
+> revealed text role (equations excluded — their glyph size is typeset geometry, the
+> realized report's job). Runtime half (2.7): `layoutText` in `page/runtime.js`
+> records what the browser really laid out (post-shrink size, line count, fits);
+> `window.inkcast.realizedLayout` serves it; `FrameCapturer.realizedLayout()` reads
+> it over CDP; `render()` sweeps it with `realizedTextViolations` before frame 0 —
+> blocking under strict, recorded into `problems` under degrade. Done-bar held: the
+> browser test in `page.test.ts` builds a board whose narrowed box passes every
+> compile-time check and fails from the realized report alone. Corpus strict-clean;
+> S4-f and S4-a lines in `auditcheck.mts` (23 checks). Next: Phase 3.
 
 **Two rules that shape everything here:**
 

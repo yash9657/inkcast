@@ -8,13 +8,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Browser } from 'playwright';
+import { parseStoryboard } from '@inkcast/core';
 import {
   chromiumAvailable,
   launchChromium,
+  openCapture,
   openStagePage,
   seekPage,
   snapshotPage,
 } from './browser.js';
+import { realizedTextViolations } from './boardcheck.js';
 import { compilePlan } from './compile.js';
 import { fixtureStoryboard, lessonStoryboard, planWithVisuals, wipeStoryboard } from './fixture.js';
 import { buildPageHtml, buildPreviewHtml } from './html.js';
@@ -597,3 +600,61 @@ test('preview reuses the identical animation code and adds a clock', { skip: SKI
     await browser.close();
   }
 });
+
+test(
+  'an artificially narrowed box fails from the realized report, not the estimate',
+  { skip: SKIP },
+  async () => {
+    // The done-bar for plan 2.7: the solver reserves at role sizes and this board
+    // looks fine to every compile-time check — the clipping only exists after the
+    // browser's shrink-to-fit, which is exactly what the realized report carries back.
+    const narrow = parseStoryboard({
+      version: 1,
+      title: 'narrow',
+      scenes: [
+        {
+          id: 's',
+          narration: 'a sentence about a box',
+          durationSec: 4,
+          camera: { x: 960, y: 540, zoom: 1 },
+          elements: [
+            // Enough real content that the fill floor is not the thing being tested.
+            { id: 'ground', type: 'shape', shape: 'rect', at: { x: 140, y: 100, w: 1100, h: 500 } },
+            {
+              id: 'squeezed',
+              type: 'text',
+              text: 'a sentence far too long to fit a box this small without shrinking to nothing',
+              role: 'body',
+              at: { x: 1400, y: 700, w: 120, h: 46 },
+            },
+          ],
+        },
+      ],
+    });
+    const nPlan = compilePlan(narrow, DIR);
+    assert.ok(
+      !(nPlan.problems ?? []).some((p) => p.includes('legibility') || p.includes('fit its box')),
+      'the estimate must believe this board is fine — that is the seam being closed',
+    );
+    const nHtml = buildPageHtml(nPlan, { mode: 'capture', fontCss: '', title: 'narrow' });
+    const browser = await launchChromium();
+    try {
+      const cap = await openCapture(browser, nPlan.frame, nHtml);
+      try {
+        const report = await cap.realizedLayout();
+        const mine = report.find((r) => r.id === 'squeezed');
+        assert.ok(mine, 'the page reports realized layout for the squeezed text');
+        assert.ok(mine.size < mine.asked, 'the browser had to shrink it');
+        const violations = realizedTextViolations(report, nPlan);
+        assert.ok(
+          violations.some((v) => v.message.includes('"squeezed"')),
+          `the realized sweep must flag it: ${JSON.stringify(violations)}`,
+        );
+      } finally {
+        await cap.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);

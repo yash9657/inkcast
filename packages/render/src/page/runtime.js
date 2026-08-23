@@ -393,7 +393,17 @@
    * times overflowed instead; a binary search finds the largest size that actually
    * fits, and every word survives.
    */
-  function layoutText(prim, host) {
+  /**
+   * What the browser really laid out, per text prim — the realized-layout report
+   * (plan 2.7). The solver reserves boxes from the same advance table this page
+   * wraps with, but the shrink-to-fit below is invisible to it: a box narrowed by
+   * hand, or type pushed below the legibility floor, only exists here. `layoutAll`
+   * fills this before frame 0 and the render process reads it back over CDP
+   * (`window.inkcast.realizedLayout`) to re-run its checks against reality.
+   */
+  var realizedReports = [];
+
+  function layoutText(prim, host, itemId) {
     var size = prim.size;
     var lines = wrapText(prim.text, prim.box.w, size);
     if (prim.shrink && !fitsBox(lines, size, prim.box)) {
@@ -414,6 +424,19 @@
       }
       size = bestSize;
       lines = bestLines;
+    }
+    if (itemId !== undefined) {
+      realizedReports.push({
+        id: itemId,
+        text: prim.text.slice(0, 40),
+        asked: prim.size,
+        size: size,
+        lines: lines.length,
+        boxW: prim.box.w,
+        boxH: prim.box.h,
+        blockH: lines.length * size * LINE_H,
+        fits: fitsBox(lines, size, prim.box),
+      });
     }
     var anchor = prim.align === 'center' ? 'middle' : prim.align === 'right' ? 'end' : 'start';
     var ax =
@@ -731,7 +754,7 @@
             if (m) parts[s].m = { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f };
           }
         } else {
-          var lineParts = layoutText(prim, entry.el);
+          var lineParts = layoutText(prim, entry.el, rec.item.id);
           for (var lp = 0; lp < lineParts.length; lp++) parts.push(lineParts[lp]);
         }
       }
@@ -1205,6 +1228,10 @@
     /** Serialised visual state — the determinism test compares two of these. */
     snapshot: function () {
       return board.outerHTML;
+    },
+    /** The realized-layout report (plan 2.7) — filled by layoutAll, read over CDP. */
+    realizedLayout: function () {
+      return realizedReports;
     },
   };
   window.__INKCAST_READY__ = false;
