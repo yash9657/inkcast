@@ -17,6 +17,7 @@
  * is equal to it — the two are in different units, and the measurement that says so is in
  * `FONT`'s own comment.
  */
+import { logger } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -28,6 +29,8 @@ import type {
   TextElement,
 } from '@inkcast/core';
 import { words } from './text.js';
+
+const log = logger('planner:elements');
 
 /**
  * `@inkcast/core` exports `Box` as a zod schema but not as a type, and an
@@ -195,12 +198,105 @@ function enter(init: EnterInit | undefined, fallback: Element['enter']['style'])
   };
 }
 
+/* ------------------------------------------------------------ math sniffing */
+
+/** Codepoints that read as mathematics wherever they appear in would-be handwriting. */
+function mathCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x2200 && cp <= 0x22ff) || // mathematical operators (∀ … ⋿, incl. √ ∞ ≠ ≤ ≥ ⋅)
+    (cp >= 0x27e8 && cp <= 0x27ef) || // mathematical brackets (bra-ket ⟨⟩)
+    (cp >= 0x2070 && cp <= 0x209f) || // Unicode super/subscripts (ⁿ, ₂, …)
+    (cp >= 0x1d400 && cp <= 0x1d7ff) || // mathematical alphanumeric symbols
+    cp === 0x00b9 || // ¹ (the Latin-1 superscripts predate the block above)
+    cp === 0x00b2 || // ²
+    cp === 0x00b3 || // ³
+    cp === 0x00b1 || // ±
+    cp === 0x00d7 || // ×
+    cp === 0x00f7 || // ÷
+    cp === 0x221a // √ (also in the operators range; kept for clarity)
+  );
+}
+
+function greekCodePoint(cp: number): boolean {
+  return cp >= 0x0370 && cp <= 0x03ff;
+}
+
+/**
+ * Does this string carry mathematics that the handwriting lane would mangle?
+ *
+ * The other half of the audit's D1 (S5-b): the equation lane is sound, but nothing
+ * stopped an author steering `α|0⟩ + β|1⟩` into a plain text element, where it is
+ * wrapped at estimated widths and lettered by a font with no glyphs for it. Two
+ * signals, either sufficient:
+ *
+ *  - **TeX fragments** — a control sequence or `$…$` — are never prose.
+ *  - **Two or more Unicode math codepoints.** Operators, bra-ket brackets,
+ *    super/subscripts and math alphanumerics always count; a Greek letter counts
+ *    only when it sits against a digit, a bar, or another math/Greek character,
+ *    because a lone `π` inside a sentence is arguably prose while `α|0⟩` is not.
+ *
+ * The threshold is two so that a single decorative arrow or × in prose does not
+ * reroute a caption.
+ */
+export function sniffMath(text: string): boolean {
+  // A TeX control sequence: lowercase word after a backslash that does not itself
+  // follow an identifier, colon or another backslash — which is what separates
+  // `\frac` and `the angle \theta` from `C:\Users\demo`, a Windows path.
+  if (/(^|[^A-Za-z0-9:.\\])\\[a-z]{2,}/.test(text)) return true;
+  if (/\$[^$\s][^$]*\$/.test(text)) return true; // $x^2$
+  const chars = [...text];
+  let signals = 0;
+  for (const [i, ch] of chars.entries()) {
+    const cp = ch.codePointAt(0)!;
+    if (mathCodePoint(cp)) {
+      signals++;
+      continue;
+    }
+    if (greekCodePoint(cp)) {
+      const prev = chars[i - 1] ?? '';
+      const next = chars[i + 1] ?? '';
+      const mathy = (s: string): boolean =>
+        s !== '' &&
+        (/[0-9|=^_]/.test(s) ||
+          mathCodePoint(s.codePointAt(0)!) ||
+          greekCodePoint(s.codePointAt(0)!));
+      if (mathy(prev) || mathy(next)) signals++;
+    }
+  }
+  return signals >= 2;
+}
+
+/**
+ * A text element — or, when the string is mathematics, the equation it should
+ * have been (audit S5-b, the routing half of D1).
+ *
+ * The promotion happens here rather than at a call site because every string
+ * that can carry author text funnels through this builder: captions, notes,
+ * terms, the vertical preset's big point. A promoted string keeps the caller's
+ * box discipline (same maxWidth, same alignment) and goes down the equation
+ * lane, where it is typeset into real glyph outlines instead of being lettered
+ * by a handwriting font that has no glyphs for it. If the promoted string then
+ * fails to typeset, that failure is loud (`texError`, and the strict gate in
+ * visuals) — which is strictly better than silently shipping tofu.
+ */
 export function makeText(
   id: string,
   text: string,
   role: Role,
   o: { maxWidth?: number; align?: TextElement['align']; persist?: boolean; enter?: EnterInit } = {},
-): TextElement {
+): TextElement | EquationElement {
+  if (sniffMath(text)) {
+    log.warn(
+      `"${text}" was routed to a text element but reads as mathematics — ` +
+        'promoting it to the equation lane so it is typeset rather than handwritten',
+    );
+    return makeEquation(id, text, role, {
+      ...(o.maxWidth !== undefined ? { maxWidth: o.maxWidth } : {}),
+      ...(o.align !== undefined ? { align: o.align } : {}),
+      ...(o.persist !== undefined ? { persist: o.persist } : {}),
+      ...(o.enter !== undefined ? { enter: o.enter } : {}),
+    });
+  }
   const maxWidth = o.maxWidth ?? 900;
   const m = measureText(text, role, maxWidth);
   return {

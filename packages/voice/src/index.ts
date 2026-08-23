@@ -108,8 +108,9 @@ export {
   openAligner,
   requestedAlign,
   ALIGN_SAMPLE_RATE,
+  MIN_ALIGN_FRACTION,
 } from './align.js';
-export type { AlignMode, Aligner, Hypothesis, OpenAlignerOptions } from './align.js';
+export type { Alignment, AlignMode, Aligner, Hypothesis, OpenAlignerOptions } from './align.js';
 
 /* ------------------------------------------------------------------ voices */
 

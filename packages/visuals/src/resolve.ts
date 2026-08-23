@@ -17,6 +17,7 @@ import { mkdir, copyFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   boardMetrics,
+  gate,
   hash,
   isFresh,
   logger,
@@ -26,6 +27,7 @@ import {
   type AssetRef,
   type BoardMetrics,
   type Element,
+  type GateMode,
   type StageOptions,
   type Storyboard,
 } from '@inkcast/core';
@@ -33,6 +35,7 @@ import { resolveDiagram } from './diagram.js';
 import { resolveEquation } from './equation.js';
 import type { FontMetrics } from './fontmetrics.js';
 import { loadFontMetrics } from './fontmetrics.js';
+import { formatGlyphViolation, glyphViolations } from './glyphgate.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import {
   arrowMidpoint,
@@ -77,6 +80,14 @@ export type ResolveVisualsOptions = StageOptions & {
   images?: 'auto' | 'off';
   /** Cap on how much a small diagram is scaled up to fill its box. */
   maxUpscale?: number;
+  /**
+   * `strict` promotes this stage's quality warnings to errors: a missing
+   * handwriting font, a codepoint the font has no glyph for (the glyph gate),
+   * and an equation that falls back to TeX-as-handwriting all stop the run
+   * instead of degrading. Absent means `degrade` — today's behaviour, for every
+   * direct caller; the pipeline threads `strict` by default.
+   */
+  gates?: GateMode;
 };
 
 export async function resolveVisuals(
@@ -96,6 +107,30 @@ export async function resolveVisuals(
     fontFamily: style.fontFamily,
     ...(opts.fontPath ? { fontPath: opts.fontPath } : {}),
   });
+  // The glyph gate (audit S4-b, CRITICAL). Both checks run before any layout,
+  // because the failure they stop is silent by construction downstream: a missing
+  // face means every advance is a calibrated guess, and an uncovered codepoint is
+  // laid out at the space glyph's width and painted from a browser fallback stack.
+  if (font.source === 'builtin') {
+    gate(
+      opts.gates,
+      `no handwriting font could be loaded (wanted ${style.fontFamily}) — text would be ` +
+        'laid out with approximate builtin widths and drawn by a system fallback face. ' +
+        'Fetch the vendored OFL fonts into assets/fonts',
+      (m) => log.warn(m),
+    );
+  }
+  const uncovered = glyphViolations(out, font);
+  if (uncovered.length > 0) {
+    for (const v of uncovered) log.warn(formatGlyphViolation(v));
+    gate(
+      opts.gates,
+      `${uncovered.length} codepoint(s) in board text have no glyph in the handwriting font ` +
+        `(${font.familyName}) — first: ${formatGlyphViolation(uncovered[0]!)}`,
+      // Every violation was already warned line-by-line just above.
+      () => {},
+    );
+  }
   const fontRel = await copyFontIntoProject(dir, font);
   // The SVGs live in `assets/`, so the @font-face href is relative to that.
   const fontHref = fontRel ? fontRel.replace(/^assets\//, '') : undefined;
@@ -287,6 +322,7 @@ export async function resolveVisuals(
         targetBox,
         board,
         ...(opts.maxUpscale !== undefined ? { maxUpscale: opts.maxUpscale } : {}),
+        ...(opts.gates !== undefined ? { gates: opts.gates } : {}),
       });
       elementVisuals[el.id] = visual;
       await markFresh(dir, key, inputHash);
@@ -646,6 +682,8 @@ async function resolveElement(args: {
   maxUpscale?: number;
   /** How big everything on this board draws — see `boardMetrics` in `@inkcast/core`. */
   board: BoardMetrics;
+  /** See `ResolveVisualsOptions.gates`. */
+  gates?: GateMode;
 }): Promise<ElementVisual> {
   const { el, style, font, canvasHeight, board } = args;
   const seed = seedFrom('element', el.id, args.sceneId);
@@ -702,11 +740,19 @@ async function resolveElement(args: {
         items = resolved.items;
         break;
       }
-      // The typesetter is unavailable or the source would not set. Draw the TeX as
-      // handwriting rather than losing the beat: unset `\frac{a}{b}` on the board is
-      // poor, but a blank space where the worked example should be is worse, and the
-      // warning naming the cause has already been logged by the lane.
-      log.warn(`equation ${el.id} could not be typeset — drawing its source as text`);
+      // The typesetter is unavailable or the source would not set. Under the strict
+      // gate this stops the run: raw TeX in the handwriting font is the D1 defect,
+      // and a render that ships it silently is exactly what the audit failed (S4-b).
+      // Under degrade, draw the TeX as handwriting rather than losing the beat:
+      // unset `\frac{a}{b}` on the board is poor, but a blank space where the worked
+      // example should be is worse, and the warning naming the cause has already
+      // been logged by the lane.
+      gate(
+        args.gates,
+        `equation ${el.id} could not be typeset (tex: ${JSON.stringify(el.tex)}) — ` +
+          'it would be drawn as raw TeX in the handwriting font',
+        () => log.warn(`equation ${el.id} could not be typeset — drawing its source as text`),
+      );
       items = [
         textItem(
           layoutText(el.tex, {

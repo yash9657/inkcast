@@ -21,7 +21,7 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { logger } from '@inkcast/core';
+import { gate, logger } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -29,6 +29,7 @@ import type {
   Element,
   EmphasisElement,
   EquationElement,
+  GateMode,
   PathElement,
   PlotElement,
   Scene,
@@ -98,6 +99,12 @@ export type CompileOptions = {
   grid?: boolean;
   /** CSS font-family list for on-canvas text. */
   fontFamily?: string;
+  /**
+   * `strict` promotes the compile's quality warnings to errors — today, an
+   * equation with no typeset geometry stops the run instead of drawing raw TeX
+   * in the handwriting font. Absent means `degrade`: today's behaviour.
+   */
+  gates?: GateMode;
 };
 
 /** Words-per-second used only when the voice stage has not measured a scene. */
@@ -285,6 +292,8 @@ type Ctx = {
   visuals: VisualsBridge;
   /** Resolved once per element: on the computed path this is real work. */
   plots: Map<string, PlotSource | undefined>;
+  /** See `CompileOptions.gates`. */
+  gates: GateMode | undefined;
 };
 
 /**
@@ -454,6 +463,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     // nothing left to re-derive.
     visuals: openVisuals(sb, dir),
     plots: new Map(),
+    gates: opts.gates,
   };
   for (const scene of timed.scenes) {
     for (const el of scene.elements) {
@@ -1267,12 +1277,20 @@ function textPrims(el: TextElement, ctx: Ctx): PlanPrim[] {
 function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
   const src = ctx.visuals.equationFor(el);
   if (!src) {
-    // No recorded geometry: an un-run visuals stage, or TeX that would not set. Put
-    // the source on the board — poor, but a blank space where the worked example
-    // belongs is worse, and this is the case the whole fallback chain exists for.
-    log.warn(
+    // No recorded geometry: an un-run visuals stage, or TeX that would not set.
+    // Under the strict gate this is an error — raw TeX in the handwriting font is
+    // the D1 defect, and the fix (re-run visuals) is one command away. Under
+    // degrade, put the source on the board — poor, but a blank space where the
+    // worked example belongs is worse.
+    gate(
+      ctx.gates,
       `equation "${el.id}" has no typeset geometry in ${MANIFEST_PATH} — ` +
-        'drawing its TeX source as text. Re-run the visuals stage.',
+        'it would be drawn as raw TeX in the handwriting font. Re-run the visuals stage',
+      () =>
+        log.warn(
+          `equation "${el.id}" has no typeset geometry in ${MANIFEST_PATH} — ` +
+            'drawing its TeX source as text. Re-run the visuals stage.',
+        ),
     );
     return [textPrim(el.tex, el.at, TYPE_SCALE.body * ctx.type, ctx.pal.ink, el.align, 'middle')];
   }

@@ -33,8 +33,17 @@
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Scene, StageOptions, Storyboard } from '@inkcast/core';
-import { CADENCE, hash, isFresh, logger, markFresh, report, totalDuration } from '@inkcast/core';
+import type { GateMode, Scene, StageOptions, Storyboard } from '@inkcast/core';
+import {
+  CADENCE,
+  gate,
+  hash,
+  isFresh,
+  logger,
+  markFresh,
+  report,
+  totalDuration,
+} from '@inkcast/core';
 import {
   appendSilence,
   measureDuration,
@@ -49,7 +58,7 @@ import { gapAfter, sentenceSpanWarnings, splitPhrases } from './phrase.js';
 import type { Phrase, PhraseSplit, PhraseTiming } from './phrase.js';
 import { resolveSceneCues } from './cue.js';
 import type { CueResolution } from './cue.js';
-import { openAligner, requestedAlign } from './align.js';
+import { MIN_ALIGN_FRACTION, openAligner, requestedAlign } from './align.js';
 import type { AlignMode } from './align.js';
 import {
   bareVoiceId,
@@ -113,6 +122,14 @@ export type NarrateOptions = StageOptions & {
   phraseSplit?: PhraseSplit;
   /** Word-level alignment: `auto` (default), `whisper`, or `off`. */
   align?: AlignMode;
+  /**
+   * `strict` promotes this stage's quality warnings to errors — today, an
+   * unresolvable cue on a beat's *dominant* visual stops the run instead of
+   * keeping an authored fallback time (a decoration's missed cue stays a
+   * warning either way). Absent means `degrade`: today's behaviour, with the
+   * miss recorded in `ResolvedVoice.problems`.
+   */
+  gates?: GateMode;
   /** How a provider is built. Test seam only — see `OpenChainOptions.create`. */
   createProvider?: OpenChainOptions['create'];
 };
@@ -237,6 +254,13 @@ type SceneTiming = {
   holdSec: number;
   phrases: PhraseTiming[];
   words?: WordTiming[];
+  /**
+   * The local aligner's paired-token fraction, when it ran. Present with an
+   * empty/absent `words` exactly when the alignment was discarded for matching
+   * too little (`MIN_ALIGN_FRACTION`) — the sidecar says why the scene is
+   * phrase-tier rather than leaving it indistinguishable from "never aligned".
+   */
+  alignFraction?: number;
 };
 
 async function readTiming(file: string): Promise<SceneTiming | undefined> {
@@ -466,14 +490,21 @@ async function synthesizeScene(
   }
 
   // Otherwise try the local aligner on the narration portion of the clip.
+  let alignFraction: number | undefined;
   if (!words) {
     const spoken = phrases.map((p) => p.text).join(' ');
     const narrationFrames = Math.round(assembled.narrationSec * CLIP_SAMPLE_RATE);
     const clip = (await readClipSamples(abs)).slice(0, narrationFrames);
     const aligned = await ctx.aligner.align(clip, CLIP_SAMPLE_RATE, spoken);
-    if (aligned.length) {
-      words = aligned;
-      log.debug(`scene ${index + 1}: ${aligned.length} word timings from the local aligner`);
+    // The fraction is kept even when the words are discarded (below the
+    // honesty floor) — the sidecar then says *why* the scene is phrase-tier.
+    if (aligned.fraction > 0) alignFraction = aligned.fraction;
+    if (aligned.words.length) {
+      words = aligned.words;
+      log.debug(
+        `scene ${index + 1}: ${aligned.words.length} word timings from the local aligner ` +
+          `(${Math.round(aligned.fraction * 100)}% matched)`,
+      );
     }
   }
 
@@ -483,6 +514,7 @@ async function synthesizeScene(
     holdSec: assembled.holdSec,
     phrases: timings,
     ...(words ? { words } : {}),
+    ...(alignFraction !== undefined ? { alignFraction } : {}),
   };
 }
 
@@ -584,6 +616,10 @@ export async function narrate(
   /** Per-scene input hashes, folded into the narration-track cache key. */
   const sceneHashes: string[] = [];
   const cueLog: CueResolution[] = [];
+  /** Gated quality defects this run degraded through — carried into `problems`. */
+  const gateProblems: string[] = [];
+  /** The local aligner's paired fractions, one per scene it ran on. */
+  const alignFractions: number[] = [];
   let unresolvedCues = 0;
   let spokenWords = 0;
   let spokenSeconds = 0;
@@ -759,6 +795,8 @@ export async function narrate(
           // cue statistics: they describe audio that will not be in the film.
           sceneHashes.length = 0;
           cueLog.length = 0;
+          gateProblems.length = 0;
+          alignFractions.length = 0;
           unresolvedCues = 0;
           spokenWords = 0;
           spokenSeconds = 0;
@@ -833,13 +871,37 @@ export async function narrate(
 
       /* ------------------------------------------------- cue resolution */
 
-      const { resolved, warnings } = resolveSceneCues(scene, {
+      if (timing.alignFraction !== undefined) {
+        alignFractions.push(timing.alignFraction);
+        if (timing.alignFraction < MIN_ALIGN_FRACTION) {
+          gateProblems.push(
+            `scene ${i + 1} (${scene.id}): word alignment matched only ` +
+              `${Math.round(timing.alignFraction * 100)}% of the narration and was discarded — ` +
+              'cues in this scene are placed by measured phrase boundaries',
+          );
+        }
+      }
+
+      const { resolved, warnings, dominantMisses } = resolveSceneCues(scene, {
         phrases: timing.phrases,
         narrationSec: timing.narrationSec,
         words: timing.words,
         sceneLabel: `${i + 1}:${scene.id}`,
       });
       for (const warning of warnings) log.warn(warning);
+      // A missed cue on the beat's MAIN picture is the D5 defect, not a nuance:
+      // the dominant visual keeps an authored fallback time while the narration
+      // names it somewhere else. Strict stops here; degrade records it where
+      // `pipeline.json` will keep it. (Decorations stay warnings either way.)
+      for (const miss of dominantMisses) {
+        const message =
+          `scene ${i + 1} (${scene.id}): cue "${miss.cue}" on the beat's dominant visual ` +
+          `"${miss.elementId}" does not appear in its narration — the main picture keeps ` +
+          'an authored fallback time instead of landing on its words';
+        gateProblems.push(message);
+        // The generic per-cue warning was already logged above; nothing to repeat.
+        gate(opts.gates, message, () => {});
+      }
       unresolvedCues += warnings.length;
       for (const r of resolved) {
         cueLog.push(r);
@@ -900,6 +962,10 @@ export async function narrate(
   const problems = chain
     .fallbacks()
     .map((f) => `voice fell back to ${f.to} (${f.from}: ${f.reason})`);
+  // Quality defects the run degraded through — dominant-visual cue misses,
+  // discarded low-match alignments. Under strict none of these are reachable
+  // (the gate threw); under degrade they are exactly what makes it honest.
+  problems.push(...gateProblems);
   // Said separately from the fallback lines above because it is a different fact, and
   // the one the person watching is owed: not "a provider failed" but "this film is
   // narrated locally, all of it, and you were not charged". The result UI shows this
@@ -933,9 +999,21 @@ export async function narrate(
   const cued = cueLog.length;
   if (cued) {
     const exact = cueLog.filter((c) => c.source === 'words').length;
+    // The adjective is earned, not asserted: when the local aligner provided the
+    // word timings, say how much of the text it actually matched. Provider-native
+    // timings (no fraction recorded) are exact by construction.
+    const meanFraction = alignFractions.length
+      ? alignFractions.reduce((a, b) => a + b, 0) / alignFractions.length
+      : undefined;
     log.info(
       `placed ${cued} element${cued === 1 ? '' : 's'} on their narration cue` +
-        (exact ? ` (${exact} word-exact)` : ' (phrase-accurate)'),
+        (exact
+          ? ` (${exact} word-anchored${
+              meanFraction === undefined
+                ? ''
+                : `, alignment matched ${Math.round(meanFraction * 100)}% of tokens`
+            })`
+          : ' (phrase-accurate)'),
     );
   }
   if (unresolvedCues)

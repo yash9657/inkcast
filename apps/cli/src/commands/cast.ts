@@ -75,6 +75,7 @@ export async function runCast(ctx: CliContext, input: CastInput, flags: Flags): 
     result = await cast(input, {
       ...(flags.project ? { projectId: flags.project } : {}),
       force: flags.force,
+      ...(flags.degrade ? { gates: 'degrade' as const } : {}),
       onProgress: rep.progress,
     });
   } catch (err) {

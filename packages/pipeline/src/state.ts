@@ -95,6 +95,13 @@ export type PipelineState = {
   voice?: VoiceRecord;
   /** Absent on the `via: 'document'` route, which has no lesson. */
   lesson?: LessonSummary;
+  /**
+   * The quality-gate posture the run was made under. `degrade` is the fact that
+   * matters: this film may carry defects its own pipeline detected and was told
+   * to render anyway. Absent on files written before gates existed (equivalent
+   * to `degrade` — nothing blocked back then).
+   */
+  gates?: 'strict' | 'degrade';
 };
 
 const FILE = 'pipeline.json';

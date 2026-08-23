@@ -211,6 +211,15 @@ export type ResolveCuesResult = {
   resolved: CueResolution[];
   /** Human-readable problems, each naming the scene and the phrase. */
   warnings: string[];
+  /**
+   * Unresolvable cues on the beat's *dominant* visual — the main picture, not a
+   * decoration. Structured, not just a warning line, because this is the D5
+   * defect one scrolled-past log line away from shipping: the beat's picture
+   * keeps an authored fallback time while the narration names it somewhere
+   * else. The caller decides whether this blocks (strict) or is recorded
+   * (degrade); a missed cue on a decoration stays a warning only.
+   */
+  dominantMisses: Array<{ elementId: string; cue: string }>;
 };
 
 /**
@@ -352,22 +361,23 @@ export type ResolveCuesOptions = {
 export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): ResolveCuesResult {
   const resolved: CueResolution[] = [];
   const warnings: string[] = [];
+  const dominantMisses: ResolveCuesResult['dominantMisses'] = [];
   const label = opts.sceneLabel ?? scene.id;
 
   const cued = scene.elements.filter((el) => el.enter.cue?.trim());
-  if (!cued.length) return { resolved, warnings };
+  if (!cued.length) return { resolved, warnings, dominantMisses };
 
   if (!(opts.narrationSec > 0)) {
     warnings.push(
       `scene "${label}" has no measured narration, so ${cued.length} cue(s) cannot be resolved`,
     );
-    return { resolved, warnings };
+    return { resolved, warnings, dominantMisses };
   }
 
   const stream = sceneTokenStream(opts.phrases);
   if (!stream.length) {
     warnings.push(`scene "${label}" has no speakable narration, so its cues cannot be resolved`);
-    return { resolved, warnings };
+    return { resolved, warnings, dominantMisses };
   }
 
   const dominant = dominantId(scene);
@@ -388,6 +398,7 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
       warnings.push(
         `scene "${label}": cue "${cue}" does not appear in its narration — element "${el.id}" keeps enter.at ${el.enter.at}`,
       );
+      if (el.id === dominant) dominantMisses.push({ elementId: el.id, cue });
       continue;
     }
 
@@ -439,7 +450,7 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
   }
 
   spreadGesture(scene, opts.narrationSec, resolved);
-  return { resolved, warnings };
+  return { resolved, warnings, dominantMisses };
 }
 
 /**

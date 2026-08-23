@@ -34,8 +34,15 @@ const UNSUPPORTED = new Set([
  * lands on the canvas, *measured from a trace of the image itself* by the drawing stage.
  * A lesson author shown the field would fill it in, plausibly and wrongly, and the
  * compiler would place a picture the marks were never aimed at.
+ *
+ * `marks` is the same leak one stage earlier (audit S3-a): a drawing's marks are
+ * authored by the dedicated drawing stage — with its audit, its repair pass, and its
+ * vision critic — and written back into `lesson.json` by `drawLesson`. A lesson author
+ * shown the field could emit marks directly and bypass all three. Note this prunes the
+ * field from the *lesson* tool only; the drawing author's own tool schema is built from
+ * `Mark` itself, which has no `marks` property, so it is unaffected.
  */
-const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg', 'inkBox'];
+const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg', 'inkBox', 'marks'];
 
 type Json = Record<string, unknown>;
 

@@ -11,7 +11,7 @@
  * from the Storyboard IR have already been multiplied out against each scene's
  * measured `durationSec`.
  */
-import type { StageOptions } from '@inkcast/core';
+import type { GateMode, StageOptions } from '@inkcast/core';
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -253,6 +253,13 @@ export type RenderOptions = StageOptions & {
   grid?: boolean;
   /** Output file name inside `dir`. Default `out.mp4`. */
   outName?: string;
+  /**
+   * `strict` promotes this stage's quality warnings to errors: a missing
+   * handwriting font and an equation falling back to TeX-as-handwriting stop
+   * the render. Absent means `degrade` — today's behaviour; the pipeline
+   * threads `strict` by default. See `@inkcast/core`'s `GateMode`.
+   */
+  gates?: GateMode;
 };
 
 export type RenderResult = {

@@ -74,15 +74,16 @@ const DRAW_BRIEF = `You are drawing on a whiteboard, in a hand-drawn explainer v
 
 THE CANVAS is ${DRAW_W} wide and ${DRAW_H} tall. x grows right, y grows DOWN, origin top-left. Fill it — the drawing is scaled to the space it gets, so use the whole canvas with a small margin and keep everything inside it.
 
-THE MARKS, and there are only these eight:
+THE MARKS, and there are only these nine:
 - rect {x,y,w,h} — a box. x,y is the TOP-LEFT corner.
 - ellipse {x,y,w,h} — the ellipse inscribed in that box.
 - line {points:[[x1,y1],[x2,y2]]} — one straight segment.
 - stroke {points:[[x,y],…], smooth?, closed?} — a freehand line through those points, and YOUR MAIN TOOL: every outline, silhouette, curve, zigzag or shape that is not a box or an ellipse is a stroke. \`smooth: true\` curves through the points (an organic outline, a wire, a wave); leave it false for anything angular (a zigzag, a polygon, a bracket). \`closed: true\` joins the last point back to the first. 5–20 points is a good shape.
 - arrow {points:[[x,y],…]} — a line with a head on the LAST point. Two points is straight; three bends it through the middle one.
-- label {x,y,text,size} — real handwriting, drawn by the board itself. x,y is the CENTRE of the words. size is cap height: 26–34 for a part name, 40+ for the one thing the drawing is about.
+- label {x,y,text,size} — real handwriting, drawn by the board itself. x,y is the CENTRE of the words. size is cap height: 26–34 for a part name, 40+ for the one thing the drawing is about. Plain words ONLY — a label cannot typeset anything, so no TeX, no Greek, no subscripts, no |0⟩. Notation goes in a \`math\` mark.
 - hatch {x,y,w,h,angle} — parallel shading filling that box, at that angle in degrees. A material, a solid, a filled region, a shaded area.
 - dots {x,y,w,h,count} — count small filled dots scattered in that box. Particles, charges, molecules, grain.
+- math {x,y,w,h,tex,size} — one line of REAL TYPESET MATHEMATICS, drawn glyph by glyph in the board's ink. \`tex\` is TeX source with no delimiters: \\frac{dv}{dt} = -\\frac{g}{L}\\theta, not $...$. Use it for ANY notation a label cannot spell — fractions, Greek letters, subscripts and superscripts, |0⟩, operators. x,y,w,h reserve the box the notation is fitted into (aspect preserved, never stretched); give w/h room and keep other marks out of it, or omit them and the box is derived from \`size\` and the length of the TeX.
 
 Every mark also takes \`tone\`, which is the ink it is drawn in. See COLOUR below. Leave it out and the mark is drawn in the ordinary dark ink, which is right for almost everything.
 
@@ -150,15 +151,16 @@ DO NOT REDRAW THE SUBJECT. Its outline, its body, its overall form are already d
 
 AIM. An arrow pointing at a structure must point at where that structure IS in the picture in front of you, not where you would have put it. A mark that lands on blank board beside the subject is worse than no mark at all — it looks like a mistake, because it is one.
 
-THE MARKS, and there are only these eight:
+THE MARKS, and there are only these nine:
 - rect {x,y,w,h} — a box. x,y is the TOP-LEFT corner.
 - ellipse {x,y,w,h} — the ellipse inscribed in that box. A node, a site, a region: draw it where it is.
 - line {points:[[x1,y1],[x2,y2]]} — one straight segment.
 - stroke {points:[[x,y],…], smooth?, closed?} — a freehand line through those points, and your main tool for a pathway that follows the shape of the thing. \`smooth: true\` curves through the points; leave it false for anything angular.
 - arrow {points:[[x,y],…]} — a line with a head on the LAST point. Two points is straight; three bends it through the middle one. This is your leader: from the name, to the thing.
-- label {x,y,text,size} — real handwriting. x,y is the CENTRE of the words. size 26–34.
+- label {x,y,text,size} — real handwriting. x,y is the CENTRE of the words. size 26–34. Plain words ONLY — no TeX, no Greek, no subscripts. Notation goes in a \`math\` mark.
 - hatch {x,y,w,h,angle} — parallel shading filling that box, at that angle in degrees.
 - dots {x,y,w,h,count} — count small filled dots scattered in that box.
+- math {x,y,w,h,tex,size} — one line of real typeset mathematics. \`tex\` is TeX source with no delimiters. Use it for any notation a label cannot spell; x,y,w,h reserve the box the notation is fitted into.
 
 Every mark also takes \`tone\`: \`accent\` for the one thing this beat is about, \`contrast\` for the thing that must not be confused with it, \`muted\` for context. Leave it out for everything else — and if the drawing reads correctly in one ink, use one ink.
 

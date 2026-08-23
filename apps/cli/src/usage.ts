@@ -46,6 +46,8 @@ ${h('OPTIONS')}
   -o, --out <path>       also copy the finished mp4 to this path
       --project <id>     reuse (and resume) a specific project directory
   -f, --force            redo every stage, ignoring the cache
+      --degrade          render through detected quality defects (they are
+                         recorded instead of blocking; the default is strict)
       --open             open the video when it is done
       --json             machine-readable result on stdout, no progress bar
       --verbose          debug logging instead of the progress bar

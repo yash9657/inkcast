@@ -35,6 +35,19 @@ export type FontMetrics = {
   xHeight?: number;
   /** Advance width of a code point, in em. */
   advance(codePoint: number): number;
+  /**
+   * Whether the face has a real glyph for this code point.
+   *
+   * For a parsed font this is the cmap, exactly — the same table `advance` consults
+   * before silently substituting the space glyph's width for a miss. That substitution
+   * is the audit's S4-b: a codepoint the font cannot draw is laid out as if it could,
+   * and the board renders tofu or a browser-fallback face with no warning. `covers`
+   * is what lets the glyph gate (`glyphgate.ts`) fail loudly *before* layout instead.
+   *
+   * The builtin table covers printable ASCII only, honestly: its widths were
+   * calibrated on Latin prose and it has no cmap to consult for anything else.
+   */
+  covers(codePoint: number): boolean;
   /** Width of a string at `fontSize`, including optional tracking (em). */
   measure(text: string, fontSize: number, tracking?: number): number;
 };
@@ -249,6 +262,9 @@ export function builtinMetrics(familyName = 'Inkcast Hand'): FontMetrics {
     capHeight: 0.68,
     xHeight: 0.48,
     advance,
+    // Printable ASCII is what the width table was calibrated on; claiming more
+    // would defeat the glyph gate exactly where it matters most.
+    covers: (cp) => cp >= 0x20 && cp <= 0x7e,
     measure: (text, fontSize, tracking = 0) => measureWith(advance, text, fontSize, tracking),
   };
 }
@@ -339,6 +355,7 @@ export function parseFontMetrics(buf: Buffer, filePath?: string): FontMetrics | 
       capHeight,
       xHeight,
       advance,
+      covers: (cp) => cmap.has(cp),
       measure: (text, fontSize, tracking = 0) => measureWith(advance, text, fontSize, tracking),
     };
   } catch (err) {

@@ -50,15 +50,21 @@ const intentFor = (kind: 'form' | 'figure', inkBox?: number[]): VisualIntent =>
 /**
  * The keys every drawing on every developer's machine is already cached under.
  *
- * Pinned, not derived, and that is the point: a third brief was added to this lane and the
- * cache key is built from the brief's own text, so if either of these numbers moves, every
- * blank-board and every form drawing ever composed has been silently thrown away — which
- * looks like nothing at all until the next run costs a model call per picture. Recomputed
- * from the tree as it stood before `FIGURE_BRIEF` existed.
+ * Pinned, not derived, and that is the point: the cache key is built from the brief's own
+ * text, so if either of these numbers moves, every blank-board and every form drawing ever
+ * composed has been silently thrown away — which looks like nothing at all until the next
+ * run costs a model call per picture.
+ *
+ * Re-pinned 2026-08-22, deliberately: `DRAW_BRIEF` and `UNDERLAY_BRIEF` now advertise the
+ * ninth mark, `math` (audit S5-b — the briefs said "only these eight" while the schema had
+ * nine, so a drawing needing `α|0⟩` had only `label`, the exact D1 defect). Every cached
+ * drawing was composed under instructions that omitted typeset mathematics, so throwing
+ * the machine cache away is the change working, not collateral. Previous pins:
+ * 844b9e3932d9a716 / cc912d96bf0d4df3.
  */
-test('adding the figure brief did not move any key that already existed', () => {
-  assert.equal(drawKey(HEART), '844b9e3932d9a716');
-  assert.equal(drawKey(HEART, PNG), 'cc912d96bf0d4df3');
+test('the draw keys moved with the math-mark brief change, and only then', () => {
+  assert.equal(drawKey(HEART), '9a1f337a8ecd8a07');
+  assert.equal(drawKey(HEART, PNG), '3d94a24a9cc2b943');
   // `form` is the default the lane has always had, so naming it has to be free.
   assert.equal(drawKey(HEART, PNG, 'form'), drawKey(HEART, PNG));
 });

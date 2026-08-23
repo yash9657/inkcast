@@ -747,7 +747,9 @@ function titleRole(preset: Preset, stressed: boolean): TextElement['role'] {
  * Sized to the words and not to the cell: a rule the full width of a card under three
  * short words reads as a divider across the board rather than as an underline.
  */
-function titleRule(id: string, title: TextElement): Element {
+// Only the box is read, so a caption the math sniffer promoted to an equation
+// still gets its underline.
+function titleRule(id: string, title: Pick<TextElement, 'at'>): Element {
   const w = Math.min(title.at.w, Math.max(120, title.at.w * 0.82));
   const cx = title.at.x + title.at.w / 2;
   const y = round(title.at.y + title.at.h + 10, 2);
@@ -1077,9 +1079,22 @@ function termRow(
   top: number,
   eid: (name: string) => string,
 ): TextElement[] {
-  const made = ctx.terms.map((term, k) =>
-    makeText(eid(`term${k}`), term, TERM_ROLE, { maxWidth: cell.w, align: 'center' }),
-  );
+  // Terms are vocabulary — the brief says "words, not numbers or whole phrases" — so
+  // a term the math sniffer promotes to an equation is an authoring defect. It is
+  // dropped loudly rather than carried: the row's whole mechanism (cued to the spoken
+  // word, sized as a label) is text-shaped.
+  const made = ctx.terms
+    .map((term, k) =>
+      makeText(eid(`term${k}`), term, TERM_ROLE, { maxWidth: cell.w, align: 'center' }),
+    )
+    .filter((el): el is TextElement => {
+      if (el.type === 'text') return true;
+      log.warn(
+        `beat ${ctx.index} names a term that reads as mathematics — dropped from the ` +
+          "vocabulary row; notation belongs in the beat's visual, not its terms",
+      );
+      return false;
+    });
   const fits: TextElement[] = [];
   let used = 0;
   for (const el of made) {

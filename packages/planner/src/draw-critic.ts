@@ -137,8 +137,11 @@ export type CriticOptions = {
 /**
  * One correction pass over a drawing that has something measurably wrong with it.
  *
- * Returns `undefined` when there was nothing to fix, or when the call could not be made —
- * both of which mean "use what you already have". Never throws.
+ * Returns `undefined` when there was nothing to fix, when the call could not be made, or
+ * when no preview could be rendered — all of which mean "use what you already have". The
+ * last case is deliberate: the whole argument for this pass is that the model can *see*
+ * what it drew, so with no render the correction is skipped loudly rather than attempted
+ * blind (audit S9-c). Never throws.
  */
 export async function reviseDrawing(
   marks: Mark[],
@@ -160,17 +163,27 @@ export async function reviseDrawing(
     ? await opts.preview(shown, under ? { underlay: true } : {}).catch(() => undefined)
     : undefined;
   if (!png) {
-    // Worth saying out loud. The whole argument for this pass is that the model can see
-    // what it drew; without the render it is being asked to fix coordinates from a list,
-    // which is weaker and is not what the literature measured.
-    log.debug(`revising "${short}" without a render — no preview available`);
+    // Skip rather than revise blind. The whole argument for this pass is that the
+    // model can see what it drew; without the render it would be fixing coordinates
+    // from a list, which is weaker and is not what the literature measured — and at
+    // debug level the degradation was nearly invisible (audit S9-c, X-e). The
+    // measured defects are named here so the skip is a recorded fact, not a silence;
+    // Phase 3's qc.json will carry them per project.
+    if (defects.length) {
+      log.warn(
+        `drawing "${short}" has ${defects.length} measured defect(s) but no preview could ` +
+          `be rendered — skipping the correction rather than revising blind. ` +
+          `Standing: ${defectSummary(defects)}`,
+      );
+    } else {
+      log.debug(`no preview for "${short}" and nothing measured wrong — skipping the look`);
+    }
+    return undefined;
   }
 
   const body = [
     `THE DRAWING WAS ASKED TO BE: ${opts.instruction}`,
-    png
-      ? 'The picture above is that drawing, rendered.'
-      : 'No render is available this time, so work from the marks and the measurements alone.',
+    'The picture above is that drawing, rendered.',
     '',
     ...(opts.underlay
       ? [
@@ -189,13 +202,12 @@ export async function reviseDrawing(
         'asked for. If it does, emit it back unchanged.',
   ].join('\n');
 
-  const content: Message['content'] = png
-    ? [
-        imagePart(png),
-        ...(opts.underlay ? [imagePart(opts.underlay.png)] : []),
-        { type: 'text' as const, text: body },
-      ]
-    : body;
+  // A render always exists past the gate above, so the model is always shown one.
+  const content: Message['content'] = [
+    imagePart(png),
+    ...(opts.underlay ? [imagePart(opts.underlay.png)] : []),
+    { type: 'text' as const, text: body },
+  ];
   const messages: Message[] = [{ role: 'user', content }];
 
   let raw: unknown;

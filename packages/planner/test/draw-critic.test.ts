@@ -68,11 +68,16 @@ function stub(reply: Mark[]): { client: Client; calls: Call[] } {
   };
 }
 
+/** A stand-in render. The critic refuses to work blind, so every test that expects a
+ * model call has to bring a picture — exactly the contract production has. */
+const PNG = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+
 const opts = (client: Client, extra: Record<string, unknown> = {}) => ({
   client,
   model: 'test-model',
   schema: { type: 'object' as const },
   instruction: 'a curve over an axis, with the axis named',
+  preview: async () => PNG,
   ...extra,
 });
 
@@ -144,15 +149,15 @@ test('the drawing is shown to the model as a picture when there is one', async (
   assert.match(text.text, /THE MARKS THAT DREW IT/);
 });
 
-test('without a renderer it still corrects, from the measurements alone', async () => {
-  // Weaker, and deliberately not fatal: a missing browser must never be the reason a
-  // drawing goes out uncorrected.
+test('without a renderer it skips the correction instead of revising blind', async () => {
+  // The old behaviour — correcting from the mark list alone, logged at debug — was the
+  // audit's S9-c/X-e: it undermined the pass's whole justification (the model can SEE
+  // what it drew) and was nearly invisible. Now the defects stand, loudly, and the
+  // model is never asked to fix coordinates it cannot look at.
   const { client, calls } = stub(CLEAN);
   const revision = await reviseDrawing(DIRTY, opts(client, { preview: async () => undefined }));
-  assert.equal(revision?.kept, true);
-  const content = calls[0]?.messages[0]?.content;
-  assert.equal(typeof content, 'string', 'a text-only call should not carry content blocks');
-  assert.match(String(content), /No render is available/);
+  assert.equal(revision, undefined, 'a blind revision was made');
+  assert.equal(calls.length, 0, 'a model was called without a picture to show it');
 });
 
 test('a model that answers with nothing usable leaves the drawing alone', async () => {
@@ -180,6 +185,10 @@ test('a clean drawing is looked at when the caller insists', async () => {
   const revision = await reviseDrawing(CLEAN, opts(client, { always: true }));
   assert.equal(calls.length, 1);
   assert.equal(revision?.kept, true);
+  // Every call now carries the render, so the words live in the text block.
   const content = calls[0]?.messages[0]?.content;
-  assert.match(String(content), /NOTHING MEASURED WRONG/);
+  assert.ok(Array.isArray(content));
+  const text = content.find((part) => part.type === 'text');
+  assert.ok(text && text.type === 'text');
+  assert.match(text.text, /NOTHING MEASURED WRONG/);
 });

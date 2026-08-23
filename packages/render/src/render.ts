@@ -117,10 +117,11 @@ export async function render(
   if (!chromiumAvailable()) throw new Error(CHROMIUM_HINT);
   log.debug(ffmpegVersion);
 
-  const font = resolveFont(sb.meta.style, dir, opts.fontPath);
+  const font = resolveFont(sb.meta.style, dir, opts.fontPath, opts.gates);
   const plan: RenderPlan = compilePlan(sb, dir, {
     fontFamily: font.family,
     ...(opts.grid === undefined ? {} : { grid: opts.grid }),
+    ...(opts.gates === undefined ? {} : { gates: opts.gates }),
   });
 
   const outName = opts.outName ?? 'out.mp4';

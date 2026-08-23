@@ -50,6 +50,7 @@ import {
   saveStoryboard,
   totalDuration,
   type BoardMode,
+  type GateMode,
   type Lesson,
   type OnProgress,
   type Scene,
@@ -208,6 +209,16 @@ export type CastOptions = {
   onProgress?: OnProgress;
   /** Redo every stage even when the cache says it is fresh. */
   force?: boolean;
+  /**
+   * Quality-gate posture, threaded into every stage. **Defaults to `strict`**:
+   * a pipeline run must not ship a defect it detected — a codepoint the
+   * handwriting font cannot draw, an equation degrading to TeX-as-handwriting,
+   * a missing font, a missed cue on a beat's dominant visual all stop the run
+   * before the encode, naming the defect. `degrade` is the explicit escape
+   * (CLI: `--degrade`): today's log-and-continue behaviour, with each defect
+   * recorded instead of blocking. See `GateMode` in `@inkcast/core`.
+   */
+  gates?: GateMode;
 };
 
 /** What the front half of the pipeline produced. */
@@ -265,6 +276,8 @@ type Run = {
   dir: string;
   bus: ProgressBus;
   force: boolean;
+  /** Resolved gate posture for every stage this run drives. See `CastOptions.gates`. */
+  gates: GateMode;
   source: SourceRef;
   previous: PipelineState | undefined;
   timings: Partial<Record<StageName, number>>;
@@ -301,6 +314,7 @@ async function openRun(input: CastInput, opts: CastOptions): Promise<Run> {
     dir: project.dir,
     bus,
     force: opts.force ?? false,
+    gates: opts.gates ?? 'strict',
     source,
     previous,
     timings,
@@ -596,13 +610,14 @@ export function teach(
 ): Promise<CastResult> {
   const trimmed = topic.trim();
   if (trimmed === '') throw new StageError('lesson', 'nothing to teach — pass a topic');
-  const { projectId, onProgress, force, ...rest } = opts;
+  const { projectId, onProgress, force, gates, ...rest } = opts;
   return cast(
     { ...rest, topic: trimmed },
     {
       ...(projectId === undefined ? {} : { projectId }),
       ...(onProgress === undefined ? {} : { onProgress }),
       ...(force === undefined ? {} : { force }),
+      ...(gates === undefined ? {} : { gates }),
     },
   );
 }
@@ -722,6 +737,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       const { storyboard: out, voice } = await narrate(sb!, run.dir, {
         onProgress: run.bus.child('voice'),
         force: run.force,
+        gates: run.gates,
       });
       resolvedVoice = voice;
       const next = parseStoryboard(out);
@@ -792,6 +808,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       const out = await resolveVisuals(sb!, run.dir, {
         onProgress: run.bus.child('visuals'),
         force: run.force,
+        gates: run.gates,
       });
       return parseStoryboard(out);
     });
@@ -827,6 +844,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       const out = await render(sb!, run.dir, {
         onProgress: run.bus.child('render'),
         force: run.force,
+        gates: run.gates,
       });
       if (!out || typeof out.videoPath !== 'string' || out.videoPath === '') {
         throw new Error('render returned no videoPath');
@@ -893,6 +911,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     timings: run.timings,
     skipped: run.skipped,
     cost,
+    gates: run.gates,
     providers: {
       // `lesson` is the accurate label ("who wrote it"); `planner` is kept because
       // the studio's library and older `pipeline.json` files both speak it.
@@ -976,6 +995,7 @@ export async function rerender(
   for (const s of skipped) bus.done(s, 'unchanged');
 
   const force = opts.force ?? true; // "rerender" means rebuild the video.
+  const gates: GateMode = opts.gates ?? 'strict';
   const time = async <T>(stage: StageName, fn: () => Promise<T>): Promise<T> => {
     const t0 = Date.now();
     const out = await inStage(stage, projectId, fn);
@@ -1001,6 +1021,7 @@ export async function rerender(
       const { narrate } = await loadVoice();
       const { storyboard: out, voice } = await narrate(sb, dir, {
         onProgress: bus.child('voice'),
+        gates,
       });
       resolvedVoice = voice;
       return parseStoryboard(out);
@@ -1023,7 +1044,9 @@ export async function rerender(
   } else {
     sb = await time('visuals', async () => {
       const { resolveVisuals } = await loadVisuals();
-      return parseStoryboard(await resolveVisuals(sb, dir, { onProgress: bus.child('visuals') }));
+      return parseStoryboard(
+        await resolveVisuals(sb, dir, { onProgress: bus.child('visuals'), gates }),
+      );
     });
     await saveStoryboard(dir, sb);
     await markFresh(dir, cacheSlot('visuals'), visualsFingerprint(sb));
@@ -1040,7 +1063,7 @@ export async function rerender(
   } else {
     videoPath = await time('render', async () => {
       const { render } = await loadRender();
-      const out = await render(sb, dir, { onProgress: bus.child('render'), force: true });
+      const out = await render(sb, dir, { onProgress: bus.child('render'), force: true, gates });
       if (!out || typeof out.videoPath !== 'string' || out.videoPath === '') {
         throw new Error('render returned no videoPath');
       }
@@ -1092,6 +1115,7 @@ export async function rerender(
     timings,
     skipped,
     cost,
+    gates,
     // The inherited record for the stages this path never re-runs, with the voice line
     // recomputed — it copied the whole block verbatim, so a re-voice could change the
     // provider and the file would go on naming the old one.

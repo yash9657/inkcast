@@ -212,6 +212,12 @@ export {
   parseFontMetrics,
   type FontMetrics,
 } from './fontmetrics.js';
+export {
+  formatGlyphViolation,
+  glyphViolations,
+  handwrittenStrings,
+  type GlyphViolation,
+} from './glyphgate.js';
 
 /* ---- illustration lane (needs REPLICATE_API_TOKEN or FAL_KEY) ----------- */
 export {

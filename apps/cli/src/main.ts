@@ -82,6 +82,12 @@ export type Flags = {
   port?: number;
   force: boolean;
   open: boolean;
+  /**
+   * `--degrade`: run with the quality gates in log-and-continue mode. The default
+   * is strict — a detected defect (uncovered glyph, equation fallback, missing
+   * font, missed cue on a dominant visual) stops the run before the encode.
+   */
+  degrade: boolean;
 };
 
 export class UsageError extends Error {}
@@ -115,6 +121,7 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         project: { type: 'string' },
         port: { type: 'string' },
         force: { type: 'boolean', short: 'f', default: false },
+        degrade: { type: 'boolean', default: false },
         open: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
         verbose: { type: 'boolean', default: false },
@@ -229,6 +236,7 @@ export function readFlags(values: Record<string, unknown>): Flags {
   const flags: Flags = {
     force: values.force === true,
     open: values.open === true,
+    degrade: values.degrade === true,
   };
   if (typeof values.title === 'string') flags.title = values.title;
   if (typeof values.out === 'string') flags.out = values.out;

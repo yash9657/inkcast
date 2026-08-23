@@ -641,6 +641,13 @@ test('an equation with no typeset geometry falls back to its TeX as text', () =>
   assert.equal(prim.kind, 'text');
   assert.equal(prim.text, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
   assert.match(warned, /no typeset geometry/, 'the fallback must say why it happened');
+
+  // The same board under the strict gate: raw TeX in the handwriting font is the D1
+  // defect, so the compile stops and names the equation instead of shipping it.
+  assert.throws(
+    () => compilePlan(sb, DIR, { gates: 'strict' }),
+    /no typeset geometry.*strict quality gate/s,
+  );
 });
 
 /* ------------------------------------------------- A6: the professional-at-a-glance layer */

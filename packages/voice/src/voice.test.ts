@@ -1271,6 +1271,39 @@ test('a scene with no measured narration reports its cues instead of guessing', 
   assert.equal(warnings.length, 1);
 });
 
+test('a missed cue on the dominant visual is structured, not just a warning line', () => {
+  // The D5 shape the strict gate blocks on: the beat's MAIN picture keeps an authored
+  // fallback time while its cue matches nothing. A decoration's miss stays a warning.
+  const phrases = timings([
+    ['That hill is really a graph.', 0, 3, 0, true],
+    ['So draw it as a curve.', 3, 6, 1, true],
+  ]);
+  const plot: Element = {
+    type: 'plot',
+    id: 'curve',
+    at: { x: 0, y: 100, w: 800, h: 400 },
+    enter: { at: 0.1, cue: 'a phrase nobody ever says', duration: 1, style: 'draw' },
+    persist: true,
+    xDomain: [-2, 4],
+    yDomain: [0, 15],
+    axes: 'both',
+    grid: false,
+    ticks: false,
+    curves: [],
+    overlays: [],
+  };
+  const s = scene(
+    {
+      narration: 'x',
+      elements: [cuedText('idea', 'also never spoken anywhere', 0.2), plot],
+    },
+    0,
+  );
+  const { warnings, dominantMisses } = resolveSceneCues(s, { phrases, narrationSec: 6 });
+  assert.equal(warnings.length, 2, 'both misses warn');
+  assert.deepEqual(dominantMisses, [{ elementId: 'curve', cue: 'a phrase nobody ever says' }]);
+});
+
 test("a beat's main picture is not held back to the last clause", () => {
   // Verification of the gradient-descent benchmark: the lesson cued the loss curve
   // on "so draw it as a curve", the closing clause, and the resolver honoured it —
@@ -1639,18 +1672,43 @@ test('whisper chunks map onto our own tokens, monotonically', () => {
   assert.equal(hypothesis.length, 4);
 
   // The aligner heard "points" where we asked for "goes": the unmatched token is
-  // still timed, from the gap it occupies.
-  const words = mapToExpected(['the', 'gradient', 'goes', 'uphill'], hypothesis);
+  // still timed, from the gap it occupies — and the fraction says one of four
+  // tokens was interpolated rather than matched.
+  const { words, fraction } = mapToExpected(['the', 'gradient', 'goes', 'uphill'], hypothesis);
   assert.equal(words.length, 4);
+  assert.equal(fraction, 0.75);
   assert.equal(words[0]!.start, 0);
   assert.ok(Math.abs(words[1]!.start - 0.58) < 1e-9);
   assert.ok(words[2]!.start >= words[1]!.end - 1e-9, 'timings must not go backwards');
   assert.ok(Math.abs(words[3]!.start - 1.5) < 1e-9);
   for (let i = 1; i < words.length; i++) assert.ok(words[i]!.start >= words[i - 1]!.start);
 
-  assert.deepEqual(mapToExpected([], hypothesis), []);
-  assert.deepEqual(mapToExpected(['a'], []), []);
+  assert.deepEqual(mapToExpected([], hypothesis), { words: [], fraction: 0 });
+  assert.deepEqual(mapToExpected(['a'], []), { words: [], fraction: 0 });
   assert.deepEqual(hypothesisFromChunks({ text: 'no chunks here' }), []);
+});
+
+test('an alignment that matched almost nothing reports its fraction, not fake exactness', () => {
+  // Align text A against a transcript of text B: the edit-distance pairing finds
+  // (nearly) nothing, and every timing would be interpolation between the clip's
+  // endpoints wearing real-looking numbers — the audit's D8. The fraction is what
+  // lets the aligner discard it so the measured-phrase fallback engages.
+  const hypothesis = hypothesisFromChunks({
+    chunks: [
+      { text: ' Mitochondria', timestamp: [0, 0.7] },
+      { text: ' synthesise', timestamp: [0.7, 1.3] },
+      { text: ' adenosine', timestamp: [1.3, 1.9] },
+      { text: ' triphosphate.', timestamp: [1.9, 2.6] },
+    ],
+  });
+  const { words, fraction } = mapToExpected(
+    ['the', 'gradient', 'points', 'downhill', 'from', 'here'],
+    hypothesis,
+  );
+  // One timing per expected token by construction — which is exactly why the
+  // count check alone was vacuous — but the fraction exposes the interpolation.
+  assert.equal(words.length, 6);
+  assert.ok(fraction < 0.5, `paired fraction ${fraction} should be under the honesty floor`);
 });
 
 /* ------------------------------------------------------------------- pacing */

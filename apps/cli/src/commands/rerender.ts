@@ -31,6 +31,7 @@ export async function rerenderCommand(
     const result = await rerender(project.id, {
       onProgress: rep.progress,
       ...(flags.force ? { force: true } : {}),
+      ...(flags.degrade ? { gates: 'degrade' as const } : {}),
     });
     rep.stop();
 

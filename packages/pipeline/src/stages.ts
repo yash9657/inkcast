@@ -120,7 +120,12 @@ export type PlanOptions = {
   force?: boolean;
 } & Record<string, unknown>;
 
-export type StageOpts = { onProgress?: OnProgress; force?: boolean } & Record<string, unknown>;
+export type StageOpts = {
+  onProgress?: OnProgress;
+  force?: boolean;
+  /** Quality-gate posture; each stage documents what it promotes. See `@inkcast/core`. */
+  gates?: 'strict' | 'degrade';
+} & Record<string, unknown>;
 
 /** The subset of `Preset` the pipeline reads. */
 export type PresetShape = {

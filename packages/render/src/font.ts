@@ -12,7 +12,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { logger } from '@inkcast/core';
+import { gate, logger } from '@inkcast/core';
+import type { GateMode } from '@inkcast/core';
 import type { StyleName } from './types.js';
 
 const log = logger('render:font');
@@ -143,11 +144,25 @@ function pick(style: StyleName, dir: string, explicit?: string): string | null {
   return known ?? all[0] ?? null;
 }
 
-export function resolveFont(style: StyleName, dir: string, explicit?: string): ResolvedFont {
+export function resolveFont(
+  style: StyleName,
+  dir: string,
+  explicit?: string,
+  gates?: GateMode,
+): ResolvedFont {
   const file = pick(style, dir, explicit);
   if (!file) {
-    log.warn(
-      `no handwriting font in ${fontSearchPaths(dir).join(', ') || '(no search paths)'} — using the system stack`,
+    // Under the strict gate a missing face is an error: the system stack draws a
+    // different hand on every machine and its metrics were never measured, so the
+    // film that renders is not the film that was laid out (audit S4-g).
+    gate(
+      gates,
+      `no handwriting font in ${fontSearchPaths(dir).join(', ') || '(no search paths)'} — ` +
+        'the board would be lettered by an unmeasured system fallback face',
+      () =>
+        log.warn(
+          `no handwriting font in ${fontSearchPaths(dir).join(', ') || '(no search paths)'} — using the system stack`,
+        ),
     );
     return { family: FALLBACK_STACK, css: '', file: null };
   }
