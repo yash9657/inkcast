@@ -4,5 +4,6 @@ export * from './storyboard.js';
 export * from './lesson.js';
 export * from './terms.js';
 export * from './log.js';
+export * from './fontmetrics.js';
 export * from './gates.js';
 export * from './project.js';

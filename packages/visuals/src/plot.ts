@@ -44,7 +44,7 @@
  */
 import type { Curve, PlotElement, PlotOverlay } from '@inkcast/core';
 import { logger } from '@inkcast/core';
-import type { FontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
 import type { DrawContext, InkPath, StrokeWeight } from './geometry.js';
 import { arrowPaths, inkPaths, roughenPathData } from './geometry.js';
 import type { CubicSeg } from './path.js';

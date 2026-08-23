@@ -21,7 +21,7 @@
  *    strings the film never draws.
  */
 import type { Storyboard } from '@inkcast/core';
-import type { FontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
 
 /** One uncovered codepoint, with everything needed to name it in an error. */
 export type GlyphViolation = {

@@ -10,7 +10,7 @@
  * Numbers are in **canvas units** (the IR's coordinate space, 1920×1080 by
  * default), not output pixels — the camera scales them at render time.
  */
-import { TYPE_REFERENCE_HEIGHT, TYPE_SCALE } from '@inkcast/core';
+import { HAND_FONTS, TYPE_REFERENCE_HEIGHT, TYPE_SCALE } from '@inkcast/core';
 import type { StoryboardMeta } from '@inkcast/core';
 
 export type InkStyleName = StoryboardMeta['style'];
@@ -60,8 +60,11 @@ export type InkStyle = {
 
 /**
  * Font mapping is from `docs/research/design-stack.md` §3, which assigns one
- * OFL handwriting face per ink style. Filenames are matched loosely (the
- * variable fonts ship as e.g. `Caveat[wght].ttf`).
+ * OFL handwriting face per ink style. The assignment itself (family, filename
+ * stems, tracking) lives in `HAND_FONTS` in `@inkcast/core`, next to the metrics
+ * stack that measures with it — spread in here rather than restated, so the
+ * planner reserving a box and this table lettering into it can never disagree
+ * about which face that is.
  */
 const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
   marker: {
@@ -85,9 +88,7 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     secondary: '#1b6ca8',
     muted: '#7b8494',
     highlight: '#f5c445',
-    fontFamily: 'Shantell Sans',
-    fontFiles: ['shantellsans', 'shantell-sans', 'shantell'],
-    tracking: 0.012,
+    ...HAND_FONTS.marker,
     textOpacity: 0.96,
   },
   pencil: {
@@ -111,9 +112,7 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     secondary: '#4f6d7a',
     muted: '#98a0ac',
     highlight: '#cbb994',
-    fontFamily: 'Caveat',
-    fontFiles: ['caveat'],
-    tracking: 0.006,
+    ...HAND_FONTS.pencil,
     textOpacity: 0.82,
   },
   chalk: {
@@ -137,9 +136,7 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     secondary: '#8ecae6',
     muted: '#a3b4bb',
     highlight: '#ef8354',
-    fontFamily: 'Gaegu',
-    fontFiles: ['gaegu'],
-    tracking: 0.02,
+    ...HAND_FONTS.chalk,
     textOpacity: 0.9,
   },
   ink: {
@@ -163,9 +160,7 @@ const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
     secondary: '#00606f',
     muted: '#5f6b73',
     highlight: '#e8b419',
-    fontFamily: 'Patrick Hand',
-    fontFiles: ['patrickhand', 'patrick-hand', 'patrick'],
-    tracking: 0.004,
+    ...HAND_FONTS.ink,
     textOpacity: 1,
   },
 };

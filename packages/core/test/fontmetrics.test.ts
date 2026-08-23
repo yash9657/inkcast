@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  HAND_FONTS,
   builtinMetrics,
   defaultFontDirs,
   findFontFile,
+  handMetricsFor,
   loadFontMetrics,
   parseFontMetrics,
 } from '../src/fontmetrics.js';
-import { inkStyleFor } from '../src/style.js';
 
 test('builtin metrics are self-consistent and monotonic in font size', () => {
   const m = builtinMetrics('Fallback');
@@ -28,12 +29,23 @@ test('builtin metrics are self-consistent and monotonic in font size', () => {
 test('every ink style asks for its own handwriting face', () => {
   const seen = new Set<string>();
   for (const name of ['marker', 'pencil', 'chalk', 'ink'] as const) {
-    const style = inkStyleFor({ style: name, palette: 'color' });
-    assert.ok(style.fontFiles.length > 0);
-    assert.ok(style.fontFamily.length > 0);
-    seen.add(style.fontFamily);
+    const hand = HAND_FONTS[name];
+    assert.ok(hand.fontFiles.length > 0);
+    assert.ok(hand.fontFamily.length > 0);
+    seen.add(hand.fontFamily);
   }
   assert.equal(seen.size, 4, 'the four styles must not share one face');
+});
+
+test('handMetricsFor loads one deterministic face per style and caches it', () => {
+  const a = handMetricsFor('marker');
+  const b = handMetricsFor('marker');
+  assert.equal(a, b, 'metrics must be cached per style');
+  // With the fonts vendored this is a real parse; without them it is the honest builtin.
+  assert.ok(a.measure('Gradient descent', 100) > 200);
+  if (a.source === 'file') {
+    assert.match(a.familyName.toLowerCase(), /shantell/);
+  }
 });
 
 test('font discovery prefers the requested face, then any handwriting face', async () => {
@@ -58,19 +70,17 @@ test('font discovery prefers the requested face, then any handwriting face', asy
 test('a corrupt or missing font degrades to builtin metrics instead of throwing', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-fonts-'));
   await writeFile(path.join(dir, 'Caveat[wght].ttf'), 'definitely not a font');
-  const style = inkStyleFor({ style: 'pencil', palette: 'color' });
+  const hand = HAND_FONTS.pencil;
   const m = loadFontMetrics({
-    style: 'pencil',
-    preferred: style.fontFiles,
-    fontFamily: style.fontFamily,
+    preferred: hand.fontFiles,
+    fontFamily: hand.fontFamily,
     dirs: [dir],
   });
   assert.equal(m.source, 'builtin');
-  assert.equal(m.familyName, style.fontFamily);
+  assert.equal(m.familyName, hand.fontFamily);
   assert.ok(m.measure('hello', 40) > 0);
 
   const empty = loadFontMetrics({
-    style: 'marker',
     preferred: ['nothing-here'],
     fontFamily: 'Nothing',
     dirs: [path.join(dir, 'missing')],

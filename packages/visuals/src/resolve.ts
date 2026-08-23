@@ -33,8 +33,8 @@ import {
 } from '@inkcast/core';
 import { resolveDiagram } from './diagram.js';
 import { resolveEquation } from './equation.js';
-import type { FontMetrics } from './fontmetrics.js';
-import { loadFontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
+import { loadFontMetrics } from '@inkcast/core';
 import { formatGlyphViolation, glyphViolations } from './glyphgate.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import {
@@ -102,7 +102,6 @@ export async function resolveVisuals(
   const style = inkStyleFor(out.meta);
   const styleFP = styleFingerprint(style);
   const font = loadFontMetrics({
-    style: style.name,
     preferred: style.fontFiles,
     fontFamily: style.fontFamily,
     ...(opts.fontPath ? { fontPath: opts.fontPath } : {}),

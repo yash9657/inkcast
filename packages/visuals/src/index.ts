@@ -204,14 +204,17 @@ export {
   type TextLayout,
   type WordSpan,
 } from './text.js';
+// The one text-metrics stack lives in `@inkcast/core` (audit A-4); re-exported here
+// because the visuals lane is where most callers historically found it.
 export {
   builtinMetrics,
   defaultFontDirs,
   findFontFile,
+  handMetricsFor,
   loadFontMetrics,
   parseFontMetrics,
   type FontMetrics,
-} from './fontmetrics.js';
+} from '@inkcast/core';
 export {
   formatGlyphViolation,
   glyphViolations,

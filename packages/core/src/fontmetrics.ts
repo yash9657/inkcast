@@ -1,24 +1,30 @@
 /**
  * Real font metrics, parsed straight out of the sfnt tables.
  *
- * The handwriting lane must wrap text to a box *before* the renderer sees it,
- * which means we need genuine advance widths — not a guess. Rather than pull in
- * a font library, this reads the four tables that matter (`head`, `hhea`,
- * `hmtx`, `cmap`, plus `name`/`OS/2` when present) from the vendored OFL `.ttf`.
- * That works for both TrueType and CFF/OTF outlines because metrics live in the
- * same tables either way, and it costs zero dependencies.
+ * This is the repo's ONE text-metrics stack (audit A-4). It lives in core because
+ * every stage that reserves, wraps, or letters text has to measure with the same
+ * advances: the planner reserving boxes, the visuals stage laying out handwriting,
+ * and the renderer placing arrow and diagram labels. Two estimators of one width is
+ * how `empty stac` shipped; a char-count times a constant is not a measurement.
+ *
+ * Rather than pull in a font library, this reads the four tables that matter
+ * (`head`, `hhea`, `hmtx`, `cmap`, plus `name`/`OS/2` when present) from the
+ * vendored OFL `.ttf`. That works for both TrueType and CFF/OTF outlines because
+ * metrics live in the same tables either way, and it costs zero dependencies.
  *
  * If no font file is available (the vendored fonts have not been fetched yet),
  * we degrade to a calibrated per-character width table and say so once — the
- * pipeline must never fail for a missing font.
+ * pipeline must never fail for a missing font. Under the strict gate that
+ * degradation blocks in `resolveVisuals`, because approximate widths are exactly
+ * the defect this module exists to end.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { logger } from '@inkcast/core';
-import type { InkStyleName } from './style.js';
+import { logger } from './log.js';
+import type { StoryboardMeta } from './storyboard.js';
 
-const log = logger('visuals:font');
+const log = logger('core:font');
 
 export type FontMetrics = {
   familyName: string;
@@ -447,9 +453,8 @@ export function findFontFile(
 
 let warnedMissing = false;
 
-/** Load the handwriting metrics for a style, degrading to the builtin table. */
+/** Load the handwriting metrics for a face, degrading to the builtin table. */
 export function loadFontMetrics(opts: {
-  style: InkStyleName;
   preferred: string[];
   fontFamily: string;
   fontPath?: string;
@@ -479,4 +484,60 @@ export function loadFontMetrics(opts: {
     );
   }
   return builtinMetrics(opts.fontFamily);
+}
+
+/* ------------------------------------------------------- style → face table */
+
+export type HandFont = {
+  /** Preferred font family name for on-canvas text. */
+  fontFamily: string;
+  /** Filename stems to look for in `assets/fonts`, best first. */
+  fontFiles: string[];
+  /** Extra letter tracking, in em. Marker needs air, liner does not. */
+  tracking: number;
+};
+
+/**
+ * Which handwriting face each ink style letters with, from
+ * `docs/research/design-stack.md` §3 — one OFL face per style.
+ *
+ * It lives beside the metrics rather than in the visuals style table because the
+ * face (and its tracking) is half of every measurement: the planner reserving a box
+ * and the visuals stage wrapping into it must agree not just on the advance table
+ * but on which font's advances and how much air between the letters.
+ * `visuals/src/style.ts` reads these fields into its `InkStyle` rather than
+ * restating them.
+ */
+export const HAND_FONTS: Record<StoryboardMeta['style'], HandFont> = {
+  marker: {
+    fontFamily: 'Shantell Sans',
+    fontFiles: ['shantellsans', 'shantell-sans', 'shantell'],
+    tracking: 0.012,
+  },
+  pencil: { fontFamily: 'Caveat', fontFiles: ['caveat'], tracking: 0.006 },
+  chalk: { fontFamily: 'Gaegu', fontFiles: ['gaegu'], tracking: 0.02 },
+  ink: {
+    fontFamily: 'Patrick Hand',
+    fontFiles: ['patrickhand', 'patrick-hand', 'patrick'],
+    tracking: 0.004,
+  },
+};
+
+const handCache = new Map<string, FontMetrics>();
+
+/**
+ * The handwriting metrics for an ink style, loaded once per process.
+ *
+ * Deterministic because the faces are vendored in `assets/fonts/hand` and part of
+ * the repo: every machine measures the same bytes. The cache is per style name,
+ * which is safe because nothing switches fonts underneath a running process —
+ * `INKCAST_FONT`/`INKCAST_FONT_DIR` are read on first use, like every other env knob.
+ */
+export function handMetricsFor(style: StoryboardMeta['style']): FontMetrics {
+  const cached = handCache.get(style);
+  if (cached) return cached;
+  const hand = HAND_FONTS[style] ?? HAND_FONTS.marker;
+  const m = loadFontMetrics({ preferred: hand.fontFiles, fontFamily: hand.fontFamily });
+  handCache.set(style, m);
+  return m;
 }

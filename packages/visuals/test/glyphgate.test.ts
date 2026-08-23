@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { parseStoryboard, type Storyboard } from '@inkcast/core';
-import { builtinMetrics, loadFontMetrics } from '../src/fontmetrics.js';
+import { builtinMetrics, loadFontMetrics } from '@inkcast/core';
 import { formatGlyphViolation, glyphViolations, handwrittenStrings } from '../src/glyphgate.js';
 import { resolveVisuals } from '../src/resolve.js';
 
@@ -78,7 +78,6 @@ test('uncovered codepoints are named, one per (string, codepoint)', () => {
 
 test('the vendored handwriting face passes ASCII and fails Greek', () => {
   const font = loadFontMetrics({
-    style: 'marker',
     preferred: ['shantellsans'],
     fontFamily: 'Shantell Sans',
   });

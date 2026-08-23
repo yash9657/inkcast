@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseStoryboard, type PlotElement } from '@inkcast/core';
-import { builtinMetrics } from '../src/fontmetrics.js';
+import { builtinMetrics } from '@inkcast/core';
 import { ctxFor, seedFrom } from '../src/geometry.js';
 import {
   CURVE_FUNCTIONS,
