@@ -56,7 +56,15 @@ import { boxAt, buildDrawing, fitCanvas } from './drawing.js';
 import { readInkBox, underlayAsset } from './underlay.js';
 import { round } from './curves.js';
 import type { Box } from './elements.js';
-import { FONT, makeAsset, makeDiagram, makeEmphasis, makeEquation, makeText } from './elements.js';
+import {
+  FONT,
+  makeAsset,
+  makeDiagram,
+  makeEmphasis,
+  makeEquation,
+  makeText,
+  setPlannerHand,
+} from './elements.js';
 import {
   blobPath,
   bowlPath,
@@ -100,14 +108,15 @@ const log = logger('planner:compile');
  * This is a cache key and nothing else — it is not written into the storyboard — so a bump
  * must leave the pinned hashes exactly where they were:
  * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
- * b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 / 882002cbf24c.
+ * 2a014f1e2eae / 0670ab50fe80 / a750d3d78b5e / e6e5e7d6e6b2.
  *
- * The last of those four was `c0f2ccc5024c` until 2026-08-22 and it did not move for any
- * reason on this list. It moved because `text.ts`'s `DANGLING` list learned the word
- * `between`, which shortens exactly one caption on longitude/short — "Longitude is a
- * difference between" -> "Longitude is a difference", four lines of `diff` across the whole
- * storyboard and no geometry at all. The reasoning and the before/after commands are in
- * `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
+ * All four were re-pinned 2026-08-23 (from b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 /
+ * 882002cbf24c) when the planner's text metrics moved from the chars × 0.52 estimate to
+ * the real advance table (plan item 2.1) — every reserved box tightened a few percent
+ * and two headings re-wrapped honestly. Before that, longitude/short was `c0f2ccc5024c`
+ * until 2026-08-22, when `text.ts`'s `DANGLING` list learned the word `between` and
+ * shortened exactly one caption. The reasoning and the frame evidence for both re-pins
+ * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
 export const COMPILER_VERSION = 3;
 
@@ -241,6 +250,8 @@ export function compileLesson(
   lesson: Lesson,
   opts: CompileOptions & { board?: BoardMode } = {},
 ): Storyboard {
+  // Every measurement below reserves with the face this board will letter with.
+  setPlannerHand(opts.style ?? 'marker');
   const preset = resolvePreset(opts);
   const shaped = adaptLesson(lesson, preset);
   const beats = lessonBeats(shaped);

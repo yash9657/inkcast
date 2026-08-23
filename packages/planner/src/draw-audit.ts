@@ -56,9 +56,9 @@
 import type { Mark } from '@inkcast/core';
 import { DRAW_H, DRAW_W } from '@inkcast/core';
 import type { Box } from './elements.js';
+import { handMeasure } from './elements.js';
 import {
   ADRIFT,
-  ADVANCE,
   LABEL_SIZE,
   TYPICAL_FIT,
   contentBounds,
@@ -188,21 +188,20 @@ export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     });
   }
 
-  // 3. Words the board will break in half.
+  // 3. Words the board will break in half. Measured with the real advance table —
+  //    the check must measure what the renderer draws (plan item 2.1).
   for (const label of labels) {
     const size = label.size ?? LABEL_SIZE;
     const words = (label.text ?? '').split(/\s+/).filter(Boolean);
-    const longest = words.reduce((m, w) => (w.length > m.length ? w : m), '');
-    const width = longest.length * size * ADVANCE;
+    const longest = words.reduce((m, w) => (handMeasure(w, 1) > handMeasure(m, 1) ? w : m), '');
+    const width = handMeasure(longest, size);
     if (width <= WRAP_CAP) continue;
-    const fits = Math.floor(WRAP_CAP / (size * ADVANCE));
+    // The cap height at which this word would just fit on one line, with 5% headroom.
+    const fitsAt = Math.max(16, round((WRAP_CAP / handMeasure(longest, 1)) * 0.95));
     out.push({
       kind: 'broken-word',
       ids: [label.id],
-      note: `"${longest}" is too long to fit one line at size ${round(size)} and the board will break the word in half — shorten it, or drop size to about ${Math.max(
-        16,
-        round((WRAP_CAP / longest.length / ADVANCE) * 0.95),
-      )} (${fits} characters fit at ${round(size)})`,
+      note: `"${longest}" is too long to fit one line at size ${round(size)} and the board will break the word in half — shorten it, or drop size to about ${fitsAt}`,
     });
   }
 

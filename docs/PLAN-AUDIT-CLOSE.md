@@ -17,6 +17,24 @@ re-audit in Phase 8 is the exit.
 > deliberate deviation: `makeText` promotes math with a warn in both modes rather
 > than erroring under strict — the promotion is the fix, and a typeset failure
 > downstream still hits the strict equation gate. Next: Phase 2.
+>
+> **Progress (2026-08-23): 2.1 is landed.** `fontmetrics.ts` lives in `@inkcast/core`
+> (with `HAND_FONTS`, the style→face assignment, moved beside it); the planner
+> measures with the real advance table via `handMeasure`/`measureText` (module hand
+> set per compile by `setPlannerHand`); deleted: `ADVANCE = 0.52` + char-count
+> wrapping, `texAsGlyphs` (one `texBox` estimator now serves `makeEquation` and
+> `withMathBox`), `diagramSize`'s chars × 13, `labelBox`'s chars × size × ADVANCE,
+> `LABEL_SLACK` (both sides — the estimate gap it papered over no longer exists),
+> `MATH_ADVANCE`'s planner duplicate, the renderer's ×0.6/×0.62 arrow/edge label
+> estimates (now `ctx.hand.measure`), and the dead `labelAt` ×0.58. `FONT` is now
+> computed as `TYPE_SCALE × TYPE_RATIO` — one catalogue imports the other through
+> the stated ratio, per the two reverts. All four pinned hashes re-pinned with
+> frames rendered and inspected (reasoning in `pinned-hashes.test.ts`); two test
+> fixtures recalibrated because honest footprints made their scenarios true
+> (`repair-log.test.ts`, `draw-critic.test.ts`); four A-4 lines added to
+> `auditcheck.mts`. Done-bar held: one advance table in the repo; the "empty
+> stac"-class defect is structurally closed (the check measures what the renderer
+> draws). Next: 2.2.
 
 **Two rules that shape everything here:**
 

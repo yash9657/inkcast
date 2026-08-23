@@ -26,7 +26,7 @@
 import type { Mark, TextElement } from '@inkcast/core';
 import { DRAW_W } from '@inkcast/core';
 import type { Box, Point } from './elements.js';
-import { FONT, measureText } from './elements.js';
+import { FONT, handMeasure, measureText } from './elements.js';
 
 /**
  * How far a label may sit from every mark before it is naming nothing.
@@ -57,8 +57,6 @@ export function waypoints(m: Mark): Point[] {
 
 /** Default cap height for a label the author left unsized. */
 export const LABEL_SIZE = 30;
-/** Mean glyph advance as a fraction of cap height, matching `elements.ts`. */
-export const ADVANCE = 0.52;
 
 /**
  * A label's nominal extent: one unwrapped line at the author's own cap height.
@@ -67,24 +65,16 @@ export const ADVANCE = 0.52;
  * and therefore the fit are computed from. It is **not** the space the words end up
  * occupying on the board — see `labelFootprint`, which is what anything deciding
  * "will these two names collide" has to measure instead.
+ *
+ * Measured with the board's own hand (`handMeasure`), not chars × a constant — the
+ * same one advance table every other reservation in the repo reads (plan item 2.1).
  */
 export function labelBox(m: Mark): Box {
   const size = m.size ?? LABEL_SIZE;
   const text = m.text ?? '';
-  const w = Math.max(size, text.length * size * ADVANCE);
+  const w = Math.max(size, handMeasure(text, size));
   return { x: (m.x ?? 0) - w / 2, y: (m.y ?? 0) - size * 0.7, w, h: size * 1.4 };
 }
-
-/**
- * Slack on a label's measured width, because the estimate is always the narrow one.
- *
- * `measureText` can only ever return the planner's own estimate and the renderer wraps
- * again against the real handwriting metrics, which are wider — a box sized to the
- * estimate is a box the words do not quite fit and the board breaks the word itself
- * (`Cartilage` as "Cartil / age"). Half again is the widest the same strings came out at
- * when typeset by the board rather than estimated by the planner.
- */
-export const LABEL_SLACK = 1.5;
 
 /**
  * The widest one line of a label may be before the board wraps it, at a given fit.
@@ -138,17 +128,24 @@ export function roleFor(px: number): TextElement['role'] {
  * "spark starts here" through "atria (spark spreads sideways)" in `cardiac8` at 51.5s.
  * `repairLabels` moved the second label 58 units right, scored the pair 20 units clear in
  * `labelBox` space, and the frame shows them overlapping by 103×29 canvas units — because
- * `labelBox` reserves `chars × size × ADVANCE` on one unwrapped line at the author's cap
- * height, while the builder snaps the label to the nearest type role *at the beat's fit*,
- * wraps it at `labelCap`, and then widens it by `LABEL_SLACK`. On that beat the two
- * disagreed by 2.09× in width for one label and 2.48× in height for the other; the 20
- * units of clearance the repair bought were an order of magnitude inside its own
- * measurement error.
+ * `labelBox` reserves one unwrapped line at the author's cap height, while the builder
+ * snaps the label to the nearest type role *at the beat's fit* and wraps it at
+ * `labelCap`. On that beat the two disagreed by 2.09× in width for one label and 2.48×
+ * in height for the other; the 20 units of clearance the repair bought were an order of
+ * magnitude inside its own measurement error.
  *
  * So this reproduces the builder's label branch exactly and divides back by the fit, so
  * the repair's ring search and canvas bounds keep speaking authoring units. Anything that
  * asks "do these words collide" measures here; `drawing.ts` builds from the same numbers,
  * and `packages/planner/test/drawing.test.ts` pins that they agree.
+ *
+ * (`LABEL_SLACK = 1.5` used to widen both sides. It compensated for `measureText` being
+ * a chars-times-a-constant estimate that the renderer would out-wrap; with the one real
+ * advance table on both sides (plan item 2.1) the estimate gap is gone, and keeping the
+ * slack would over-reserve every label's width by half — which the drawing lane paid for
+ * in labels shoved out of the picture they name. What residual disagreement remains is
+ * the role-size-to-realized-size conversion, which no constant fixes and the realized-
+ * layout report (plan item 2.7) measures for real.)
  *
  * A caller with no cell in hand gets `TYPICAL_FIT` rather than unit scale, because unit
  * scale is not the middle of the range a drawing is fitted into — it is the top of it.
@@ -158,7 +155,7 @@ export function labelFootprint(m: Mark, scale = TYPICAL_FIT): Box {
   if (!text) return labelBox(m);
   const s = scale > 0 ? scale : 1;
   const t = measureText(text, roleFor((m.size ?? LABEL_SIZE) * s), labelCap(s));
-  const w = (t.w * LABEL_SLACK) / s;
+  const w = t.w / s;
   const h = t.h / s;
   return { x: (m.x ?? 0) - w / 2, y: (m.y ?? 0) - h / 2, w, h };
 }

@@ -113,11 +113,45 @@ function check(name: string, ok: boolean, why: string): void {
 
 /* ---- S4-b (1.1): the cmap miss no longer the only line of defence ---- */
 {
-  const metrics = read('packages/visuals/src/fontmetrics.ts');
+  const metrics = read('packages/core/src/fontmetrics.ts');
   check(
     'S4-b: FontMetrics exposes covers() from the real cmap',
     /covers:\s*\(cp\)\s*=>\s*cmap\.has\(cp\)/.test(metrics),
     'coverage is being guessed instead of read from the font table',
+  );
+}
+
+/* ---- A-4 (2.1): one advance table in the repo ---- */
+{
+  const elements = read('packages/planner/src/elements.ts');
+  const drawGeom = read('packages/planner/src/draw-geom.ts');
+  const drawAudit = read('packages/planner/src/draw-audit.ts');
+  const renderCompile = read('packages/render/src/compile.ts');
+  const prims = read('packages/render/src/prims.ts');
+  // The declaration form, not the phrase — the history comments are allowed to name
+  // the deleted constant; a `const` bringing it back is not.
+  const handwritingAdvance = /const ADVANCE\s*=\s*0\./;
+  check(
+    'A-4: the chars × ADVANCE handwriting estimate stays deleted',
+    ![elements, drawGeom, drawAudit, renderCompile, prims].some((s) => handwritingAdvance.test(s)),
+    'a chars-times-a-constant advance estimator is back — the planner must measure with core fontmetrics',
+  );
+  check(
+    'A-4: the planner measures with the real advance table',
+    /handMetricsFor/.test(elements) && /handMeasure\(/.test(drawGeom),
+    'planner text metrics stopped reading @inkcast/core fontmetrics',
+  );
+  check(
+    'A-4: the renderer sizes its own labels with the same table',
+    /ctx\.hand\.measure\(/.test(renderCompile) && !/\.length \* size \* 0\./.test(renderCompile),
+    'render/compile.ts is estimating a label width as chars × size × k again',
+  );
+  check(
+    'A-4: one TeX size estimator (texBox), used by both lanes',
+    /export function texBox/.test(elements) &&
+      /texBox\(/.test(read('packages/planner/src/drawing.ts')) &&
+      !/texAsGlyphs/.test(elements),
+    'the planner has grown a second equation-box estimator again',
   );
 }
 

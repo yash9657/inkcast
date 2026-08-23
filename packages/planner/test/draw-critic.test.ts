@@ -41,11 +41,26 @@ const CLEAN: Mark[] = [
   name,
 ];
 
-/** Still off the canvas, and now with two names written on top of each other. */
+/**
+ * Still off the canvas, and now naming it in type so big the board must break the word.
+ *
+ * A broken word, deliberately: it is the one defect the free repair pass cannot touch
+ * (the repair moves labels, it never resizes them), so this reply measures worse no
+ * matter what `repairLabels` does first. The previous fixture's two stacked names
+ * stopped working as "worse" when footprints became honest (plan item 2.1) — their
+ * escape got cheap enough that the repair simply fixed them, and the veto saw a tie.
+ */
 const WORSE: Mark[] = [
   mark({ id: 'body', kind: 'rect', x: 900, y: 100, w: 500, h: 300 }),
-  mark({ id: 'name', kind: 'label', x: 1300, y: 250, text: 'the body', size: 30 }),
-  mark({ id: 'other', kind: 'label', x: 1304, y: 252, text: 'the axis', size: 30 }),
+  axis,
+  mark({
+    id: 'name',
+    kind: 'label',
+    x: 500,
+    y: 250,
+    text: 'electroencephalographically',
+    size: 60,
+  }),
 ];
 
 type Call = { system: string; messages: Message[] };

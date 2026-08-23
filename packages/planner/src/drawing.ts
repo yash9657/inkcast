@@ -50,9 +50,7 @@ import { round } from './curves.js';
 import { cueMarks } from './draw-cues.js';
 import {
   ADRIFT,
-  ADVANCE,
   LABEL_SIZE,
-  LABEL_SLACK,
   TYPICAL_FIT,
   type Ink,
   clipToBox,
@@ -70,7 +68,7 @@ import {
   waypoints,
 } from './draw-geom.js';
 import type { Box, Point } from './elements.js';
-import { makeArrow, makeEquation, makeShape, makeText } from './elements.js';
+import { makeArrow, makeEquation, makeShape, makeText, mathSymbols, texBox } from './elements.js';
 import { makePath } from './figures.js';
 
 const log = logger('planner:drawing');
@@ -145,32 +143,6 @@ const at = (fit: Fit, x: number, y: number): Point => ({
 /* --------------------------------------------------------------------- maths */
 
 /**
- * Width of one typeset symbol, as a fraction of the type size it is set at.
- *
- * Measured, not guessed. MathJax reports its own layout in units of 1000 to the em, and
- * over five real lesson equations the drawn width comes out at 0.57–0.77 em per drawn mark
- * (`E = mc^2` is 3.85 em wide for 5 marks; `2H₂ + O₂ → 2H₂O` is 8.14 em for 11;
- * `\frac{dv}{dt} = -\frac{g}{L}\theta` is 5.15 em for 11). 0.75 is the wide end of that,
- * because the number is only ever used to reserve a box and reserving slightly too much
- * costs whitespace while reserving too little costs a collision.
- *
- * Notably wider than `ADVANCE`'s 0.52 for handwritten prose, which is the arithmetic
- * reason a `label` carrying an equation was never going to be measured correctly: TeX puts
- * real space around a relation and a binary operator, and prose does not.
- */
-const MATH_ADVANCE = 0.75;
-
-/**
- * Height of a line of maths, as a multiple of its type size.
- *
- * A flat expression measures 0.85–0.95 em tall and one containing a fraction 2.07–2.10 em
- * (measured, same five). The tall case is the one to reserve for: the typesetter fits the
- * notation inside this box *preserving its aspect*, so a box too tall for its contents
- * letterboxes and costs nothing, while a box too short shrinks the glyphs.
- */
-const MATH_HEIGHT = 2.2;
-
-/**
  * Seconds per symbol, for how long an equation takes to write itself.
  *
  * The board's other marks enter in `enter.duration`'s default 0.8s, and that number was
@@ -182,27 +154,6 @@ const MATH_HEIGHT = 2.2;
  * three frames of being drawn, which is what the handwriting lane already spends per word.
  */
 const MATH_GLYPH_SECONDS = 0.09;
-
-/**
- * Roughly how many symbols this TeX will set — for measurement only, never for meaning.
- *
- * One character per control sequence, and braces, alignment marks, sub/superscript
- * operators and spacing dropped: those are structure, not ink. Deliberately crude, and it
- * can afford to be. It is used for two things, and both are forgiving in the same
- * direction — the box an equation is *reserved* (the typesetter fits inside it preserving
- * aspect, so an over-estimate is whitespace) and how long it takes to draw (an
- * over-estimate is a slower, more legible reveal). It is never used to place a glyph.
- *
- * Checked against MathJax's own count on five lesson equations: exact on two, one short on
- * `E = mc^2`, four long on a chemical equation full of `\mathrm` (which sets no ink of its
- * own). `elements.ts`'s `texAsGlyphs` does the same job for the *text* metric of a worked
- * example's update line; the two are not shared because they answer to different
- * measurements — that one feeds handwriting metrics, this one feeds MathJax's em.
- */
-function mathSymbols(tex: string): number {
-  const flat = tex.replace(/\\[a-zA-Z]+/g, 'x').replace(/[{}&\\^_$\s,]/g, '');
-  return Math.max(1, flat.length);
-}
 
 /**
  * How long this equation spends being written, in seconds.
@@ -235,11 +186,8 @@ function mathDuration(tex: string): number {
 function withMathBox(m: Mark): Mark {
   if (m.kind !== 'math' || (m.w !== undefined && m.h !== undefined)) return m;
   const size = m.size ?? LABEL_SIZE;
-  return {
-    ...m,
-    w: m.w ?? Math.max(size, Math.round(mathSymbols(m.tex ?? '') * size * MATH_ADVANCE)),
-    h: m.h ?? Math.round(size * MATH_HEIGHT),
-  };
+  const t = texBox(m.tex ?? '', size);
+  return { ...m, w: m.w ?? t.w, h: m.h ?? t.h };
 }
 
 /**
@@ -401,8 +349,8 @@ const RINGS = [
  *
  * Because for one whole session it was scoring the wrong boxes. It measured labels with
  * `labelBox` — one unwrapped line at the author's cap height — and `buildMark` below draws
- * them at a type role chosen from `size * fit.s`, wrapped at `labelCap`, widened by
- * `LABEL_SLACK`. On `cardiac8`'s spark beat that is 2.09× the reserved width, so the repair
+ * them at a type role chosen from `size * fit.s`, wrapped at `labelCap`. On `cardiac8`'s
+ * spark beat that disagreement was 2.09× the reserved width, so the repair
  * moved a label 58 units, declared 20 units of clearance, and the frame at 51.5s shows the
  * two names typed through each other. `labelFootprint` is the geometry the builder draws
  * in; `scale` is the fit it will be drawn at, and callers who do not know the cell yet get
@@ -713,13 +661,15 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
     case 'label': {
       const text = (m.text ?? '').trim();
       if (!text) return [];
-      // Role, cap and slack all live in `draw-geom.ts` and are read back by
-      // `labelFootprint`, because the repair a few lines up has to reserve the box these
-      // three lines produce. When they were spelled out here instead, the repair reserved
-      // a different box and `cardiac8` shipped two names typed through each other.
+      // Role and cap live in `draw-geom.ts` and are read back by `labelFootprint`,
+      // because the repair a few lines up has to reserve the box these lines produce.
+      // When they were spelled out here instead, the repair reserved a different box and
+      // `cardiac8` shipped two names typed through each other. (The `LABEL_SLACK`
+      // widening that used to sit between them compensated for `measureText` being a
+      // chars-times-a-constant estimate; the estimate is now the real advance table, so
+      // the slack is gone from both sides — plan item 2.1.)
       const role = roleFor((m.size ?? 30) * fit.s);
       const el = makeText(id, text, role, { align: 'center', maxWidth: labelCap(fit.s) });
-      el.at = { ...el.at, w: round(el.at.w * LABEL_SLACK, 2) };
       const c = P(m.x ?? 0, m.y ?? 0);
       el.at = {
         x: round(c.x - el.at.w / 2, 2),
@@ -737,8 +687,8 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
       // typesets the TeX and fits the result inside `at` preserving its aspect, centred —
       // so the size of the glyphs is a consequence of the box the author reserved and the
       // shape of the notation, and nothing here has to know how wide a `\partial` is. The
-      // measured box `makeEquation` computes from the source is discarded for that reason:
-      // it estimates handwriting metrics, and this element is not handwritten.
+      // estimated box `makeEquation` computes from the source (`texBox`) is discarded
+      // here because a `math` mark's author reserved a real box of their own.
       //
       // `display: true` always. Inline style tucks a sum's limits beside the sigma to fit
       // in running text, and there is no running text on a whiteboard — the maths is the

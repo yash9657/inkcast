@@ -1,19 +1,33 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.2
 
-Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`. **The plan being
-executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it first; it is the work list, the
-coverage proof, and the exit criteria. This file only says where execution stands, what
-a new session needs to know that the plan cannot, and where the bodies are buried.
-The evidence base behind both is `docs/AUDIT-FINDINGS.md` (the audit, run at `5f83bc4`,
-plus the W1–W6 waivers now written into its §5).
+Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
+after 2.1 landed. **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
+first; it is the work list, the coverage proof, and the exit criteria. This file only
+says where execution stands, what a new session needs to know that the plan cannot, and
+where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDINGS.md`
+(the audit, run at `5f83bc4`, plus the W1–W6 waivers now written into its §5).
 
 ## Where things stand
 
-**Phases 0 and 1 are landed, tested, and committed** — two commits:
+**Phases 0, 1, and 2.1 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
   (~500 tests), `pnpm lint` clean.
+- 2026-08-23 — **2.1, the one text-metrics stack** (the plan's progress block has the
+  full inventory). `fontmetrics.ts` + `HAND_FONTS` now live in `@inkcast/core`; the
+  planner measures with the real advance table (`handMeasure`, `setPlannerHand` called
+  by `compileLesson`/`heuristicPlan`, default marker elsewhere); every
+  chars-times-a-constant estimator is deleted (`ADVANCE`, `LABEL_SLACK`, `texAsGlyphs`,
+  chars×13, ×0.6/×0.62, ×0.58); `texBox` is the one TeX estimator; render `Ctx` carries
+  `hand`/`tracking`. All four pinned hashes re-pinned WITH frames rendered and compared
+  (the reasoning lives in `pinned-hashes.test.ts`'s header — longitude's latitude
+  headline lettering on one line instead of "…latitude / for free" is the visible win).
+  Two fixtures were recalibrated because honest footprints changed the weights'
+  arithmetic — `repair-log.test.ts` (label footprint 179→136 units made the escape
+  affordable) and `draw-critic.test.ts` (the repair now genuinely fixes stacked labels,
+  so "worse" is a broken-word defect instead). `auditcheck.mts` gained four A-4 lines
+  and its S4-b line follows the moved file.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -36,9 +50,8 @@ with no gate problems. That project directory is disposable evidence, not a fixt
   so degrade stays an escape and the message format stays uniform.
 - **The harness.** `packages/pipeline/src/auditcheck.mts`
   (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
-  re-checkable facts, currently 12, all green. **The plan (item 0.3) says each Phase
-  1–2 item adds its line here as it closes.** Phase 2.1 owes it "one advance table in
-  the repo"; 2.1 also closes the `ADVANCE` line the plan pre-announced.
+  re-checkable facts, currently 16, all green. **The plan (item 0.3) says each Phase
+  1–2 item adds its line here as it closes.** 2.1's four A-4 lines are in.
 - **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
   (real cmap) in `packages/visuals/src/fontmetrics.ts`; wired at the top of
   `resolveVisuals`. Tests in `packages/visuals/test/glyphgate.test.ts`.
@@ -69,30 +82,11 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phase 2 (plan items 2.1–2.7), then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phase 2.2–2.7, then 3 → 4 → 5 → 6 → 7 → 8
 
 The plan is authoritative on scope and done-bars; what follows is session-found
 context per item, so the next session does not re-derive it.
 
-- **2.1 One text-metrics stack** — the big one; do it as its own sitting.
-  `visuals/src/fontmetrics.ts` moves to `@inkcast/core` (planner cannot depend on
-  visuals; the `boardMetrics` move is the template). Then delete, in order,
-  re-rendering the corpus after each: `ADVANCE = 0.52` + char-count wrapping
-  (`planner/src/elements.ts:148-184` — note `measureText`/`wrapText`/`charWidth`
-  there; `makeEquation`'s `texAsGlyphs` estimate also sits on them), equation-box
-  estimation, `diagramSize` chars×13, `labelBox`/`labelFootprint`
-  (`planner/src/draw-geom.ts` — read `LABEL_SLACK`'s comment in `elements.ts:130-147`
-  first, the re-derived value 1.27 is written there), `MATH_ADVANCE`
-  (`planner/src/drawing.ts`), the ×0.6/0.62 arrow labels
-  (`render/src/compile.ts:1540,1638`), ×0.58 in `render/src/prims.ts:82`, and the
-  chars×k inside `planner/src/draw-audit.ts:196-204`. Unify `FONT` with `TYPE_SCALE`
-  — **but read the long comment above `FONT` in `elements.ts` first: making them
-  equal was tried twice and reverted (`45d4ff9`); they are different units related by
-  `TYPE_RATIO`. "One catalogue imports the other" means the ratio discipline, not
-  equality.** `planner/test/pinned-hashes.test.ts` hashes WILL move: re-pin with the
-  diff in front of you and the reason in the test header (the draw-key re-pin in
-  `draw-anthropic.test.ts` and the `longitude/short` re-pin are the templates —
-  never re-pin blind).
 - **2.2 One style table** — `render/src/palette.ts` + `visuals/src/style.ts` →
   `@inkcast/core`; kill the `#d7263d` vs `#2f6fed` accent split by _opening frames of
   both_ before deciding; add the mirror test in pipeline (the `CAST_POSES` pattern).

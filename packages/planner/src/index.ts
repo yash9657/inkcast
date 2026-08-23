@@ -211,7 +211,9 @@ export type { Hints, PlacementHint, LayoutOptions, Span, Grid } from './layout.j
 export type { Box, Point } from './elements.js';
 export {
   FONT,
-  charWidth,
+  handMeasure,
+  handLineHeight,
+  setPlannerHand,
   wrapText,
   measureText,
   diagramSize,

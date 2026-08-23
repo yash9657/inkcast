@@ -19,6 +19,7 @@ import {
   makeShape,
   makeText,
   measureText,
+  setPlannerHand,
 } from './elements.js';
 import { matchIcons } from './icons.js';
 import type { Hints, PlacementHint } from './layout.js';
@@ -72,6 +73,8 @@ function seedOf(s: string): number {
 /* ------------------------------------------------------------------- plan */
 
 export function heuristicPlan(doc: SourceDoc, opts: PlanOptions = {}): Storyboard {
+  // Every measurement below reserves with the face this board will letter with.
+  setPlannerHand(opts.style ?? 'marker');
   const wps = opts.wordsPerSecond ?? 2.6;
   const maxWords = Math.round(clamp(wps * 10.5, 18, 34));
   const minWords = Math.round(clamp(wps * 4.5, 9, 16));

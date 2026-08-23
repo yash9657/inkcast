@@ -43,24 +43,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { logger } from '@inkcast/core';
-import type { EquationElement, PlotElement, Storyboard, StoryboardMeta } from '@inkcast/core';
-import {
-  MANIFEST_PATH,
-  MANIFEST_VERSION,
-  ctxFor,
-  inkStyleFor,
-  loadFontMetrics,
-  resolvePlot,
-  seedFrom,
-  writeElementSvg,
-} from '@inkcast/visuals';
+import type { EquationElement, PlotElement, Storyboard } from '@inkcast/core';
+import { MANIFEST_PATH, MANIFEST_VERSION } from '@inkcast/visuals';
 import type {
   EquationLayout,
-  FontMetrics,
   InkStroke,
-  InkStyle,
   PlotLayout,
-  PlotTypeSizes,
   TextLayout,
   VisualManifest,
 } from '@inkcast/visuals';

@@ -47,14 +47,24 @@ function logged(fn: () => void): string {
   return out.join('');
 }
 
-/** Three lines at `TYPICAL_FIT`, which is what makes the displacement floor bite. */
-const LONG = 'the atrioventricular node sits at the junction of the atria and ventricles';
+/**
+ * Four lines at `TYPICAL_FIT`, which is what makes every escape unaffordable.
+ *
+ * Recalibrated 2026-08-23 when `measureText` moved from chars × 0.52 to the real
+ * advance table (plan item 2.1): the previous three-line string's honest footprint
+ * shrank to 136 units, the ring step fell inside the adrift radius, and the weights
+ * started (correctly) taking a clean escape one step below the stroke.
+ */
+const LONG =
+  'the atrioventricular node sits at the junction of the atria and the ventricles and delays the spark';
 
 test('a label the weights decided not to move is not reported as having nowhere to go', () => {
-  // One crossed stroke scores 50. This name's footprint is 179 units tall, so the ring
-  // step is 143 and ring 1 is already charged 71 for displacement alone — the loop never
-  // runs an iteration, and no candidate is ever tested against the canvas bounds. The
-  // label is perfectly placeable; the repair simply priced the move above the collision.
+  // This name's footprint measures 182 units tall, so the ring step is 145 — one step
+  // past the 143-unit adrift radius. Every vertical or diagonal candidate is priced as
+  // marooned (+400), every horizontal one still crosses the stroke (+150 and the walk),
+  // and ring 3's displacement floor alone exceeds the collision, so the search ends with
+  // the label exactly where it was. It is perfectly placeable; the repair simply priced
+  // every move above the collision.
   const marks: Mark[] = [
     mark({
       id: 'rail',

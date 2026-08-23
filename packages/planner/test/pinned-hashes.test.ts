@@ -79,12 +79,33 @@ import { compileLesson } from '../src/compile.js';
  * new shape is better. A one-word-shorter caption at an unchanged anchor has no shape to
  * look at; the trimmed word is the evidence, and it is a caption that used to promise a
  * noun it never delivered.
+ *
+ * ## The re-pin, 2026-08-23: all four, for the one text-metrics stack (plan item 2.1)
+ *
+ * From `b6ed04d68aaa` / `4aa467530110` / `a9b5b8960ed0` / `882002cbf24c`. The planner's
+ * `measureText` moved from chars × `ADVANCE = 0.52` to the real advance table in
+ * `@inkcast/core`'s `fontmetrics.ts` — the same cmap/hmtx parse the visuals stage wraps
+ * with — and equation reservations moved from handwriting-advance estimates to the
+ * MathJax-em estimator (`texBox`). Every reserved box was expected to shift a few
+ * percent, and did: the full storyboard diff is width tightenings (real Shantell
+ * advances run 0.538 em/char against the 0.52 estimate), line heights +0.2 units (real
+ * ascent+descent+lineGap against the 1.34 guess), and exactly two re-wraps, both of
+ * which are the *estimate* having disagreed with what the board was always going to
+ * letter: gradient-descent's "Height becomes how wrong we are" reserves the two lines
+ * it measures at heading size, and longitude's "The sky gives you latitude for free"
+ * reserves the one line it honestly fits on.
+ *
+ * Frames were rendered for this re-pin (`packages/render/src/frames.mts` over both
+ * standard boards, old tree vs new). The longitude board is the visible win: the old
+ * frame letters the latitude headline broken as "…latitude / for free" inside its
+ * two-line reservation; the new frame letters it on one line over its underline, and
+ * the freed vertical space goes to the figure beside it.
  */
 const PINNED = [
-  { lesson: 'gradient-descent', preset: 'standard', hash: 'b6ed04d68aaa', scenes: 9 },
-  { lesson: 'gradient-descent', preset: 'short', hash: '4aa467530110', scenes: 7 },
-  { lesson: 'longitude', preset: 'standard', hash: 'a9b5b8960ed0', scenes: 8 },
-  { lesson: 'longitude', preset: 'short', hash: '882002cbf24c', scenes: 6 },
+  { lesson: 'gradient-descent', preset: 'standard', hash: '2a014f1e2eae', scenes: 9 },
+  { lesson: 'gradient-descent', preset: 'short', hash: '0670ab50fe80', scenes: 7 },
+  { lesson: 'longitude', preset: 'standard', hash: 'a750d3d78b5e', scenes: 8 },
+  { lesson: 'longitude', preset: 'short', hash: 'e6e5e7d6e6b2', scenes: 6 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

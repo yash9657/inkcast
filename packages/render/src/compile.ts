@@ -21,7 +21,8 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { gate, logger } from '@inkcast/core';
+import { HAND_FONTS, gate, handMetricsFor, logger } from '@inkcast/core';
+import type { FontMetrics } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -294,6 +295,14 @@ type Ctx = {
   plots: Map<string, PlotSource | undefined>;
   /** See `CompileOptions.gates`. */
   gates: GateMode | undefined;
+  /**
+   * The board's handwriting metrics — the one advance table (plan item 2.1). The
+   * labels this compiler sizes itself (arrow captions, diagram edge names) are
+   * measured here, not estimated as chars × a constant.
+   */
+  hand: FontMetrics;
+  /** Letter tracking for `hand`, in em — half of every measurement. */
+  tracking: number;
 };
 
 /**
@@ -464,6 +473,8 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     visuals: openVisuals(sb, dir),
     plots: new Map(),
     gates: opts.gates,
+    hand: handMetricsFor(sb.meta.style),
+    tracking: (HAND_FONTS[sb.meta.style] ?? HAND_FONTS.marker).tracking,
   };
   for (const scene of timed.scenes) {
     for (const el of scene.elements) {
@@ -1555,7 +1566,7 @@ function arrowPrims(el: ArrowElement, ctx: Ctx, rng: Rng, alpha: number | undefi
   if (el.label) {
     const size = TYPE_SCALE.caption * ctx.type;
     const [mx, my] = curveMidpoint(from, to, el.curve);
-    const w = Math.max(160 * ctx.type, el.label.length * size * 0.6);
+    const w = Math.max(160 * ctx.type, ctx.hand.measure(el.label, size, ctx.tracking));
     const [ox, oy] = labelOffset(from, to, controlPoint(from, to, el.curve), size + ctx.sw);
     out.push(
       textPrim(
@@ -1653,7 +1664,7 @@ function diagramPrims(
     );
     if (e.label) {
       const size = labelSize * 0.72;
-      const w = Math.max(120 * ctx.type, e.label.length * size * 0.62);
+      const w = Math.max(120 * ctx.type, ctx.hand.measure(e.label, size, ctx.tracking));
       // Same rule as an arrow's label: clear the bow, and step sideways rather
       // than up when the edge is steep. `mid` is the bow's waypoint, so it is
       // also the control point the drawn curve passes through.

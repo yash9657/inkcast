@@ -366,15 +366,15 @@ export function sketchArrowHead(
 /**
  * The extent of one line of written text, in canvas units.
  *
- * The underline has to know where the letters actually ended, and the renderer does
- * not: real advance widths only exist inside the browser, after the handwriting font
- * has loaded (`page/runtime.js` measures every line with `getComputedTextLength`).
- * Compile time has two disagreeing estimators for the same number — `ADVANCE = 0.52`
- * in `planner/src/elements.ts` and `0.58` in `labelAt` here in the renderer — and that
- * disagreement is the same family of defect as `empty stac`: three type catalogues, one
- * number. So this primitive refuses to guess. The caller states the run it believes in
- * and owns the error; keep the estimate generous rather than tight, because an underline
- * a little long reads as a confident flick and one a little short reads as a mistake.
+ * The underline has to know where the letters actually ended, and the truest answer
+ * only exists inside the browser, after the handwriting font has loaded
+ * (`page/runtime.js` measures every line with `getComputedTextLength`; compile-time
+ * measurement is the same advance table parsed in `@inkcast/core`'s `fontmetrics.ts` —
+ * one table since plan item 2.1, where there used to be two disagreeing chars-times-a-
+ * constant estimators). So this primitive refuses to guess. The caller states the run
+ * it believes in and owns the error; keep an estimate generous rather than tight,
+ * because an underline a little long reads as a confident flick and one a little short
+ * reads as a mistake.
  */
 export type WrittenRun = {
   /** Left end of the written line. */

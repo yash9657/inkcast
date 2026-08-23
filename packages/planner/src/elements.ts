@@ -17,7 +17,7 @@
  * is equal to it — the two are in different units, and the measurement that says so is in
  * `FONT`'s own comment.
  */
-import { logger } from '@inkcast/core';
+import { HAND_FONTS, TYPE_SCALE, handMetricsFor, logger } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -25,7 +25,9 @@ import type {
   Element,
   EmphasisElement,
   EquationElement,
+  FontMetrics,
   ShapeElement,
+  StoryboardMeta,
   TextElement,
 } from '@inkcast/core';
 import { words } from './text.js';
@@ -49,9 +51,10 @@ type Z = { x: number; y: number };
 type Role = TextElement['role'];
 
 /**
- * Canvas units per role. Held to `TYPE_SCALE` by `TYPE_RATIO`, not equal to it.
+ * The two type tables. `FONT` (canvas units per role, below) is held to `TYPE_SCALE`
+ * by `TYPE_RATIO`, not equal to it.
  *
- * ## Why these are not `TYPE_SCALE`, having twice been made equal to it
+ * ## Why `FONT` is not `TYPE_SCALE`, having twice been made equal to it
  *
  * `docs/HANDOFF.md` calls the two "two catalogues of one number" and the obvious fix is to
  * delete one. It has now been tried from both ends and neither is the fix, because **they
@@ -96,14 +99,6 @@ type Role = TextElement['role'];
  * framing in hand — which moves all four hashes by design and is, in `STATUS.md`'s words,
  * "a decision for a person, not something to slip into a phase".
  */
-export const FONT: Record<Role, number> = {
-  title: 76,
-  heading: 50,
-  body: 34,
-  label: 27,
-  caption: 22,
-};
-
 /**
  * Canvas units per output pixel, per role — the relationship `FONT` and `TYPE_SCALE` are
  * held to, so that neither can drift without a test saying which one moved.
@@ -129,60 +124,122 @@ export const TYPE_RATIO: Record<Role, number> = {
   caption: 22 / 26,
 };
 
-const LINE_HEIGHT = 1.34;
 /**
- * Mean glyph advance as a fraction of the font size, for Latin prose.
- *
- * Measured, not guessed, and it survives the measurement: over the 189 real strings in
- * the six boards above, typeset by the board's own hand at the size it draws them, the
- * per-string mean advance runs p10 0.459, **p50 0.504**, p90 0.596, p99 0.660. So 0.52
- * is an honest mean and this is not where the clipping came from.
- *
- * That matters for `LABEL_SLACK` in `./draw-geom.ts`, which widens a label's measured box
- * by half again on the stated grounds that "the estimate is always the narrow one". It is
- * not always the narrow one — it is the narrow one for a little over half of strings, and
- * the widest string in the corpus is 0.660/0.520 = **1.27x** the estimate, not 1.5x. With
- * the size gap above closed, 1.5 over-reserves every label's width by at least 18% and
- * the median label's by 55%, which the drawing lane pays for in labels shoved out of the
- * picture they name. The re-derived value is 1.27; it cannot be applied here, because
- * `labelFootprint` and the builder in `./drawing.ts` have to reserve the identical box
- * (see the header of `labelFootprint` for what happened the last time they disagreed).
+ * One catalogue imports the other (plan item 2.1): `FONT` is now *computed* as
+ * `TYPE_SCALE × TYPE_RATIO` — exactly the numbers it always was (76, 50, 34, 27, 22,
+ * because `TYPE_RATIO`'s numerators are these values by construction), but a change to
+ * `TYPE_SCALE` now reaches the compiler's reservations through the stated ratio instead
+ * of silently diverging from them. The ratio table, not equality, is deliberate — see
+ * the comment above `TYPE_RATIO`, and the two reverts (`45d4ff9`) that taught it.
  */
-const ADVANCE = 0.52;
+export const FONT: Record<Role, number> = {
+  title: TYPE_SCALE.title * TYPE_RATIO.title,
+  heading: TYPE_SCALE.heading * TYPE_RATIO.heading,
+  body: TYPE_SCALE.body * TYPE_RATIO.body,
+  label: TYPE_SCALE.label * TYPE_RATIO.label,
+  caption: TYPE_SCALE.caption * TYPE_RATIO.caption,
+};
 
-export function charWidth(role: Role): number {
-  return FONT[role] * ADVANCE;
+/* ------------------------------------------------------------- text metrics */
+
+/**
+ * The planner measures with the board's own hand (audit A-4, plan item 2.1).
+ *
+ * `ADVANCE = 0.52` — a chars-times-a-constant estimate of the handwriting face's
+ * advances — lived here from the first commit to 2026-08-23. It was an honest mean
+ * (measured p50 0.504 over the 189 corpus strings), and a mean is exactly the problem:
+ * the widest corpus string ran 1.27× it, which is the gap `LABEL_SLACK` in
+ * `./draw-geom.ts` existed to paper over, and papering it over is how "empty stac" and
+ * "AV nod" shipped. There is now one advance table in the repo — the real cmap/hmtx
+ * parse in `@inkcast/core`'s `fontmetrics.ts` — and this module wraps with it, using
+ * the same greedy word wrap, the same tracking, and the same line-height formula as
+ * `visuals/src/text.ts` `layoutText`, so the box the planner reserves and the lines
+ * the board letters can only disagree by the shrink-to-fit the renderer applies.
+ */
+let handStyle: StoryboardMeta['style'] = 'marker';
+
+/**
+ * Point the planner's measurements at the ink style the board will letter with.
+ *
+ * Called at the head of every storyboard-producing entry (`compileLesson`,
+ * `heuristicPlan`) — module state rather than a threaded parameter because the
+ * builders below are called from dozens of sites that have no business knowing about
+ * fonts. Callers with no style in hand (unit tests, the drawing critic's preview)
+ * measure with the default marker face; the four vendored faces cluster within ~8%,
+ * and everything downstream of those callers is re-measured by the real compile.
+ */
+export function setPlannerHand(style: StoryboardMeta['style']): void {
+  handStyle = style;
 }
 
-/** Greedy word wrap at a pixel width. Returns the laid-out lines. */
+function hand(): FontMetrics {
+  return handMetricsFor(handStyle);
+}
+
+/** Width of one line at `size` canvas units, measured with the board's own hand. */
+export function handMeasure(text: string, size: number): number {
+  return hand().measure(text, size, HAND_FONTS[handStyle].tracking);
+}
+
+/**
+ * Line height at `size` — the renderer's own formula (`layoutText` in
+ * `visuals/src/text.ts`), so a reserved block and a lettered block are the same height.
+ */
+export function handLineHeight(size: number): number {
+  const f = hand();
+  return Math.max(size * 1.12, (f.ascent + f.descent + f.lineGap) * size * 1.02);
+}
+
+/**
+ * Greedy word wrap at a canvas-unit width. Returns the laid-out lines.
+ *
+ * The algorithm is `wrapParagraph`'s from `visuals/src/text.ts`, deliberately: word
+ * wrap with whole-candidate measurement (tracking is a per-gap cost, so summing word
+ * widths under-reports the line), and a per-character break for a single word wider
+ * than the box.
+ */
 export function wrapText(text: string, role: Role, maxWidth: number): string[] {
-  const cw = charWidth(role);
-  const maxChars = Math.max(8, Math.floor(maxWidth / cw));
+  const size = FONT[role];
+  const fits = (s: string): boolean => handMeasure(s, size) <= maxWidth;
   const out: string[] = [];
-  let line = '';
+  let cur = '';
   for (const w of text.split(/\s+/).filter(Boolean)) {
-    if (!line) {
-      line = w;
+    const candidate = cur === '' ? w : `${cur} ${w}`;
+    if (fits(candidate)) {
+      cur = candidate;
       continue;
     }
-    if (line.length + 1 + w.length <= maxChars) line = `${line} ${w}`;
-    else {
-      out.push(line);
-      line = w;
+    if (cur !== '') {
+      out.push(cur);
+      cur = '';
     }
+    if (fits(w)) {
+      cur = w;
+      continue;
+    }
+    let chunk = '';
+    for (const ch of w) {
+      if (chunk !== '' && !fits(chunk + ch)) {
+        out.push(chunk);
+        chunk = ch;
+      } else {
+        chunk += ch;
+      }
+    }
+    cur = chunk;
   }
-  if (line) out.push(line);
+  if (cur !== '') out.push(cur);
   return out.length ? out : [''];
 }
 
 /** Tight box for a piece of text, wrapped to at most `maxWidth`. */
 export function measureText(text: string, role: Role, maxWidth: number): { w: number; h: number } {
   const lines = wrapText(text, role, maxWidth);
-  const cw = charWidth(role);
-  const widest = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  const size = FONT[role];
+  const widest = lines.reduce((m, l) => Math.max(m, handMeasure(l, size)), 0);
   return {
-    w: Math.min(maxWidth, Math.max(80, Math.round(widest * cw))),
-    h: Math.round(lines.length * FONT[role] * LINE_HEIGHT),
+    w: Math.min(maxWidth, Math.max(80, Math.round(widest))),
+    h: Math.round(lines.length * handLineHeight(size)),
   };
 }
 
@@ -311,15 +368,85 @@ export function makeText(
   };
 }
 
+/* ------------------------------------------------------- TeX box estimation */
+
 /**
- * A typeset equation, sized like a line of text at `role`.
+ * Roughly how many symbols a TeX string will set — for measurement only, never meaning.
  *
- * The box is *measured* like everything else here, but from the TeX source rather than
- * from the rendered result, which the planner cannot see. Stripping the control
- * sequences first is what makes that estimate honest: `\times` is one glyph, not six,
- * and counting it as six reserves a box twice too wide and pushes the drawing below it
- * off the cell. The visuals stage fits the real typeset geometry into whatever box this
- * reserves, preserving aspect, so an over-generous estimate costs whitespace and an
+ * One character per control sequence, and braces, alignment marks, sub/superscript
+ * operators and spacing dropped: those are structure, not ink. Deliberately crude, and
+ * it can afford to be — it feeds a *reservation* (the typesetter fits the real geometry
+ * into the box preserving aspect, so an over-estimate is whitespace) and a reveal
+ * duration (an over-estimate is a slower, more legible reveal). Checked against
+ * MathJax's own count on five lesson equations: exact on two, one short on `E = mc^2`,
+ * four long on a chemical equation full of `\mathrm` (which sets no ink of its own).
+ *
+ * This is the repo's ONE TeX size estimator (plan item 2.1): `makeEquation` below and
+ * `withMathBox` in `./drawing.ts` both reserve through `texBox`. They used to hold one
+ * each — this one fed handwriting advances, that one fed MathJax ems — and an equation
+ * is typeset, not handwritten, so the handwriting one was simply wrong.
+ */
+export function mathSymbols(tex: string): number {
+  const flat = tex.replace(/\\[a-zA-Z]+/g, 'x').replace(/[{}&\\^_$\s,]/g, '');
+  return Math.max(1, flat.length);
+}
+
+/**
+ * Width of one typeset symbol, as a fraction of the type size it is set at.
+ *
+ * Measured, not guessed. MathJax reports its own layout in units of 1000 to the em, and
+ * over five real lesson equations the drawn width comes out at 0.57–0.77 em per drawn
+ * mark (`E = mc^2` is 3.85 em wide for 5 marks; `2H₂ + O₂ → 2H₂O` is 8.14 em for 11;
+ * `\frac{dv}{dt} = -\frac{g}{L}\theta` is 5.15 em for 11). 0.75 is the wide end of
+ * that, because the number is only ever used to reserve a box and reserving slightly
+ * too much costs whitespace while reserving too little costs size.
+ *
+ * Notably wider than handwriting's measured ~0.52 em for prose, which is the arithmetic
+ * reason a `label` carrying an equation was never going to be measured correctly: TeX
+ * puts real space around a relation and a binary operator, and prose does not.
+ */
+export const MATH_ADVANCE = 0.75;
+
+/**
+ * Height of a line of maths, as a multiple of its type size.
+ *
+ * A flat expression measures 0.85–0.95 em tall and one containing a fraction 2.07–2.10
+ * em (measured, same five equations). Each case reserves the wide end of its own band —
+ * a box too tall for its contents letterboxes and costs whitespace, while a box too
+ * short shrinks the glyphs — but the tall band is reserved only for TeX that actually
+ * stacks, because a flat `E = mc^2` in a 2.2 em box pushes everything below it down a
+ * full line for air it will never use.
+ */
+export const MATH_HEIGHT = 2.2;
+const MATH_FLAT_HEIGHT = 1.0;
+
+/** TeX whose typeset form stacks vertically — the 2.07–2.10 em band above. */
+function texStacks(tex: string): boolean {
+  return /\\(?:[dt]?frac|binom|over(?!line)|sum|prod|int|substack|stackrel|sqrt)|\\begin\{/.test(
+    tex,
+  );
+}
+
+/**
+ * The box a TeX string is reserved before typesetting exists to measure it.
+ *
+ * An estimate by necessity — MathJax runs in the visuals stage, stages later — but the
+ * only one: everything that reserves room for an equation calls this.
+ */
+export function texBox(tex: string, size: number): { w: number; h: number } {
+  return {
+    w: Math.max(size, Math.round(mathSymbols(tex) * size * MATH_ADVANCE)),
+    h: Math.round(size * (texStacks(tex) ? MATH_HEIGHT : MATH_FLAT_HEIGHT)),
+  };
+}
+
+/**
+ * A typeset equation, sized like a line of maths at `role`.
+ *
+ * The box is *measured* like everything else here, but estimated from the TeX source
+ * (`texBox`) rather than from the rendered result, which the planner cannot see. The
+ * visuals stage fits the real typeset geometry into whatever box this reserves,
+ * preserving aspect, so an over-generous estimate costs whitespace and an
  * under-generous one costs size — never a collision.
  */
 export function makeEquation(
@@ -335,7 +462,8 @@ export function makeEquation(
   } = {},
 ): EquationElement {
   const maxWidth = o.maxWidth ?? 900;
-  const m = measureText(texAsGlyphs(tex), role, maxWidth);
+  const t = texBox(tex, FONT[role]);
+  const m = { w: Math.min(maxWidth, Math.max(80, t.w)), h: t.h };
   return {
     id,
     type: 'equation',
@@ -348,25 +476,6 @@ export function makeEquation(
     enter: enter(o.enter, 'draw'),
     persist: o.persist ?? true,
   };
-}
-
-/**
- * TeX source reduced to roughly the glyphs it will set, for measurement only.
- *
- * Every control sequence becomes one character, braces and alignment marks vanish, and
- * `\frac` collapses to its longer side — a two-line fraction is about as wide as its
- * widest part, not as wide as both concatenated.
- */
-function texAsGlyphs(tex: string): string {
-  const frac = tex.replace(
-    /\\(?:frac|dfrac|tfrac)\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g,
-    (_all, a: string, b: string) => (a.length >= b.length ? a : b),
-  );
-  return frac
-    .replace(/\\[a-zA-Z]+/g, 'x')
-    .replace(/[{}&\\]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 export function makeShape(
@@ -481,8 +590,10 @@ export function diagramSize(
   nodes: { id: string; label: string }[],
 ): { w: number; h: number } {
   const n = Math.max(1, nodes.length);
-  const longest = nodes.reduce((m, x) => Math.max(m, x.label.length), 4);
-  const nodeW = Math.min(420, Math.max(180, longest * 13 + 48));
+  // The widest node label at the board's label size, measured with the real advance
+  // table (chars × 13 until plan item 2.1), plus air for the node's own border.
+  const longest = nodes.reduce((m, x) => Math.max(m, handMeasure(x.label, FONT.label)), 0);
+  const nodeW = Math.min(420, Math.max(180, Math.round(longest) + 48));
   const nodeH = 92;
   switch (layout) {
     case 'stack':

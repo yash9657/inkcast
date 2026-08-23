@@ -62,49 +62,7 @@ export function clampBox(box: Rect, bounds: Rect): Rect {
   return { x, y, w: box.w, h: box.h };
 }
 
-/**
- * A label placed around a point, kept inside `bounds`.
- *
- * Plot annotations are authored in data space with no idea how wide the words
- * will be, so the renderer is the only place that can stop "learning rate" from
- * hanging off the edge of the board.
- */
-export type LabelPlace = 'above' | 'below' | 'right' | 'left' | 'above-left' | 'above-right';
-
-export function labelAt(
-  text: string,
-  anchor: [number, number],
-  size: number,
-  color: string,
-  bounds: Rect,
-  place: LabelPlace = 'above',
-): PlanPrim {
-  const w = Math.max(size * 3, text.length * size * 0.58);
-  const h = size * 1.55;
-  let x = anchor[0] - w / 2;
-  let y = anchor[1] - h / 2;
-  if (place === 'above') y = anchor[1] - h * 1.05;
-  if (place === 'below') y = anchor[1] + h * 0.15;
-  if (place === 'right') x = anchor[0] + size * 0.5;
-  if (place === 'left') x = anchor[0] - w - size * 0.5;
-  // Diagonal placements exist because the interesting points on a plot are on a
-  // *slope*: directly above a point on a steep curve is where the curve already
-  // is, so the label reads struck through. Stepping sideways as well as up clears
-  // the ink it is naming.
-  if (place === 'above-left') {
-    x = anchor[0] - w - size * 0.4;
-    y = anchor[1] - h * 1.1;
-  }
-  if (place === 'above-right') {
-    x = anchor[0] + size * 0.4;
-    y = anchor[1] - h * 1.1;
-  }
-  const boxed = clampBox({ x, y, w, h }, bounds);
-  const align: TextPrim['align'] =
-    place === 'left' || place === 'above-left'
-      ? 'right'
-      : place === 'right' || place === 'above-right'
-        ? 'left'
-        : 'center';
-  return textPrim(text, boxed, size, color, align, 'middle', false);
-}
+// `labelAt` — a point-anchored label with a `chars × size × 0.58` width estimate —
+// lived here until 2026-08-23. Plot annotations moved into the visuals stage, which
+// measures with the real advance table, and nothing called it; it was the renderer's
+// last chars-times-a-constant estimator, deleted under plan item 2.1.
