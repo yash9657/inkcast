@@ -67,7 +67,25 @@ re-audit in Phase 8 is the exit.
 > fixture, not guessed). `Box`/`Point` zod gained `.finite()` and positive extents.
 > Red tests in `render/src/boardcheck.test.ts`; corpus (both lessons, both shipped
 > finals, cardiac8f, try, integ-*, handwritten) compiles strict-clean; two
-> auditcheck lines added. Next: 2.4.
+> auditcheck lines added.
+>
+> **Progress (2026-08-23, same session): 2.6 is landed — with the floor re-derived,
+> not the plan's.** The gate blocks at **mean < 18% or any scene < 11%**, not the
+> 25%/14% written below, and the deviation is measured, not argued from taste: after
+> 2.1 tightened every reserved box, the shipped longitude lesson re-measures at mean
+> 20.3% / min 13.8% and the photosynthesis board this item names as the must-fail
+> case at 21.8% / 13.2% — within 1.5 points of a shipped film on every statistic.
+> The 25% floor would block a shipped lesson to fail a board bbox fill cannot
+> distinguish from it; the 17% artifact the audit measured no longer exists. The
+> re-derivation is written into W2 (AUDIT-FINDINGS §5). What holds: the floor blocks
+> the unmistakably vacant class; the message carries per-scene numbers; `--degrade`
+> records the override — `compilePlan` collects degrade-mode gate messages onto
+> `plan.problems`, `render()` returns them, and the pipeline persists them as
+> `render.problems` in `pipeline.json` (inherited on cached renders — they describe
+> the artifact, not the run). `final-169` (47.6%) passes; photosynthesis (21.8%)
+> passes the recalibrated floor and its separation is Tier 2's job (3.3), per W2.
+> Red/green tests in `boardcheck.test.ts`; auditcheck line added. Next: 2.4 + 2.5,
+> then 2.7.
 
 **Two rules that shape everything here:**
 

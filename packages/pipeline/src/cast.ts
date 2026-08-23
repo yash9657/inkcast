@@ -830,6 +830,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(run.dir, run.previous?.videoPath);
   let videoPath: string;
+  // Defects the renderer detected and carried through under `degrade`. On a cached
+  // render they are inherited, not cleared: unlike a voice demotion (an event of one
+  // run), these describe the artifact on disk, and the artifact did not change.
+  let renderProblems: string[] | undefined = run.previous?.render?.problems;
   if (
     !run.force &&
     existing &&
@@ -849,6 +853,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       if (!out || typeof out.videoPath !== 'string' || out.videoPath === '') {
         throw new Error('render returned no videoPath');
       }
+      renderProblems = out.problems;
       const abs = path.isAbsolute(out.videoPath)
         ? out.videoPath
         : path.resolve(run.dir, out.videoPath);
@@ -912,6 +917,9 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     skipped: run.skipped,
     cost,
     gates: run.gates,
+    ...(renderProblems && renderProblems.length > 0
+      ? { render: { problems: renderProblems } }
+      : {}),
     providers: {
       // `lesson` is the accurate label ("who wrote it"); `planner` is kept because
       // the studio's library and older `pipeline.json` files both speak it.
@@ -1056,6 +1064,8 @@ export async function rerender(
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(dir, previous?.videoPath);
   let videoPath: string;
+  // Inherited on a cached render — these describe the artifact on disk, not one run.
+  let renderProblems: string[] | undefined = previous?.render?.problems;
   if (!force && existing && (await isFresh(dir, cacheSlot('render'), renderKey, [existing]))) {
     videoPath = existing;
     skipped.push('render');
@@ -1067,6 +1077,7 @@ export async function rerender(
       if (!out || typeof out.videoPath !== 'string' || out.videoPath === '') {
         throw new Error('render returned no videoPath');
       }
+      renderProblems = out.problems;
       const abs = path.isAbsolute(out.videoPath) ? out.videoPath : path.resolve(dir, out.videoPath);
       if (!existsSync(abs)) throw new Error(`render reported ${abs} but no file is there`);
       await markFresh(dir, cacheSlot('render'), renderKey);
@@ -1116,6 +1127,9 @@ export async function rerender(
     skipped,
     cost,
     gates,
+    ...(renderProblems && renderProblems.length > 0
+      ? { render: { problems: renderProblems } }
+      : {}),
     // The inherited record for the stages this path never re-runs, with the voice line
     // recomputed — it copied the whole block verbatim, so a re-voice could change the
     // provider and the file would go on naming the old one.

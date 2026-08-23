@@ -194,6 +194,26 @@ test('a fraction-0 reveal of persistent ink waits for the camera to settle', () 
   assert.equal(note?.start, compilePlan(transient, '/tmp').scenes[1]!.start);
 });
 
+test('a mostly-empty board fails the fill floor; --degrade records it on the plan', () => {
+  // One small caption on a full-HD canvas: fill under 1%, unmistakably vacant.
+  const vacant = board({ elements1: [text('lonely', 800, 500)] });
+  assert.throws(() => compilePlan(vacant, '/tmp', { gates: 'strict' }), /mostly whitespace/);
+  const plan = compilePlan(vacant, '/tmp', { gates: 'degrade' });
+  assert.ok(plan.problems?.some((p) => p.includes('mostly whitespace')));
+
+  // A composed board clears the floor: one real block of content per scene.
+  const composed = board({
+    elements1: [
+      { id: 'big1', type: 'shape', shape: 'rect', at: { x: 100, y: 50, w: 1100, h: 500 } },
+    ],
+    elements2: [
+      { id: 'big2', type: 'shape', shape: 'rect', at: { x: 400, y: 560, w: 1100, h: 500 } },
+    ],
+  });
+  const ok = compilePlan(composed, '/tmp', { gates: 'strict' });
+  assert.equal(ok.problems, undefined);
+});
+
 test('a NaN coordinate or a zero-sized box never parses', () => {
   const bad = (at: Record<string, number>) => ({
     version: 1,

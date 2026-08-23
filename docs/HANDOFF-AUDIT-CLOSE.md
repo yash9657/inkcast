@@ -9,7 +9,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, and 2.1–2.3 are landed, tested, and committed:**
+**Phases 0, 1, 2.1–2.3, and 2.6 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -46,6 +46,13 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   transients never settle-clamped) are argued in the module header and were learned
   from the wipe fixture's failures, not guessed. Red tests in
   `render/src/boardcheck.test.ts`; nine projects compile strict-clean.
+- 2026-08-23 — **2.6, the fill gate — at a re-derived floor (mean < 18% / any scene
+  < 11%), not the plan's 25%/14%.** After 2.1, shipped longitude re-measures 20.3%/
+  13.8% and photosynthesis 21.8%/13.2% — bbox fill cannot separate them, so the
+  plan's numbers would block a shipped lesson. Argued in W2 (updated) and the plan's
+  progress block. `--degrade` overrides now persist: `plan.problems` →
+  `RenderResult.problems` → `pipeline.json` `render.problems` (inherited on cached
+  renders). This plumbing is also what 3.4 will ride.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -100,7 +107,7 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phase 2.4–2.7, then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phases 2.4, 2.5, 2.7, then 3 → 4 → 5 → 6 → 7 → 8
 
 The plan is authoritative on scope and done-bars; what follows is session-found
 context per item, so the next session does not re-derive it. (2.2 landed 2026-08-23,
@@ -114,11 +121,6 @@ has the inventory; 2.3 landed the same day — `boardcheck.ts`, see above.)
   reasoning down. Needs 2.7's realized-layout report for the runtime shrink half.
 - **2.5 Pan speed** — `resolveFraming` pass 3 in `core/src/camera.ts`; pick
   `MAX_UNITS_PER_SEC` by watching the fastest existing walk; pin in `camera.test.ts`.
-- **2.6 Fill gate** — promote `reportFill`'s existing thresholds (`core/src/camera.ts:611-632`,
-  computed at `render/src/compile.ts:514-515`) to `gate(...)`: mean < 25% or any
-  scene < 14%. The 17% photosynthesis board must fail; `final-169` (47.6%) must pass;
-  the override must land in `pipeline.json`. W2 (in AUDIT-FINDINGS §5) is the
-  argument for these numbers over the spec's band.
 - **2.7 Realized-layout report** — the capture page (`render/src/page/runtime.js`,
   shrink floor at `:400`) reports realized boxes back through CDP
   (`render/src/browser.ts`) before frame 0; re-run 2.3's sweeps against them.

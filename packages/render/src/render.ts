@@ -152,7 +152,14 @@ export async function render(
     // track on its next `rerender` instead of only films made after this landed.
     await emitCaptions(sb, plan, dir, opts, outName);
     report(opts, { stage: 'render', pct: 100, note: 'cached' });
-    return { videoPath, thumbnailPath, durationSec, frames, cached: true };
+    return {
+      videoPath,
+      thumbnailPath,
+      durationSec,
+      frames,
+      cached: true,
+      ...(plan.problems ? { problems: plan.problems } : {}),
+    };
   }
 
   const html = buildPageHtml(plan, {
@@ -252,7 +259,14 @@ export async function render(
   );
   report(opts, { stage: 'render', pct: 100, note: outName });
 
-  return { videoPath, thumbnailPath, durationSec, frames, cached: false };
+  return {
+    videoPath,
+    thumbnailPath,
+    durationSec,
+    frames,
+    cached: false,
+    ...(plan.problems ? { problems: plan.problems } : {}),
+  };
 }
 
 /** A poster showing a finished first beat, not an empty board. */

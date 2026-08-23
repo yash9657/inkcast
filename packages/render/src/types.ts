@@ -227,6 +227,12 @@ export type RenderPlan = {
   safe: { top: number; right: number; bottom: number; left: number };
   /** Fraction of the frame carrying content, per scene. A slideshow shows here. */
   fill: number[];
+  /**
+   * Gate messages compiled through under `degrade` (board assertions, the fill
+   * floor). Absent on a clean board. Part of the plan so an override is inspectable
+   * from the artifact itself, and so the render cache key moves when the defects do.
+   */
+  problems?: string[];
   scenes: PlanScene[];
   items: PlanItem[];
   pen: PenArt;
@@ -269,4 +275,11 @@ export type RenderResult = {
   frames: number;
   /** True when a cached render was reused. */
   cached: boolean;
+  /**
+   * Gate messages this render carried through under `degrade` — the defects the
+   * compiler detected and was told to render anyway. Empty or absent on a clean
+   * board. The pipeline records these in `pipeline.json`, which is what makes
+   * `--degrade` an override rather than an eraser.
+   */
+  problems?: string[];
 };

@@ -536,6 +536,14 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
   // The board assertions (plan 2.3): arithmetic over what this function already
   // holds, blocking through the gate. Warnings (derived-camera misses, thin dwell)
   // are said out loud but never block — see boardcheck.ts for why each is which.
+  // `spoke` is what makes `degrade` an override rather than an eraser: every gate
+  // message that warns instead of blocking is also recorded onto the plan, and the
+  // pipeline persists it into `pipeline.json`.
+  const problems: string[] = [];
+  const spoke = (m: string): void => {
+    log.warn(m);
+    problems.push(m);
+  };
   {
     const frameCheck = offFrameViolations(timed.scenes, framing, canvas, frame);
     const timedItems = items.map((it) => {
@@ -560,7 +568,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
         opts.gates,
         `${blocking.length} board assertion${blocking.length === 1 ? '' : 's'} failed:\n` +
           blocking.map((v) => `  - [${v.kind}] ${v.message}`).join('\n'),
-        (m) => log.warn(m),
+        spoke,
       );
     }
     const advisories = [...frameCheck.warnings, ...dwellWarnings(timedItems)];
@@ -593,6 +601,32 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
   const fill = contentFill(framing, canvas, frame).map(round3);
   reportFill(fill, timed);
 
+  // The fill gate (plan 2.6, audit S4-e/D3, waiver W2): no mostly-empty board ships
+  // without an explicit override. The floor blocks the *truly empty* class — the
+  // MVP's lone caption in a void, Golpo's blank beats — not sparseness. It sits
+  // where the corpus put it on 2026-08-23, re-measured after plan 2.1 tightened
+  // every reserved box: the shipped longitude lesson is mean 20.3% / min 13.8%, and
+  // the sparsest board anyone has asked to fail (photosynthesis) is 21.8% / 13.2% —
+  // within 1.5 points of a shipped film on every statistic, which is bbox fill
+  // saying it cannot tell those two apart. Separating "sparse but composed" from
+  // "sparse and empty" is the ink-pixel Tier-2 check's job (plan 3.3); this floor's
+  // job is the board that is unmistakably vacant.
+  if (fill.length > 0) {
+    const fillMean = fill.reduce((a, b) => a + b, 0) / fill.length;
+    const vacant = fill
+      .map((v, i) => ({ v, id: timed.scenes[i]?.id ?? String(i) }))
+      .filter((s) => s.v < 0.11);
+    if (fillMean < 0.18 || vacant.length > 0) {
+      gate(
+        opts.gates,
+        `the board is mostly whitespace: mean content fill ${(fillMean * 100).toFixed(1)}% ` +
+          `(floor 18%)${vacant.length ? `, scenes below the 11% floor: ${vacant.map((s) => `${s.id} at ${(s.v * 100).toFixed(1)}%`).join(', ')}` : ''} — ` +
+          `per-scene: ${fill.map((v, i) => `${timed.scenes[i]?.id ?? i}:${(v * 100).toFixed(0)}%`).join(' ')}`,
+        spoke,
+      );
+    }
+  }
+
   return {
     version: 1,
     fps: sb.meta.fps,
@@ -610,6 +644,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     typeScale: ctx.type,
     safe,
     fill,
+    ...(problems.length > 0 ? { problems } : {}),
     scenes,
     items,
     pen: penArt(sb.meta.style, pal.accent),

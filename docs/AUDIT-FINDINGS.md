@@ -1410,8 +1410,18 @@ wipe preset is backed by measurement, not taste: at ≤90s it moved mean fill 55
 measured as misleading: bounding boxes overstate ink by ~4.6× (`render/src/inkstat.mts:10`
 — fillcheck 21.6% where real ink is 4.7%), safe insets cap the theoretical maximum at
 76.5% (`core/src/camera.ts:36-61`), and the benchmark film (47.6%) would fail the
-spec's own floor. The gate blocks at the recalibrated numbers (mean < 25%, any scene
-< 14%); an ink-pixel floor arrives with Tier 2 (plan 3.3), where frames exist anyway.
+spec's own floor. The gate blocks at recalibrated numbers — re-recalibrated
+2026-08-23, after plan 2.1 replaced the chars×0.52 estimate with real advances and
+every reserved box tightened: the shipped longitude lesson re-measured at mean 20.3% /
+min-scene 13.8%, and the photosynthesis board the plan named as the must-fail case
+re-measured at 21.8% / 13.2% — within 1.5 points of a shipped film on every statistic,
+which is bbox fill declaring itself unable to tell those two apart. So the floor sits
+at **mean < 18% or any scene < 11%**: it blocks the unmistakably vacant class (the
+MVP's lone caption in a void, Golpo's blank beats) and leaves "sparse but composed"
+vs "sparse and empty" to the ink-pixel Tier-2 check (plan 3.3), where frames exist
+anyway. The plan's original 25%/14% would have blocked a shipped lesson to fail a
+board it cannot distinguish from it; the per-scene numbers are in the gate message,
+and an override under `--degrade` is recorded in `pipeline.json` (`render.problems`).
 
 **W3 — S3-b, "no x/y anywhere in the IR".** Waived for the storyboard. The
 two-altitude split — a semantic lesson IR the model authors, a geometric storyboard IR

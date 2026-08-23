@@ -102,6 +102,12 @@ export type PipelineState = {
    * to `degrade` — nothing blocked back then).
    */
   gates?: 'strict' | 'degrade';
+  /**
+   * Gate messages the renderer carried through under `degrade` — board
+   * assertions, the fill floor. This is what `--degrade` costs: the film shipped,
+   * and the defects it shipped with are on the record. Absent on a clean board.
+   */
+  render?: { problems: string[] };
 };
 
 const FILE = 'pipeline.json';

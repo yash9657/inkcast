@@ -188,6 +188,19 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S4-e/D3 (2.6): the fill floor is a gate, and degrade is recorded ---- */
+{
+  const renderCompile = read('packages/render/src/compile.ts');
+  const state = read('packages/pipeline/src/state.ts');
+  check(
+    'S4-e: the fill floor blocks through the gate and lands in pipeline.json under degrade',
+    /mostly whitespace/.test(renderCompile) &&
+      /fillMean < 0\.18 \|\| vacant\.length > 0/.test(renderCompile) &&
+      /render\?: \{ problems: string\[\] \}/.test(state),
+    'the fill gate is gone, or a --degrade override no longer leaves a record',
+  );
+}
+
 /* ---- S6-b (1.3): the aligner cannot return fake word timings ---- */
 {
   const align = read('packages/voice/src/align.ts');

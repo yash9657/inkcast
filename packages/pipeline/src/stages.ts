@@ -239,7 +239,11 @@ export type StillSession = {
 };
 
 type RenderModule = {
-  render(sb: Storyboard, dir: string, opts?: StageOpts): Promise<{ videoPath: string }>;
+  render(
+    sb: Storyboard,
+    dir: string,
+    opts?: StageOpts,
+  ): Promise<{ videoPath: string; problems?: string[] }>;
   /** One frame without an encode. `undefined` when Chromium is not installed. */
   openStills(): Promise<StillSession | undefined>;
 };
