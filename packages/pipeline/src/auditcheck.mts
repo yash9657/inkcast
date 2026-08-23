@@ -169,6 +169,25 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S4-c/S4-d/S7-c (2.3): the board assertions run on every compiled plan ---- */
+{
+  const renderCompile = read('packages/render/src/compile.ts');
+  const storyboard = read('packages/core/src/storyboard.ts');
+  check(
+    'S4-c/d, S7-c: compilePlan runs the board assertions through the gate',
+    /inkOnInkViolations\(/.test(renderCompile) &&
+      /offFrameViolations\(/.test(renderCompile) &&
+      /overrunViolations\(/.test(renderCompile),
+    'the board assertions are no longer wired into compilePlan — overlap, off-frame and overrun ship silently again',
+  );
+  check(
+    'Box hygiene (2.3): coordinates are finite and extents positive in the schema',
+    /x: z\.number\(\)\.finite\(\)/.test(storyboard) &&
+      /w: z\.number\(\)\.finite\(\)\.positive\(\)/.test(storyboard),
+    'a NaN coordinate or zero-sized box parses again and survives to a wrong frame',
+  );
+}
+
 /* ---- S6-b (1.3): the aligner cannot return fake word timings ---- */
 {
   const align = read('packages/voice/src/align.ts');

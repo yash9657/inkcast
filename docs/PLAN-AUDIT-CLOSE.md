@@ -49,7 +49,25 @@ re-audit in Phase 8 is the exit.
 > `pipeline/test/styles.test.ts` (the CAST_POSES pattern); S5-c line added to
 > `auditcheck.mts`. Fresh visuals manifests now record the film's own colours; a
 > per-style colour pack (dark chalk) is deliberately 7.3's StylePack decision, not a
-> second table. Next: 2.3.
+> second table.
+>
+> **Progress (2026-08-23, same session): 2.3 is landed.** `render/src/boardcheck.ts`
+> holds the three assertions; `compilePlan` runs them on every plan, blocking through
+> `gate(opts.gates, …)`, advisories aggregated into one warn line. Scoping decisions,
+> each argued in the module header: the ink-on-ink sweep covers _persistent solid_
+> elements only, and never pairs within one drawing (`<id>_v<n>_` groups — the
+> drawing lane polices its own parts against real ink segments, boxes being "the
+> wrong obstacle" per its own header); a derived-camera off-frame miss is a warning
+> (the walk window and close-up ceiling are the system's own trades), an authored
+> one blocks; dwell is advisory and board-text-only, with the fix named as
+> `holdForCadence`'s floor. The cue-at-fraction-0 clamp waits for the incoming
+> transition but only for persistent non-plot ink, and never past the narration's
+> end — a plot's build is cue-paced across the whole narration, and a transient's
+> only plateau must not collide with its own fade (both learned from the wipe
+> fixture, not guessed). `Box`/`Point` zod gained `.finite()` and positive extents.
+> Red tests in `render/src/boardcheck.test.ts`; corpus (both lessons, both shipped
+> finals, cardiac8f, try, integ-*, handwritten) compiles strict-clean; two
+> auditcheck lines added. Next: 2.4.
 
 **Two rules that shape everything here:**
 

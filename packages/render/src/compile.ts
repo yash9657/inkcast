@@ -55,6 +55,12 @@ import {
   unionArea,
 } from './geom.js';
 import type { Pt as GPt } from './geom.js';
+import {
+  dwellWarnings,
+  inkOnInkViolations,
+  offFrameViolations,
+  overrunViolations,
+} from './boardcheck.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt, toneInk } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
@@ -393,6 +399,12 @@ type SceneTiming = {
   /** Narration plus `hold`: how long the scene owns the screen. */
   length: number;
   end: number;
+  /**
+   * The incoming camera transition, in seconds. A reveal at fraction 0 starts after
+   * this settles (plan 2.3c): ink drawn while the camera is still travelling is ink
+   * whose entrance the viewer structurally cannot watch.
+   */
+  settle?: number;
 };
 
 /** Fill in estimated durations so core's timing helpers can own the arithmetic. */
@@ -498,6 +510,7 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
       speech: ps.speech,
       length: ps.dur,
       end: ps.start + ps.dur,
+      settle: ps.camera.transition,
     };
     const hosts = scene.elements.filter((e) => e.type === 'plot');
     for (const raw of scene.elements) {
@@ -519,6 +532,51 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
         `(e.g. "${unresolvedCues[0] ?? ''}") — falling back to enter.at. Run the voice stage so cues resolve to real timestamps.`,
     );
   }
+
+  // The board assertions (plan 2.3): arithmetic over what this function already
+  // holds, blocking through the gate. Warnings (derived-camera misses, thin dwell)
+  // are said out loud but never block — see boardcheck.ts for why each is which.
+  {
+    const frameCheck = offFrameViolations(timed.scenes, framing, canvas, frame);
+    const timedItems = items.map((it) => {
+      const el = ctx.elements.get(it.id);
+      const words = el?.type === 'text' ? el.text.split(/\s+/).filter(Boolean).length : undefined;
+      return {
+        id: it.id,
+        start: it.start,
+        dur: it.dur,
+        sceneEnd: it.sceneEnd,
+        persist: it.persist,
+        ...(words !== undefined ? { words } : {}),
+      };
+    });
+    const blocking = [
+      ...inkOnInkViolations(timed.scenes, wipes),
+      ...frameCheck.errors,
+      ...overrunViolations(timedItems),
+    ];
+    if (blocking.length > 0) {
+      gate(
+        opts.gates,
+        `${blocking.length} board assertion${blocking.length === 1 ? '' : 's'} failed:\n` +
+          blocking.map((v) => `  - [${v.kind}] ${v.message}`).join('\n'),
+        (m) => log.warn(m),
+      );
+    }
+    const advisories = [...frameCheck.warnings, ...dwellWarnings(timedItems)];
+    if (advisories.length > 0) {
+      // One line, not one per item: the useful signal is that the board has thin
+      // dwell or scrolled-off ink, plus enough examples to find it.
+      const shown = advisories.slice(0, 3).map((v) => `[${v.kind}] ${v.message}`);
+      const more = advisories.length - shown.length;
+      log.warn(
+        `${advisories.length} board advisor${advisories.length === 1 ? 'y' : 'ies'}:\n  - ` +
+          shown.join('\n  - ') +
+          (more > 0 ? `\n  … and ${more} more` : ''),
+      );
+    }
+  }
+
   items.sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
 
   const safe = safeInsets(sb.meta.aspect, frame);
@@ -834,7 +892,28 @@ function itemsFor(
   ctx: Ctx,
   fps: number,
 ): PlanItem[] {
-  const startLocal = clamp(fraction, 0, 1) * timing.speech;
+  const asked = clamp(fraction, 0, 1) * timing.speech;
+  // A reveal at fraction 0 waits for the incoming camera to settle (plan 2.3c): the
+  // camera flies for `settle` seconds at the top of the scene, and ink revealed
+  // mid-flight has its entrance somewhere the viewer is not yet looking. Scoped and
+  // bounded, each for a reason. Only *persistent* ink waits — a transient annotation
+  // (persist: false) lives and dies inside its own beat, and delaying it eats the
+  // only plateau it has, colliding its fade-in with its fade-out. A plot never waits
+  // — its build is paced by cue-pinned overlays across the whole narration
+  // (`plotItems`), so a late start squeezes every overlay off its word; the
+  // transition overlaps the axes phase instead, the plot's least information-bearing
+  // ink. And the wait may never push the reveal past the narration's end — on a
+  // wiping board the fade starts the instant the narration stops, and an entrance
+  // that collides with its own exit is worse than one the camera briefly misses.
+  const settle = timing.settle ?? 0;
+  const startLocal =
+    asked === 0 && settle > 0 && el.persist && el.type !== 'plot'
+      ? Math.min(
+          settle,
+          Math.max(0, timing.speech - el.enter.duration),
+          Math.max(0, timing.length - 0.5),
+        )
+      : asked;
   const start = timing.start + startLocal;
   const room = Math.max(0.14, timing.length - startLocal);
   const dur = Math.max(0.08, Math.min(el.enter.duration, room));

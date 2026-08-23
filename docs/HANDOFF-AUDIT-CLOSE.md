@@ -1,4 +1,4 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.3
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 2.4
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after 2.1 landed. **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
@@ -9,7 +9,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, 2.1, and 2.2 are landed, tested, and committed:**
+**Phases 0, 1, and 2.1–2.3 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -38,6 +38,14 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   film's mono accent was always `#39434f`. Mirror test:
   `pipeline/test/styles.test.ts`; S5-c line in `auditcheck.mts`. Dark-chalk-style
   colour packs are deliberately deferred to 7.3's StylePack loader.
+- 2026-08-23 — **2.3, the board assertions.** `render/src/boardcheck.ts` (ink-on-ink
+  sweep, off-frame check, overrun + advisory dwell), run by `compilePlan` on every
+  plan through `gate(...)`; the cue-at-fraction-0 settle clamp in `itemsFor`;
+  `.finite()`/positive extents on `Box`/`Point`. The scoping decisions (persistent
+  solid ink only; one drawing's parts exempt — the `_v<n>_` id convention; plots and
+  transients never settle-clamped) are argued in the module header and were learned
+  from the wipe fixture's failures, not guessed. Red tests in
+  `render/src/boardcheck.test.ts`; nine projects compile strict-clean.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
@@ -92,19 +100,15 @@ with no gate problems. That project directory is disposable evidence, not a fixt
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
 
-## Next: Phase 2.3–2.7, then 3 → 4 → 5 → 6 → 7 → 8
+## Next: Phase 2.4–2.7, then 3 → 4 → 5 → 6 → 7 → 8
 
 The plan is authoritative on scope and done-bars; what follows is session-found
 context per item, so the next session does not re-derive it. (2.2 landed 2026-08-23,
 same session as 2.1: colours live in `core/src/palette.ts`, the blue accent won —
 the plot-role remap in `render/plot.ts` meant visuals' red never reached a shipped
 pixel — and `pipeline/test/styles.test.ts` is the mirror. The plan's progress block
-has the inventory.)
+has the inventory; 2.3 landed the same day — `boardcheck.ts`, see above.)
 
-- **2.3 Board assertions** — in `render/src/compile.ts` `compilePlan` (per-scene AABB
-  sweep, `rectContains(viewRect(camera), elementBounds(el))`, dwell). Block through
-  `gate(ctx.gates, ...)` — the plumbing already exists (`Ctx.gates`). Also add
-  `.finite()` and positive w/h to the `Box`/`Point` zod in `core/src/storyboard.ts`.
 - **2.4 Min glyph height post-zoom** — measure the corpus first, pick the number that
   fails the illegible and passes the shipped (~14px, not the spec's 18), write the
   reasoning down. Needs 2.7's realized-layout report for the runtime shrink half.

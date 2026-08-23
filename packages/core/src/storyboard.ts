@@ -15,13 +15,16 @@
 import { z } from 'zod';
 
 /** Canvas units. The camera is what maps these to output pixels. */
-export const Point = z.object({ x: z.number(), y: z.number() });
+// `.finite()` everywhere and positive extents (plan 2.3): a NaN coordinate or a
+// zero-width box is never a design, it is an upstream arithmetic bug — and unchecked
+// it survives all the way to a frame that renders wrong with no error naming it.
+export const Point = z.object({ x: z.number().finite(), y: z.number().finite() });
 
 export const Box = z.object({
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  w: z.number().finite().positive(),
+  h: z.number().finite().positive(),
 });
 
 /* ------------------------------------------------------------------ assets */
