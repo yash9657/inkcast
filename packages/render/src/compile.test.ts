@@ -650,6 +650,49 @@ test('an equation with no typeset geometry falls back to its TeX as text', () =>
   );
 });
 
+test('a listing with no set geometry stops the strict compile', () => {
+  // The code lane's half of the same rule (plan item 6.2), and it is the sharper one: an
+  // equation drawn as raw TeX is bad notation, while a listing drawn as handwriting has
+  // lost its *indentation*, which is the block structure of the program. `DIR` has no
+  // `visuals.json`, so this is the real degradation path — a project whose visuals stage
+  // has not run, or a listing that would not set.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'code fallback',
+    scenes: [
+      {
+        id: 's0',
+        narration: 'the remainder lands you on one slot',
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'lookup',
+            type: 'code',
+            lang: 'python',
+            code: 'def get(self, key):\n    return self.slots[hash(key) % 8]',
+            at: { x: 460, y: 420, w: 1000, h: 200 },
+          },
+        ],
+      },
+    ],
+  });
+  let plan!: ReturnType<typeof compilePlan>;
+  const warned = capture(() => {
+    plan = compilePlan(sb, DIR);
+  });
+  const prims = authored(plan.items).flatMap((i) => i.prims);
+  assert.equal(prims.length, 1, 'expected exactly one fallback prim');
+  const prim = prims[0] as TextPrim;
+  assert.equal(prim.kind, 'text');
+  assert.match(prim.text, /^def get\(self, key\):/, 'the source goes up, not a placeholder');
+  assert.match(warned, /has no set geometry/, 'the fallback must say why it happened');
+
+  assert.throws(
+    () => compilePlan(sb, DIR, { gates: 'strict' }),
+    /has no set geometry.*strict quality gate/s,
+  );
+});
+
 /* ------------------------------------------------- A6: the professional-at-a-glance layer */
 
 /**

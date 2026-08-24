@@ -397,6 +397,10 @@ export function pickVisuals(visuals: VisualIntent[], limit: number): VisualInten
         return 1;
       case 'path':
         return 2;
+      // A listing is a quotation, and it wins over every generated picture for the same
+      // reason marks do: it is the thing itself, not an approximation of it.
+      case 'code':
+        return 2.5;
       case 'illustration':
         return 3;
       case 'diagram':

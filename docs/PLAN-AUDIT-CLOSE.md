@@ -364,6 +364,146 @@ re-audit in Phase 8 is the exit.
 > `lessonAuthored` flag closed for a _cached_ lesson, and the same fix: the stage has to
 > report the author it turned out to be. Next: Phase 6 — and **6.1 before 6.2/6.3, always**.
 
+> **Progress (2026-08-24): 6.1 is landed** — the guard before the lanes. 1076 tests green,
+> auditcheck 69/69, lint and typecheck clean. No pinned hash moved and none could: nothing
+> here touches the compiler. Verified end to end both ways — `projects/qc61-longitude`
+> (strict, clean, `lane-coverage: pass`, no `lanes` key written) and `projects/qc61-aspirin`,
+> a hand-authored lesson that asks for three chemical structures and gets the warning on all
+> three while still rendering.
+>
+> - **`unservedLanes` lives in `@inkcast/core` (`lanes.ts`), not beside the routing in the
+>   planner.** The difference from `sniffMath` — which the audit's own remediation might
+>   have suggested copying — is what the function _does_: `sniffMath` makes a routing
+>   decision inside the compiler, this makes none at all. It is a judgement about a
+>   `Lesson`, exactly like `critiqueLesson` and `lessonOrderAdvisories`, read by the
+>   pipeline that reports it, the studio that shows it, and one day the brief that warns
+>   the author off — and core is the only package all three depend on.
+> - **Detect the notation, not the topic.** The corpus is full of chemistry- and
+>   electronics-shaped films that this pipeline draws _correctly_: a lithium atom as a
+>   nucleus with electron dots, a battery as two stacks with a wire and a bulb, water
+>   molecules in a lattice, a globe with meridians. What no lane can draw is the notation —
+>   a skeletal formula, a schematic, a coastline, a highlighted listing. So `benzene ring`
+>   fires and `molecule` does not; `circuit with a resistor` fires and `battery, wire,
+bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct pictures,
+>   underlay prompts included), **zero findings**. The signals are one `strong` phrase or
+>   two `weak` ones — sniffMath's own threshold, for the same reason.
+> - **Precision over recall, argued.** 6.3 says the lanes get built in the order real
+>   lessons ask for them, and `problems[]` frequency is the demand signal — so a false
+>   positive is not noise, it is a vote for building a lane nobody needs. A false negative
+>   costs one wrong picture, which is what ships today anyway. The blind spots are
+>   asserted in the tests rather than papered over: `CCO` (three capitals, and an
+>   initialism), `CCCCCC` (a zigzag the drawing lane really can compose), pseudocode
+>   (which letters fine by hand), one component on its own.
+> - **Deliberate deviation from the item's done-bar: it warns, it does not refuse to
+>   draw.** "not a wrong picture" would mean suppressing the illustration lane for a
+>   flagged intent, which trades a wrong picture for a missing one — a quality decision
+>   that wants frames in front of it, and one that belongs with the lane that _replaces_
+>   the fallback (6.2/6.3), not with the sentence that admits the gap. The item's own
+>   prose ("cheap, ships first") is the argument for the smaller thing. `auditcheck` pins
+>   that `lanes.ts` contains no `gate(` and no `throw`.
+> - **Four surfaces, each the one its reader uses.** `log.warn` during the run; per-beat
+>   findings in `qc.json` as the `lane-coverage` **warn** check (a fact about this
+>   pipeline, not about that board — a gate here would refuse to render the only version
+>   of the film that exists); the lane names in `pipeline.json` as `lanes.unserved`, which
+>   is what a listing and a one-line note need; a block in the CLI summary, its own rather
+>   than folded into "the lesson has known weaknesses" because the teaching may be
+>   perfect; and `LaneNote` in the studio beside `GroundingNote`, one shade louder, since
+>   an unsourced claim is the normal case and a confidently wrong picture is not.
+>   Deliberately **not** on the public share page: its `publicView` is an allow-list, so
+>   this stays private by default, and the person who can act on it is the one casting.
+> - **The table has a mechanical expiry date.** Each lane names the library that would end
+>   it (`rdkit`, `schemdraw`, `topojson`, `shiki`), and `auditcheck` fails if one of those
+>   is a dependency while its lane is still declared unserved — so the day a lane is built,
+>   the apology has to come out. That also re-derives the audit's own evidence for S5-a.
+>
+> **The evidence, opened rather than assumed** (this repo's law). `qc61-aspirin` asked the
+> illustration lane for "the skeletal formula of salicylic acid" and got a blank page with
+> the misspelled words _"Salèylic acisH."_ handwritten across the middle
+> (`~/.inkcast/cache/illustrations/the-skeletal-formula-salicylic-5413f1e9f2.png`); it asked
+> for "a benzene ring with its hydroxyl group circled" and got a red circle containing
+> _"B,H,"_ with eight arrows pointing at it (`benzene-ring-with-its-147c73c1e1.png`). The
+> hallucinated benzene ring in the audit's S5-a is not a figure of speech.
+>
+> **Found and fixed on the way past:** `rerender()` wrote a `pipeline.json` with no
+> `grounding`, so pressing Re-render silently erased 5.1's own record and the studio's note
+> with it. Both `grounding` and `lanes` are now inherited there, for the same reason
+> `render.problems` is: they describe the film, and that path never re-runs the stage that
+> could recompute them.
+>
+> **A correction to this plan's 6.3**, found by opening the library: there are no curated
+> `symbols/circuit/*`. `assets/library/` holds `symbols/physics/force-vector` and
+> `symbols/physics/mass`, and nothing else in `symbols/`. Circuits is still the closest
+> lane, but "the symbols already exist" is not the reason. Next: 6.2 (the code lane), then
+> 6.3, 6.4, 6.5.
+>
+> **Progress (2026-08-24): 6.2 is landed — the first new lane.** 1106 tests green (3
+> pre-existing keyvault skips), auditcheck 75/75, lint and typecheck clean. The done-bar
+> holds both halves, verified rather than argued: `projects/qc62-hashmap` is a strict
+> end-to-end cast of a new `examples/lessons/hash-map.lesson.json` whose two `code` beats
+> type themselves onto the board line by line in monospace with `def`, `return`, `%` and
+> `self` in the accent and `# walk the bucket` in the soft ink (frames looked at at 34.6 /
+> 36.3 / 38.0s); and `frames.mts` over two independent renders of the same project returns
+> **byte-identical PNGs** at five timestamps, including two mid-reveal, while `geomhash.mts`
+> reports `s3/b3_v0` and `s5/b5_v0` identically across two runs of the visuals stage.
+>
+> - **`equation.ts`'s contract, verbatim, and that is the whole design.** `visuals/src/code.ts`
+>   is the equation lane one lane over: a tokeniser that runs in pure Node and is imported
+>   lazily, an output surface small enough to walk rather than parse, marks emitted in
+>   document order so **ordering the marks _is_ the animation**, and `ink: 'crisp'` — which
+>   matters twice over here, because a wobbled `l` is a `1` and a wobbled `{` is a `(`.
+>   `codePrims` in the renderer is `equationPrims` plus one loop, for the same reason: the
+>   geometry is read from the sidecar, never recomputed.
+> - **The palette highlights, not a theme.** Shiki is asked about scopes through a
+>   four-colour TextMate theme whose colours are _sentinels_ (`#000002` means "the accent"),
+>   which collapses a grammar's dozen hues onto the four `Tone` values the IR already has
+>   using the same precedence rules every editor uses — no scope-prefix table maintained
+>   here. The renderer then maps the tone through `toneInk`, so no hex from that theme ever
+>   reaches a pixel. Four inks is not a poor approximation of twelve: keyword / literal /
+>   comment / everything-else is the distinction that helps a reader find the shape of a
+>   line, and `palette.ts` already says why a rainbow board is the alternative.
+> - **The outline reader went into core's sfnt stack, not into a new dependency.** `glyf`
+>   and `loca`, ~200 lines beside the `cmap`/`hmtx` parse that is already there, because
+>   `opentype.js` would have been a _second_ font parser and A-4's whole finding is that two
+>   measurements of one width is how `empty stac` shipped. `FontMetrics.outline` returns
+>   `undefined` for a CFF face and for `builtinMetrics` — a width table can fake an advance
+>   and cannot fake a letterform — and the lane treats that as a refusal.
+> - **One face for every style**, which is the opposite of `HAND_FONTS` and deliberate:
+>   handwriting is the board's voice and a listing is a quotation of a file. JetBrains Mono,
+>   vendored as `.ttf` in `assets/fonts/code/` on a search path (`codeFontDirs`) that
+>   `defaultFontDirs` deliberately cannot reach — `findFontFile`'s last resort is "any font
+>   at all", so one shared path would letter a whole board in monospace with no warning.
+> - **Nothing is ever re-flowed, and a listing that will not fit is refused.** Too wide is
+>   set smaller, never wrapped; below the board's own caption size the lane returns
+>   `undefined` and both the visuals stage and the plan compiler gate on it, because the
+>   fallback here _is_ the defect. `CODE_MAX_LINES`/`CODE_MAX_COLS` (8 × 64) are advice to an
+>   author, quoted in the brief, and a hard filter on the document path where there is no
+>   author to warn.
+> - **Found and fixed on the way past, and it was the bigger half of the document route:**
+>   `parseBlocks` normalised the _whole_ document with `normalizeWhitespace` before splitting
+>   it, so `[ \t]+ → ' '` deleted every code block's indentation before any lane saw it —
+>   and the heuristic then `trim()`ed each line, dropped any starting `//` or `#`, cut each
+>   to twelve words and drew the result as a `stack` of handwritten boxes. Four steps, each
+>   destroying something. The parser now keeps two views of its lines (prose collapsed, a
+>   fence verbatim) and the heuristic sets the listing.
+> - **`code` came out of `UNSERVED` in the same commit**, along with its studio label — the
+>   auditcheck expiry line forced it, which is what that line is for. Six new auditcheck
+>   lines went in behind it, and one existing line was loosened from `MANIFEST_VERSION = 3`
+>   to `>= 3`: pinning the literal made an A-1 fact check into a version tracker, and it
+>   failed the day the code layout bumped the sidecar to 4.
+> - **A fifth and sixth pinned hash rather than a re-pin.** None of the four moved and none
+>   could — a new union member and a ninth `kind` that no shipped lesson uses — so
+>   `hash-map` was pinned at `6534c50131fa` / `5a5362c4fd0a` on this file's own rule that a
+>   format gets pinned once a film ships from it. It is the corpus's only board with a
+>   listing on it, so it is the only thing that would notice `codeBox` or `FONT.label`
+>   moving.
+>
+> **What this cast also shows, and it is 6.4's evidence, not 6.2's:** the six `draw` beats in
+> `hash-map` have no drawing author (no Anthropic credit), so they fall through to the
+> illustration lane, and `fal` — which _does_ have credit — returned tiny illegible scribbles
+> for "a name, an arrow into a rule box, an arrow out to a highlighted pigeonhole". Same
+> class as the aspirin blank page in `HANDOFF-AUDIT-CLOSE.md`, now reproducible in one
+> command. Next: 6.3, 6.4, 6.5.
+
 **Two rules that shape everything here:**
 
 1. **"Pass" does not mean "obey the spec where the spec is wrong."** The audit's

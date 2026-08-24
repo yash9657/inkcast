@@ -59,6 +59,7 @@ for (const scene of sb.scenes) {
   for (const el of scene.elements) {
     if (el.type === 'text') ink.push(el.text);
     if (el.type === 'equation') ink.push(el.tex);
+    if (el.type === 'code') ink.push(el.code);
     if (el.type === 'diagram') ink.push(el.nodes.map((n) => n.label).join(' '));
     if (el.type === 'arrow' && el.label) ink.push(el.label);
   }

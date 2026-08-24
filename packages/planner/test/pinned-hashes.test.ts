@@ -157,12 +157,33 @@ import { compileLesson } from '../src/compile.js';
  * the thing that *is* new: a strict end-to-end cast of both lessons, where the voice
  * stage reports every reveal placed `by authored word index` and no fallback, and
  * `synccheck.mts` still finds no stroke landing on the same frame as the one before it.
+ *
+ * ## A fifth and sixth pin, 2026-08-24: `hash-map`, for the code lane (plan item 6.2)
+ *
+ * Not a re-pin — the four above did not move, and could not have: the code lane adds a
+ * member to the element union and a ninth `VisualIntent.kind`, and neither shipped lesson
+ * uses either. Verified by this file passing unchanged throughout.
+ *
+ * `hash-map` is pinned on the rule this header already states for `explainer`: a format
+ * gets pinned when the first film ships from it. One has —
+ * `projects/qc62-hashmap`, a strict cast, watched — and the pin is what keeps the two
+ * things the lane rests on from moving silently: `codeBox`'s reservation (the planner's
+ * half of the character grid) and `FONT.label`, the size a listing is set at. A change to
+ * either moves these two hashes and nothing else in the repo would notice.
+ *
+ * The listing's *geometry* is not in here and cannot be: `at` is a reservation and the
+ * glyph outlines are resolved a stage later. That half is guarded by
+ * `visuals/test/code.test.ts` (byte-identical across two resolves) and by
+ * `geomhash.mts`, which reports `s3/b3_v0` and `s5/b5_v0` identically across two runs of
+ * the visuals stage.
  */
 const PINNED = [
   { lesson: 'gradient-descent', preset: 'standard', hash: 'd3f35564b27b', scenes: 9 },
   { lesson: 'gradient-descent', preset: 'short', hash: 'e3a1f7338b26', scenes: 7 },
   { lesson: 'longitude', preset: 'standard', hash: '417495edcde8', scenes: 8 },
   { lesson: 'longitude', preset: 'short', hash: '01b682decdbd', scenes: 6 },
+  { lesson: 'hash-map', preset: 'standard', hash: '6534c50131fa', scenes: 9 },
+  { lesson: 'hash-map', preset: 'short', hash: '5a5362c4fd0a', scenes: 5 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

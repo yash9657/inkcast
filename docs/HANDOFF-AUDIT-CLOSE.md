@@ -1,9 +1,9 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 6
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 6.3
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
-twice on 2026-08-24 — after all of Phase 4 (`3566ac0`) and after all of Phase 5
-(`af524b7`, `1a1d58a`).
+four times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
+(`af524b7`, `1a1d58a`), after 6.1, and after 6.2 (the code lane).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -13,7 +13,7 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested:**
+**Phases 0 through 5 are landed and tested, and so are 6.1 and 6.2:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -159,9 +159,115 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
      where the compile is pure and pinned, any remaining difference _is_ a hand edit.
      Scoped to that route: on the document route a difference is the model.
 
+- 2026-08-24 — **6.1, the guard before the lanes.** `unservedLanes` in
+  `core/src/lanes.ts` reads every `describe` and `underlay.prompt` (and the lesson's own
+  subject, only when no picture in that lane already fired) and names the four classes
+  nothing here can draw. Five things a next session needs from this file rather than from
+  the plan's progress block.
+  1. **It is in core, not in the planner, and that was argued rather than assumed.**
+     `sniffMath` is in the planner because it makes a routing decision inside the
+     compiler; this makes none — it is a judgement about a `Lesson`, like
+     `critiqueLesson` and `lessonOrderAdvisories`, and it is read by the pipeline, the
+     studio and (one day) the lesson brief. Core is the only package all three can
+     depend on. The pipeline could not have reached it in the planner without extending
+     the `stages.ts` mirror, which is the shape of the argument in code.
+  2. **The rule is "detect the notation, not the topic", and the corpus is the proof.**
+     Swept over all 38 lessons on disk — 79 distinct pictures, underlay prompts included
+     — it fires **zero** times. That is not luck: the corpus is full of chemistry- and
+     electronics-shaped films whose pictures this pipeline draws correctly, and every
+     one of them (`a lithium atom…`, `a wire looping through a small bulb`, `water
+molecules… hydrogen bonds`, `a globe with meridian lines`, `a bowl-shaped loss
+function`, `a map of the analogy`) is in the QUIET list in
+     `core/test/lanes.test.ts`. If a future signal is added, add it to that list first.
+  3. **It warns; it does not suppress the picture.** A deliberate deviation from the
+     item's done-bar ("not a wrong picture"), argued in the plan's progress block and
+     pinned by `auditcheck` (`lanes.ts` contains no `gate(` and no `throw`). Suppression
+     trades a wrong picture for a missing one and belongs with the lane that replaces the
+     fallback.
+  4. **Four surfaces:** `log.warn`, the `lane-coverage` **warn** check in `qc.json`
+     (per-beat findings), `lanes.unserved` in `pipeline.json` (names only), a CLI block,
+     and `LaneNote` in the studio. Not on `/share/<id>` — `publicView` is an allow-list,
+     so that took no code, and the reader who can act on it is the one casting.
+  5. **The table expires mechanically.** Each lane names the library that would end it,
+     and `auditcheck` fails if that library ever appears in a `package.json` while its
+     lane is still declared unserved. **It has already fired once**: installing `shiki`
+     for 6.2 failed that check, which is how `code` came out of `UNSERVED` in the same
+     commit as the lane rather than in a follow-up nobody wrote.
+
+- 2026-08-24 — **6.2, the code lane** — the first new lane, and the four things a next
+  session needs from this file rather than from the plan's progress block.
+  1. **It is `equation.ts`'s contract, and that is not a family resemblance — it is the
+     design.** `visuals/src/code.ts` resolves a listing into ordered glyph geometry and
+     records it in the sidecar; `codePrims` in `render/src/compile.ts` reads it and emits
+     one prim per glyph. Both are the equation lane's shape because both answer the same
+     question the same way: typesetting is an async import of a large module and
+     `compilePlan` is synchronous, so the sidecar is not a convenience but the only
+     mechanism. The one addition is `CodeLayout.parts` — ink runs as index ranges into the
+     draw sequence, the same shared numbering `PlotLayout.parts` uses.
+  2. **The tone travels; the colour does not.** Shiki is asked about scopes through a
+     four-entry TextMate theme whose colours are sentinels (`#000002` = the accent), and
+     the renderer maps the tone through `toneInk`. That is not a stylistic choice about
+     highlighting, it is 2.2's rule: a colour written by the visuals stage has reached no
+     pixel since the plot-role remap, so a lane that recorded real hex would silently draw
+     in the film's ink anyway and the highlighting would vanish. If you add a scope, add it
+     to `TONE_THEME` and to the tone assertions in `visuals/test/code.test.ts`, which read
+     the ink back off `parts` by line and column.
+  3. **The glyph outlines are in core's sfnt reader, not a dependency.**
+     `FontMetrics.outline(cp)` parses `glyf`/`loca` beside the `cmap`/`hmtx` parse already
+     there. `opentype.js` would have been a second font parser, which is the exact
+     pathology A-4 named. Consequences worth knowing: **a CFF/OTF face returns `undefined`**
+     (no charstring interpreter, and no such face is vendored), so does `builtinMetrics`,
+     and only the variable font's **default instance** is read — `gvar` deltas are not, so
+     asking for bold code would need an interpolator and nothing asks. `H` is all lines and
+     `o` is all curves, which is the sharpest test of the on/off-curve flags there is and is
+     asserted in `core/test/codegrid.test.ts`.
+  4. **One face for every ink style**, unlike `HAND_FONTS`, and on its own search path.
+     `codeFontDirs()` sees `assets/fonts/code/` and `defaultFontDirs()` deliberately cannot
+     — `findFontFile`'s last resort is "any font at all", so one shared path would letter a
+     whole board in JetBrains Mono, `source: 'file'`, no warning, in a tree whose
+     handwriting faces had gone missing.
+
+  **Found on the way past, and it was the larger half of the document route.**
+  `parseBlocks` normalised the whole document with `normalizeWhitespace` before splitting
+  it into lines, so `[ \t]+ → ' '` deleted every fenced block's indentation before any lane
+  could see it — and `beats.ts` then trimmed each line, dropped any starting `//` or `#`
+  (a Python comment, a shebang, a C directive), cut each to twelve words, and
+  `heuristic.ts` drew the result as a `stack` diagram of handwritten boxes. The parser now
+  keeps two views of its lines — prose collapsed, a fence verbatim — and the two halves of
+  that are `normalizeChars` and `collapseSpaces` in `planner/src/text.ts`. **If you touch
+  either, the test that catches a regression is `planner/test/code-lane.test.ts`'s "keeps a
+  fence verbatim and still collapses prose".**
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
+
+**Verified end to end, after 6.2:** `projects/qc62-hashmap` is a strict no-key cast of
+`examples/lessons/hash-map.lesson.json` — a new third shipped example, and the corpus's only
+board with a listing on it. Its two `code` beats type themselves on line by line
+(frames at 34.6 / 36.3 / 38.0s: at 35.9 the pen is mid-way through `def get(sel`, at 36.3
+lines one and two are complete and line three is starting). Both halves of the done-bar were
+measured rather than argued: `frames.mts` over **two independent renders of the same
+project** returns byte-identical PNGs at five timestamps including two mid-reveal, and
+`geomhash.mts` reports `s3/b3_v0` (63 strokes) and `s5/b5_v0` (114) identically across two
+runs of the visuals stage. **The same cast is also 6.4's evidence**: its six `draw` beats have
+no drawing author (no Anthropic credit) and fall through to the illustration lane, where
+`fal` — which does have credit — returned tiny illegible scribbles for "a name, an arrow into
+a rule box, an arrow out to a highlighted pigeonhole". Same class as the aspirin page below,
+in one command.
+
+**Verified end to end, after 6.1:** `projects/qc61-longitude` is a strict no-key cast of a
+shipped lesson — clean, `lane-coverage: pass`, and **no `lanes` key in `pipeline.json`**,
+which is the half of the guard that has to stay silent. `projects/qc61-aspirin` is the
+other half: a hand-authored lesson (the fixture is in this session's scratchpad, not in
+`examples/` — the test there asserts every shipped lesson is clean) asking for three
+chemical structures. All three are reported, the film still renders, `qc.ok` stays true,
+and `pipeline.json` records `lanes: {"unserved": ["chemistry"]}`. **Open the two pictures
+it generated before deciding this guard is pedantic**:
+`~/.inkcast/cache/illustrations/the-skeletal-formula-salicylic-5413f1e9f2.png` is a blank
+page with _"Salèylic acisH."_ handwritten across it, and `benzene-ring-with-its-147c73c1e1.png`
+is a red circle containing _"B,H,"_ with eight arrows pointing at it. Neither is a molecule
+and both would have shipped without a word.
 
 **Verified end to end, after Phase 5:** strict no-key casts of both shipped lessons
 (`projects/qc53-longitude`, `projects/qc53-gd`) are clean with every Phase 2–5 gate live,
@@ -264,20 +370,27 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: Phases 6 → 7 → 8
+## What remains to close the audit: 6.2 → 7 → 8
 
-**The audit is not closed.** Phases 0–5 are landed; Phases 6–8 of
+**The nine remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+carries, per item, the plan's bar, the verified file anchors to start from, the decisions
+already made that constrain it, and the traps — plus the three things that gate the work
+(no API credit, the `DELIVERED_WPS` disagreement, the `deriveLesson` author bug). Open it
+when the question is "what next"; this file stays the record of what landed and why. The
+summary below is the shape of the road only.
+
+**The audit is not closed.** Phases 0–5 and item 6.1 are landed; the rest of Phases 6–8 of
 `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on scope,
 done-bars, and the coverage table that maps every non-PASS audit finding to exactly
-one item or waiver. Read the plan's Phase 6–8 sections in full before starting; the
-summary below exists only so a clean-context session knows the shape of the road,
-and the bullets after it are session-found context the plan cannot know.
+one item or waiver.
 
-- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1 the honest
-  guard for the four unserved classes (chemistry, circuits, maps, code) — ALWAYS
-  before 6.2/6.3; 6.2 the code lane (Shiki → crisp ink); 6.3 circuits/chemistry/
+- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1 is done, which
+  unblocks the rest: 6.2 the code lane (Shiki → crisp ink); 6.3 circuits/chemistry/
   geography by demand, lane docs first; 6.4 illustrations get the pose lane's
   retry + plausibility gates; 6.5 `illustrationKey` folds in the figure model id.
+  **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
+  auditcheck line will say so, but the studio would otherwise go on apologising for a
+  lane that exists.
 - **Phase 7 — scale and cost** (~1 week, after everything above). 7.1 per-scene
   segment cache / partial re-encode (byte-identical splice is the test); 7.2
   `--emit-plan` + `planhash --timing`; 7.3 declarative StylePacks (depends on 2.2;
@@ -288,11 +401,22 @@ and the bullets after it are session-found context the plan cannot know.
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: **6 is next and unblocked, and 6.1 comes before 6.2/6.3 always**;
+Ordering per the plan: **6.1 is in, so 6.2 is next and unblocked**;
 7 after everything; 8 is the exit. API cost is negligible until 8.2 (3.3's Tier 2 is keyed
 and cached, ~a few cents a film, and skips itself with no key).
 
 Session-found context for Phase 6 and after (so the next session does not re-derive it):
+
+- **The plan's 6.3 is wrong about the circuit symbols, and it matters for sequencing.**
+  It says circuits are "closest: curated `symbols/circuit/*` already exist". They do not:
+  `assets/library/` holds `symbols/physics/force-vector` and `symbols/physics/mass`, and
+  nothing else under `symbols/`. Circuits may still be the closest lane — dagre is already
+  a dependency and the wiring is a graph — but the symbol set is work, not inventory.
+- **`rerender()` drops most of `pipeline.json`'s film-level fields.** 6.1 fixed
+  `grounding` and `lanes` (both inherited now); `drift` and `qc` are recomputed there, and
+  `source` and `lesson` were already inherited. Anything added to `PipelineState` from now
+  on has to answer "does a re-render erase this?" — the answer for anything describing the
+  **film** rather than the **run** is that it must be inherited on that path.
 
 - **The `deriveLesson` fallback lies about who wrote the lesson, and Phase 5 made it
   visible.** On a document run with a key that has no credit, the CLI reports
@@ -448,6 +572,29 @@ Earned in the Phase 5 session:
   the same measurement and only one of them is useful. The fix that would have hit 80%
   on the raw number — citing the nearest heading — is the untestable citation the field
   exists to prevent.
+
+Earned in the 6.1 session:
+
+- **A detector that is also a demand signal must be tuned for precision, not recall.**
+  6.3 decides which lane to build from how often 6.1 fires, so a false positive is a vote
+  for building a renderer nobody needs — a different and worse failure than a miss, which
+  costs one wrong picture that ships today anyway. This inverted the usual instinct: the
+  chemistry rule was cut back until "molecule", "hydrogen bond" and "atom" no longer fired
+  at all, because the corpus draws all three correctly. The QUIET list in
+  `core/test/lanes.test.ts` is the artefact of that, and it is the list to extend first
+  when a new signal is proposed.
+- **A detector over English needs a corpus sweep before it needs tests.** The first
+  chemistry rule fired on the shipped lithium-ion film (which draws an atom, correctly);
+  the first SMILES rule matched `cocoons` and `spoons`, because a molecule and an English
+  word are spelled from the same letters — what separates them is a bracket or a ring
+  digit, not the alphabet. Both were found by running the thing over all 38 lessons on
+  disk in ten seconds, and neither would have been found by writing tests from
+  imagination first.
+- **"Not a wrong picture" was worth reading twice.** The done-bar can be read as "suppress
+  the picture", which is a quality decision with no frames behind it and a much larger
+  blast radius than the item's own "cheap, ships first". Written down as a deviation with
+  the argument, and pinned by `auditcheck` so the smaller thing cannot silently become the
+  larger one.
 
 Earned in the Phase 4 session:
 

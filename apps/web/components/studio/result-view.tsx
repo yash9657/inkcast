@@ -84,6 +84,49 @@ function GroundingNote({ grounding }: { grounding?: Project['grounding'] }) {
   );
 }
 
+/**
+ * A lane's name as a reader would say it. An unknown name falls through verbatim, so a
+ * lane a newer pipeline records still reads as a sentence rather than as nothing.
+ */
+const LANE_LABELS: Record<string, string> = {
+  chemistry: 'chemical structures',
+  circuits: 'circuit diagrams',
+  geography: 'accurate maps',
+};
+
+/**
+ * What this film asked to be drawn and could not be — plan item 6.1, audit S5-a.
+ *
+ * Three topic classes have no renderer here (chemical structures, circuit schematics,
+ * accurate maps). Highlighted code was the fourth until plan item 6.2 built that lane, and
+ * its label came out of the table with it — a studio that goes on apologising for a lane
+ * that exists is worse than one that never had it. The fallback for the remaining three is
+ * a picture that looks finished and is wrong: an image generator's idea of a molecule. The
+ * film still plays,
+ * and the person watching is the only one who can tell whether that picture matters — so
+ * they have to be told it is there.
+ *
+ * Phrased around what is missing from *inkcast* rather than what is wrong with the film,
+ * because that is where the defect is, and because it is the honest answer to "can I fix
+ * this?": not by re-rendering. Beside `GroundingNote` and in the same register, one shade
+ * louder — an unsourced claim is the normal case, and a picture that is confidently wrong
+ * is not.
+ */
+function LaneNote({ lanes }: { lanes?: string[] }) {
+  if (!lanes || lanes.length === 0) return null;
+  const named = lanes.map((l) => LANE_LABELS[l] ?? l);
+  const list =
+    named.length === 1
+      ? named[0]
+      : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  return (
+    <p className="mt-1 text-xs text-warning">
+      This lesson asks for {list}, which inkcast has no lane for yet — those pictures are
+      approximations, not correct drawings.
+    </p>
+  );
+}
+
 export function ResultView({
   project,
   storyboard,
@@ -120,6 +163,7 @@ export function ResultView({
               <span className="font-mono">· {project.id}</span>
             </p>
             <GroundingNote grounding={project.grounding} />
+            <LaneNote lanes={project.unservedLanes} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

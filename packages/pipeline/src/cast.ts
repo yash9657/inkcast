@@ -43,7 +43,10 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   critiqueLesson,
+  laneGapLines,
   lessonOrderAdvisories,
+  lanesMissing,
+  unservedLanes,
   hash,
   loadStoryboard,
   measureDrift,
@@ -57,6 +60,7 @@ import {
   totalDuration,
   type BoardMode,
   type GateMode,
+  type LaneGap,
   type Lesson,
   type ModelSpend,
   type OnProgress,
@@ -261,6 +265,16 @@ export type LessonResult = {
    * no source" is worth knowing *before* paying for the render.
    */
   grounding: Grounding;
+  /**
+   * Pictures this lesson asks for that no renderer here can draw (plan 6.1; audit
+   * S5-a). See `unservedLanes`.
+   *
+   * Beside `problems` and `grounding`, and carried out to the caller for the same
+   * reason `grounding` is: `designLesson` stops before the render, and "this beat wants
+   * a molecular structure, which we will approximate" is worth knowing on the screen
+   * where the lesson can still be rewritten — not after the encode.
+   */
+  laneGaps: LaneGap[];
   /** Resolved output format. */
   preset: PresetName;
   /** Runtime target the lesson was written against, in seconds. */
@@ -501,6 +515,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     projectId: run.id,
     dir: run.dir,
     problems: [],
+    laneGaps: [],
     route,
     grounding,
     preset: presetShape.name,
@@ -648,6 +663,13 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   // `lessonOrderAdvisories`.
   const orderAdvisories = lessonOrderAdvisories(lesson);
   for (const line of orderAdvisories) log.warn(`lesson order: ${line}`);
+  // What this lesson asks for that nothing here can draw (plan 6.1; audit S5-a). Kept
+  // out of `problems` for the same reason the order advisory is: the author cannot fix
+  // it, because the missing thing is a renderer rather than a sentence. It is a warning
+  // aimed at the person casting the film — and, in aggregate, the demand signal that
+  // decides which lane gets built first (plan 6.3).
+  const laneGaps = unservedLanes(lesson);
+  for (const line of laneGapLines(laneGaps)) log.warn(`lane coverage: ${line}`);
   log.info(`lesson: "${lesson.topic}"`, {
     objective: lesson.objective,
     beats: beatCount(lesson),
@@ -660,6 +682,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     lesson,
     lessonPath: path.resolve(run.dir, LESSON_FILE),
     problems,
+    laneGaps,
     doc,
     sourceChars,
     presetShape,
@@ -1014,6 +1037,11 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // this one is a question only a human can answer — authored order carries
         // information a toposort cannot see. Advisory forever, by design.
         { id: 'lesson-order', findings: design.orderAdvisories, severity: 'warn' },
+        // Pictures this film asks for that no lane can draw (plan 6.1; audit S5-a).
+        // A warning, never a gate: the finding is about this pipeline, not about this
+        // board, and refusing to render a film because we cannot draw a benzene ring
+        // correctly would be refusing the only version of it that exists.
+        { id: 'lane-coverage', findings: laneGapLines(design.laneGaps), severity: 'warn' },
         // What the pictures in this film still have measurably wrong with them, read
         // back off `lesson.json` rather than remembered from the run that drew them
         // (plan 3.4) — so a cached re-run reports the same standing defects instead of
@@ -1144,6 +1172,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     // whoever reads the file: `kind: 'topic'` and `kind: 'text'` are both things a user
     // typed, and only one of them gave the author anything to work from.
     grounding: design.grounding,
+    // Which lanes this film wanted and did not get (plan 6.1). Only the names: the
+    // per-beat findings are in `qc.json`, and what a library listing — or the studio's
+    // one-line note — needs is which kind of picture this film could not be given.
+    ...(design.laneGaps.length > 0 ? { lanes: { unserved: lanesMissing(design.laneGaps) } } : {}),
     qc: { ok: qc.ok, problems: qc.problems },
     // Length as measured, beside the budget it was planned to (plan 4.3). On the
     // record rather than only in `qc.json` because this is the pair of numbers that
@@ -1396,6 +1428,14 @@ export async function rerender(
     },
     voice: voiceRecord,
     ...(previous?.lesson ? { lesson: previous.lesson } : {}),
+    // Both of these describe the *film*, not the run, and this path never re-runs the
+    // stage that could recompute them — so they are inherited beside the lesson summary
+    // for exactly the reason `render.problems` is inherited on a cached render. Without
+    // it a re-render silently erases them: the studio's "taught from no source" note
+    // (plan 5.1) disappeared the first time anyone pressed Re-render, which is a bug
+    // this line closes on the way past.
+    ...(previous?.grounding ? { grounding: previous.grounding } : {}),
+    ...(previous?.lanes ? { lanes: previous.lanes } : {}),
   });
   return { videoPath, storyboard: sb, cost, projectId, dir };
 }

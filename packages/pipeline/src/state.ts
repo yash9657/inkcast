@@ -133,6 +133,20 @@ export type PipelineState = {
    */
   grounding?: Grounding;
   /**
+   * Which classes of picture this film asked for and could not be given (plan item
+   * 6.1; audit S5-a). See `unservedLanes` in `@inkcast/core`.
+   *
+   * Names only — the beats and the quotes are in `qc.json`, under `lane-coverage`. This
+   * is the summary a listing can show and the studio can turn into one sentence, and it
+   * is durable in the way the finding is: the film on disk contains an approximated
+   * benzene ring for as long as the file exists, however the run that made it went.
+   *
+   * Absent means the lesson asked for nothing this pipeline lacks — or that it was cast
+   * before 6.1, which is the same silence the older fields carry and for the same
+   * reason: nothing here invents an answer for a run that never asked the question.
+   */
+  lanes?: { unserved: string[] };
+  /**
    * The quality-gate posture the run was made under. `degrade` is the fact that
    * matters: this film may carry defects its own pipeline detected and was told
    * to render anyway. Absent on files written before gates existed (equivalent

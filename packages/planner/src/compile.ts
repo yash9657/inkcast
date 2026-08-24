@@ -60,6 +60,7 @@ import type { Box } from './elements.js';
 import {
   FONT,
   makeAsset,
+  makeCode,
   makeDiagram,
   makeEmphasis,
   makeEquation,
@@ -116,6 +117,13 @@ const log = logger('planner:compile');
  * bump exists to ship, and version 4 is the first that did:
  * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` reads
  * d3f35564b27b / e3a1f7338b26 / 417495edcde8 / 01b682decdbd.
+ *
+ * A third lesson joined the pins on 2026-08-24 rather than moving them:
+ * `sbhash.mts hash-map` reads 6534c50131fa / 5a5362c4fd0a. It is the corpus's only film
+ * with a listing on the board, so it is the only one whose bytes move if `codeBox`'s
+ * reservation or `FONT.label` does (plan item 6.2). The four above did not move for it and
+ * could not have — the code lane adds a member to the element union and a ninth
+ * `VisualIntent.kind`, and neither shipped lesson uses either.
  *
  * All four were re-pinned 2026-08-24 (from e1212df828d0 / 6b03be35c3c6 / a8c3f262502a /
  * f03df5431b68) for the cue indices of version 4 above: a purely additive diff, 30/23/47/38
@@ -1306,6 +1314,13 @@ function buildIntent(intent: VisualIntent, ctx: IntentContext): Element[] {
       'falling back to the lane its kind names',
     );
   }
+  // A listing outranks `kind` for the same reason marks do: it is the answer, not a
+  // description of one. An author who pasted six lines of Python has settled what goes on
+  // the board, and a fenced block in a `describe` is that same paste arriving by the other
+  // door — which is how it comes in from an ingested document (`ingest.ts` keeps fences
+  // intact), and how a model that was told about the lane but not about the field writes it.
+  const listing = codeListing(intent);
+  if (listing || intent.kind === 'code') return buildCode(listing, describe, ctx);
   switch (intent.kind) {
     case 'plot': {
       // An author said `plot` — or said nothing, since `plot` is the schema's default —
@@ -1597,6 +1612,96 @@ function buildFallback(describe: string, ctx: IntentContext): Element[] {
     : buildAsset(describe, 'illustration', ctx);
 }
 
+/* ---------------------------------------------------------------------- code */
+
+/**
+ * A fenced block, as the code lane wants it: the listing and the language it declares.
+ *
+ * Only a fence counts. "Looks like code" is a judgement — `sniffMath` makes one and gets
+ * to, because promoting prose to the equation lane is recoverable — while this decides
+ * whether a *paragraph* is set as a program, and a false positive there sets an English
+ * sentence in monospace at 40 columns. A triple backtick is the author saying so, and
+ * nothing else is.
+ *
+ * The info string's first word is the language when it looks like a grammar id, so
+ * ```` ```python ```` and ```` ```ts {1,3} ```` both work and ```` ``` ```` is `text`.
+ */
+export function fencedCode(text: string): { code: string; lang: string } | undefined {
+  const m = /```([^\n`]*)\n([\s\S]*?)(?:```|$)/.exec(text);
+  if (!m) return undefined;
+  const body = (m[2] ?? '').replace(/\s+$/, '');
+  if (body.trim() === '') return undefined;
+  const info = (m[1] ?? '').trim().split(/\s+/)[0] ?? '';
+  const lang = /^[A-Za-z][\w+#-]*$/.test(info) ? info.toLowerCase() : 'text';
+  return { code: body, lang };
+}
+
+/** The listing this intent carries, whether by field or by fence. */
+function codeListing(intent: VisualIntent): { code: string; lang: string } | undefined {
+  // The field wins: an author who filled it in was not guessing about the boundaries of
+  // the listing, and a `describe` may legitimately quote a second fence as an aside.
+  if (intent.code && intent.code.trim() !== '') {
+    return { code: intent.code, lang: intent.lang?.trim() || 'text' };
+  }
+  const fenced = fencedCode(intent.describe);
+  if (!fenced) return undefined;
+  return { code: fenced.code, lang: intent.lang?.trim() || fenced.lang };
+}
+
+/**
+ * Set a listing on the board (plan item 6.2).
+ *
+ * The `code` intent's whole job is to carry a listing, so an intent with none is an
+ * author describing code in prose — "a function that hashes the key and walks the bucket".
+ * There is nothing here to quote, and inventing the code from the description would put a
+ * program on the board that nobody wrote and nobody ran. So it goes loudly to whichever
+ * lane can draw what was actually described, exactly as a `plot` intent that names no
+ * quantity does.
+ */
+function buildCode(
+  listing: { code: string; lang: string } | undefined,
+  describe: string,
+  ctx: IntentContext,
+): Element[] {
+  if (!listing) {
+    log.warn(
+      `beat ${ctx.index} asked for code but carries no listing: "${describe}"`,
+      'the code lane sets source, not descriptions of source — put the lines in `code` ' +
+        '(or in a fenced block) and they will be set as written. Drawing what you described ' +
+        'instead.',
+    );
+    return buildFallback(describe, ctx);
+  }
+  const el = makeCode(ctx.id, listing.code, listing.lang, { maxWidth: ctx.box.w });
+  /**
+   * The box is the listing's own extent, centred in the cell — not the cell.
+   *
+   * A `code` element's box is solid content (`boardcheck.ts`'s `SOLID` set), so a box
+   * bigger than the listing would claim board the listing does not occupy: the overlap
+   * sweep would report collisions with the caption above it and the fill statistic would
+   * count whitespace as ink. It is the same reasoning `assetViewBox` gives for an `exact`
+   * asset — a margin baked inside the element travels with it — and it makes the visuals
+   * stage's fit an identity rather than a second, invisible scaling.
+   *
+   * `makeCode` already clamped the width to the cell; the height can still overrun a short
+   * cell, so the grid is scaled down whole. Scaling it, rather than dropping lines, is the
+   * lane's rule: a listing is set smaller or it is refused, never cut.
+   */
+  const shrink = Math.min(1, ctx.box.w / el.at.w, ctx.box.h / el.at.h);
+  const w = el.at.w * shrink;
+  const h = el.at.h * shrink;
+  el.at = {
+    x: round(ctx.box.x + (ctx.box.w - w) / 2, 2),
+    y: round(ctx.box.y + (ctx.box.h - h) / 2, 2),
+    w: round(w, 2),
+    h: round(h, 2),
+  };
+  // The listing is what the beat is showing, so it is cued like any other picture: the
+  // blanket cue the caller assigns lands it on the phrase that introduces it.
+  el.enter = { ...el.enter, at: 0.08 };
+  return [el];
+}
+
 /* ------------------------------------------------------------------ diagrams */
 
 /** Node labels out of a drawing instruction: "A → B → C", or a comma list. */
@@ -1791,7 +1896,9 @@ function buildMotion(describe: string, ctx: IntentContext): Element[] {
   }
   // Anything already drawn in this beat is the scene the mover moves through; if there
   // is nothing, the instruction is the only description of the scene there will be.
-  const drawn = ctx.existing.some((el) => el.type !== 'text' && el.type !== 'equation');
+  const drawn = ctx.existing.some(
+    (el) => el.type !== 'text' && el.type !== 'equation' && el.type !== 'code',
+  );
   const scene = drawn ? [] : buildFallback(describe, { ...ctx, id: `${ctx.id}_scene` });
   const from = { x: ctx.box.x + ctx.box.w * 0.08, y: ctx.box.y + ctx.box.h * 0.28 };
   const to = { x: ctx.box.x + ctx.box.w * 0.92, y: ctx.box.y + ctx.box.h * 0.72 };

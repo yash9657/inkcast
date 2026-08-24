@@ -9,6 +9,9 @@ They are committed to the repo rather than downloaded on demand because
 `docs/CONTRACT.md` requires the project to work with **zero network**. A build
 that phones fonts.gstatic.com is a build that fails on a plane.
 
+Three roles, three directories: `ui/` is the studio's chrome, `hand/` is the handwriting
+inside the video, and `code/` is the monospace the code lane sets listings in.
+
 ## `ui/` — chrome (the web app)
 
 Latin-subset variable `woff2`, byte-identical to what Google Fonts serves.
@@ -72,6 +75,48 @@ in generated SVG — **not** for `next/font`.
 The `.woff2` copy of Shantell Sans exists only so the web app can show an ink
 accent without shipping the 1.2 MB `.ttf` to a browser. Do not use the `.woff2`
 for rendering — it is latin-subset and has no `BNCE` axis.
+
+## `code/` — the code lane (inside the rendered video)
+
+| File                         | Family                       | Role                                 | Size   |
+| ---------------------------- | ---------------------------- | ------------------------------------ | ------ |
+| `JetBrainsMono-Variable.ttf` | JetBrains Mono, wght 100–800 | every `code` element, in every style | 183 KB |
+
+**One face, not one per `meta.style`**, which is the opposite of `hand/` and deliberate.
+Handwriting is the board's voice, so it changes with the style; a listing is a _quotation
+of a file_, and setting one in Shantell Sans is a misquotation — proportional advances
+destroy the indentation that carries the program's structure. So a chalk film's code is the
+same monospace as a marker film's, and the style shows up in the ink colour and the pen
+weight around it (`core/src/fontmetrics.ts`, `MONO_FONT`).
+
+JetBrains Mono because the decision was already made and argued one section down: it beat
+Geist Mono on `0`/`O` and `1`/`l` disambiguation, which is exactly the property a listing
+needs. This is a second copy of that choice, not a new one.
+
+**`.ttf`, and it has to be.** `ui/` ships the latin-subset `woff2` for a browser; this file
+is read in Node, and the code lane needs its `glyf` outlines, not just its metrics — the
+lane draws each character as an exact filled outline rather than as text, for the reason
+`visuals/src/code.ts` gives (a glyph the browser substituted is a different glyph, and in
+source code a different glyph is a different program). The sfnt reader in
+`core/src/fontmetrics.ts` cannot read `woff2`, and would not be asked to.
+
+Re-vendor with:
+
+```sh
+curl -L -o assets/fonts/code/JetBrainsMono-Variable.ttf \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf'
+curl -L -o assets/fonts/code/OFL-jetbrainsmono.txt \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/OFL.txt'
+```
+
+`codeFontDirs()` searches this directory and nothing else, and `defaultFontDirs()`
+deliberately does not include it — `findFontFile`'s last resort is "any font at all", so a
+shared search path would mean a tree with its handwriting faces missing letters the whole
+board in JetBrains Mono with no warning. Two roles, two search paths.
+
+Only the default instance is used. A variable font's `glyf` holds its default named
+instance (Regular here, which is the weight a listing wants) and the axes live in `gvar` as
+deltas that nothing reads.
 
 ## Adding a font
 

@@ -169,12 +169,23 @@ export const VisualIntent = z.object({
    */
   describe: z.string(),
   /**
-   * Which primitive expresses it. `draw`, `plot` and `path` are local and free;
+   * Which primitive expresses it. `draw`, `plot`, `path` and `code` are local and free;
    * `illustration` calls a text-to-image provider and needs a key.
    */
   kind: z
-    .enum(['plot', 'draw', 'path', 'illustration', 'diagram', 'icon', 'text', 'motion'])
+    .enum(['plot', 'draw', 'path', 'illustration', 'diagram', 'icon', 'text', 'motion', 'code'])
     .default('plot'),
+  /**
+   * The listing itself, when `kind` is `code` — the source, verbatim, newlines and all.
+   *
+   * Authored rather than described, for the same reason `marks` is: `describe` says what
+   * the beat is showing and this says what is on the board, character for character.
+   * There is nothing for a lane to imagine here, and a listing paraphrased from a
+   * `describe` would be a listing that does not run.
+   */
+  code: z.string().optional(),
+  /** The listing's language, as a Shiki grammar id. Only read when `kind` is `code`. */
+  lang: z.string().optional(),
   /**
    * The drawing itself, when `kind` is `draw`: every mark, placed.
    *

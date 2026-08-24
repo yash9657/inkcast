@@ -48,7 +48,7 @@ export type BoardViolation = {
 export const MIN_GLYPH_PX = 10;
 
 /** Element kinds whose box is solid content — the ones the overlap sweep covers. */
-const SOLID = new Set(['text', 'equation', 'asset', 'diagram', 'plot', 'shape']);
+const SOLID = new Set(['text', 'equation', 'code', 'asset', 'diagram', 'plot', 'shape']);
 
 /** Boxes are shrunk by this before intersecting, so edge-kissing is not a collision. */
 const TOUCH_SLACK = 2;

@@ -84,6 +84,16 @@ export type Project = {
    * cast before the pipeline recorded this, which is not the same as `parametric`.
    */
   grounding?: 'document' | 'parametric' | 'supplied';
+  /**
+   * Classes of picture this film asked for that inkcast has no renderer for (plan 6.1;
+   * audit S5-a) — `chemistry`, `circuits`, `geography`, `code`. Absent, and normally so:
+   * it is named only when a lesson actually asked for one.
+   *
+   * Free strings, not a union, and unlike `grounding` an unrecognised one is *kept*: the
+   * name is the message here, so a lane a newer pipeline learns to miss should reach the
+   * reader before this file learns to spell it.
+   */
+  unservedLanes?: string[];
   /** Present when the last run failed and the server recorded why. */
   error?: string;
 };
@@ -271,6 +281,14 @@ export function parseProject(raw: unknown): Project {
   const grounding = str(rec.grounding);
   if (grounding === 'document' || grounding === 'parametric' || grounding === 'supplied') {
     project.grounding = grounding;
+  }
+  // Plan 6.1, and flattened out of the record's `{ lanes: { unserved } }` because the
+  // studio only ever wants the list. Filtered to non-empty strings for the usual reason a
+  // parser here filters anything: this reaches a sentence a person reads.
+  const unserved = asRecord(rec.lanes).unserved;
+  if (Array.isArray(unserved)) {
+    const names = unserved.map(str).filter((s): s is string => Boolean(s));
+    if (names.length > 0) project.unservedLanes = names;
   }
 
   return project;

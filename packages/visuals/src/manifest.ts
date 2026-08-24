@@ -14,6 +14,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Asset, Element, TextElement } from '@inkcast/core';
+import type { CodeLayout } from './code.js';
 import type { DiagramLayout } from './diagram.js';
 import type { EquationLayout } from './equation.js';
 import type { MotionLayout } from './motion.js';
@@ -32,8 +33,13 @@ export const MANIFEST_PATH = 'assets/visuals.json';
  * refuses a version it does not know, so every sidecar on disk that still carries
  * `enterAt`/`enterDuration`/`persist` is re-resolved rather than half-read — and nothing
  * downstream has to tolerate both shapes.
+ *
+ * Bumped to 4 when the code lane landed (plan 6.2). The same reasoning applies in the
+ * other direction: a `code` element resolved by an older stage has no `code` layout here,
+ * and a renderer that read the sidecar anyway would find strokes with no ink runs to
+ * colour them by. Refusing the old version re-resolves it instead.
  */
-export const MANIFEST_VERSION = 3;
+export const MANIFEST_VERSION = 4;
 
 export type VisualSpace = 'canvas' | 'local';
 export type ViewBox = [number, number, number, number];
@@ -132,6 +138,16 @@ export type ElementVisual = {
    * put the source on the board instead of nothing.
    */
   equation?: EquationLayout;
+  /**
+   * A set listing: the character grid it landed on, the grammar it was tokenised with,
+   * and one ink run per (tone, line) as index ranges into `strokes`.
+   *
+   * Read from the sidecar for both of the reasons equations are. The tokeniser is an
+   * async import of a large module and `compilePlan` is synchronous; and the renderer has
+   * no letterforms of its own, because the outlines were read out of an sfnt in Node.
+   * `code` travels with it so a renderer that finds no geometry can name what is missing.
+   */
+  code?: CodeLayout;
   /** The smooth un-roughened path a `path` element describes, for motion to follow. */
   path?: { d: string; length: number; closed: boolean; filled: boolean; from: 'points' | 'd' };
   /** Resolved movement: arc-length-even positions plus centre-relative offsets. */

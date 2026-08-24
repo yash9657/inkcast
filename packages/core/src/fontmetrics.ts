@@ -56,6 +56,21 @@ export type FontMetrics = {
   covers(codePoint: number): boolean;
   /** Width of a string at `fontSize`, including optional tracking (em). */
   measure(text: string, fontSize: number, tracking?: number): number;
+  /**
+   * This code point's outline as SVG path data, in font units with **y up**.
+   *
+   * `''` for a glyph that draws nothing (the space); `undefined` when the face has no
+   * glyph for the code point, when the outlines are CFF rather than `glyf`, or when
+   * there is no font file at all. The caller scales and flips — see
+   * `glyphContours` below for why the coordinate space stays the font's own.
+   *
+   * Only the code lane reads this. Handwriting is drawn by the browser from the
+   * embedded face, which is the whole point of that lane: letters under a moving
+   * mask read as a pen. Code is drawn as filled outlines for the reason `equation.ts`
+   * gives — a glyph the browser substituted is a *different* glyph, and in a listing
+   * that is a different program.
+   */
+  outline(codePoint: number): string | undefined;
 };
 
 /* --------------------------------------------------------------- sfnt reader */
@@ -198,6 +213,267 @@ function readName(v: DataView, offset: number): string {
   return family || fullName;
 }
 
+/* ---------------------------------------------------------- glyph outlines */
+
+/**
+ * TrueType `glyf` outlines, for the one lane that needs exact letterforms.
+ *
+ * The code lane (plan 6.2) draws a listing as filled glyph outlines rather than as
+ * text, for the reason `visuals/src/equation.ts` states about notation: a glyph the
+ * browser substituted from a fallback stack is a *different* glyph, and in source code
+ * a different glyph is a different program. `l` for `1`, `O` for `0`, a curly quote
+ * where a straight one was typed — each of those is the D1 defect wearing a monospace
+ * face.
+ *
+ * This reads `glyf`/`loca` and nothing else, which is the same wager the metrics above
+ * make: four tables beat a font library. Two consequences, both deliberate:
+ *
+ *  - **`glyf` only.** A CFF/OTF face (`OTTO`) has its outlines in a charstring
+ *    interpreter's bytecode, which is a second parser of a different shape. There is no
+ *    such face in `assets/fonts`, `outline` returns `undefined` for one, and the lane
+ *    treats that exactly like a missing font — loudly, and never by falling back to
+ *    handwriting.
+ *  - **The default instance.** A variable font's `glyf` holds its default named
+ *    instance and the axes live in `gvar` as deltas. `JetBrainsMono[wght].ttf` defaults
+ *    to Regular, which is the weight a listing wants, so the deltas are not read. Asking
+ *    for Bold code would mean a `gvar` interpolator; nothing asks.
+ */
+type Contour = { x: number; y: number; on: boolean }[];
+
+/** Two decimals, trailing zeros trimmed — font units are integers, composites are not. */
+function fu(v: number): string {
+  return (Math.round(v * 100) / 100).toString();
+}
+
+/**
+ * One glyph's contours in font units, y up, composites resolved.
+ *
+ * Returns contours rather than path data so a composite's 2×2 transform composes on
+ * points instead of on a string. `depth` is the recursion guard: a font whose composite
+ * references itself is malformed, and the read must end rather than the process.
+ */
+function glyphContours(
+  v: DataView,
+  loca: (gid: number) => { start: number; end: number } | undefined,
+  glyfOffset: number,
+  gid: number,
+  depth = 0,
+): Contour[] | undefined {
+  if (depth > 4) return undefined;
+  const range = loca(gid);
+  if (!range) return undefined;
+  // start === end is a glyph with no outline: the space, and every other blank.
+  if (range.end <= range.start) return [];
+  let at = glyfOffset + range.start;
+  if (at + 10 > v.byteLength) return undefined;
+  const numContours = v.getInt16(at);
+  at += 10; // past numberOfContours and the four bbox shorts
+
+  if (numContours < 0) {
+    /* ---- composite: components placed by offset, and sometimes scaled ---- */
+    const out: Contour[] = [];
+    for (;;) {
+      if (at + 4 > v.byteLength) return undefined;
+      const flags = v.getUint16(at);
+      const componentGid = v.getUint16(at + 2);
+      at += 4;
+      const words = (flags & 0x0001) !== 0;
+      const xy = (flags & 0x0002) !== 0;
+      let dx = 0;
+      let dy = 0;
+      if (words) {
+        dx = xy ? v.getInt16(at) : v.getUint16(at);
+        dy = xy ? v.getInt16(at + 2) : v.getUint16(at + 2);
+        at += 4;
+      } else {
+        dx = xy ? v.getInt8(at) : v.getUint8(at);
+        dy = xy ? v.getInt8(at + 1) : v.getUint8(at + 1);
+        at += 2;
+      }
+      let a = 1;
+      let b = 0;
+      let c = 0;
+      let d = 1;
+      const f2dot14 = (o: number): number => v.getInt16(o) / 16384;
+      if ((flags & 0x0008) !== 0) {
+        a = d = f2dot14(at);
+        at += 2;
+      } else if ((flags & 0x0040) !== 0) {
+        a = f2dot14(at);
+        d = f2dot14(at + 2);
+        at += 4;
+      } else if ((flags & 0x0080) !== 0) {
+        a = f2dot14(at);
+        b = f2dot14(at + 2);
+        c = f2dot14(at + 4);
+        d = f2dot14(at + 6);
+        at += 8;
+      }
+      // ARGS_ARE_XY_VALUES is what every real font sets; point-matching placement is
+      // not implemented, and a component using it is dropped rather than mis-placed.
+      if (xy) {
+        const inner = glyphContours(v, loca, glyfOffset, componentGid, depth + 1);
+        if (inner === undefined) return undefined;
+        for (const contour of inner) {
+          out.push(
+            contour.map((p) => ({
+              x: a * p.x + c * p.y + dx,
+              y: b * p.x + d * p.y + dy,
+              on: p.on,
+            })),
+          );
+        }
+      }
+      if ((flags & 0x0020) === 0) break; // MORE_COMPONENTS
+    }
+    return out;
+  }
+
+  /* ---- simple glyph ---- */
+  const ends: number[] = [];
+  for (let i = 0; i < numContours; i++) {
+    if (at + 2 > v.byteLength) return undefined;
+    ends.push(v.getUint16(at));
+    at += 2;
+  }
+  const numPoints = numContours === 0 ? 0 : (ends[ends.length - 1] as number) + 1;
+  if (numPoints === 0) return [];
+  const instructionLength = v.getUint16(at);
+  at += 2 + instructionLength;
+
+  const flags: number[] = [];
+  while (flags.length < numPoints) {
+    if (at >= v.byteLength) return undefined;
+    const f = v.getUint8(at++);
+    flags.push(f);
+    if ((f & 0x08) !== 0) {
+      if (at >= v.byteLength) return undefined;
+      let repeat = v.getUint8(at++);
+      while (repeat-- > 0 && flags.length < numPoints) flags.push(f);
+    }
+  }
+
+  const read = (shortBit: number, sameBit: number): number[] | undefined => {
+    const vals: number[] = [];
+    let acc = 0;
+    for (const f of flags) {
+      if ((f & shortBit) !== 0) {
+        if (at >= v.byteLength) return undefined;
+        const d = v.getUint8(at++);
+        acc += (f & sameBit) !== 0 ? d : -d;
+      } else if ((f & sameBit) === 0) {
+        if (at + 2 > v.byteLength) return undefined;
+        acc += v.getInt16(at);
+        at += 2;
+      }
+      vals.push(acc);
+    }
+    return vals;
+  };
+  const xs = read(0x02, 0x10);
+  const ys = read(0x04, 0x20);
+  if (!xs || !ys) return undefined;
+
+  const out: Contour[] = [];
+  let from = 0;
+  for (const end of ends) {
+    const contour: Contour = [];
+    for (let i = from; i <= end && i < numPoints; i++) {
+      contour.push({
+        x: xs[i] as number,
+        y: ys[i] as number,
+        on: ((flags[i] as number) & 0x01) !== 0,
+      });
+    }
+    if (contour.length > 0) out.push(contour);
+    from = end + 1;
+  }
+  return out;
+}
+
+/**
+ * Contours → SVG path data, quadratic throughout.
+ *
+ * TrueType stores one control point per curve and lets two consecutive off-curve points
+ * imply the on-curve point between them, so the walk has to synthesise those midpoints;
+ * a contour that starts off-curve is rotated onto the implied midpoint of its ends. This
+ * is the standard reading of the format, and getting it wrong shows up immediately as a
+ * letter with a corner where it should have a bowl.
+ */
+function contoursToPath(contours: Contour[]): string {
+  const parts: string[] = [];
+  for (const contour of contours) {
+    if (contour.length === 0) continue;
+    const startIndex = contour.findIndex((p) => p.on);
+    let start: { x: number; y: number };
+    let order: Contour;
+    if (startIndex >= 0) {
+      start = contour[startIndex] as { x: number; y: number };
+      order = [...contour.slice(startIndex + 1), ...contour.slice(0, startIndex + 1)];
+    } else {
+      const a = contour[0] as { x: number; y: number };
+      const b = contour[contour.length - 1] as { x: number; y: number };
+      start = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      order = [...contour, { ...start, on: true }];
+    }
+    parts.push(`M${fu(start.x)} ${fu(start.y)}`);
+    for (let i = 0; i < order.length; i++) {
+      const p = order[i] as Contour[number];
+      if (p.on) {
+        parts.push(`L${fu(p.x)} ${fu(p.y)}`);
+        continue;
+      }
+      const next = order[i + 1];
+      if (next === undefined) {
+        // An off-curve point with nothing after it curves back to the start.
+        parts.push(`Q${fu(p.x)} ${fu(p.y)} ${fu(start.x)} ${fu(start.y)}`);
+        break;
+      }
+      if (next.on) {
+        parts.push(`Q${fu(p.x)} ${fu(p.y)} ${fu(next.x)} ${fu(next.y)}`);
+        i++;
+      } else {
+        parts.push(`Q${fu(p.x)} ${fu(p.y)} ${fu((p.x + next.x) / 2)} ${fu((p.y + next.y) / 2)}`);
+      }
+    }
+    parts.push('Z');
+  }
+  return parts.join('');
+}
+
+/** `outline` for a parsed face, memoised per glyph id. `undefined` for a CFF face. */
+function outlineReader(
+  v: DataView,
+  tables: Tables,
+  cmap: Map<number, number>,
+  head: { offset: number },
+): (cp: number) => string | undefined {
+  const glyf = tables.get('glyf');
+  const locaT = tables.get('loca');
+  const maxp = tables.get('maxp');
+  if (!glyf || !locaT || !maxp) return () => undefined;
+  const longLoca = v.getInt16(head.offset + 50) === 1;
+  const numGlyphs = v.getUint16(maxp.offset + 4);
+  const loca = (gid: number): { start: number; end: number } | undefined => {
+    if (gid < 0 || gid >= numGlyphs) return undefined;
+    const at = locaT.offset + (longLoca ? gid * 4 : gid * 2);
+    const stride = longLoca ? 4 : 2;
+    if (at + stride * 2 > v.byteLength) return undefined;
+    return longLoca
+      ? { start: v.getUint32(at), end: v.getUint32(at + 4) }
+      : { start: v.getUint16(at) * 2, end: v.getUint16(at + 2) * 2 };
+  };
+  const cache = new Map<number, string | undefined>();
+  return (cp) => {
+    if (cache.has(cp)) return cache.get(cp);
+    const gid = cmap.get(cp);
+    const contours = gid === undefined ? undefined : glyphContours(v, loca, glyf.offset, gid);
+    const d = contours === undefined ? undefined : contoursToPath(contours);
+    cache.set(cp, d);
+    return d;
+  };
+}
+
 /* ------------------------------------------------------------ builtin widths */
 
 /**
@@ -272,6 +548,9 @@ export function builtinMetrics(familyName = 'Inkcast Hand'): FontMetrics {
     // would defeat the glyph gate exactly where it matters most.
     covers: (cp) => cp >= 0x20 && cp <= 0x7e,
     measure: (text, fontSize, tracking = 0) => measureWith(advance, text, fontSize, tracking),
+    // No font file, so no letterforms. A width table can fake an advance; it cannot
+    // fake an outline, and the code lane is expected to stop rather than invent one.
+    outline: () => undefined,
   };
 }
 
@@ -363,6 +642,7 @@ export function parseFontMetrics(buf: Buffer, filePath?: string): FontMetrics | 
       advance,
       covers: (cp) => cmap.has(cp),
       measure: (text, fontSize, tracking = 0) => measureWith(advance, text, fontSize, tracking),
+      outline: outlineReader(v, tables, cmap, head),
     };
   } catch (err) {
     log.debug('font parse failed', err);
@@ -381,15 +661,31 @@ const FONT_EXT = new Set(['.ttf', '.otf', '.ttc']);
  * directory without recursing, so the flat path alone finds nothing and every
  * measurement silently falls back to `builtinMetrics()` — text laid out to
  * approximate widths, which shows up as handwriting that overruns its box.
+ *
+ * **`assets/fonts/code/` is deliberately not in this list**, and the mono face has its
+ * own `codeFontDirs()` instead. `findFontFile`'s last resort is "any font at all", so a
+ * shared search path would mean a tree with its handwriting faces missing letters the
+ * whole board in JetBrains Mono — `source: 'file'`, no warning, and none of the
+ * degradations that are supposed to be loud. Two roles, two search paths, and neither
+ * lookup can reach the other's file.
  */
 export function defaultFontDirs(): string[] {
-  const bases = [
+  const bases = fontBases();
+  return bases.flatMap((base) => [base, path.join(base, 'hand')]);
+}
+
+function fontBases(): string[] {
+  return [
     process.env.INKCAST_FONT_DIR,
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../assets/fonts'), // src/ → repo root
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../assets/fonts'), // dist/src/ → repo root
     path.resolve(process.cwd(), 'assets/fonts'),
   ].filter((p): p is string => !!p);
-  return bases.flatMap((base) => [base, path.join(base, 'hand')]);
+}
+
+/** Where the code lane's monospace face lives, and nothing else. */
+export function codeFontDirs(): string[] {
+  return fontBases().map((base) => path.join(base, 'code'));
 }
 
 /**
@@ -540,4 +836,62 @@ export function handMetricsFor(style: StoryboardMeta['style']): FontMetrics {
   const m = loadFontMetrics({ preferred: hand.fontFiles, fontFamily: hand.fontFamily });
   handCache.set(style, m);
   return m;
+}
+
+/* -------------------------------------------------------------- the mono face */
+
+/**
+ * The one face code is set in, for every ink style (plan 6.2).
+ *
+ * **One face, not four**, and that is the deliberate half of this. Every other kind of
+ * text on the board changes with `meta.style`, because handwriting is the board's voice.
+ * A listing is not in the board's voice: it is a quotation of a file, and the whole
+ * reason the code lane exists is that a listing set in Shantell Sans is a *misquotation*
+ * — proportional widths destroy the indentation that carries the program's structure,
+ * and the face's `l`/`1` and `O`/`0` are the pairs a hand-lettered face is least careful
+ * about. So a chalk film's code is the same monospace as a marker film's code, and the
+ * style shows up where it should: in the ink colour and the pen weight around it.
+ *
+ * JetBrains Mono because it is already vendored for the studio's chrome and was chosen
+ * there on exactly the property that matters here — `0`/`O` and `1`/`l` disambiguation
+ * (`assets/fonts/README.md`, "Retired 2026-08-21"). The `.ttf` in `assets/fonts/code/`
+ * is a second copy of that decision rather than a new one: `ui/` ships the latin-subset
+ * `woff2` for a browser, and outlines have to be read out of an sfnt in Node.
+ */
+export const MONO_FONT = {
+  fontFamily: 'JetBrains Mono',
+  fontFiles: ['jetbrainsmono', 'jetbrains-mono', 'jetbrains'],
+} as const;
+
+let monoOnce: FontMetrics | undefined;
+
+/**
+ * The code lane's metrics and letterforms, loaded once per process.
+ *
+ * Unlike `handMetricsFor` this does **not** degrade to `builtinMetrics`: a width table
+ * has no outlines, and the lane's answer to a missing face is to say so and let the gate
+ * decide — never to letter a listing by hand. `INKCAST_CODE_FONT` overrides the file, for
+ * the same reason `INKCAST_FONT` exists.
+ */
+export function monoMetrics(): FontMetrics | undefined {
+  if (monoOnce) return monoOnce;
+  const explicit = process.env.INKCAST_CODE_FONT;
+  const file =
+    explicit && existsSync(explicit)
+      ? explicit
+      : findFontFile([...MONO_FONT.fontFiles], codeFontDirs());
+  if (!file) {
+    log.warn(
+      `no monospace font found in ${codeFontDirs().join(', ')} — the code lane cannot set a ` +
+        'listing without one (expected assets/fonts/code/JetBrainsMono-Variable.ttf)',
+    );
+    return undefined;
+  }
+  const parsed = parseFontMetrics(readFileSync(file), file);
+  if (!parsed) {
+    log.warn(`${file} is not a font this reader understands — the code lane has no letterforms`);
+    return undefined;
+  }
+  monoOnce = parsed;
+  return parsed;
 }

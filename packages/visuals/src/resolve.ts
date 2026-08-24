@@ -32,10 +32,11 @@ import {
   type StageOptions,
   type Storyboard,
 } from '@inkcast/core';
+import { resolveCode } from './code.js';
 import { resolveDiagram } from './diagram.js';
 import { resolveEquation } from './equation.js';
 import type { FontMetrics } from '@inkcast/core';
-import { loadFontMetrics } from '@inkcast/core';
+import { loadFontMetrics, monoMetrics } from '@inkcast/core';
 import { formatGlyphViolation, glyphViolations } from './glyphgate.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import {
@@ -137,6 +138,21 @@ export async function resolveVisuals(
   const fontFP = [font.familyName, font.source, font.unitsPerEm, font.ascent, font.descent].join(
     '|',
   );
+  /**
+   * The code lane's own inputs, folded into a `code` element's hash and nothing else's.
+   *
+   * Deliberately absent from every other element's key, for `illustrationKey`'s reason
+   * (plan 6.5): a token that contributes nothing to the geometry still invalidates every
+   * cached element in every project on disk the day it is added. The monospace face is
+   * not in `fontFP` because `fontFP` is the *handwriting* face — two roles, two faces
+   * (`MONO_FONT`) — and no element but `code` reads letterforms out of the mono one.
+   */
+  const codeFP = [
+    'code/v1',
+    monoMetrics()?.familyName ?? 'none',
+    monoMetrics()?.unitsPerEm ?? 0,
+    monoMetrics()?.ascent ?? 0,
+  ].join('|');
   const canvasHeight = out.canvas.h;
   // The board's own scale, from the same `boardMetrics` the renderer calls. Framing is
   // a function of elements and regions only — never of measured durations — so it does
@@ -295,6 +311,7 @@ export async function resolveVisuals(
         'element/v2',
         JSON.stringify(el),
         el.type === 'asset' ? (assetHashes.get(el.assetId) ?? '') : '',
+        el.type === 'code' ? codeFP : '',
         targetBox ? JSON.stringify(targetBox) : '',
         JSON.stringify(out.canvas),
         styleFP,
@@ -725,6 +742,7 @@ async function resolveElement(args: {
   let items: InkItem[] = [];
   let diagram: ElementVisual['diagram'];
   let equation: ElementVisual['equation'];
+  let code: ElementVisual['code'];
   let plot: ElementVisual['plot'];
   let pathLayout: ElementVisual['path'];
   let assetRef: ElementVisual['asset'];
@@ -784,6 +802,54 @@ async function resolveElement(args: {
             canvasHeight,
             colour: style.ink,
             valign: 'middle',
+          }),
+        ),
+      ];
+      break;
+    }
+    case 'code': {
+      const resolved = await resolveCode(
+        { code: el.code, lang: el.lang, box: el.at, align: el.align },
+        base,
+        {
+          style,
+          // The board's own type sizes, so "too small to read" means the same thing here
+          // as it does for everything else on this board. A listing may not be set
+          // smaller than the smallest text the film writes, and a two-line snippet in an
+          // empty cell may not be set larger than its prose.
+          minEm: board.type.caption,
+          maxEm: board.type.body,
+        },
+      );
+      if (resolved) {
+        code = resolved.layout;
+        items = resolved.items;
+        break;
+      }
+      // The listing could not be set: no monospace face, no grammar engine, a character
+      // the face cannot draw, or a block that does not fit legibly. Under the strict gate
+      // this stops the run, because the fallback is the *whole defect the lane exists to
+      // end* — a listing lettered in a handwriting face, with its indentation destroyed.
+      // Under degrade, draw it as text rather than losing the beat: a badly set listing is
+      // poor, and a blank space where the worked example should be is worse. The lane has
+      // already logged the reason.
+      gate(
+        args.gates,
+        `code ${el.id} could not be set (${el.lang}, ${el.code.split('\n').length} lines) — ` +
+          'it would be drawn in the handwriting font, with its indentation lost',
+        () => log.warn(`code ${el.id} could not be set — drawing it as handwriting`),
+      );
+      items = [
+        textItem(
+          layoutText(el.code, {
+            box: el.at,
+            style,
+            font,
+            role: 'body',
+            align: 'left',
+            canvasHeight,
+            colour: style.ink,
+            valign: 'top',
           }),
         ),
       ];
@@ -979,6 +1045,7 @@ async function resolveElement(args: {
     ...(diagram ? { diagram } : {}),
     ...(plot ? { plot } : {}),
     ...(equation ? { equation } : {}),
+    ...(code ? { code } : {}),
     ...(pathLayout ? { path: pathLayout } : {}),
     ...(motion ? { motion } : {}),
     ...(assetRef ? { asset: assetRef } : {}),

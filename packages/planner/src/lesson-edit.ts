@@ -25,6 +25,15 @@ const log = logger('planner:lesson:edit');
 const NEEDS_MODEL =
   /\b(rewrite|reword|rephrase|explain|expand|add (?:a )?(?:step|beat|example)|new step|split|merge|funnier|friendlier|simpler|more formal|translate|different (?:anchor|analogy|hook|example)|better (?:hook|anchor|analogy)|mention|say instead|justify|derive)\b/i;
 
+/**
+ * The kinds a plain-language edit may switch a beat to.
+ *
+ * `draw` is absent because "draw X" is how half of these instructions are phrased, and
+ * `code` is absent for a different reason: the code lane needs the listing itself, which
+ * an instruction like "show the code" does not carry. Switching a beat to it from here
+ * would route it to a lane that can only warn and hand the beat back. A listing arrives by
+ * being written into `code`, or in a fenced block — see `codeListing` in `./compile.ts`.
+ */
 const KINDS: VisualIntent['kind'][] = [
   'plot',
   'path',

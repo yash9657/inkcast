@@ -17,10 +17,11 @@
  * is equal to it — the two are in different units, and the measurement that says so is in
  * `FONT`'s own comment.
  */
-import { HAND_FONTS, TYPE_SCALE, handMetricsFor, logger } from '@inkcast/core';
+import { HAND_FONTS, TYPE_SCALE, codeBox, handMetricsFor, logger } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
+  CodeElement,
   DiagramElement,
   Element,
   EmphasisElement,
@@ -473,6 +474,54 @@ export function makeEquation(
     at: box(m.w, m.h),
     // `draw` rather than `write`: the glyphs are revealed as ink along their own
     // outlines, not through the handwriting lane's per-word masks.
+    enter: enter(o.enter, 'draw'),
+    persist: o.persist ?? true,
+  };
+}
+
+/**
+ * A set listing, sized from its own character grid.
+ *
+ * The measurement is the whole of this builder, and it is measured on the same grid the
+ * visuals stage will set on — `codeBox` in `@inkcast/core` is the one function that counts
+ * a listing's columns, imported by both stages for the reason `A-4` gives about advance
+ * tables. `FONT.label` rather than `FONT.body` because a listing is a quotation and reads
+ * as one: code set as large as the prose around it competes with the prose, and the board
+ * has a caption and a picture in the same cell.
+ *
+ * `maxWidth` is a ceiling on the box, so a 60-column line makes the whole block smaller
+ * rather than overrunning. The visuals stage may shrink it further to fit whatever cell
+ * the layout solver hands it, and refuses below the board's caption size — which is where
+ * "this listing is too big for this beat" becomes a named problem instead of a grey
+ * rectangle.
+ *
+ * **Never routed through `makeText`.** `sniffMath` promotes anything that looks
+ * mathematical to the equation lane, and its TeX test fires on a backslash followed by
+ * letters and on `$…$` — which is a Windows path, a shell variable, a PHP variable and a
+ * regex in almost any real snippet. Code reaching the board as text is the defect this
+ * lane exists to end; code reaching it as *TeX* would be a new one.
+ */
+export function makeCode(
+  id: string,
+  code: string,
+  lang: string,
+  o: {
+    maxWidth?: number;
+    align?: CodeElement['align'];
+    persist?: boolean;
+    enter?: EnterInit;
+  } = {},
+): CodeElement {
+  const fitted = codeBox(code, FONT.label, o.maxWidth ?? 900);
+  return {
+    id,
+    type: 'code',
+    code,
+    lang,
+    align: o.align ?? 'left',
+    at: box(fitted.w, fitted.h),
+    // `draw` rather than `write`: the glyphs are revealed as ink along their own outlines,
+    // in document order, not through the handwriting lane's per-word masks.
     enter: enter(o.enter, 'draw'),
     persist: o.persist ?? true,
   };

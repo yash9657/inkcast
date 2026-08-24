@@ -13,7 +13,7 @@
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { frameSize, totalDuration } from '@inkcast/core';
+import { frameSize, laneGapLines, totalDuration } from '@inkcast/core';
 import {
   cast,
   degradations,
@@ -270,6 +270,9 @@ function jsonResult(result: CastResult, copied?: string) {
       : undefined,
     lessonProblems: result.problems,
     grounding: result.grounding,
+    // Pictures no lane here can draw (plan 6.1). Structured rather than prose, because
+    // the frequency of these across real runs is what decides which lane gets built.
+    laneGaps: result.laneGaps,
     // Beside the lesson's problems and in the same shape, because they are the same
     // kind of fact: something about this render is worse than the command asked for.
     voiceProblems: result.voice.problems,
@@ -382,6 +385,15 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     for (const p of result.problems.slice(0, 5)) out += `    ${c.dim('·')} ${p}\n`;
     const major = result.degradations.find((d) => d.severity === 'major');
     if (major) out += `    ${c.dim('fix:')} ${c.cyan(major.fix)}\n`;
+  }
+
+  // What this lesson asked for that inkcast cannot draw (plan 6.1; audit S5-a). Its own
+  // block, again: this is not a weakness of the lesson — the teaching may be perfect —
+  // it is a gap in the renderer, and the film contains an approximation of a picture
+  // that has a correct form nobody here can produce.
+  if (result.laneGaps.length > 0) {
+    out += `\n  ${c.yellow('some pictures need a lane inkcast doesn’t have:')}\n`;
+    for (const line of laneGapLines(result.laneGaps)) out += `    ${c.dim('·')} ${line}\n`;
   }
 
   // Its own block rather than an addition to the one above, which is gated entirely on

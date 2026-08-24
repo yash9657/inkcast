@@ -351,6 +351,48 @@ export const EquationElement = z.object({
   align: z.enum(['left', 'center', 'right']).default('center'),
 });
 
+/**
+ * A source listing, set in monospace and syntax-highlighted (plan item 6.2).
+ *
+ * Same defect, same remedy, one lane over from `equation`. Code used to reach the board
+ * as a `text` element: a listing lettered in a handwriting face, wrapped at proportional
+ * advances. That loses the two things a listing *is*. Indentation carries the block
+ * structure of the program, and proportional widths destroy it — a `for` body and the
+ * line after it stop being distinguishable. And nothing marks which words are the
+ * language and which are the author's, so a reader has to parse a picture of code with
+ * none of the help every editor they have ever used gives them.
+ *
+ * The `code` is the source of truth. The visuals stage tokenises it, sets it on a
+ * character grid in the vendored monospace face and emits every glyph as an exact
+ * outline, so the ink mode is `crisp` — for the reason the equation lane gives, twice
+ * over: a wobbled `l` is a `1`.
+ */
+export const CodeElement = z.object({
+  ...ElementBase,
+  type: z.literal('code'),
+  /**
+   * The listing itself, newline-separated, exactly as it should appear.
+   *
+   * Not wrapped and never re-indented: what the author wrote is what is set, because
+   * re-flowing code changes what it means. A line too long for the box shrinks the whole
+   * block rather than breaking, so the geometry stays a faithful quotation — see
+   * `resolveCode`.
+   */
+  code: z.string(),
+  /**
+   * The language, as a Shiki grammar id (`python`, `typescript`, `sql`, …).
+   *
+   * `text` is the honest answer when the language is unknown, and it is the default: an
+   * unhighlighted listing in the right face with the right indentation is already most
+   * of the value, while highlighting a snippet as the wrong language marks the wrong
+   * words and is worse than not marking any. A grammar this build does not carry falls
+   * back to `text` with a warning rather than failing the render.
+   */
+  lang: z.string().default('text'),
+  /** Where the block sits in `at` when the fitted grid is narrower than the box. */
+  align: z.enum(['left', 'center', 'right']).default('left'),
+});
+
 export const AssetElement = z.object({
   ...ElementBase,
   type: z.literal('asset'),
@@ -538,6 +580,7 @@ export const PathElement = z.object({
 export const Element = z.discriminatedUnion('type', [
   TextElement,
   EquationElement,
+  CodeElement,
   AssetElement,
   ShapeElement,
   ArrowElement,
@@ -682,6 +725,7 @@ export type Camera = z.infer<typeof Camera>;
 export type StoryboardMeta = z.infer<typeof StoryboardMeta>;
 export type TextElement = z.infer<typeof TextElement>;
 export type EquationElement = z.infer<typeof EquationElement>;
+export type CodeElement = z.infer<typeof CodeElement>;
 export type AssetElement = z.infer<typeof AssetElement>;
 export type ShapeElement = z.infer<typeof ShapeElement>;
 export type ArrowElement = z.infer<typeof ArrowElement>;

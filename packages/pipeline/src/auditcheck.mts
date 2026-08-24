@@ -600,7 +600,11 @@ function check(name: string, ok: boolean, why: string): void {
     'A-1: ElementVisual carries no enterAt / enterDuration / persist',
     !/^\s*(enterAt|enterDuration|persist)\??:/m.test(manifest) &&
       !/enterAt: el\.enter\.at/.test(resolve) &&
-      /MANIFEST_VERSION = 3/.test(manifest),
+      // At least 3, not exactly 3. The bump is what made the removal safe — an older
+      // sidecar is refused rather than half-read — and version 3 is the one that did it.
+      // Pinning the literal made this a version tracker instead of a fact check, and it
+      // failed the day the code lane's own layout bumped it to 4.
+      Number(/MANIFEST_VERSION = (\d+)/.exec(manifest)?.[1] ?? 0) >= 3,
     'the sidecar is duplicating timing the visuals fingerprint deliberately excludes — stale on every re-voice, read by nothing',
   );
   check(
@@ -628,6 +632,98 @@ function check(name: string, ok: boolean, why: string): void {
       !/zoom: \{ type: 'number' \}/.test(ops) &&
       /function clampCamera/.test(ops),
     'a raw x/y/zoom is applied verbatim again — one camera in the film that nothing checked against its own board',
+  );
+}
+
+/* ---- S5-a (6.1): the four gaps are named, reported, and not a gate ---- */
+{
+  const lanes = read('packages/core/src/lanes.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  check(
+    'S5-a: the unserved lanes are named where three packages can read them',
+    /export function unservedLanes/.test(lanes) &&
+      // Three, not the original four: `code` came out when 6.2 built that lane. The
+      // expiry check below is what forced it out, and is what will force the next one.
+      ['chemistry', 'circuits', 'geography'].every((l) =>
+        new RegExp(`^\\s{2}${l}: \\{ needs:`, 'm').test(lanes),
+      ),
+    'a topic class this pipeline cannot draw has stopped being declared — the fallback for it is a confidently wrong picture and nothing says so',
+  );
+  check(
+    'S5-a: a gap reaches qc.json, and as a warning',
+    /id: 'lane-coverage', findings: laneGapLines\(design\.laneGaps\), severity: 'warn'/.test(cast),
+    'the guard is a log line again, or it has become a gate — it is a fact about this pipeline, not about that board',
+  );
+  check(
+    'S5-a: the guard warns, it does not refuse to draw',
+    !/\bgate\(/.test(lanes) && !/throw /.test(lanes),
+    'the lane guard blocks now: trading a wrong picture for a missing one is 6.2/6.3’s decision, made with frames in front of you',
+  );
+  // The table's own expiry date. Each lane names the library that would end it, so the
+  // day one is installed the entry has to come out — otherwise the studio goes on
+  // apologising for a lane that exists. Reads `package.json` files, not modules.
+  {
+    const manifests =
+      ['package.json', 'packages/visuals/package.json', 'packages/planner/package.json', 'packages/render/package.json', 'packages/core/package.json'] // prettier-ignore
+        .map((f) => read(f))
+        .join('\n');
+    const built = [...lanes.matchAll(/renderer: '([a-z0-9-]+)'/g)]
+      .map((m) => m[1]!)
+      .filter((dep) => new RegExp(`"${dep}"\\s*:`).test(manifests));
+    check(
+      'S5-a: no lane is declared unserved after its renderer has been installed',
+      built.length === 0,
+      `${built.join(', ')} is a dependency now — that lane exists, so delete it from UNSERVED and stop warning about it`,
+    );
+  }
+}
+
+/* ---- S5-a (6.2): the code lane sets source, and never letters it ---- */
+{
+  const code = read('packages/visuals/src/code.ts');
+  const grid = read('packages/core/src/codegrid.ts');
+  const font = read('packages/core/src/fontmetrics.ts');
+  const compile = read('packages/render/src/compile.ts');
+  const resolve = read('packages/visuals/src/resolve.ts');
+  const planner = read('packages/planner/src/compile.ts');
+  const brief = read('packages/planner/src/lesson-anthropic.ts');
+
+  check(
+    'S5-a: code is set from real glyph outlines, crisp, in document order',
+    /ink: 'crisp'/.test(code) && /mono\.outline\(/.test(code) && /outline\(codePoint/.test(font),
+    'the code lane has stopped reading letterforms out of the face — a listing the browser substituted a glyph into is a different program (D1, in monospace)',
+  );
+  check(
+    'S5-a: one code grid, measured by both stages',
+    /export function codeGrid/.test(grid) &&
+      /export function codeBox/.test(grid) &&
+      /codeGrid\(/.test(code) &&
+      /codeBox\(/.test(read('packages/planner/src/elements.ts')),
+    'the planner and the visuals stage count a listing’s columns separately again — the A-4 defect, one lane over',
+  );
+  check(
+    'S5-a: highlighting spends the film’s palette, not a theme’s',
+    /toneInk\(ctx\.pal, part\.tone\)/.test(compile) && /tone: Tone/.test(code),
+    'a listing is drawn in colours the visuals stage chose — the 2.2 remap means they reach no pixel, and a dozen hues would be the rainbow board the palette forbids',
+  );
+  check(
+    'S5-a: a listing that will not set is gated, never handwritten quietly',
+    /code \$\{el\.id\} could not be set/.test(resolve) &&
+      /has no set geometry/.test(compile) &&
+      /gate\(/.test(compile),
+    'the code lane falls back to the handwriting font without stopping — that fallback is the whole defect the lane was built to end',
+  );
+  check(
+    'S5-a: code never funnels through makeText',
+    /export function makeCode/.test(read('packages/planner/src/elements.ts')) &&
+      /return buildCode\(listing, describe, ctx\)/.test(planner),
+    'a listing routed through makeText meets sniffMath, whose TeX test fires on a Windows path, a shell variable and most regexes — code would be typeset as mathematics',
+  );
+  check(
+    'S5-a: the lesson brief advertises the code lane and its field',
+    // The brief is a template literal, so its own backticks are escaped in the source.
+    /- \*\*code\*\* —/.test(brief) && /\\`code\\`/.test(brief) && /\\`lang\\`/.test(brief),
+    'a lane the author is not told about is a lane that never runs (the S5-b rule, applied to 6.2)',
   );
 }
 

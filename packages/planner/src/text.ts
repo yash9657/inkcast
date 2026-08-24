@@ -37,13 +37,31 @@ const ABBREVIATIONS = [
   'Sr.',
 ];
 
-/** Collapse whitespace, normalise quotes and dashes. */
-export function normalizeWhitespace(s: string): string {
+/**
+ * The half of `normalizeWhitespace` that a listing survives.
+ *
+ * Line endings, non-breaking spaces and smart quotes — substitutions that swap a character
+ * for the character it stands for, and never change how many there are. Split out because
+ * `parseBlocks` has to normalise a document *without* normalising the fenced blocks inside
+ * it (plan item 6.2): a code block's leading spaces are its block structure, and collapsing
+ * them deleted the one thing the code lane exists to preserve — before the lane ever saw it.
+ */
+export function normalizeChars(s: string): string {
   return s
     .replace(/\r\n?/g, '\n')
-    .replace(/ /g, ' ')
+    .replace(/\u00a0/g, ' ')
     .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
+    .replace(/[“”]/g, '"');
+}
+
+/** Runs of spaces and tabs collapsed to one, and the ends trimmed. Prose only. */
+export function collapseSpaces(s: string): string {
+  return s.replace(/[ \t]+/g, ' ').trim();
+}
+
+/** Collapse whitespace, normalise quotes and dashes. */
+export function normalizeWhitespace(s: string): string {
+  return normalizeChars(s)
     .replace(/[ \t]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .trim();

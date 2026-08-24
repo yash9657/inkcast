@@ -14,6 +14,7 @@ import type { Beat } from './beats.js';
 import { buildBeats } from './beats.js';
 import {
   makeAsset,
+  makeCode,
   makeDiagram,
   makeEmphasis,
   makeShape,
@@ -355,16 +356,17 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
     }
 
     case 'code': {
-      const lines = beat.code?.lines ?? [];
-      if (!lines.length) return undefined;
+      // The code lane, not the diagram lane (plan item 6.2). This used to build a `stack`
+      // of one node per line, which put each line of source in a rounded box lettered by
+      // hand at proportional widths — indentation gone, comments stripped upstream, every
+      // line cut to twelve words. `beats.ts` now keeps the listing verbatim and this sets
+      // it: monospace, highlighted, revealed in document order.
+      const listing = beat.code;
+      if (!listing?.text.trim()) return undefined;
       const codeHead = pickLead(ctx, beat.heading || 'In code', headingShown);
       if (codeHead) add(makeText(eid('head'), codeHead, 'heading'), { span: 'full' }, 'anchor');
       add(
-        makeDiagram(
-          eid('code'),
-          'stack',
-          lines.map((l, k) => ({ id: `c${k}`, label: l })),
-        ),
+        makeCode(eid('code'), listing.text, listing.lang || 'text'),
         { span: 'full', breakBefore: true },
         'figure',
       );

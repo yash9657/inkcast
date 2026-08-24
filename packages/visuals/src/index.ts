@@ -92,6 +92,17 @@ export {
   type ResolvedEquation,
 } from './equation.js';
 
+/* ---- code lane ---------------------------------------------------------- */
+export {
+  codeEngineReady,
+  resolveCode,
+  type CodeLayout,
+  type CodePart,
+  type CodeSpec,
+  type ResolveCodeOptions,
+  type ResolvedCode,
+} from './code.js';
+
 /* ---- path lane ---------------------------------------------------------- */
 export {
   CATMULL_ROM_ALPHA,

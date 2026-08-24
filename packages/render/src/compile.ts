@@ -26,6 +26,7 @@ import type { FontMetrics } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
+  CodeElement,
   DiagramElement,
   Element,
   EmphasisElement,
@@ -1420,6 +1421,8 @@ function primsFor(el: Element, ctx: Ctx): PlanPrim[] {
       return textPrims(el, ctx);
     case 'equation':
       return equationPrims(el, ctx);
+    case 'code':
+      return codePrims(el, ctx);
     case 'shape':
       return shapePrims(el, ctx, rng, alpha);
     case 'arrow':
@@ -1485,6 +1488,54 @@ function equationPrims(el: EquationElement, ctx: Ctx): PlanPrim[] {
   return src.strokes
     .filter((s) => s.d.length > 0)
     .map((s) => geom(s.d, ctx.pal.ink, s.strokeWidth, { fill: ctx.pal.ink }));
+}
+
+/**
+ * A set listing, straight from the sidecar (plan item 6.2).
+ *
+ * `equationPrims`' shape, with one addition: `layout.parts` says which ink each run of
+ * glyphs is drawn in, as index ranges into the same draw sequence. The recorded stroke
+ * colour is ignored on purpose — this is the film's palette, and a colour written by the
+ * visuals stage has reached no pixel since plan item 2.2. The tone is what travels, and
+ * `toneInk` is the one place a tone becomes a colour.
+ *
+ * Ordering is again the whole animation. The marks are in document order, so the page's
+ * proportional-to-ink slicing types the listing on line by line with nothing here
+ * scheduling it.
+ */
+function codePrims(el: CodeElement, ctx: Ctx): PlanPrim[] {
+  const src = ctx.visuals.codeFor(el);
+  if (!src) {
+    // No recorded geometry: an un-run visuals stage, or a listing that would not set.
+    // Strict stops, because the fallback is the defect — a listing in a handwriting face
+    // with its indentation destroyed is *why* this lane was built. Degrade puts the source
+    // on the board, badly, rather than losing the beat.
+    gate(
+      ctx.gates,
+      `code "${el.id}" has no set geometry in ${MANIFEST_PATH} — ` +
+        'it would be drawn in the handwriting font, with its indentation lost. Re-run the visuals stage',
+      () =>
+        log.warn(
+          `code "${el.id}" has no set geometry in ${MANIFEST_PATH} — drawing it as handwriting. ` +
+            'Re-run the visuals stage.',
+        ),
+    );
+    return [textPrim(el.code, el.at, TYPE_SCALE.body * ctx.type, ctx.pal.ink, 'left', 'top')];
+  }
+  // One colour per stroke index, from the runs. `ink` is the default rather than a
+  // fallback: `parts` covers every mark that carries a tone, and a mark it somehow misses
+  // is a plain identifier, which is what `ink` draws.
+  const tones = new Array<string>(src.strokes.length).fill(ctx.pal.ink);
+  for (const part of src.layout.parts) {
+    const colour = toneInk(ctx.pal, part.tone);
+    for (let i = Math.max(0, part.from); i < Math.min(part.to, tones.length); i++) {
+      tones[i] = colour;
+    }
+  }
+  return src.strokes
+    .map((s, i) => ({ s, colour: tones[i] as string }))
+    .filter(({ s }) => s.d.length > 0)
+    .map(({ s, colour }) => geom(s.d, colour, s.strokeWidth, { fill: colour }));
 }
 
 /**

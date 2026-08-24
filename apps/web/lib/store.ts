@@ -245,6 +245,15 @@ const SourceRefSchema = z.object({
  */
 const GroundingSchema = z.enum(['document', 'parametric', 'supplied']);
 
+/**
+ * Kept in step with `PipelineState.lanes` in `@inkcast/pipeline`, which is the authority:
+ * the classes of picture this film asked for that no renderer here can draw (plan 6.1,
+ * audit S5-a). Free strings rather than an enum, and deliberately: the studio must keep
+ * showing a name a newer pipeline records without a deploy of this app, and the day a
+ * lane is *built* its name stops being written at all.
+ */
+const LanesSchema = z.object({ unserved: z.array(z.string()) });
+
 const ProjectRecordSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -258,6 +267,8 @@ const ProjectRecordSchema = z.object({
   source: SourceRefSchema.optional(),
   /** What this film's facts rest on, when a run recorded it. See `GroundingSchema`. */
   grounding: GroundingSchema.optional(),
+  /** Picture classes this film could not be given. See `LanesSchema`. */
+  lanes: LanesSchema.optional(),
   /** Failure message from the last run, cleared when a run succeeds. */
   error: z.string().optional(),
   costUsd: z.number().nonnegative().optional(),
@@ -553,6 +564,10 @@ function mergeMeta(
   // the run that wrote the lesson, and a later status patch that carries nothing must
   // not erase it.
   const grounding = patch.grounding ?? previous?.grounding;
+  // Sticky for the same reason, and one more: it is written by the lesson stage and a
+  // patch from any later stage carries nothing, so inheriting is the only way the note
+  // survives the render that follows it.
+  const lanes = patch.lanes ?? previous?.lanes;
   const costUsd = finite(patch.costUsd ?? previous?.costUsd);
   const aspect = patch.aspect ?? previous?.aspect;
   // Ownership and publication are sticky: a status update from a background job
@@ -573,6 +588,7 @@ function mergeMeta(
     ...(videoPath === undefined ? {} : { videoPath }),
     ...(source === undefined ? {} : { source }),
     ...(grounding === undefined ? {} : { grounding }),
+    ...(lanes === undefined ? {} : { lanes }),
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(aspect === undefined ? {} : { aspect }),
     ...(ownerSession === undefined ? {} : { ownerSession }),
@@ -742,6 +758,7 @@ function mergeDisk(summary: DiskSummary, previous: ProjectRecord | undefined): P
   const source = summary.source ?? previous?.source;
   const costUsd = summary.costUsd ?? previous?.costUsd;
   const grounding = summary.grounding ?? previous?.grounding;
+  const lanes = summary.lanes ?? previous?.lanes;
 
   return {
     id: summary.id,
@@ -756,6 +773,7 @@ function mergeDisk(summary: DiskSummary, previous: ProjectRecord | undefined): P
     ...(summary.videoPath ? { videoPath: summary.videoPath } : {}),
     ...(source === undefined ? {} : { source }),
     ...(grounding === undefined ? {} : { grounding }),
+    ...(lanes === undefined ? {} : { lanes }),
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(previous?.aspect === undefined ? {} : { aspect: previous.aspect }),
     // A project with a video on disk is not a failure, whatever the index says.
@@ -828,6 +846,7 @@ type DiskSummary = {
   costUsd?: number;
   source?: z.infer<typeof SourceRefSchema>;
   grounding?: z.infer<typeof GroundingSchema>;
+  lanes?: z.infer<typeof LanesSchema>;
 };
 
 /** Every subdirectory of `projects/` whose name is an id we would have written. */
@@ -884,6 +903,7 @@ async function summarise(id: string, dir: string): Promise<DiskSummary | undefin
     ...(state?.cost ? { costUsd: state.cost.usd } : {}),
     ...(state?.source ? { source: state.source } : {}),
     ...(state?.grounding ? { grounding: state.grounding } : {}),
+    ...(state?.lanes ? { lanes: state.lanes } : {}),
   };
 }
 

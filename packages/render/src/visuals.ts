@@ -43,9 +43,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { logger } from '@inkcast/core';
-import type { EquationElement, PlotElement, Storyboard } from '@inkcast/core';
+import type { CodeElement, EquationElement, PlotElement, Storyboard } from '@inkcast/core';
 import { MANIFEST_PATH, MANIFEST_VERSION } from '@inkcast/visuals';
 import type {
+  CodeLayout,
   EquationLayout,
   InkStroke,
   PlotLayout,
@@ -81,6 +82,19 @@ export type EquationSource = {
   strokes: InkStroke[];
 };
 
+/**
+ * One listing's set geometry, read straight from the sidecar.
+ *
+ * `strokes` are the glyph outlines in document order and `layout.parts` carries the ink
+ * runs as index ranges into them — the same shared numbering plots use, and the reason
+ * the renderer can colour a keyword without knowing anything about grammars. The tone is
+ * what travels, never a colour: the film's palette belongs to the renderer.
+ */
+export type CodeSource = {
+  layout: CodeLayout;
+  strokes: InkStroke[];
+};
+
 export type VisualsBridge = {
   /**
    * Recorded geometry for one plot element, or `undefined` when the sidecar has none.
@@ -96,6 +110,12 @@ export type VisualsBridge = {
    * set. The caller is expected to fall back to drawing the TeX source as text.
    */
   equationFor(el: EquationElement): EquationSource | undefined;
+  /**
+   * Set geometry for one listing, or `undefined` when the sidecar has none — an un-run
+   * visuals stage, or a listing that could not be set. The caller is expected to gate:
+   * the fallback for code is handwriting, which is the defect the lane exists to end.
+   */
+  codeFor(el: CodeElement): CodeSource | undefined;
   /** True when `assets/visuals.json` was read. */
   hasManifest: boolean;
 };
@@ -163,6 +183,12 @@ export function openVisuals(sb: Storyboard, dir: string): VisualsBridge {
       const visual = manifest?.elements[el.id];
       if (!visual?.equation || visual.strokes.length === 0) return undefined;
       return { layout: visual.equation, strokes: visual.strokes };
+    },
+
+    codeFor(el: CodeElement): CodeSource | undefined {
+      const visual = manifest?.elements[el.id];
+      if (!visual?.code || visual.strokes.length === 0) return undefined;
+      return { layout: visual.code, strokes: visual.strokes };
     },
   };
 }
