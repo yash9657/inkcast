@@ -10,14 +10,22 @@
  *
  * The pipeline is deliberately ordered:
  *
- *   1. `stripMarkdown`        structure -> plain sentences with real punctuation
- *   2. `expandAbbreviations`  removes the internal full stops ("e.g.") that
+ *   1. `foldScripts`          Unicode sub/superscripts -> notation later rules read
+ *   2. `stripLatex`           `$…$` and `\command{…}` -> the glyphs and arithmetic
+ *                             the symbol and number tables already speak
+ *   3. `stripMarkdown`        structure -> plain sentences with real punctuation
+ *   4. `expandAbbreviations`  removes the internal full stops ("e.g.") that
  *                             would otherwise fool the sentence splitter
- *   3. `splitSentences`       so each sentence can be normalised and terminated
+ *   5. `speakInitialisms`     ATP -> "ay tee pee", with an exception list
+ *   6. `splitSentences`       so each sentence can be normalised and terminated
  *                             independently, giving the engine clean prosody
- *   4. `speakSymbols`         maths/typography -> words
- *   5. `speakNumbers`         digits, money, units, ranges -> words
- *   6. `tidy`                 whitespace, punctuation, capitalisation
+ *   7. `speakSymbols`         maths/typography -> words
+ *   8. `speakNumbers`         digits, money, units, ranges -> words
+ *   9. `tidy`                 whitespace, punctuation, capitalisation
+ *
+ * Steps 1 and 2 arrived with plan item 4.4, which closed the gaps the audit found
+ * by pointing this module at real notation (S2-c/S6-c). Their position in front of
+ * the markdown stripper is load-bearing, and `normalizeNarrationDetailed` says why.
  *
  * Everything is pure and deterministic, which matters: the normalised string is
  * what gets hashed into the per-scene cache key.
@@ -38,6 +46,181 @@
  * turning that number into a second of audio — stays in `voice/src/cue.ts`, where
  * the measurements are.
  */
+
+/* ------------------------------------------------- sub- and superscripts */
+
+/** Subscript codepoints, in the order of `SUBSCRIPT_PLAIN`. */
+const SUBSCRIPTS = '₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ';
+const SUBSCRIPT_PLAIN = '0123456789+-=()aehijklmnoprstuvx';
+/** Superscripts, minus ² and ³ — see `foldScripts`. */
+const SUPERSCRIPTS = '⁰¹⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ';
+const SUPERSCRIPT_PLAIN = '01456789+-=()ni';
+
+/**
+ * Fold Unicode sub- and superscripts into notation the rest of the pipeline
+ * already speaks.
+ *
+ * The gap this closes was found by pointing the normaliser at real notation
+ * (audit S2-c): `H₂O` came out of it as "H₂O", because a subscript digit is not
+ * a digit to any regex here and not a letter to the initialism speller either.
+ * The engine then said whatever it says about an unknown glyph — for the one
+ * formula in a chemistry explainer that the board never writes down.
+ *
+ * Two rules, and the second is the interesting one:
+ *
+ * - A superscript becomes `^n`, which `speakSymbols` already turns into "to the
+ *   power of n". **² and ³ are deliberately left alone**: `SYMBOLS` reads them as
+ *   "squared" and "cubed", which is how a person says them, and folding them here
+ *   would put a second opinion about `x²` in a second place.
+ * - A subscript digit after a capital stays *attached* — `H₂O` → `H2O`, which the
+ *   initialism speller then reads out as "aitch two oh", the way a chemist reads
+ *   it. After a lowercase identifier the same digit becomes its own word — `x₁` →
+ *   `x 1` → "x one" — because that is an index, not part of a name.
+ */
+export function foldScripts(input: string): string {
+  let s = input;
+  // A whole run at a time, so `C₆H₁₂O₆` is three folds and not five: matching one
+  // digit with its predecessor would take the second digit of `₁₂` for the start
+  // of a new run and hand it no predecessor at all.
+  s = s.replace(/([A-Za-z0-9)\]])?([₀-₉]+)/gu, (_m, before: string | undefined, run: string) => {
+    const plain = [...run].map((ch) => SUBSCRIPT_PLAIN[SUBSCRIPTS.indexOf(ch)] ?? '').join('');
+    // A formula's subscript belongs to the token before it; an index does not.
+    const attached = /[A-Z0-9]/.test(before ?? '');
+    return `${before ?? ''}${attached ? '' : ' '}${plain}`;
+  });
+  s = s.replace(
+    new RegExp(`[${SUBSCRIPTS}]`, 'gu'),
+    (ch) => SUBSCRIPT_PLAIN[SUBSCRIPTS.indexOf(ch)] ?? '',
+  );
+  s = s.replace(new RegExp(`[${SUPERSCRIPTS}]+`, 'gu'), (run) => {
+    const plain = [...run].map((ch) => SUPERSCRIPT_PLAIN[SUPERSCRIPTS.indexOf(ch)] ?? '').join('');
+    return plain ? `^${plain}` : '';
+  });
+  return s;
+}
+
+/* --------------------------------------------------------------------- LaTeX */
+
+/**
+ * LaTeX commands worth keeping, mapped to the glyph `SYMBOLS` already speaks.
+ *
+ * One catalogue, not two: `\alpha` resolves to `α` and the Greek table below
+ * decides what that sounds like, so a voice that learns to say a symbol learns it
+ * once. Anything not here is dropped by the sweep at the end of `stripLatex` —
+ * an unknown command name read aloud is noise, and the argument it wraps is
+ * usually the part that meant something.
+ */
+const LATEX_GLYPHS: Array<readonly [string, string]> = [
+  ['alpha', 'α'],
+  ['beta', 'β'],
+  ['gamma', 'γ'],
+  ['delta', 'δ'],
+  ['Delta', 'Δ'],
+  ['epsilon', 'ε'],
+  ['varepsilon', 'ε'],
+  ['eta', 'η'],
+  ['theta', 'θ'],
+  ['Theta', 'Θ'],
+  ['lambda', 'λ'],
+  ['Lambda', 'Λ'],
+  ['mu', 'μ'],
+  ['pi', 'π'],
+  ['Pi', 'Π'],
+  ['rho', 'ρ'],
+  ['sigma', 'σ'],
+  ['Sigma', 'Σ'],
+  ['tau', 'τ'],
+  ['phi', 'φ'],
+  ['Phi', 'Φ'],
+  ['omega', 'ω'],
+  ['Omega', 'Ω'],
+  ['times', '×'],
+  ['cdot', '×'],
+  ['div', '÷'],
+  ['pm', '±'],
+  ['approx', '≈'],
+  ['neq', '≠'],
+  ['ne', '≠'],
+  ['leq', '≤'],
+  ['le', '≤'],
+  ['geq', '≥'],
+  ['ge', '≥'],
+  ['infty', '∞'],
+  ['partial', '∂'],
+  ['nabla', '∇'],
+  ['sum', '∑'],
+  ['prod', '∏'],
+  ['int', '∫'],
+  ['in', '∈'],
+  ['forall', '∀'],
+  ['exists', '∃'],
+  ['emptyset', '∅'],
+  ['rightarrow', '→'],
+  ['Rightarrow', '⇒'],
+  ['to', '→'],
+  ['leftarrow', '←'],
+  ['langle', '⟨'],
+  ['rangle', '⟩'],
+];
+
+/**
+ * True when a `$…$` span is maths rather than two prices in one sentence.
+ *
+ * "It costs $5 to $10" contains a perfectly good `$…$` match, and reading it as
+ * maths would delete both dollar signs and turn money into bare numbers. A LaTeX
+ * span, by contrast, always carries LaTeX: a backslash, a script marker, or a
+ * brace. That is the whole test, and it is why this exists instead of a bare
+ * `$…$` strip.
+ */
+function looksLikeMath(inner: string): boolean {
+  return /[\\^_{}]/.test(inner);
+}
+
+/**
+ * Remove the LaTeX a model leaves in prose it was asked to write for the ear.
+ *
+ * The audit found `\frac{1}{2} of $x^2$` reaching the engine verbatim — "backslash
+ * frac one two of dollar x squared dollar", or whatever a phonemiser makes of it.
+ * The defence that matters is elsewhere and is real: notation belongs in an
+ * element's `tex` field, which is *drawn*, so narration should not be carrying it
+ * at all. This is what happens when it does anyway.
+ *
+ * The order is the design. Fractions and roots become the arithmetic the number
+ * and symbol tables already read; known commands become their glyph; scripts lose
+ * their braces so `x^{2}` is the `x^2` the symbol table knows; and only then is
+ * every surviving command dropped. Running the general sweep first would eat
+ * `\frac` and leave "one two".
+ */
+export function stripLatex(input: string): string {
+  let s = input;
+
+  // Display and inline maths: keep the contents, drop the delimiters.
+  s = s.replace(/\$\$([\s\S]*?)\$\$/g, (m, inner: string) =>
+    looksLikeMath(inner) ? ` ${inner} ` : m,
+  );
+  s = s.replace(/\$([^$\n]*)\$/g, (m, inner: string) => (looksLikeMath(inner) ? ` ${inner} ` : m));
+
+  // Structures that carry meaning in their arguments, before the sweep that
+  // drops command names.
+  s = s.replace(/\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, ' $1/$2 ');
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, ' √$1 ');
+  s = s.replace(
+    /\\(?:text|mathrm|mathbf|mathit|mathbb|mathcal|operatorname)\s*\{([^{}]*)\}/g,
+    ' $1 ',
+  );
+  for (const [name, glyph] of LATEX_GLYPHS) {
+    s = s.replace(new RegExp(`\\\\${name}(?![A-Za-z])`, 'g'), glyph);
+  }
+
+  // `x^{2}` is the `x^2` the symbol table reads; `x_{i}` is the `x_i` it reads.
+  s = s.replace(/([\^_])\s*\{([^{}]*)\}/g, '$1$2');
+  // A LaTeX line break is a pause, not a word.
+  s = s.replace(/\\\\/g, ', ');
+  // Everything still wearing a backslash. See the module comment on LATEX_GLYPHS.
+  s = s.replace(/\\[A-Za-z]+\*?/g, ' ');
+  s = s.replace(/\\([%$&#_{}])/g, '$1');
+  return s;
+}
 
 /* ------------------------------------------------------------------ markdown */
 
@@ -734,6 +917,23 @@ export function speakNumbers(input: string): string {
 /** Maths and typography that TTS engines either skip or mispronounce. */
 export const SYMBOLS: Array<readonly [RegExp, string]> = [
   [/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/gu, ' '], // emoji & dingbats
+  // Dirac notation, before the rules that read `|` as a pause and `⟨⟩` as
+  // comparison. `α|0⟩` used to come out as "Alpha, zero ⟩" — a raw bracket handed
+  // to a phonemiser, in the one class of lesson (quantum states) that cannot be
+  // taught without it. Said the way a physicist says it.
+  [/⟨\s*([^|⟨⟩]{1,24})\s*\|\s*([^|⟨⟩]{1,24})\s*⟩/g, ' the inner product of $1 and $2 '],
+  [/\|\s*([^|⟨⟩]{1,24})\s*⟩/g, ' ket $1 '],
+  [/⟨\s*([^|⟨⟩]{1,24})\s*\|/g, ' bra $1 '],
+  [/[⟨⟩]/g, ' '],
+  // A stage direction is an instruction to the narrator, not a word for them to
+  // read. Square brackets are markup wherever they survive `stripMarkdown`, so a
+  // single bracketed word goes; parentheses are ordinary prose ("the slope
+  // (gradient) tells you"), so only the known directions go.
+  [/\[\s*[A-Za-z]{1,16}\s*\]/g, ' '],
+  [
+    /\(\s*(?:pause|beat|laughs?|laughter|sighs?|breath|breathes|silence|whispers?|aside|slowly|softly|smiles?|smiling|chuckles?)\s*\)/gi,
+    ' ',
+  ],
   [/[“”«»„]/g, '"'],
   [/[‘’‚]/g, "'"],
   [/\u00a0/g, ' '],
@@ -841,9 +1041,21 @@ export type NormalizeResult = {
   sentences: string[];
 };
 
-/** Full pipeline, returning both the joined text and its sentences. */
+/**
+ * Full pipeline, returning both the joined text and its sentences.
+ *
+ * `foldScripts` and `stripLatex` run **before** `stripMarkdown`, which looks like
+ * the wrong order and is not. Markdown's emphasis rule reads a pair of
+ * underscores as italics, and `a_{1} + b_{2}` is a pair of underscores — so a
+ * subscripted expression left for markdown to see comes back as `a{1} + b{2}`
+ * with the subscripts silently deleted. And a fold has to precede
+ * `speakInitialisms` in any case: `H₂O` is only "aitch two oh" if it is `H2O` by
+ * the time the initialism speller reaches it.
+ */
 export function normalizeNarrationDetailed(input: string): NormalizeResult {
-  const expanded = speakInitialisms(expandAbbreviations(stripMarkdown(input)));
+  const expanded = speakInitialisms(
+    expandAbbreviations(stripMarkdown(stripLatex(foldScripts(input)))),
+  );
   const sentences = splitSentences(expanded)
     .map((sentence) => tidy(speakNumbers(speakSymbols(sentence))))
     .filter(hasSpeakableContent);

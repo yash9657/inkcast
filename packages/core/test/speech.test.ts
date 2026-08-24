@@ -187,3 +187,78 @@ test('a repeated cue resolves to its first occurrence, once and in the open', ()
   const narration = 'The step is smaller. Then the step is smaller again.';
   assert.equal(cueWordIndex(narration, 'the step is smaller'), 0);
 });
+
+/* ------------------------------------------------- the audit's own probes (4.4) */
+
+/**
+ * The notation the audit (S2-c / S6-c) put in front of this module by hand, with
+ * what it got back. Four of the six came out speakable and are here so they stay
+ * that way; two did not, and the gaps they named are what plan item 4.4 closed:
+ * a subscript digit was not a digit to any rule here, and LaTeX walked straight
+ * through to the engine.
+ *
+ * Pinned as exact strings on purpose. A normaliser is a chain of rewrites where
+ * every rule can undo the last one, so "contains the word two" is not the
+ * assertion that would have caught the reordering hazards this file documents.
+ */
+test('the audit probes all come out speakable', () => {
+  // Was: "Alpha, zero ⟩." — the ket bracket reached the engine raw.
+  assert.equal(normalizeNarration('α|0⟩'), 'Alpha ket zero.');
+  // Was already right, and the guard is that a fold cannot break it.
+  assert.equal(
+    normalizeNarration('Stop below 1.5e-9.'),
+    'Stop below one point five times ten to the power of minus nine.',
+  );
+  // Was: "H₂O." — a subscript is not a digit, so the initialism speller never saw
+  // a formula at all.
+  assert.equal(normalizeNarration('It is H₂O.'), 'It is aitch two oh.');
+  // Unchanged, and the audit was right that it is fine: a lone capital is not an
+  // initialism (`INITIALISM` wants two), so big-O notation is handed over as
+  // written and every engine we run reads it as "oh of n log n".
+  assert.equal(normalizeNarration('It runs in O(n log n).'), 'It runs in O(n log n).');
+  assert.equal(normalizeNarration('See Fig. 3.'), 'See figure three.');
+  assert.equal(normalizeNarration('About ~40% of it.'), 'About about forty percent of it.');
+  // Was: "\frac one two of $x squared$".
+  assert.equal(normalizeNarration('\\frac{1}{2} of $x^2$.'), 'One half of x squared.');
+});
+
+test('sub- and superscripts fold into notation the rest of the pipeline speaks', () => {
+  // A formula's subscript stays attached to its element, so the initialism
+  // speller reads the formula out; an index becomes its own word.
+  assert.equal(normalizeNarration('Plants take in CO₂.'), 'Plants take in see oh two.');
+  assert.equal(normalizeNarration('Sugar is C₆H₁₂O₆.'), 'Sugar is see six aitch one two oh six.');
+  assert.equal(normalizeNarration('Start at x₁.'), 'Start at x one.');
+  // ² and ³ stay with SYMBOLS, which reads them the way a person says them.
+  assert.equal(normalizeNarration('Minimise x².'), 'Minimise x squared.');
+  assert.equal(normalizeNarration('It scales as n⁴.'), 'It scales as n to the power of four.');
+  assert.equal(normalizeNarration('Try x⁻¹.'), 'Try x to the power of minus one.');
+});
+
+test('LaTeX residue is stripped, and money is not mistaken for it', () => {
+  assert.equal(
+    normalizeNarration('The rate is $\\alpha = 0.1$ here.'),
+    'The rate is alpha equals zero point one here.',
+  );
+  assert.equal(normalizeNarration('Take \\sqrt{2}.'), 'Take square root of two.');
+  assert.equal(normalizeNarration('So \\theta \\to \\infty.'), 'So theta leads to infinity.');
+  assert.equal(
+    normalizeNarration('Write \\text{loss} = \\sum e^2.'),
+    'Write loss equals the sum of e squared.',
+  );
+  // The guard that keeps the LaTeX strip out of a sentence about prices: two
+  // dollar signs are not a maths delimiter unless what is between them is maths.
+  assert.equal(normalizeNarration('It costs $5 to $10.'), 'It costs five dollars to ten dollars.');
+});
+
+test('a bracketed stage direction is an instruction, not a word to read out', () => {
+  assert.equal(
+    normalizeNarration('So what happens? [pause] It falls.'),
+    'So what happens? It falls.',
+  );
+  assert.equal(normalizeNarration('And then (pause) it lands.'), 'And then it lands.');
+  // Ordinary parenthetical prose survives: only the known directions go.
+  assert.equal(
+    normalizeNarration('The slope (gradient) tells you.'),
+    'The slope (gradient) tells you.',
+  );
+});

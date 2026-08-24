@@ -414,6 +414,32 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S2-c/S6-c (4.4): the normaliser's named gaps stay closed ---- */
+{
+  const speech = read('packages/core/src/speech.ts');
+  check(
+    'S2-c: the normaliser folds sub/superscripts, so a formula is not handed over raw',
+    /export function foldScripts/.test(speech) && /₀-₉/.test(speech),
+    'H₂O is back to reaching the engine as a glyph no rule here recognises',
+  );
+  check(
+    'S2-c: LaTeX residue is stripped before the symbol table sees it',
+    /export function stripLatex/.test(speech) &&
+      /stripMarkdown\(stripLatex\(foldScripts\(input\)\)\)/.test(speech),
+    'narration carrying \\frac{1}{2} or $x^2$ is spoken verbatim again — or the stages have been reordered past markdown emphasis',
+  );
+  check(
+    'S6-c: bra-ket and stage directions are spoken as a person would',
+    /ket \$1/.test(speech) && /the inner product of \$1 and \$2/.test(speech),
+    'the ⟨⟩ handling is gone — |0⟩ reads as "zero" plus a raw bracket',
+  );
+  check(
+    'A-4: one narration normaliser, and the voice stage does not own it',
+    !/normalizeNarration\b[\s\S]*?function/.test(read('packages/voice/src/cue.ts')),
+    'a second normaliser has appeared in the voice stage — the planner and the voice stage can now disagree about which word is word seven',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);
