@@ -139,6 +139,12 @@ export type {
 } from './spend.js';
 
 export { listProjects, readState, findVideo } from './state.js';
-export type { LessonSummary, PipelineState, ProjectSummary, SourceRef } from './state.js';
+export type {
+  Grounding,
+  LessonSummary,
+  PipelineState,
+  ProjectSummary,
+  SourceRef,
+} from './state.js';
 
 export type { PresetName, PresetShape, SourceDoc } from './stages.js';

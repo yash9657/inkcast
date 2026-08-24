@@ -43,6 +43,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   critiqueLesson,
+  lessonOrderAdvisories,
   hash,
   loadStoryboard,
   measureDrift,
@@ -73,6 +74,7 @@ import {
   assetFingerprint,
   cacheKey,
   cacheSlot,
+  compiledFingerprint,
   renderFingerprint,
   storyboardKey,
   visualsFingerprint,
@@ -101,6 +103,7 @@ import {
   findVideo,
   readState,
   writeState,
+  type Grounding,
   type PipelineState,
   type SourceRef,
   type VoiceRecord,
@@ -249,6 +252,15 @@ export type LessonResult = {
   author: 'anthropic' | 'heuristic' | 'supplied' | 'none';
   /** Which route produced it. */
   route: 'lesson' | 'document';
+  /**
+   * What the facts in it rest on: a document, the model's own knowledge, or whoever
+   * wrote the supplied lesson (plan 5.1; audit S0-a). See `Grounding`.
+   *
+   * On `LessonResult` rather than only in `pipeline.json` because the studio's
+   * review-the-plan flow stops here, and that is the screen where "this was taught from
+   * no source" is worth knowing *before* paying for the render.
+   */
+  grounding: Grounding;
   /** Resolved output format. */
   preset: PresetName;
   /** Runtime target the lesson was written against, in seconds. */
@@ -360,6 +372,12 @@ type Design = LessonResult & {
    * is what prices them, and by the time it can the stage has returned.
    */
   spend: ModelSpend[];
+  /**
+   * The DAG's advisory second opinion about the running order (plan 5.4), carried
+   * separately from `problems` because it is not something the author is asked to fix —
+   * see `lessonOrderAdvisories`.
+   */
+  orderAdvisories: string[];
   presetShape: PresetShape;
   /** The loaded planner module, so the storyboard stage does not reload it. */
   planner: Awaited<ReturnType<typeof loadLessonStage>>;
@@ -390,6 +408,7 @@ function stripDesign(d: Design): LessonResult {
     planner: _pl,
     stageProblems: _sp,
     spend: _sd,
+    orderAdvisories: _oa,
     ...rest
   } = d;
   return rest;
@@ -458,6 +477,24 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     ? (typeof doc.text === 'string' ? doc.text : JSON.stringify(doc)).length
     : 0;
 
+  /**
+   * What this film's facts rest on (plan 5.1; audit S0-a).
+   *
+   * Read off what actually reached the author, not off the flags: `supplied` first
+   * because a `*.lesson.json` skips ingest and the lesson stage both, then a document if
+   * one was really built, and `parametric` for what is left — a bare topic, where the
+   * brief says in so many words "there is no source document". Recorded rather than
+   * warned about: it is the normal case, and the defect was the silence.
+   */
+  const grounding: Grounding = supplied ? 'supplied' : doc ? 'document' : 'parametric';
+  if (grounding === 'parametric') {
+    log.info(
+      `nothing was retrieved for "${input.topic ?? ''}" — every claim in this lesson is the ` +
+        `model's own knowledge`,
+      'recorded as grounding: parametric in pipeline.json',
+    );
+  }
+
   /* ------------------------------------------------------------- 2. lesson */
 
   const base: Omit<LessonResult, 'author'> = {
@@ -465,6 +502,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     dir: run.dir,
     problems: [],
     route,
+    grounding,
     preset: presetShape.name,
     targetSec,
     providers: provs,
@@ -487,6 +525,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
       planner,
       stageProblems,
       spend,
+      orderAdvisories: [],
     };
   }
 
@@ -590,10 +629,25 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     }
   }
 
-  const problems = critiqueLesson(lesson, { maxSeconds: targetSec });
+  const problems = critiqueLesson(lesson, {
+    maxSeconds: targetSec,
+    // The headings a `sourceRef` may name (plan 5.2). Handed over only when a document
+    // was really ingested: absent means "unverifiable", and a critique that failed every
+    // ref it could not check would reject a hand-supplied lesson for citing a document
+    // this run never saw.
+    ...(doc?.sections
+      ? { sections: doc.sections.map((s) => s.heading ?? '').filter(Boolean) }
+      : {}),
+  });
   if (problems.length > 0) {
     log.warn(`lesson critique: ${problems.length} problem(s)`, problems.join(' | '));
   }
+  // The dependency graph's second reading of the running order (plan 5.4) — advisory
+  // forever, and kept out of `problems` on purpose: `problems` is what the lesson author
+  // is asked to revise against, and authored order is the design. See
+  // `lessonOrderAdvisories`.
+  const orderAdvisories = lessonOrderAdvisories(lesson);
+  for (const line of orderAdvisories) log.warn(`lesson order: ${line}`);
   log.info(`lesson: "${lesson.topic}"`, {
     objective: lesson.objective,
     beats: beatCount(lesson),
@@ -612,6 +666,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     planner,
     stageProblems,
     spend,
+    orderAdvisories,
   };
 }
 
@@ -689,6 +744,9 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
   const compileOpts: CompileStageOptions = {
     ...compileRequest(input, design.targetSec),
     onProgress: run.bus.child('storyboard'),
+    // Where `adaptLesson`'s cuts land (plan 5.3): a beat the runtime budget deleted — the
+    // misconception first, by design — used to be a `log.debug` and is now on the record.
+    onProblem: (p: string) => stageProblems.push(p),
     force: run.force,
   };
   const boardKey = storyboardKey({
@@ -710,6 +768,20 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       ? { documentPlanner: [provs.planner.name, provs.planner.model ?? ''] as const }
       : {}),
   });
+
+  /**
+   * The board on disk before this run recompiles over it (plan 5.5; audit A-1).
+   *
+   * Read only on the route where the answer means something. `compileLesson` is a pure
+   * function pinned byte-identical, so on `via: 'lesson'` any difference between the
+   * file and a fresh compile of the same lesson is a *hand edit* — there is no other
+   * way for one to arise. On the document route the board comes from a model, so a
+   * difference is the model, and comparing would cry wolf on every forced run.
+   */
+  const priorBoard =
+    run.force && design.route === 'lesson'
+      ? await loadStoryboard(run.dir).catch(() => undefined)
+      : undefined;
 
   let sb: Storyboard | undefined;
   if (
@@ -753,6 +825,22 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     await saveStoryboard(run.dir, sb);
     await markFresh(run.dir, cacheSlot('storyboard'), boardKey);
     run.bus.done('storyboard', `${sb.scenes.length} scenes`);
+  }
+
+  // Say out loud what `--force` just overwrote (plan 5.5; audit A-1's second
+  // remediation). The two-altitude IR lets the teaching and the board be edited
+  // separately, and the price is that re-casting the lesson recompiles the board —
+  // which is correct, and was silent. Announced rather than refused: the user asked to
+  // recompile, and the compiler's board is the one the lesson describes. It joins
+  // `problems[]` too, so `qc.json` records that this film's hand-drawn corrections are
+  // no longer in it.
+  if (priorBoard && compiledFingerprint(priorBoard) !== compiledFingerprint(sb)) {
+    const line =
+      `storyboard.json had been edited since it was compiled, and --force has just ` +
+      `recompiled it from lesson.json — those board edits are gone. Edit the lesson and ` +
+      `re-cast, or edit the board and \`rerender\` (which never recompiles).`;
+    log.warn(line);
+    stageProblems.push(line);
   }
 
   // The user's flags always win over whatever the compiler chose.
@@ -920,6 +1008,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // known compromise rather than a reason to refuse to draw the board. It
         // is here so that "what is wrong with this film" has one answer.
         { id: 'lesson', findings: design.problems },
+        // The dependency graph's second reading of the running order (plan 5.4). Its own
+        // check rather than folded into `lesson` because it is a different *kind* of
+        // finding: everything in `lesson` is a rule the author is asked to satisfy, and
+        // this one is a question only a human can answer — authored order carries
+        // information a toposort cannot see. Advisory forever, by design.
+        { id: 'lesson-order', findings: design.orderAdvisories, severity: 'warn' },
         // What the pictures in this film still have measurably wrong with them, read
         // back off `lesson.json` rather than remembered from the run that drew them
         // (plan 3.4) — so a cached re-run reports the same standing defects instead of
@@ -1046,6 +1140,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     skipped: run.skipped,
     cost,
     gates: run.gates,
+    // What the facts rest on (plan 5.1). Beside `source` rather than derived from it by
+    // whoever reads the file: `kind: 'topic'` and `kind: 'text'` are both things a user
+    // typed, and only one of them gave the author anything to work from.
+    grounding: design.grounding,
     qc: { ok: qc.ok, problems: qc.problems },
     // Length as measured, beside the budget it was planned to (plan 4.3). On the
     // record rather than only in `qc.json` because this is the pair of numbers that

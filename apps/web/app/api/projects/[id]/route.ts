@@ -182,6 +182,12 @@ function publicView(record: ProjectRecord): Partial<ProjectDto> {
     scenes: record.scenes,
     durationSec: record.durationSec,
     shared: record.shared,
+    // What the film's facts rest on (plan 5.1). On the *public* view deliberately: a
+    // stranger on `/share/<id>` has no other way to know whether they are watching a film
+    // built from a document somebody supplied or one taught out of a model's memory, and
+    // that is exactly who the honesty is for. It leaks nothing — three enum values about
+    // provenance, not the source itself, which stays withheld here.
+    ...(record.grounding === undefined ? {} : { grounding: record.grounding }),
     ...(record.aspect === undefined ? {} : { aspect: record.aspect }),
     ...(record.videoPath
       ? { videoPath: record.videoPath, videoUrl: mediaUrl(record.id, record.videoPath) }

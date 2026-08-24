@@ -26,6 +26,15 @@ import { refit } from './elements.js';
 import { mentionFraction } from './narration.js';
 import { words } from './text.js';
 
+/**
+ * A canvas point, structurally.
+ *
+ * Not the zod `Point` from `@inkcast/core`, which is a value: this module deals in the
+ * inferred type of what is already in the IR, and importing the schema to name it would
+ * pull a runtime dependency in for a type annotation.
+ */
+type Pt = { x: number; y: number };
+
 export type Span = 'full' | 'half' | 'third' | 'block';
 
 export type PlacementHint = {
@@ -181,10 +190,27 @@ export function layoutStoryboard(input: Storyboard, opts: LayoutOptions = {}): S
   sb.canvas = { x: 0, y: 0, w: grid.canvasW, h: grid.canvasH };
 
   /* --- 2. place elements, region by region --- */
+  //
+  // Every box as the *author* wrote it, kept before the packer overwrites them. This is
+  // the frame the model's own from/to/points/path coordinates are expressed in, and
+  // re-anchoring them afterwards is impossible without it (plan item 5.6; audit A-2).
+  const authored = new Map<string, Box>();
+  for (const scene of sb.scenes) for (const el of scene.elements) authored.set(el.id, { ...el.at });
+  // Arrow endpoints, read back as the elements they were aimed at. Derived once, before
+  // any box moves, and merged into `hints` so the anchoring below is the one that already
+  // works — see `inferArrowAnchors`.
+  const anchored: Hints = { ...hints };
+  for (const scene of sb.scenes) {
+    for (const [id, hint] of Object.entries(inferArrowAnchors(scene, authored, hints))) {
+      anchored[id] = hint;
+    }
+  }
+
   const boxes = new Map<string, Box>();
   sb.scenes.forEach((scene, i) => {
     const region = regionBox(sceneRegion[i] ?? 0, grid);
-    const order = placeScene(scene, region, hints, boxes);
+    const order = placeScene(scene, region, anchored, boxes);
+    reanchorGeometry(scene, authored, boxes, anchored);
     scheduleEntrances(scene, order);
   });
 
@@ -210,6 +236,175 @@ export function layoutStoryboard(input: Storyboard, opts: LayoutOptions = {}): S
   });
 
   return sb;
+}
+
+/* ------------------------------------------------- re-anchoring model geometry */
+
+/**
+ * Which elements a model-authored arrow was actually pointing at (plan 5.6; audit A-2).
+ *
+ * The document route asks a model for `at` boxes and then re-lays the board out, which
+ * neutralises the coordinate leak for everything whose geometry *is* its box. Three things
+ * are not: an arrow's `from`/`to`, a path's `points`, and a `motion.path`. Those are
+ * absolute canvas coordinates that `layoutStoryboard` never rewrote, so the packer moved
+ * two boxes to opposite corners of a region and left the arrow between them drawn across
+ * wherever the model had originally imagined them. An un-hinted arrow was worse than that:
+ * it was also *packed into the shelf* as an ordinary box, so it reserved space in the row
+ * and drew its ink somewhere else entirely.
+ *
+ * The fix is to recover the intent rather than to transform the numbers. An arrow means
+ * "from this thing to that thing"; the endpoints are how the model said it, in a frame that
+ * is about to stop existing. So each endpoint is matched against the elements' *authored*
+ * boxes, and when both ends land on something the arrow is handed to the same `fromId`/
+ * `toId` anchoring that hint-carrying planners have always used — which re-derives the
+ * endpoints from the solved boxes, edge to edge, and keeps the arrow out of the flow.
+ *
+ * Nearest box rather than containment, because an arrow's endpoint sits *outside* the
+ * things it joins — on the edge, or in the gap. The tolerance is a twelfth of the scene's
+ * own authored diagonal, which scales with whatever coordinate range the model chose and
+ * refuses an endpoint that is merely somewhere in the same beat. An arrow whose ends match
+ * nothing keeps its endpoints and is remapped by `reanchorGeometry` instead: a guess about
+ * which element it meant would be worse than moving it with the scene.
+ *
+ * **Within one scene only**, deliberately, even though the hint format and `placeScene`
+ * both support anchoring across scenes. A hint is a planner *stating* which elements an
+ * arrow joins; this is coordinates being *read back*, and the further the candidate is from
+ * the arrow the weaker the reading — across scenes the model has no single frame for the
+ * two to be near each other in, so a match there would be arithmetic on unrelated numbers.
+ * A cross-scene arrow keeps the honest fallback.
+ */
+function inferArrowAnchors(scene: Scene, authored: Map<string, Box>, hints: Hints): Hints {
+  const arrows = scene.elements.filter(
+    (el) =>
+      el.type === 'arrow' && hints[el.id]?.fromId === undefined && hints[el.id]?.toId === undefined,
+  );
+  if (arrows.length === 0) return {};
+  const span = sceneBounds(scene);
+  const tolerance = Math.hypot(span.w, span.h) / 12;
+  const out: Hints = {};
+  for (const arrow of arrows) {
+    if (arrow.type !== 'arrow') continue;
+    const candidates = scene.elements.filter((el) => el.id !== arrow.id && el.type !== 'arrow');
+    const fromId = nearestBox(arrow.from, candidates, authored, tolerance);
+    const toId = nearestBox(arrow.to, candidates, authored, tolerance);
+    // Both ends, and two different things: an arrow from a box to itself is not an anchor
+    // the packer can honour, and half an anchor would move one end and strand the other.
+    if (fromId === undefined || toId === undefined || fromId === toId) continue;
+    out[arrow.id] = { ...hints[arrow.id], fromId, toId };
+  }
+  return out;
+}
+
+/** The nearest element whose authored box is within `tolerance` of `p`, by id. */
+function nearestBox(
+  p: Pt,
+  candidates: readonly Element[],
+  authored: Map<string, Box>,
+  tolerance: number,
+): string | undefined {
+  let best: { id: string; d: number } | undefined;
+  for (const el of candidates) {
+    const box = authored.get(el.id);
+    if (!box) continue;
+    const dx = Math.max(box.x - p.x, 0, p.x - (box.x + box.w));
+    const dy = Math.max(box.y - p.y, 0, p.y - (box.y + box.h));
+    const d = Math.hypot(dx, dy);
+    if (d <= tolerance && (!best || d < best.d)) best = { id: el.id, d };
+  }
+  return best?.id;
+}
+
+/**
+ * Move whatever geometry the packer could not: path waypoints, motion trajectories, and
+ * the endpoints of an arrow that anchored to nothing (plan 5.6; audit A-2).
+ *
+ * Each of the three is remapped through the box it belongs to, before against after:
+ *
+ *  - **`path.points`** ride the element's own box. The packer measured, moved and possibly
+ *    scaled that box, and the points describe the shape inside it, so a box→box affine is
+ *    exactly the transform the ink should have had. (An authored `at` that does not tightly
+ *    bound its own points is remapped the same way, which keeps the shape where the author
+ *    put it *relative to its box* — the only reading of intent available.)
+ *  - **`motion.path`** does not: a ball descending a curve travels across the beat, not
+ *    across the moving element's own footprint, so it rides the *scene*. Using the
+ *    element's box would compress a trajectory into the footprint of the thing following
+ *    it, which is the kind of confident wrong answer worse than leaving it alone.
+ *  - **An unanchored arrow** rides the scene too, for the same reason: nothing was found
+ *    for its ends to hold onto, so the honest move is to carry it along with the beat.
+ *
+ * A scene whose authored bounds are degenerate (one element, or zero extent on an axis)
+ * gets a translation and no scale on that axis — dividing by it would send the ink to
+ * infinity, and `Box`'s zod `.finite()` would then reject the board with a message about
+ * the wrong thing.
+ */
+function reanchorGeometry(
+  scene: Scene,
+  authored: Map<string, Box>,
+  boxes: Map<string, Box>,
+  hints: Hints,
+): void {
+  const solved: Box[] = [];
+  const before: Box[] = [];
+  for (const el of scene.elements) {
+    const was = authored.get(el.id);
+    const now = boxes.get(el.id);
+    if (was && now) {
+      before.push(was);
+      solved.push(now);
+    }
+  }
+  const sceneMap = mapBetween(union(before), union(solved));
+  /** Did `placeScene` already re-derive this arrow's endpoints from solved boxes? */
+  const reAnchored = (id: string): boolean => {
+    const hint = hints[id];
+    if (hint?.fromId === undefined || hint.toId === undefined) return false;
+    return boxes.has(hint.fromId) && boxes.has(hint.toId);
+  };
+
+  for (const el of scene.elements) {
+    const was = authored.get(el.id);
+    const now = boxes.get(el.id);
+    if (el.type === 'path' && el.points && was && now) {
+      el.points = el.points.map(mapBetween(was, now));
+    }
+    if (el.motion) el.motion.path = el.motion.path.map(sceneMap);
+    if (el.type === 'arrow' && !reAnchored(el.id)) {
+      el.from = sceneMap(el.from);
+      el.to = sceneMap(el.to);
+      // And the box follows the ink, exactly as it does for an anchored arrow. An arrow
+      // that kept a packed shelf slot while its ink moved would make every box-based
+      // check downstream — overlap, off-frame, fill — measure a rectangle with nothing in
+      // it (`boardcheck.ts`).
+      const b = {
+        x: Math.min(el.from.x, el.to.x),
+        y: Math.min(el.from.y, el.to.y),
+        w: Math.max(24, Math.abs(el.to.x - el.from.x)),
+        h: Math.max(24, Math.abs(el.to.y - el.from.y)),
+      };
+      setBox(el, b);
+      boxes.set(el.id, { ...el.at });
+    }
+  }
+}
+
+/** The smallest box containing all of them, or a zero box when there are none. */
+function union(list: readonly Box[]): Box {
+  if (list.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+  const x0 = Math.min(...list.map((b) => b.x));
+  const y0 = Math.min(...list.map((b) => b.y));
+  const x1 = Math.max(...list.map((b) => b.x + b.w));
+  const y1 = Math.max(...list.map((b) => b.y + b.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** Affine point map from one box onto another, degenerate axes translating only. */
+function mapBetween(from: Box, to: Box): (p: Pt) => Pt {
+  const kx = from.w > 1 ? to.w / from.w : 1;
+  const ky = from.h > 1 ? to.h / from.h : 1;
+  return (p) => ({
+    x: round(to.x + (p.x - from.x) * kx, 2),
+    y: round(to.y + (p.y - from.y) * ky, 2),
+  });
 }
 
 /* ----------------------------------------------------------- scene packing */

@@ -87,6 +87,54 @@ function docSentences(doc: SourceDoc): string[] {
   return sentences(stripMarkdown(doc.text)).filter((s) => wordCount(s) >= 6);
 }
 
+/**
+ * Which of the document's sections a passage came out of, by heading (plan item 5.2).
+ *
+ * This author is the one that can answer the question *exactly*: it does not summarise a
+ * document, it lifts sentences out of it, so the section a beat came from is a fact it
+ * already holds rather than something to infer. That makes the no-key path the place
+ * `sourceRef` is verifiable without a model or a key — the fraction of beats carrying a
+ * ref is measurable from `examples/*.md` alone.
+ *
+ * Three ways in, in order of certainty:
+ *
+ *  1. **A heading handed over by `buildBeats`**, which built the beat out of that
+ *     section's own blocks. Certain.
+ *  2. **The passage opens with a heading.** `docSentences` runs `sentences()` over the
+ *     whole stripped document, so a heading with no full stop after it is glued to the
+ *     first sentence of the section it introduces — which is why "Think of it as a
+ *     compiler" arrives as "What Inkcast actually does Think of it as a compiler". That
+ *     prefix is the strongest evidence there is about where a passage came from, and
+ *     without this rule the strongest evidence was the reason the match failed.
+ *  3. **Containment** — the section whose own text has this passage in it.
+ *
+ * Every answer is a real heading from the document. `buildBeats`' title beat, whose
+ * "heading" is the document *title*, therefore gets nothing, and so does anything lifted
+ * out of the unheaded lead paragraphs before the first heading: there is no section there
+ * to name. An unsourced beat is honest, and a ref pointing at the nearest heading would be
+ * exactly the plausible-looking citation this field exists to make testable.
+ */
+function sectionFor(doc: SourceDoc, hint: string, passage?: string): string | undefined {
+  const headings = doc.sections.map((s) => s.heading.trim()).filter(Boolean);
+  const named = headings.find((h) => h.toLowerCase() === hint.trim().toLowerCase());
+  if (named) return named;
+  const text = stripMarkdown(passage ?? '').trim();
+  const opens = headings.find((h) => text.toLowerCase().startsWith(h.toLowerCase()));
+  if (opens) return opens;
+  const needle = text.slice(0, 80).toLowerCase();
+  if (needle.length < 20) return undefined;
+  const holding = doc.sections.find(
+    (s) => s.heading.trim() !== '' && stripMarkdown(s.text).toLowerCase().includes(needle),
+  );
+  return holding?.heading.trim();
+}
+
+/** `{ sourceRef }` when the passage really is in a named section, `{}` otherwise. */
+function sourced(doc: SourceDoc, hint: string, passage?: string): { sourceRef?: string } {
+  const heading = sectionFor(doc, hint, passage);
+  return heading === undefined ? {} : { sourceRef: heading };
+}
+
 /** The sentence that carries the most information, by content words and numbers. */
 function strongest(candidates: string[]): string | undefined {
   let best: { s: string; score: number } | undefined;
@@ -309,6 +357,10 @@ function stepFrom(
     idea: capitalize(idea),
     because,
     ...grounded(),
+    // Where this beat's facts came from, when it came from a named section (plan 5.2).
+    // `buildBeats` built it out of that section's own blocks, so this is a record rather
+    // than a guess.
+    ...sourced(doc, beat.heading, source),
     narration,
     terms: vocabulary(narration),
     visuals: visualFor(beat, doc),
@@ -418,6 +470,8 @@ export function deriveLesson(
     // a question does not need justifying, it needs answering.
     because: '',
     ...grounded(),
+    // The question is this author's own, but the sentence after it is the document's.
+    ...sourced(doc, '', opening),
     narration: hookNarration,
     terms: vocabulary(hookNarration),
     visuals: [
@@ -437,6 +491,7 @@ export function deriveLesson(
       reasonNear(doc.text, anchorSource) ??
       speakify(all.find((s) => s !== anchorSource && wordCount(s) >= 8) ?? anchorSource),
     ...grounded(),
+    ...sourced(doc, '', anchorSource),
     narration: anchorNarration,
     terms: vocabulary(anchorNarration),
     visuals: analogy
@@ -530,6 +585,7 @@ export function deriveLesson(
       idea: capitalize(shorten(wrong, 10)),
       because: speakify(wrong),
       ...grounded(),
+      ...sourced(doc, '', wrong),
       narration,
       terms: vocabulary(narration),
       visuals: [

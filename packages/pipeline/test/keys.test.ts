@@ -7,6 +7,7 @@ import {
   assetFingerprint,
   cacheKey,
   cacheSlot,
+  compiledFingerprint,
   elementFingerprint,
   renderFingerprint,
   stageVersion,
@@ -209,4 +210,58 @@ test('re-voicing does not invalidate the drawing', () => {
   assert.equal(visualsFingerprint(before), visualsFingerprint(after));
   // The render, however, must follow the new timing exactly.
   assert.notEqual(renderFingerprint(before), renderFingerprint(after));
+});
+
+test('the compiled fingerprint sees a hand edit and not a stage doing its job', () => {
+  // Plan 5.5 / audit A-1: `--force` recompiles the board from the lesson and used to
+  // clobber a hand edit in silence. This is the test that decides what "diverged" means,
+  // and getting it wrong in either direction makes the warning useless — noisy on every
+  // narrated project, or quiet on the edit it exists to announce.
+  const pristine = board(plot(5));
+
+  // Everything three later stages legitimately write into the board in place.
+  const enriched = board(plot(5));
+  const scene = enriched.scenes[0]!;
+  (scene.elements[0] as { enter: { at: number } }).enter.at = 0.63; // voice, from a cue
+  scene.durationSec = 7.2;
+  scene.audioPath = 'audio/s1.wav';
+  scene.words = [{ word: 'A', start: 0, end: 0.2 }];
+  enriched.title = 'A title the run passed with --title';
+  enriched.meta = { ...enriched.meta, style: 'chalk' };
+  enriched.assets = [];
+  assert.equal(
+    compiledFingerprint(pristine),
+    compiledFingerprint(enriched),
+    'voice, visuals and --title/--meta must not read as a hand edit',
+  );
+
+  // A human moving a curve, and a human retiming an entrance, both must.
+  assert.notEqual(compiledFingerprint(pristine), compiledFingerprint(board(plot(9))));
+  const retimed = board(plot(5));
+  (retimed.scenes[0]!.elements[0] as { enter: { duration: number } }).enter.duration = 2.4;
+  assert.notEqual(compiledFingerprint(pristine), compiledFingerprint(retimed));
+  // And so must an edit to what is said, which no stage downstream of the compiler
+  // touches — this is the `set-narration` op arriving through `inkcast edit`.
+  const reworded = board(plot(5));
+  reworded.scenes[0]!.narration = 'A valley, seen from the rim.';
+  assert.notEqual(compiledFingerprint(pristine), compiledFingerprint(reworded));
+});
+
+test('a resolved asset is the visuals stage writing, not the board diverging', () => {
+  // The other half of the same seam: `Asset.svg` and the pinned `ref.version` are
+  // written into the board by the visuals stage, so a project that has been through it
+  // once must not look edited on the next `--force`.
+  const withAsset = (resolved: boolean): Storyboard => {
+    const sb = board(plot(5));
+    sb.assets = [
+      {
+        id: 'bulb',
+        kind: 'icon',
+        ref: { path: 'symbols/bulb', ...(resolved ? { version: 3 } : {}) },
+        ...(resolved ? { svg: 'assets/bulb.svg' } : {}),
+      },
+    ] as unknown as Storyboard['assets'];
+    return sb;
+  };
+  assert.equal(compiledFingerprint(withAsset(false)), compiledFingerprint(withAsset(true)));
 });

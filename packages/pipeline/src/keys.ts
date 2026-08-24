@@ -345,6 +345,57 @@ export function storyboardKey(input: {
 }
 
 /**
+ * The part of a storyboard the **compiler** wrote, with every later stage's
+ * in-place enrichment removed (plan item 5.5; audit A-1).
+ *
+ * This exists to answer one question: has `storyboard.json` been edited by hand since
+ * the compiler produced it? The two-altitude IR is a deliberate trade — `lesson.json`
+ * is the teaching and `storyboard.json` is the board, both persisted and both editable
+ * — and the cost of it is that a lesson re-cast overwrites a storyboard edit. That is
+ * allowed; being silent about it is not, which is the whole of A-1's second
+ * remediation.
+ *
+ * A plain hash of the file cannot answer it, because three stages legitimately write
+ * into the board after the compiler has gone: voice measures `durationSec`, `words` and
+ * `audioPath` and resolves each cue into `enter.at`; visuals fills `Asset.svg` and pins
+ * `ref.version`; `applyOverrides` stamps the run's `--title` and `--meta`. All of those
+ * are excluded here, so what remains is exactly what a deterministic recompile of the
+ * same lesson must reproduce byte for byte — and a difference in it is a human edit,
+ * not a stage doing its job.
+ *
+ * Title and meta are deliberately out for the same reason: they are the caller's flags
+ * on this run, not something anyone edited into the file.
+ *
+ * Straight `hash` rather than `cacheKey`: this is a content digest compared against
+ * another digest taken in the same process, and nothing is cached on it — folding a
+ * stage version in would only make two equal boards look equal for a second reason.
+ */
+export function compiledFingerprint(sb: Storyboard): string {
+  return hash(
+    'compiled-board',
+    sb.canvas,
+    sb.scenes.map((s) => {
+      const { audioPath: _a, durationSec: _d, words: _w, elements, ...scene } = s;
+      return {
+        ...scene,
+        elements: elements.map((el) => {
+          // `enter.at` only: `duration`, `style`, `cue` and `cueWord` are all the
+          // compiler's, and a hand edit to any of them is a divergence worth naming.
+          const { at: _at, ...enter } = el.enter;
+          return { ...el, enter };
+        }),
+      };
+    }),
+    sb.assets.map((a) => {
+      const { svg: _svg, ref, ...asset } = a;
+      if (!ref) return asset;
+      const { version: _v, ...pinned } = ref;
+      return { ...asset, ref: pinned };
+    }),
+  );
+}
+
+/**
  * What the voice stage's output for one scene depends on.
  *
  * `hold` is in here because the stage renders it as real silence inside the

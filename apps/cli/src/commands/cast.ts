@@ -269,6 +269,7 @@ function jsonResult(result: CastResult, copied?: string) {
         }
       : undefined,
     lessonProblems: result.problems,
+    grounding: result.grounding,
     // Beside the lesson's problems and in the same shape, because they are the same
     // kind of fact: something about this render is worse than the command asked for.
     voiceProblems: result.voice.problems,
@@ -294,6 +295,19 @@ function jsonResult(result: CastResult, copied?: string) {
       images: result.providers.images.name,
     },
   };
+}
+
+/** One line for what the film's facts rest on. See `Grounding` in `@inkcast/pipeline`. */
+function groundingLine(ctx: CliContext, result: CastResult): string {
+  const c = paint(ctx.color);
+  switch (result.grounding) {
+    case 'document':
+      return `${c.dim('the source document')} ${c.dim(`— ${path.join(result.dir, 'source.json')}`)}`;
+    case 'supplied':
+      return c.dim('the supplied lesson — this pipeline sourced nothing itself');
+    default:
+      return `${c.yellow('nothing')} ${c.dim('— every claim is the model’s own knowledge, unchecked')}`;
+  }
 }
 
 /** `elevenlabs/eleven_flash_v2_5` — who spoke and what they spoke with. */
@@ -325,6 +339,11 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
   } else {
     out += row('lesson', c.yellow('none — this was cast with --via document, which summarises'));
   }
+  // What the facts rest on (plan 5.1; audit S0-a). Said plainly and without alarm:
+  // teaching a bare topic is the normal way this is used, and the thing worth knowing is
+  // that nobody checked those claims against anything, because there was nothing to
+  // check them against.
+  out += row('grounded', groundingLine(ctx, result));
   out += row(
     'video',
     `${pretty(ctx, result.videoPath)} ${c.dim(`(${w}×${h}, ${sb.meta.fps}fps, ${size})`)}`,

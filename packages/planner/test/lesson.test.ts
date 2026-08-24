@@ -12,6 +12,7 @@ import {
   findTerms,
   holdForCadence,
   lessonBeats,
+  lessonOrderAdvisories,
   resolveEmphasis,
   resolveTerms,
   technicalTerms,
@@ -276,7 +277,22 @@ test('dropping a beat does not leave a derivation pointing at the wrong one', ()
       seen.add(id);
     }
     // And the adapted lesson still passes the validator that checks exactly this.
-    assert.deepEqual(critiqueLesson(shaped, { maxSeconds: PRESETS[name].maxSeconds }), []);
+    //
+    // "Exactly this" is now load-bearing rather than decorative. At `short` this lesson
+    // legitimately loses its misconception to the 60s budget, and plan 5.3's rule says so
+    // — a true statement about the trimmed film, reported beside `adaptLesson`'s own line
+    // naming the cut. What must stay empty is everything about *derivations*, which is
+    // what this test is for.
+    const problems = critiqueLesson(shaped, { maxSeconds: PRESETS[name].maxSeconds });
+    assert.deepEqual(
+      problems.filter((p) => !/names no misconception/.test(p)),
+      [],
+    );
+    assert.equal(
+      problems.length,
+      shaped.misconception ? 0 : 1,
+      `${name}: the only permitted problem is the misconception the budget cut`,
+    );
   }
 });
 
@@ -354,8 +370,18 @@ test('a lesson derived from a document is a real, valid, renderable lesson', () 
   assert.deepEqual(Lesson.parse(derived), derived, 'derived lessons are already valid');
   assert.equal(derived.topic, 'Gradient Descent');
   assert.ok(derived.steps.length >= 2);
-  // The honest fallback still has to pass its own critique.
-  assert.deepEqual(critiqueLesson(derived, { maxSeconds: PRESETS.standard.maxSeconds }), []);
+  // The honest fallback still has to pass its own critique — *except* for the two things
+  // it says in its own warning that it cannot do (plan 5.3; audit S1-c, S1-d). It cannot
+  // invent the misconception a learner forms, and it follows the document's order rather
+  // than choosing concrete-before-abstract, so both rules fire on every derived lesson and
+  // firing is the point: they reach `pipeline.json` and the CLI's "known weaknesses" block,
+  // which is where "a key is what makes this good" belongs. Everything else must be clean.
+  assert.deepEqual(
+    critiqueLesson(derived, { maxSeconds: PRESETS.standard.maxSeconds }).filter(
+      (p) => !/names no misconception|plots axes before/.test(p),
+    ),
+    [],
+  );
   // And it must compile to something drawable.
   const sb = compileLesson(derived, {});
   assert.equal(sb.scenes.length, lessonBeats(adaptLesson(derived, PRESETS.standard)).length);
@@ -389,7 +415,15 @@ test('no two cells on the board are captioned the same thing', () => {
 test('a bare topic string needs no document', () => {
   const derived = deriveLesson('Osmosis', {}, PRESETS.standard);
   assert.equal(derived.topic, 'Osmosis');
-  assert.deepEqual(critiqueLesson(derived, { maxSeconds: PRESETS.standard.maxSeconds }), []);
+  // The one problem this author provably cannot fix — see the derived-document test above.
+  assert.deepEqual(
+    critiqueLesson(derived, { maxSeconds: PRESETS.standard.maxSeconds }).filter(
+      (p) => !/names no misconception/.test(p),
+    ),
+    [],
+  );
+  // And nothing points at a document, because there was none.
+  for (const { step } of lessonBeats(derived)) assert.equal(step.sourceRef, undefined);
 });
 
 test('teachLesson with no key derives, validates and caches', async () => {
@@ -420,6 +454,10 @@ test('the Lesson tool schema makes the shape of a lesson non-optional', async ()
       'because',
       'from',
       'derivedFrom',
+      // Plan 5.2: which section of the source document this beat's facts came from. It
+      // reaches the model automatically because this schema is derived from the zod one —
+      // which is why the schema is derived rather than hand-written.
+      'sourceRef',
       'narration',
       'visuals',
       'cadence',
@@ -453,7 +491,13 @@ test('editLesson revises the teaching without a key', async () => {
   });
   assert.equal(dropped.lesson.misconception, undefined);
   assert.equal(dropped.report.applied.length, 1);
-  assert.deepEqual(dropped.report.problems, []);
+  // The edit is applied and the consequence is reported: this is a STEM lesson, and a
+  // STEM lesson with no misconception beat never names the wrong belief it creates (plan
+  // 5.3). Reported, not refused — the instruction was the user's.
+  assert.deepEqual(dropped.report.problems, [
+    'this STEM lesson names no misconception — say the one wrong sentence a learner ' +
+      'would confidently repeat afterwards, and refute it',
+  ]);
   // The original is untouched: edits never mutate their input.
   assert.ok(shipped.misconception);
 
@@ -754,5 +798,144 @@ test('the brief offers the illustration lane only when a generator exists', asyn
   assert.ok(
     kinds?.items?.properties?.kind?.enum?.includes('illustration'),
     'the schema has always allowed it; only the brief was silent',
+  );
+});
+
+/* ------------------------------------------------- the pedagogy rules (plan 5.3) */
+
+test('a STEM or first-principles lesson must name the misconception it creates', () => {
+  // Audit S1-c: `misconception` was optional, prompted for, and `adaptLesson`'s first
+  // victim — so the beat whose whole job is to overwrite a wrong belief the explanation
+  // itself installs could be absent, or vanish to a budget, with nothing said.
+  const { misconception: _gone, ...without } = shipped;
+  assert.ok(
+    critiqueLesson(without).some((p) => /this STEM lesson names no misconception/.test(p)),
+    'a stem lesson with no misconception must be reported',
+  );
+  // The rule is about the two kinds where the wrong belief is a *product* of the
+  // explanation. A story is not one of them: the shipped narrative lesson is
+  // `story-driven`, and dropping its misconception is a choice rather than a defect.
+  const { misconception: _also, ...story } = narrative;
+  assert.deepEqual(
+    critiqueLesson(story).filter((p) => /names no misconception/.test(p)),
+    [],
+  );
+  // …but a story reasoned from first principles is, because that is what the strategy
+  // claims to be doing.
+  assert.ok(
+    critiqueLesson({ ...story, strategy: 'first-principles' as const }).some((p) =>
+      /first-principles lesson names no misconception/.test(p),
+    ),
+  );
+  // And it is silent whenever the beat is there, which both shipped lessons prove above.
+  assert.deepEqual(
+    critiqueLesson(shipped).filter((p) => /misconception/.test(p)),
+    [],
+  );
+});
+
+test('the budget saying why the misconception went is a recorded problem, not a log line', () => {
+  // The other half of S1-c, and the half a viewer feels: at `short` this lesson loses its
+  // refutation to a 60-second budget. That was a `log.debug`, so an hour later there was
+  // no way to learn why the film never names the wrong belief.
+  const problems: string[] = [];
+  const shaped = adaptLesson(shipped, PRESETS.short, { onProblem: (p) => problems.push(p) });
+  assert.equal(shaped.misconception, undefined, 'this preset is the one that cuts it');
+  assert.ok(
+    problems.some((p) => /misconception beat .* was cut to fit the 60s short budget/.test(p)),
+    `the cut must be named: ${problems.join(' | ')}`,
+  );
+  // Every cut is reported, not just that one — a deleted step is a deleted link.
+  assert.equal(problems.length, lessonBeats(shipped).length - lessonBeats(shaped).length);
+  // A preset that cuts nothing reports nothing.
+  const quiet: string[] = [];
+  adaptLesson(shipped, PRESETS.standard, { onProblem: (p) => quiet.push(p) });
+  assert.deepEqual(quiet, []);
+});
+
+test('a graph may not arrive before this lesson has drawn anything real', () => {
+  // Audit S1-d: CONCRETE BEFORE ABSTRACT is the brief's first rule, and `findReuse`
+  // mechanised it for exactly one strategy. Everywhere else nothing but the prompt stood
+  // between a learner and a plot of a quantity they had not been shown.
+  const plotFirst = {
+    ...shipped,
+    strategy: 'first-principles' as const,
+    analogy: undefined,
+    // The hook and the anchor stop drawing the hillside — they show an icon apiece — and
+    // the first step plots the curve. Both, because the shipped lesson draws terrain in
+    // its first two beats and it is the *earliest* concrete beat that decides.
+    hook: { ...shipped.hook, visuals: [{ ...shipped.hook.visuals[0]!, kind: 'icon' as const }] },
+    anchor: {
+      ...shipped.anchor,
+      visuals: [{ ...shipped.anchor.visuals[0]!, kind: 'icon' as const }],
+    },
+    steps: shipped.steps.map((s, i) =>
+      i === 0
+        ? { ...s, visuals: [{ describe: 'a bowl-shaped loss curve', kind: 'plot' as const }] }
+        : s,
+    ),
+  };
+  assert.ok(
+    critiqueLesson(plotFirst).some((p) =>
+      /plots axes before this lesson has drawn anything/.test(p),
+    ),
+    'axes before any concrete picture must be reported',
+  );
+  // The analogy lane is left to `findReuse`, which derives the transition structurally and
+  // stages it on the board — a second, weaker opinion here would only fight it.
+  assert.deepEqual(
+    critiqueLesson({ ...plotFirst, strategy: 'analogy', analogy: shipped.analogy }).filter((p) =>
+      /plots axes/.test(p),
+    ),
+    [],
+  );
+  // A lesson that draws the hill first is silent, however many plots follow.
+  assert.deepEqual(
+    critiqueLesson({
+      ...plotFirst,
+      hook: shipped.hook,
+      anchor: shipped.anchor,
+      strategy: 'first-principles' as const,
+    }).filter((p) => /plots axes/.test(p)),
+    [],
+  );
+});
+
+/* ------------------------------------------- the DAG's second opinion (plan 5.4) */
+
+test('the dependency graph is allowed an opinion about order, and only an opinion', () => {
+  // Audit S1-b. `critiqueLesson` already refuses a forward or dangling reference; what it
+  // cannot see is a chain interrupted by beats that belong to neither end of it.
+  assert.deepEqual(lessonOrderAdvisories(shipped), [], 'a shipped lesson must be silent');
+  assert.deepEqual(lessonOrderAdvisories(narrative), []);
+
+  // step1 -> step4, with two independent beats parked in between.
+  const interrupted = {
+    ...shipped,
+    steps: [
+      { ...shipped.steps[0]!, from: 'given' as const, derivedFrom: [] },
+      { ...shipped.steps[1]!, from: 'given' as const, derivedFrom: [] },
+      { ...shipped.steps[2]!, from: 'given' as const, derivedFrom: [] },
+      { ...shipped.steps[3]!, from: 'derived' as const, derivedFrom: ['step1'] },
+    ],
+  };
+  const said = lessonOrderAdvisories(interrupted);
+  assert.ok(
+    said.some((p) => /step4 follows from step1, but 2 beats/.test(p)),
+    `an interrupted chain must be reported: ${said.join(' | ')}`,
+  );
+  // One aside between two links is not a disagreement — a tie is not an inversion.
+  assert.deepEqual(
+    lessonOrderAdvisories({
+      ...interrupted,
+      steps: interrupted.steps.filter((_, i) => i !== 1),
+    }).filter((p) => /step3 follows from step1/.test(p)),
+    [],
+  );
+  // It is never part of the critique, because critique output is what the author is asked
+  // to revise against and authored order is the design.
+  assert.deepEqual(
+    critiqueLesson(interrupted).filter((p) => /dependency-ordered/.test(p)),
+    [],
   );
 });

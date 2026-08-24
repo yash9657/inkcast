@@ -149,6 +149,20 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
             ) : null}
             {storyboard ? <span>· {storyboard.meta.style}</span> : null}
           </p>
+          {/* What the facts in this film rest on (plan 5.1; audit S0-a). This is the
+              surface the honesty is most for: a stranger arriving at a shared link has no
+              other way to tell a film built from a document somebody supplied from one
+              taught out of a model's memory, and the finished mp4 looks identical either
+              way. Absent renders nothing — a film cast before the pipeline recorded this
+              has no answer, and `parametric` is not the honest default for it. */}
+          {project.grounding === 'parametric' ? (
+            <p className="text-sm text-warning">
+              Taught from no source: every claim here is the model’s own knowledge, and nothing
+              checked it.
+            </p>
+          ) : project.grounding === 'document' ? (
+            <p className="text-sm text-muted-foreground">Taught from a source document.</p>
+          ) : null}
         </div>
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">

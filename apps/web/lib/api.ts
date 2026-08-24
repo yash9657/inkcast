@@ -77,6 +77,13 @@ export type Project = {
   /** `16:9` etc. Recorded by the API when the run was started. */
   aspect?: string;
   scenes?: number;
+  /**
+   * What the facts in this film rest on, when the run recorded it (plan 5.1; audit
+   * S0-a). `parametric` means a bare topic: nothing was retrieved, so every claim is the
+   * model's own knowledge and nothing downstream could have checked it. Absent on films
+   * cast before the pipeline recorded this, which is not the same as `parametric`.
+   */
+  grounding?: 'document' | 'parametric' | 'supplied';
   /** Present when the last run failed and the server recorded why. */
   error?: string;
 };
@@ -257,6 +264,14 @@ export function parseProject(raw: unknown): Project {
   if (scenes !== undefined) project.scenes = scenes;
   const error = str(rec.error);
   if (error) project.error = error;
+  // Plan 5.1. Validated against the three known values rather than passed through as a
+  // string: this drives a sentence a viewer reads about how much to trust the film, and a
+  // value nothing here recognises must render as *absent* — which says "nobody recorded
+  // it" — rather than as a fourth state the UI has no wording for.
+  const grounding = str(rec.grounding);
+  if (grounding === 'document' || grounding === 'parametric' || grounding === 'supplied') {
+    project.grounding = grounding;
+  }
 
   return project;
 }

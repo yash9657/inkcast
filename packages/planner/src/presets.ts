@@ -18,9 +18,9 @@
  * each of those numbers comes from — every one of them is a line from the side-by-side
  * timing in `docs/HANDOFF-PARITY.md` rather than a preference.
  */
-import type { BoardMode, StoryboardMeta, TextElement } from '@inkcast/core';
+import type { BoardMode, StageOptions, StoryboardMeta, TextElement } from '@inkcast/core';
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { critiqueLesson, lessonBeats, logger } from '@inkcast/core';
+import { critiqueLesson, lessonBeats, logger, noteProblem } from '@inkcast/core';
 import { keywords, sentences, wordCount } from './text.js';
 
 const log = logger('planner:presets');
@@ -600,8 +600,16 @@ function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>, spared?: stri
  * core insight arrives are the spine of the lesson and are never dropped. Steps that
  * do the least for that insight go first, then the misconception, and only then a
  * step that matters.
+ *
+ * **Every cut is now recorded, not logged** (plan item 5.3; audit S1-c). A dropped beat
+ * used to be a `log.debug` line, which meant the single most consequential thing this
+ * function does — deleting a link out of an argument to fit a runtime — existed for the
+ * length of one terminal session. `opts.onProblem` carries it out to `qc.json`, where the
+ * question "why does this film not name the misconception" has an answer a week later.
+ * The misconception's line says what was lost rather than which id went, because that is
+ * the one cut whose absence a viewer feels without being able to name.
  */
-export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
+export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions): Lesson {
   const trimmed: Lesson = {
     ...lesson,
     hook: trimStep(lesson.hook, preset, 'hook'),
@@ -671,6 +679,15 @@ export function adaptLesson(lesson: Lesson, preset: Preset): Lesson {
     const victim = candidates[0]!;
     doomed.add(victim);
     log.debug(`dropped ${victim} to fit ${preset.maxSeconds}s — nothing derives from it`);
+    noteProblem(
+      opts,
+      victim === 'misconception'
+        ? `the misconception beat — "${lesson.misconception?.idea ?? ''}" — was cut to fit the ` +
+            `${preset.maxSeconds}s ${preset.name} budget, so this film never names the wrong ` +
+            'belief it creates. Ask for shorter beats, or cast it at a longer preset.'
+        : `beat ${victim} ("${beatIdea(lesson, victim)}") was cut to fit the ` +
+            `${preset.maxSeconds}s ${preset.name} budget — nothing surviving derives from it`,
+    );
     shaped = withoutDoomed();
   }
 
@@ -739,6 +756,11 @@ function remapDerivations(shaped: Lesson, original: Lesson, doomed: ReadonlySet<
     // which `critiqueLesson` would rightly reject.
     if (!step.derivedFrom.length && step.from === 'derived') step.from = 'given';
   }
+}
+
+/** A beat's own one-line idea, by the id `droppableIds` names it with. */
+function beatIdea(lesson: Lesson, id: string): string {
+  return lessonBeats(lesson).find((b) => b.id === id)?.step.idea ?? id;
 }
 
 /** Structural problems with a lesson, measured against a preset's runtime. */

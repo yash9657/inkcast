@@ -247,6 +247,26 @@ FIELD DISCIPLINE
 Return only the tool call.`;
 }
 
+/**
+ * `sourceRef`, told to the author only when there is a document to point at.
+ *
+ * The audit's S0-b finding in one sentence: the ingested document is on disk and after
+ * this stage nothing can trace a single claim back into it, because the lesson has no
+ * field that names where a fact came from. `from`/`derivedFrom` answer "which earlier
+ * beat", never "which paragraph".
+ *
+ * The heading is the whole contract. It is the one identifier the author can already see
+ * (in `SOURCE OUTLINE`, immediately above this), it needs no minting at ingest, and it is
+ * checked — `critiqueLesson` matches it against the document's real headings and reports a
+ * ref that names none. So the failure mode of an author that copies carelessly is a
+ * critique problem it is asked to fix, not a plausible-looking citation nobody can test.
+ */
+const SOURCE_REF_RULE = `SAY WHERE EACH FACT CAME FROM
+Set \`sourceRef\` on every beat whose claim you took from this document: the heading of the section it came from, copied VERBATIM from the SOURCE OUTLINE above. It is checked against the document's real headings, so a heading you paraphrased or invented is reported as a problem — copy it character for character or leave the field out.
+- Leave it out on a beat that is yours rather than the document's: an everyday anchor you supplied, a hook you wrote, the recap. Do not reach for the nearest heading to fill the field; an unsourced beat is honest and a wrong citation is not.
+- One heading, not a list. If a beat draws on two sections, name the one its central claim comes from — and consider whether it is really two beats.
+- This is not for the viewer and it is never spoken. It is how a later check can hold a claim up against the sentence it came from.`;
+
 function documentContext(input: SourceDoc | string, opts: LessonOptions): string {
   const lines: string[] = [];
   if (typeof input === 'string') {
@@ -268,6 +288,13 @@ function documentContext(input: SourceDoc | string, opts: LessonOptions): string
     lines.push(
       'SOURCE DOCUMENT — this is raw material, not a script. Take the facts and the numbers from it; take nothing of its structure or its sentences. Reorganise it completely around the learner.',
     );
+    // Plan 5.2 / audit S0-b. Said here rather than in the teaching brief on purpose: the
+    // brief is one system prompt shared with every bare-topic run, and a field an author
+    // *cannot* fill is a field it will fill wrongly. This block only exists when a
+    // document does, and it sits directly under the outline whose headings are the only
+    // legal values — so the thing being copied is on screen beside the instruction to
+    // copy it.
+    if (outline) lines.push(SOURCE_REF_RULE);
     lines.push(text);
   }
   if (opts.objective) lines.push(`REQUIRED OBJECTIVE: ${opts.objective}`);
@@ -337,7 +364,13 @@ export async function anthropicLesson(
       continue;
     }
 
-    const problems = critiqueLesson(lesson, { maxSeconds });
+    // The document's headings, so a `sourceRef` is checked in the same loop that would
+    // ask for a revision (plan 5.2). Nothing to check on a bare topic — and nothing was
+    // asked for there either, since `SOURCE_REF_RULE` only appears with an outline.
+    const problems = critiqueLesson(lesson, {
+      maxSeconds,
+      ...(typeof input === 'string' ? {} : { sections: input.sections.map((s) => s.heading) }),
+    });
     if (!best || problems.length < best.problems.length) best = { lesson, problems };
     if (!problems.length) {
       log.info(`${model} wrote a lesson that passes critique`, {
@@ -395,6 +428,9 @@ How to read them:
 - "does not name the one insight it exists to install" — write \`coreInsight\` as one sentence, and check every beat serves it.
 - "names no correspondences" — fill in \`analogy.maps\`: each \`from\` a concrete part of the anchor, each \`to\` what it stands for.
 - "says it teaches by analogy but does not record one" — either record the analogy, or change \`strategy\` to what you actually did.
+- "cites source section … which is not a heading in the document" — \`sourceRef\` is a heading from the SOURCE OUTLINE, copied character for character. Fix the spelling or drop the field; do not substitute a heading that is merely close.
+- "names no misconception" — add the \`misconception\` beat: the one sentence a learner would confidently say afterwards that is false, and the picture that refutes it. A caveat about limitations is not this.
+- "plots axes before this lesson has drawn anything concrete" — move the graph later, or give an earlier beat a \`draw\` or \`path\` visual of the real situation the graph is *of*. Notation and axes come after the picture, never before it.
 
 Call ${TOOL} again with the complete corrected lesson. Keep every beat that was already good, word for word.`;
 }

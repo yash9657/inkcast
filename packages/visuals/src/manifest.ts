@@ -24,8 +24,16 @@ import type { TextLayout } from './text.js';
 import type { InkStroke } from './writer.js';
 
 export const MANIFEST_PATH = 'assets/visuals.json';
-/** Bumped to 2 when plots, paths and motion joined the record. */
-export const MANIFEST_VERSION = 2;
+/**
+ * Bumped to 2 when plots, paths and motion joined the record; to 3 when the three
+ * copied timing fields left it (plan item 5.5, audit A-1).
+ *
+ * The bump is what makes the removal safe rather than merely tidy. `loadVisualManifest`
+ * refuses a version it does not know, so every sidecar on disk that still carries
+ * `enterAt`/`enterDuration`/`persist` is re-resolved rather than half-read — and nothing
+ * downstream has to tolerate both shapes.
+ */
+export const MANIFEST_VERSION = 3;
 
 export type VisualSpace = 'canvas' | 'local';
 export type ViewBox = [number, number, number, number];
@@ -86,11 +94,24 @@ export type ElementVisual = {
   viewBox: ViewBox;
   strokes: InkStroke[];
   totalLength: number;
-  /** From `enter.style`: how the renderer should bring this in. */
+  /**
+   * From `enter.style`: how the renderer should bring this in.
+   *
+   * The only timing-adjacent field left here, and it stays for the reason
+   * `elementFingerprint` keeps it too: `draw` and `write` resolve to *different
+   * geometry* (per-line masks and per-word windows against one stroke order), so it
+   * describes what was drawn rather than when.
+   *
+   * `enterAt`, `enterDuration` and `persist` used to sit beside it and are gone (plan
+   * 5.5, audit A-1). They were copies of `Enter.at` / `Enter.duration` / `persist` taken
+   * at resolve time, and `visualsFingerprint` deliberately excludes timing — so a
+   * re-voiced project kept a sidecar whose numbers no longer matched the storyboard's,
+   * and nothing in the repository read any of the three. Duplicated state that nothing
+   * reads is the "accepted and unread field" defect this codebase names in `Mark.tone`'s
+   * own docs; the storyboard is the authority on when ink arrives and how long it lives,
+   * and now it is the only one.
+   */
   reveal: RevealStyle;
-  enterAt: number;
-  enterDuration: number;
-  persist: boolean;
   z?: number;
   /** Handwriting blocks, with per-line masks and per-word progress windows. */
   texts?: TextLayout[];

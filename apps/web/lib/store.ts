@@ -236,6 +236,15 @@ const SourceRefSchema = z.object({
   ref: z.string(),
 });
 
+/**
+ * Kept in step with `Grounding` in `@inkcast/pipeline`, which is the authority: what the
+ * facts in a film rest on — a document, the model's own knowledge, or a supplied lesson
+ * (plan 5.1, audit S0-a). Optional, and never defaulted: a project cast before the
+ * pipeline recorded this has no answer, and guessing one would be the exact opposite of
+ * what the field is for.
+ */
+const GroundingSchema = z.enum(['document', 'parametric', 'supplied']);
+
 const ProjectRecordSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -247,6 +256,8 @@ const ProjectRecordSchema = z.object({
   /** Project-relative path of the finished video, when one exists on disk. */
   videoPath: z.string().optional(),
   source: SourceRefSchema.optional(),
+  /** What this film's facts rest on, when a run recorded it. See `GroundingSchema`. */
+  grounding: GroundingSchema.optional(),
   /** Failure message from the last run, cleared when a run succeeds. */
   error: z.string().optional(),
   costUsd: z.number().nonnegative().optional(),
@@ -538,6 +549,10 @@ function mergeMeta(
   const now = new Date().toISOString();
   const videoPath = patch.videoPath ?? previous?.videoPath;
   const source = patch.source ?? previous?.source;
+  // Sticky like `source`, and for the same reason: what the facts rest on is decided by
+  // the run that wrote the lesson, and a later status patch that carries nothing must
+  // not erase it.
+  const grounding = patch.grounding ?? previous?.grounding;
   const costUsd = finite(patch.costUsd ?? previous?.costUsd);
   const aspect = patch.aspect ?? previous?.aspect;
   // Ownership and publication are sticky: a status update from a background job
@@ -557,6 +572,7 @@ function mergeMeta(
     shared: patch.shared ?? previous?.shared ?? false,
     ...(videoPath === undefined ? {} : { videoPath }),
     ...(source === undefined ? {} : { source }),
+    ...(grounding === undefined ? {} : { grounding }),
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(aspect === undefined ? {} : { aspect }),
     ...(ownerSession === undefined ? {} : { ownerSession }),
@@ -725,6 +741,7 @@ function mergeDisk(summary: DiskSummary, previous: ProjectRecord | undefined): P
     previous && previous.updatedAt > summary.updatedAt ? previous.updatedAt : summary.updatedAt;
   const source = summary.source ?? previous?.source;
   const costUsd = summary.costUsd ?? previous?.costUsd;
+  const grounding = summary.grounding ?? previous?.grounding;
 
   return {
     id: summary.id,
@@ -738,6 +755,7 @@ function mergeDisk(summary: DiskSummary, previous: ProjectRecord | undefined): P
     shared: previous?.shared ?? false,
     ...(summary.videoPath ? { videoPath: summary.videoPath } : {}),
     ...(source === undefined ? {} : { source }),
+    ...(grounding === undefined ? {} : { grounding }),
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(previous?.aspect === undefined ? {} : { aspect: previous.aspect }),
     // A project with a video on disk is not a failure, whatever the index says.
@@ -809,6 +827,7 @@ type DiskSummary = {
   updatedAt: string;
   costUsd?: number;
   source?: z.infer<typeof SourceRefSchema>;
+  grounding?: z.infer<typeof GroundingSchema>;
 };
 
 /** Every subdirectory of `projects/` whose name is an id we would have written. */
@@ -864,6 +883,7 @@ async function summarise(id: string, dir: string): Promise<DiskSummary | undefin
     updatedAt: state?.updatedAt ?? (await mtime(dir)),
     ...(state?.cost ? { costUsd: state.cost.usd } : {}),
     ...(state?.source ? { source: state.source } : {}),
+    ...(state?.grounding ? { grounding: state.grounding } : {}),
   };
 }
 

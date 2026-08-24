@@ -51,6 +51,39 @@ const PLAYER_WIDTH: Record<string, string> = {
   '9:16': 'max-w-xs',
 };
 
+/**
+ * What this film's facts rest on — plan item 5.1, the honest half of audit S0-a.
+ *
+ * There is no retrieval lane: a bare topic is taught from what the model knows, and the
+ * finished mp4 looks exactly like one built from a document the user supplied. Nothing in
+ * the studio said which you were watching, and that silence is the finding. It reads as a
+ * note rather than a warning because teaching a bare topic is the intended, normal use —
+ * what is worth knowing is only that no source was ever there to check the claims
+ * against.
+ *
+ * Nothing is rendered when the field is absent: a film cast before the pipeline recorded
+ * this has no answer, and inventing one would defeat the purpose of the field.
+ */
+function GroundingNote({ grounding }: { grounding?: Project['grounding'] }) {
+  if (!grounding) return null;
+  const text =
+    grounding === 'document'
+      ? 'Taught from the source you supplied.'
+      : grounding === 'supplied'
+        ? 'Rendered from a ready-made lesson — this studio sourced nothing itself.'
+        : 'Taught from no source: every claim here is the model’s own knowledge, and nothing checked it.';
+  return (
+    <p
+      className={cn(
+        'mt-1 text-xs',
+        grounding === 'parametric' ? 'text-warning' : 'text-muted-foreground',
+      )}
+    >
+      {text}
+    </p>
+  );
+}
+
 export function ResultView({
   project,
   storyboard,
@@ -86,6 +119,7 @@ export function ResultView({
               ) : null}
               <span className="font-mono">· {project.id}</span>
             </p>
+            <GroundingNote grounding={project.grounding} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

@@ -266,7 +266,10 @@ export function compileLesson(
   // Every measurement below reserves with the face this board will letter with.
   setPlannerHand(opts.style ?? 'marker');
   const preset = resolvePreset(opts);
-  const shaped = adaptLesson(lesson, preset);
+  // `opts` carries `onProblem`, so a beat the budget deletes reaches `qc.json` instead of
+  // a debug line (plan 5.3; audit S1-c). The compiler is the only caller that knows both
+  // the lesson and the preset, which is why the reporting seam is here.
+  const shaped = adaptLesson(lesson, preset, opts);
   const beats = lessonBeats(shaped);
   report(opts, { stage: 'plan', pct: 60, note: `${beats.length} beats → ${preset.name}` });
 

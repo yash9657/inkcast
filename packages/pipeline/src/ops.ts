@@ -15,7 +15,10 @@
 import {
   critiqueStoryboard,
   cueWordIndex,
+  fitCamera,
+  frameSize,
   parseStoryboard,
+  viewRect,
   type Camera,
   type Scene,
   type Storyboard,
@@ -32,12 +35,36 @@ export type EditOp =
   | { op: 'delete-scene'; scene: SceneRef }
   | { op: 'insert-scene'; at: SceneRef | 'start' | 'end'; narration: string }
   | { op: 'move-scene'; scene: SceneRef; to: number }
+  /**
+   * Re-frame one scene, in the vocabulary of the board rather than of the canvas (plan
+   * item 5.6; audit A-2).
+   *
+   * This op used to take `x`, `y` and `zoom` and apply them verbatim, which made it the
+   * one place in the product where a model — or a regex — could put a raw coordinate into
+   * the IR and have it honoured. Every other coordinate in a storyboard is solved:
+   * `resolveFraming` derives a camera from what the scene draws, `planBoard` assigns
+   * disjoint cells by arithmetic, and A-3 passes because of it. A camera the model typed
+   * numbers into is a camera nothing checked against the board it is pointing at, and the
+   * failure it produces is the whole beat framed on empty canvas.
+   *
+   * So the request is now the intent, and the arithmetic stays here:
+   *
+   *  - `tighter` / `wider` — a step in or out from where this scene already is.
+   *  - `on` — centre on one element and frame it, which is what "zoom in on the diagram"
+   *    always meant. The element has to exist, and its box is what decides the numbers.
+   *
+   * `transition` survives as a number because seconds are not coordinates: it is a
+   * duration the user can hear, it is bounded below by zero and by nothing above, and
+   * there is no board it can be wrong about.
+   */
   | {
       op: 'set-camera';
       scene: SceneRef;
-      x?: number;
-      y?: number;
-      zoom?: number;
+      /** A step in or out from this scene's current framing. */
+      framing?: 'tighter' | 'wider';
+      /** Frame this element, by id. Centres on its box and fits it with margin. */
+      on?: string;
+      /** Seconds to ease in from the previous scene's camera. 0 is a hard cut. */
       transition?: number;
     }
   | { op: 'set-text'; elementId: string; text: string }
@@ -106,10 +133,22 @@ export const EDIT_OPS_SCHEMA = {
             description: 'insert-scene: "start", "end", or the scene id/position to insert after.',
           },
           to: { type: 'number', description: 'move-scene: 1-based target position.' },
-          x: { type: 'number' },
-          y: { type: 'number' },
-          zoom: { type: 'number' },
-          transition: { type: 'number' },
+          // Scene-relative framing only: no x, no y, no zoom. See `EditOp`'s `set-camera`
+          // for why a raw coordinate is not on offer here (plan 5.6; audit A-2).
+          framing: {
+            type: 'string',
+            enum: ['tighter', 'wider'],
+            description: 'set-camera: step this scene’s framing in or out.',
+          },
+          on: {
+            type: 'string',
+            description:
+              'set-camera: frame this element id — centres on its box and fits it with margin.',
+          },
+          transition: {
+            type: 'number',
+            description: 'set-camera: seconds to ease in from the previous scene. 0 is a cut.',
+          },
           elementId: { type: 'string' },
         },
       },
@@ -225,14 +264,44 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
       case 'set-camera': {
         const i = sceneIndex(sb, op.scene);
         const scene = sb.scenes[i]!;
-        const next: Camera = { ...scene.camera };
-        if (op.x !== undefined) next.x = op.x;
-        if (op.y !== undefined) next.y = op.y;
-        if (op.zoom !== undefined) next.zoom = Math.max(0.1, op.zoom);
-        if (op.transition !== undefined) next.transition = Math.max(0, op.transition);
-        scene.camera = next;
+        if (op.framing === undefined && op.on === undefined && op.transition === undefined) {
+          throw new EditError(
+            `set-camera on scene ${scene.id} asked for nothing — pass framing: ` +
+              '"tighter" | "wider", on: "<element id>", or transition: <seconds>',
+          );
+        }
+        let next: Camera = { ...scene.camera };
+        const said: string[] = [];
+        if (op.on !== undefined) {
+          // The element decides the numbers, which is the whole point of the op: a
+          // caller says which thing to look at and the arithmetic is done here, against
+          // the board, exactly as `resolveFraming` does it for a derived camera.
+          const found = findElement(sb, op.on);
+          next = frameOn(sb, found.el.at, next);
+          said.push(`on ${op.on}`);
+        }
+        if (op.framing !== undefined) {
+          next = { ...next, zoom: stepZoom(next.zoom, op.framing) };
+          said.push(op.framing);
+        }
+        if (op.transition !== undefined) {
+          next.transition = Math.max(0, op.transition);
+          said.push(`transition ${round2(next.transition)}s`);
+        }
+        // A request that moved the framing stays inside the canvas — the clamp
+        // `layoutStoryboard` and `resolveFraming` both apply, applied here too so an edit
+        // cannot produce a framing the solvers would never have chosen.
+        //
+        // Only when the framing moved. A `transition`-only edit is asking about *time*,
+        // and clamping it would silently recentre an authored camera that had been sitting
+        // partly off-canvas on purpose — an op quietly doing a second thing nobody asked
+        // for, which is the class of defect this whole item is about.
+        const framed = op.on !== undefined || op.framing !== undefined;
+        scene.camera = framed ? clampCamera(sb, next) : next;
         applied.push(
-          `scene ${scene.id} camera -> x=${next.x} y=${next.y} zoom=${round2(next.zoom)}`,
+          `scene ${scene.id} camera ${said.join(', ')} ` +
+            `-> x=${round2(scene.camera.x)} y=${round2(scene.camera.y)} ` +
+            `zoom=${round2(scene.camera.zoom)}`,
         );
         break;
       }
@@ -274,6 +343,70 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
     );
   }
   return { storyboard, applied, problems: critiqueStoryboard(storyboard) };
+}
+
+/* --------------------------------------------------------------- framing maths */
+
+/**
+ * How far one `tighter` / `wider` step moves the camera.
+ *
+ * The numbers the old `zoom in` / `zoom out` clauses used — a quarter in, a fifth out —
+ * kept because they are what people have been getting and they read as one deliberate
+ * step rather than a jump. They are reciprocals to two decimal places, so in-then-out
+ * returns to where it started.
+ */
+const ZOOM_STEP = { tighter: 1.25, wider: 0.8 } as const;
+
+function stepZoom(zoom: number, framing: 'tighter' | 'wider'): number {
+  return Math.max(0.1, round2(zoom * ZOOM_STEP[framing]));
+}
+
+/**
+ * Frame one element's box, with the same margin `layoutStoryboard` frames a region with.
+ *
+ * `fitCamera` is the renderer's own arithmetic — the function `resolveFraming` uses to
+ * derive every camera in the film — so an edit that says "look at the diagram" produces
+ * the framing the solver would have produced if it had been asked to. Insets are zero
+ * here on purpose: the safe-area asymmetry belongs to a *derived* camera walking a board,
+ * and applying it to an explicit request would shift the thing the user named off centre.
+ */
+function frameOn(
+  sb: Storyboard,
+  box: { x: number; y: number; w: number; h: number },
+  current: Camera,
+): Camera {
+  const margin = 70;
+  const target = {
+    x: box.x - margin,
+    y: box.y - margin,
+    w: box.w + margin * 2,
+    h: box.h + margin * 2,
+  };
+  const fitted = fitCamera(target, sb.canvas, frameSize(sb.meta.aspect), ZERO_INSETS);
+  return { ...current, x: round2(fitted.x), y: round2(fitted.y), zoom: round2(fitted.zoom) };
+}
+
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * Keep the viewport inside the canvas, the clamp both solvers already apply.
+ *
+ * Without it a `tighter` step near an edge, or framing an element in a corner, walks the
+ * view off the board — the same defect `layoutStoryboard`'s own `clamp` exists to prevent,
+ * and the reason an edit must not be able to produce a camera the solvers never would. A
+ * viewport wider than the canvas centres instead, because there is nothing to slide.
+ */
+function clampCamera(sb: Storyboard, cam: Camera): Camera {
+  const view = viewRect(cam, sb.canvas, frameSize(sb.meta.aspect));
+  const fit = (v: number, half: number, lo: number, extent: number): number => {
+    if (half * 2 >= extent) return lo + extent / 2;
+    return Math.min(lo + extent - half, Math.max(lo + half, v));
+  };
+  return {
+    ...cam,
+    x: round2(fit(cam.x, view.w / 2, sb.canvas.x, sb.canvas.w)),
+    y: round2(fit(cam.y, view.h / 2, sb.canvas.y, sb.canvas.h)),
+  };
 }
 
 function clearAudio(scene: Scene): void {
@@ -411,7 +544,8 @@ const USAGE_HINT = `Without an ANTHROPIC_API_KEY, edits are matched against thes
   voice: am_puck                    |  language: es   (or "translate it into Spanish")
   style: pencil                     |  palette: mono  ("make it black and white")
   aspect: 9:16                       ("make it vertical" / "square")
-  zoom in on scene 2                |  outro: 2s        |  30 fps
+  zoom in on scene 2                |  zoom in on <element id>
+  outro: 2s                         |  30 fps
   element <id> text: <text>         |  delete element <id>
 Set ANTHROPIC_API_KEY for free-form edits, or pass a JSON ops array.`;
 
@@ -482,14 +616,23 @@ function parseClause(sb: Storyboard, clause: string): EditOp[] {
   if (m) return [{ op: 'delete-element', elementId: cleanRef(m[1]!) }];
 
   // --- camera
+  //
+  // "zoom in on the diagram" is the request people actually make, and until plan 5.6 the
+  // only thing this could express was a number: `on <element>` was parsed as a scene and
+  // the element was ignored. Element first, because it is the more specific reading.
+  m = /\bzoom\s+in\s+(?:on|into)\s+(?:element\s+)?(\S+)/i.exec(s);
+  if (m) {
+    const id = cleanRef(m[1]!);
+    if (!/^scene$/i.test(id) && sb.scenes.some((sc) => sc.elements.some((e) => e.id === id))) {
+      const owner = sb.scenes.find((sc) => sc.elements.some((e) => e.id === id))!;
+      return [{ op: 'set-camera', scene: owner.id, on: id }];
+    }
+  }
   m = /\bzoom\s+(in|out)(?:\s+(?:on|into)?\s*scene\s+(\S+))?/i.exec(s);
   if (m) {
-    const factor = m[1]!.toLowerCase() === 'in' ? 1.25 : 0.8;
+    const framing = m[1]!.toLowerCase() === 'in' ? ('tighter' as const) : ('wider' as const);
     const refs = m[2] ? [cleanRef(m[2])] : sb.scenes.map((sc) => sc.id);
-    return refs.map((ref): EditOp => {
-      const scene = sb.scenes[sceneIndex(sb, ref)]!;
-      return { op: 'set-camera', scene: ref, zoom: round2(scene.camera.zoom * factor) };
-    });
+    return refs.map((ref): EditOp => ({ op: 'set-camera', scene: ref, framing }));
   }
 
   // --- meta, which can appear several at a time in one clause

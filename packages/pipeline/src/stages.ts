@@ -39,8 +39,17 @@ export type IngestInput = { text?: string; filePath?: string; url?: string };
  * What `ingest` returns. The planner owns the real type; the pipeline only
  * needs it to be a JSON-serialisable object so it can be cached on disk, plus
  * an optional title to fall back on.
+ *
+ * `sections` joined it for plan 5.2: a beat's `sourceRef` names one of these headings, and
+ * `critiqueLesson` is handed the list to check the refs against. Structurally optional
+ * here because this mirror describes anything the ingest stage may hand back — including
+ * a `source.json` written before sections were recorded.
  */
-export type SourceDoc = { title?: string; text?: string } & Record<string, unknown>;
+export type SourceDoc = {
+  title?: string;
+  text?: string;
+  sections?: { heading?: string }[];
+} & Record<string, unknown>;
 
 /**
  * Output format presets, mirrored from the planner so nothing imports it eagerly.
@@ -128,6 +137,16 @@ export type CompileStageOptions = FormatOptions & {
   board?: BoardMode;
   onProgress?: OnProgress;
   force?: boolean;
+  /**
+   * Where the compiler records something the format cost this lesson — `OnProblem` in
+   * `@inkcast/core`, same channel and same destination as the lesson stage's.
+   *
+   * It exists for `adaptLesson`'s cuts (plan 5.3; audit S1-c). Trimming a beat out of an
+   * argument to fit a runtime is the most consequential thing the compiler does, and it
+   * was a `log.debug` — so a film that lost its misconception to a 60-second budget could
+   * not say so an hour later. Now it can, in `qc.json`.
+   */
+  onProblem?: (problem: string) => void;
 };
 
 export type PlanOptions = {

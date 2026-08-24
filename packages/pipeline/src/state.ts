@@ -24,6 +24,35 @@ import type { StageName } from './progress.js';
  */
 export type SourceRef = { kind: 'text' | 'url' | 'file' | 'topic' | 'lesson'; ref: string };
 
+/**
+ * What the facts in this film rest on (plan item 5.1; audit S0-a).
+ *
+ * The audit's finding was not that bare-topic lessons are bad — they are the primary way
+ * people use this — but that nothing on disk said which kind of film you were looking at.
+ * "There is no source document. Teach it from first principles, from what you know to be
+ * true" is what the lesson author is told for a bare topic, and every claim in the result
+ * is then the model's recollection: unsourced, unverifiable by anything downstream, and
+ * indistinguishable in the finished mp4 from a film built out of a document the user
+ * supplied. The critique gate polices pedagogy, not facts, and it cannot police facts
+ * without a source to police them against.
+ *
+ * So this records which it was. It is deliberately not a quality score and not a warning:
+ * `parametric` is the normal, intended case, and the honest thing to do about it is to say
+ * so where a reader will see it rather than to refuse the run.
+ *
+ *  - `document` — an ingested `SourceDoc` was in front of the author (`source.json` is on
+ *    disk, and `LessonStep.sourceRef` can point back into it — plan 5.2).
+ *  - `parametric` — a bare topic. The model's own knowledge is the only source there was.
+ *  - `supplied` — a ready-made `*.lesson.json`. Whoever wrote it grounded it however they
+ *    grounded it; this pipeline did not, and must not claim to have.
+ *
+ * Retrieval — a search lane that would turn a bare topic into a `document` run — is
+ * deliberately not here: it is a design decision with its own doc
+ * (`docs/PLAN-RETRIEVAL.md`), and shipping the honesty first is what stops that decision
+ * blocking it.
+ */
+export type Grounding = 'document' | 'parametric' | 'supplied';
+
 /** Enough of the lesson to show in a library listing without reading `lesson.json`. */
 export type LessonSummary = {
   topic: string;
@@ -95,6 +124,14 @@ export type PipelineState = {
   voice?: VoiceRecord;
   /** Absent on the `via: 'document'` route, which has no lesson. */
   lesson?: LessonSummary;
+  /**
+   * What this film's facts rest on. See `Grounding`.
+   *
+   * Absent on files written before plan 5.1, and absent is not `parametric`: an older
+   * project may well have been cast from a document, and the honest reading of a missing
+   * field is "nobody recorded it", which is why nothing here defaults it.
+   */
+  grounding?: Grounding;
   /**
    * The quality-gate posture the run was made under. `degrade` is the fact that
    * matters: this film may carry defects its own pipeline detected and was told
@@ -172,6 +209,8 @@ export type ProjectSummary = {
   source?: SourceRef;
   /** What the project teaches, when it was built through the lesson stage. */
   lesson?: LessonSummary;
+  /** What its facts rest on, when a run recorded it. See `Grounding`. */
+  grounding?: Grounding;
 };
 
 /** Every project on disk, newest first. Tolerates half-finished directories. */
@@ -211,6 +250,7 @@ export async function listProjects(root: string = PROJECTS_ROOT): Promise<Projec
       cost: state?.cost ?? emptyCost(),
       ...(state?.source ? { source: state.source } : {}),
       ...(state?.lesson ? { lesson: state.lesson } : {}),
+      ...(state?.grounding ? { grounding: state.grounding } : {}),
     });
   }
   out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

@@ -306,12 +306,31 @@ test('emphasis resolves its target box, and survives a missing target', async ()
   assert.ok(marked?.emphasis);
   assert.equal(marked.emphasis.resolved, true);
   assert.deepEqual(marked.emphasis.targetBox, manifest.elements.box?.box);
-  assert.equal(marked.enterAt, 0.6);
 
   const ghost = manifest.elements.ghost;
   assert.ok(ghost?.emphasis);
   assert.equal(ghost.emphasis.resolved, false, 'a missing target must be reported, not crash');
   assert.ok(ghost.strokes.length > 0, 'it should still draw something');
+});
+
+test('the sidecar records geometry and no copy of the storyboard timing', async () => {
+  // Plan 5.5 / audit A-1: `enterAt`, `enterDuration` and `persist` were copied out of
+  // the storyboard at resolve time and read by nothing, while `visualsFingerprint`
+  // deliberately excludes timing — so a re-voiced project's sidecar disagreed with its
+  // own storyboard about when ink arrives. The storyboard is the authority; this asserts
+  // the sidecar has stopped claiming to be a second one.
+  const { manifest, sb } = await run();
+  const stale = ['enterAt', 'enterDuration', 'persist'];
+  for (const [id, visual] of Object.entries(manifest.elements)) {
+    for (const key of stale) {
+      assert.ok(!(key in visual), `element ${id} still carries "${key}" in the sidecar`);
+    }
+    // `reveal` stays, and has to: `draw` and `write` resolve to different geometry.
+    assert.ok(typeof visual.reveal === 'string', `element ${id} lost its reveal style`);
+  }
+  // The fields it replaced are still on the board, where the renderer reads them.
+  const drawn = sb.scenes.flatMap((s) => s.elements);
+  assert.ok(drawn.some((el) => el.enter.at > 0) && drawn.every((el) => 'persist' in el));
 });
 
 test('a second run is fully cached and rewrites nothing', async () => {

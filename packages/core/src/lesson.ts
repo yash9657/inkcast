@@ -401,6 +401,32 @@ export const LessonStep = z.object({
    * a name or keep it unique. See `lessonBeats`.
    */
   derivedFrom: z.array(z.string()).default([]),
+  /**
+   * Which section of the source document this beat's facts came from, when there was
+   * one: the heading, verbatim (plan item 5.2; audit S0-b).
+   *
+   * `from`/`derivedFrom` above record *pedagogical* provenance — which earlier beat this
+   * one follows from — and the audit's finding was that nothing recorded *document*
+   * provenance. The ingested document is persisted as `source.json` and then used only as
+   * a cache fingerprint, so after the lesson stage no tool could trace a claim back to
+   * the text it came from. That is the link this restores, and it is the prerequisite for
+   * any factual QC at all: you cannot check a claim against a source without knowing
+   * which part of the source it is supposed to be a claim about.
+   *
+   * The heading rather than an invented id, and that is the whole design. Sections have
+   * no ids — `SourceSection` is `{heading, level, text}` — so an id would have to be
+   * minted at ingest, travel into the brief, and be copied back correctly by a model that
+   * has no reason to prefer it to the words it can see. The heading is already what the
+   * author is shown (the `SOURCE OUTLINE` block), it is already unique in practice, and
+   * it is checkable: `critiqueLesson` matches it against the document's real headings and
+   * a ref naming no section is the same class of failure as a `derivedFrom` naming no
+   * beat. Matching is case-insensitive and whitespace-trimmed; nothing else is forgiven.
+   *
+   * Optional, and never defaulted. A bare-topic lesson has no document to point at —
+   * `pipeline.json` records that as `grounding: 'parametric'` (plan 5.1) — and a lesson
+   * written before this field existed still parses and still passes critique.
+   */
+  sourceRef: z.string().optional(),
   /** Spoken narration for this beat, 140-160 wpm, whole sentences only. */
   narration: z.string(),
   visuals: z.array(VisualIntent).default([]),
@@ -689,10 +715,51 @@ export function resolveTerms(step: LessonStep): { found: string[]; missing: stri
 }
 
 /**
+ * Whether this beat's picture is an abstraction rather than a thing (plan item 5.3;
+ * audit S1-d).
+ *
+ * Axes are the signal, and only axes. `findReuse` already mechanises the concrete →
+ * abstract transition for the one lane it can — an anchor's `path` morphing into the
+ * plot that grows out of it — and this is the cheap general version: a lesson that puts
+ * a graph on the board before it has drawn anything real has skipped the step the whole
+ * brief is built around.
+ *
+ * Notation is deliberately *not* part of the signal, and the reason is worth stating
+ * because it looks like an omission. Typeset mathematics reaches the board as a `math`
+ * mark inside a `draw` visual, and marks are written by the drawing stage — they do not
+ * exist yet when a lesson is critiqued. The one thing that could read notation out of
+ * `describe` is `sniffMath`, which lives in `@inkcast/planner` beside the routing
+ * decision it exists for; a second copy of it here would be the two-catalogues defect
+ * this repository has now fixed three times (`fontmetrics`, `palette`, `speech`). One
+ * honest signal beats one honest signal plus a duplicate.
+ */
+function isAbstractBeat(step: LessonStep): boolean {
+  return step.visuals.some((v) => v.kind === 'plot');
+}
+
+/** Whether this beat draws a real thing — terrain, an object, a composed picture. */
+function isConcreteBeat(step: LessonStep): boolean {
+  return step.visuals.some((v) => v.kind === 'path' || v.kind === 'draw');
+}
+
+export type CritiqueOptions = {
+  maxSeconds?: number;
+  /**
+   * The source document's section headings, when the lesson was written from one.
+   *
+   * Present enables the `sourceRef` check (plan 5.2). **Absent means "cannot check", not
+   * "nothing is valid"** — `lesson-edit` and `critiqueFor` hold a lesson and no document,
+   * and a critique that failed every ref it could not verify would turn every edit of
+   * every document-route lesson into a wall of false failures.
+   */
+  sections?: readonly string[];
+};
+
+/**
  * Structural critique of a lesson, used to reject weak plans before they cost a
  * render. Returns human-readable problems; empty means it passes.
  */
-export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): string[] {
+export function critiqueLesson(l: Lesson, opts: CritiqueOptions = {}): string[] {
   const problems: string[] = [];
   const beats = lessonBeats(l);
   const allIds = new Set(beats.map((b) => b.id));
@@ -701,6 +768,11 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
   const castIds = new Set(l.cast.map((c) => c.id));
   /** Every word this lesson puts on the board: its terms, and the captions. */
   const inked = beats.flatMap((b) => [...b.step.terms, b.step.idea]).filter(Boolean);
+  /** The document's headings, normalised the one way a ref is matched against them. */
+  const sections =
+    opts.sections === undefined
+      ? undefined
+      : new Set(opts.sections.map((s) => s.trim().toLowerCase()).filter(Boolean));
 
   for (const { step, role, id } of beats) {
     if (!step.because.trim() && role !== 'recap' && role !== 'hook') {
@@ -759,6 +831,21 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
         `${role} "${step.idea}" is asserted, and a first-principles lesson has to derive every claim`,
       );
     }
+    // A `sourceRef` naming no section is the same class of failure as a `derivedFrom`
+    // naming no beat: a pointer that resolves to nothing, presented as provenance. Only
+    // checkable when the caller handed over the document's headings — see
+    // `CritiqueOptions.sections`.
+    if (sections !== undefined && step.sourceRef !== undefined) {
+      const ref = step.sourceRef.trim();
+      if (!ref) {
+        problems.push(`${role} "${step.idea}" has an empty sourceRef — leave it out instead`);
+      } else if (!sections.has(ref.toLowerCase())) {
+        problems.push(
+          `${role} "${step.idea}" cites source section "${ref}", which is not a heading in ` +
+            `the document — cite one of them verbatim or leave sourceRef out`,
+        );
+      }
+    }
     if (step.from === 'derived') {
       if (!step.derivedFrom.length) {
         problems.push(
@@ -792,6 +879,41 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
 
   if (!l.coreInsight.trim()) {
     problems.push('the lesson does not name the one insight it exists to install');
+  }
+  // A lesson that derives a mechanism creates a specific wrong belief, and naming it is
+  // the beat that stops the learner walking away confident and wrong (plan 5.3; audit
+  // S1-c). The field was optional, prompted for, and the first thing the trimmer cut —
+  // so the refutation could vanish without a word being said about it. Required here for
+  // the two kinds where the wrong belief is a *product of the explanation* rather than a
+  // possible misreading of it: a STEM topic, and anything reasoned from first principles.
+  //
+  // It fires on a trimmed lesson too, and that is deliberate rather than an oversight.
+  // The film really has no misconception beat, and this is the line that says so;
+  // `adaptLesson` reports the *cause* separately (`onProblem`, plan 5.3's second rule),
+  // which is a different fact — "why is it missing" — and neither can be derived from the
+  // other. Both are advisory in `qc.json`, so together they inform and neither blocks.
+  if ((l.kind === 'stem' || l.strategy === 'first-principles') && !l.misconception) {
+    problems.push(
+      `this ${l.kind === 'stem' ? 'STEM' : 'first-principles'} lesson names no misconception — ` +
+        'say the one wrong sentence a learner would confidently repeat afterwards, and refute it',
+    );
+  }
+  // CONCRETE BEFORE ABSTRACT, which the brief states as its first rule and only the
+  // analogy lane enforced (plan 5.3; audit S1-d). `findReuse` derives the abstraction's
+  // arrival structurally for `analogy` lessons — the anchor's drawing morphs into the
+  // plot — so those are left to it; everywhere else nothing but the prompt stood between
+  // a learner and a graph of a quantity they had not yet been shown.
+  if (l.strategy !== 'analogy') {
+    const firstAbstract = beats.findIndex((b) => isAbstractBeat(b.step));
+    const firstConcrete = beats.findIndex((b) => isConcreteBeat(b.step));
+    if (firstAbstract >= 0 && (firstConcrete < 0 || firstAbstract < firstConcrete)) {
+      const beat = beats[firstAbstract]!;
+      problems.push(
+        `${beat.role} "${beat.step.idea}" plots axes before this lesson has drawn anything ` +
+          `concrete${firstConcrete < 0 ? ' at all' : ''} — anchor it in a picture of a real ` +
+          'situation first, then let the graph arrive out of it',
+      );
+    }
   }
   // An analogy is a set of correspondences or it is decoration: without them the
   // learner is told two things are alike and left to guess in what respect, and the
@@ -828,4 +950,56 @@ export function critiqueLesson(l: Lesson, opts: { maxSeconds?: number } = {}): s
     }
   }
   return problems;
+}
+
+/**
+ * The dependency graph's second opinion about the running order — advisory, forever
+ * (plan item 5.4; audit S1-b).
+ *
+ * `critiqueLesson` already refuses a `derivedFrom` that points forwards or at nothing,
+ * which is the DAG having teeth. What it cannot see is an order that is *legal* and still
+ * puts a beat a long way after the beat it follows from: five links declared as a chain
+ * and delivered as 1, 4, 2, 5, 3 validates perfectly, because every antecedent does come
+ * earlier. A topological linearization is a cheap second reading of the same data, and
+ * where the two disagree materially it is worth saying so out loud.
+ *
+ * **Deliberately not part of `critiqueLesson`, and this is the load-bearing decision.**
+ * Critique output is fed back to the lesson author as a list of failures to fix, and
+ * authored order carries information a toposort destroys — the audit says so and W-adjacent
+ * reasoning agrees: pedagogical order is the design. Putting this in critique would make
+ * the model reorder a lesson to satisfy a machine that has a *weaker* model of teaching
+ * than it does. So it is its own function, reported as an advisory in `qc.json` and read
+ * by a human, which is the only reader qualified to overrule it.
+ *
+ * "Materially" means an inversion, never a tie: a beat is only reported when the
+ * linearization would place it before an *undeclared* neighbour that the authored order
+ * puts first — that is, when authored order and dependency order genuinely conflict.
+ * Beats with no declared dependencies are held in place (a stable sort), so a lesson whose
+ * `derivedFrom` is sparse produces no advisories at all rather than a shuffle.
+ */
+export function lessonOrderAdvisories(l: Lesson): string[] {
+  const beats = lessonBeats(l);
+  const position = new Map(beats.map((b, i) => [b.id, i] as const));
+  const out: string[] = [];
+  for (const [i, beat] of beats.entries()) {
+    // The recap retraces the whole argument, so its references are not dependencies —
+    // the same exemption `droppableIds` makes, and for the same reason.
+    if (beat.role === 'recap') continue;
+    for (const ref of beat.step.derivedFrom) {
+      const at = position.get(ref);
+      if (at === undefined || at > i) continue; // dangling or forward: critique's job
+      // Every beat sitting between the antecedent and the beat that needs it, which
+      // declares no dependency on either. One of those is an interruption of the chain.
+      const between = beats
+        .slice(at + 1, i)
+        .filter((b) => !b.step.derivedFrom.includes(ref) && b.step.derivedFrom.length === 0);
+      if (between.length < 2) continue; // one aside between two links is not a disagreement
+      out.push(
+        `${beat.id} follows from ${ref}, but ${between.length} beats that depend on neither ` +
+          `(${between.map((b) => b.id).join(', ')}) sit between them — a dependency-ordered ` +
+          'reading would put them after the chain closes',
+      );
+    }
+  }
+  return out;
 }

@@ -497,6 +497,140 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S0-a (5.1): a bare-topic run says so, rather than looking like a sourced one ---- */
+{
+  const state = read('packages/pipeline/src/state.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  check(
+    'S0-a: `grounding` is a recorded fact with three honest values',
+    /export type Grounding = 'document' \| 'parametric' \| 'supplied'/.test(state) &&
+      /grounding\?: Grounding/.test(state),
+    'the project record no longer distinguishes a film built from a document from one taught out of the model’s memory',
+  );
+  check(
+    'S0-a: it is read off what reached the author, not off the flags',
+    /supplied \? 'supplied' : doc \? 'document' : 'parametric'/.test(cast) &&
+      /grounding: design\.grounding/.test(cast),
+    '`kind: topic` and `kind: text` are both things a user typed and only one of them grounds anything — derive it from the doc',
+  );
+  check(
+    'S0-a: the studio says it too',
+    /function GroundingNote/.test(read('apps/web/components/studio/result-view.tsx')),
+    'the honesty exists in pipeline.json and nowhere a viewer looks',
+  );
+}
+
+/* ---- S0-b (5.2): a claim can point back at the document it came from ---- */
+{
+  const lesson = read('packages/core/src/lesson.ts');
+  check(
+    'S0-b: LessonStep carries sourceRef, and it is checked against real headings',
+    /sourceRef: z\.string\(\)\.optional\(\)/.test(lesson) &&
+      /cites source section/.test(lesson) &&
+      /sections\?: readonly string\[\]/.test(lesson),
+    'the link between a claim and its source is severed at the lesson boundary again — audit S0-b',
+  );
+  check(
+    'S0-b: absent sections mean "cannot check", never "nothing is valid"',
+    /sections !== undefined && step\.sourceRef !== undefined/.test(lesson),
+    'a lesson edited without its document in hand would now fail every ref it cannot verify',
+  );
+  check(
+    'S0-b: the author is asked for refs only when there is a document to point at',
+    /if \(outline\) lines\.push\(SOURCE_REF_RULE\)/.test(
+      read('packages/planner/src/lesson-anthropic.ts'),
+    ),
+    'a bare-topic author is being shown a field it cannot fill, which is how it gets filled wrongly',
+  );
+}
+
+/* ---- S1-c/S1-d (5.3): the two pedagogy rules, and the budget saying what it cut ---- */
+{
+  const lesson = read('packages/core/src/lesson.ts');
+  const presets = read('packages/planner/src/presets.ts');
+  check(
+    'S1-c: a STEM or first-principles lesson must name its misconception',
+    /l\.kind === 'stem' \|\| l\.strategy === 'first-principles'\) && !l\.misconception/.test(
+      lesson,
+    ),
+    'the refutation is optional again — the beat whose job is to overwrite a wrong belief can vanish unremarked',
+  );
+  check(
+    'S1-c: every beat the budget deletes is recorded, not logged',
+    /noteProblem\(\s*opts,/.test(presets) && /was cut to fit the/.test(presets),
+    "adaptLesson's cuts are back to being a log.debug — the most consequential thing it does lives for one terminal session",
+  );
+  check(
+    'S1-d: concrete before abstract is checked outside the analogy lane',
+    /function isAbstractBeat/.test(lesson) &&
+      /function isConcreteBeat/.test(lesson) &&
+      /l\.strategy !== 'analogy'/.test(lesson),
+    'a graph can arrive before anything real is drawn again, everywhere `findReuse` does not reach',
+  );
+}
+
+/* ---- S1-b (5.4): the DAG gets an opinion, and it stays out of the critique ---- */
+{
+  const lesson = read('packages/core/src/lesson.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  check(
+    'S1-b: the order advisory is its own function, not a critique rule',
+    /export function lessonOrderAdvisories/.test(lesson) &&
+      !/lessonOrderAdvisories\(/.test(
+        lesson.slice(
+          lesson.indexOf('export function critiqueLesson'),
+          lesson.indexOf('export function lessonOrderAdvisories'),
+        ),
+      ),
+    'the advisory has been folded into critique — which feeds the author a demand to reorder a lesson whose order is the design',
+  );
+  check(
+    'S1-b: it reaches qc.json as a warning',
+    /id: 'lesson-order', findings: design\.orderAdvisories, severity: 'warn'/.test(cast),
+    'the second opinion is a log line again, or it has stopped being advisory',
+  );
+}
+
+/* ---- A-1 (5.5): the sidecar keeps no copy of the storyboard's timing ---- */
+{
+  const manifest = read('packages/visuals/src/manifest.ts');
+  const resolve = read('packages/visuals/src/resolve.ts');
+  const keys = read('packages/pipeline/src/keys.ts');
+  check(
+    'A-1: ElementVisual carries no enterAt / enterDuration / persist',
+    !/^\s*(enterAt|enterDuration|persist)\??:/m.test(manifest) &&
+      !/enterAt: el\.enter\.at/.test(resolve) &&
+      /MANIFEST_VERSION = 3/.test(manifest),
+    'the sidecar is duplicating timing the visuals fingerprint deliberately excludes — stale on every re-voice, read by nothing',
+  );
+  check(
+    'A-1: `--force` announces a storyboard it is about to clobber',
+    /export function compiledFingerprint/.test(keys) &&
+      /had been edited since it was compiled/.test(read('packages/pipeline/src/cast.ts')),
+    'the two-altitude clobber is silent again — a hand-edited board is recompiled away with nothing said',
+  );
+}
+
+/* ---- A-2/S3-b (5.6): model coordinates do not survive a re-layout ---- */
+{
+  const layout = read('packages/planner/src/layout.ts');
+  const ops = read('packages/pipeline/src/ops.ts');
+  check(
+    'A-2: re-layout re-anchors arrows, path points and motion trajectories',
+    /function inferArrowAnchors/.test(layout) &&
+      /function reanchorGeometry/.test(layout) &&
+      /el\.motion\.path = el\.motion\.path\.map\(sceneMap\)/.test(layout),
+    'the document route is leaking coordinates again: the packer moves the boxes and the arrow between them stays where the model imagined it',
+  );
+  check(
+    'A-2: the set-camera op offers intents, never coordinates',
+    /framing\?: 'tighter' \| 'wider'/.test(ops) &&
+      !/zoom: \{ type: 'number' \}/.test(ops) &&
+      /function clampCamera/.test(ops),
+    'a raw x/y/zoom is applied verbatim again — one camera in the film that nothing checked against its own board',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

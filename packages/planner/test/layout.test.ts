@@ -277,3 +277,155 @@ test('layout adapts to a vertical aspect ratio', () => {
     }
   }
 });
+
+/* ------------------------------------ model coordinates, re-anchored (plan 5.6) */
+
+/**
+ * A board written the way the document-route model writes one: absolute `at` boxes, an
+ * arrow between two of them by coordinate, a freehand path, and a motion trajectory.
+ *
+ * The boxes are deliberately nowhere near where the packer will put them — that is the
+ * whole point. Audit A-2: re-layout neutralises the coordinate leak for everything whose
+ * geometry *is* its box, and leaves arrow endpoints, path waypoints and motion paths
+ * pointing at a frame that no longer exists.
+ */
+function modelBoard(): Storyboard {
+  const box = (id: string, x: number, y: number): Element =>
+    ({
+      id,
+      type: 'shape',
+      shape: 'rect',
+      fill: false,
+      at: { x, y, w: 240, h: 120 },
+      enter: { at: 0, duration: 0.8, style: 'draw' },
+      persist: true,
+    }) as unknown as Element;
+  return parseStoryboard({
+    version: 1,
+    title: 'The model chose these numbers',
+    scenes: [
+      {
+        id: 's0',
+        narration: 'The encoder hands its output to the decoder, and a ball rolls down the hill.',
+        camera: { x: 0, y: 0, zoom: 1, transition: 0 },
+        elements: [
+          box('encoder', 120, 400),
+          box('decoder', 900, 400),
+          {
+            id: 'link',
+            type: 'arrow',
+            // Edge to edge between the two boxes above, in the model's own frame.
+            from: { x: 360, y: 460 },
+            to: { x: 900, y: 460 },
+            curve: 0,
+            at: { x: 360, y: 400, w: 540, h: 120 },
+            enter: { at: 0.4, duration: 0.6, style: 'draw' },
+            persist: true,
+          },
+          {
+            id: 'hill',
+            type: 'path',
+            points: [
+              { x: 200, y: 800 },
+              { x: 500, y: 950 },
+              { x: 800, y: 860 },
+            ],
+            at: { x: 200, y: 800, w: 600, h: 150 },
+            enter: { at: 0.6, duration: 0.8, style: 'draw' },
+            persist: true,
+            motion: {
+              path: [
+                { x: 200, y: 800 },
+                { x: 800, y: 860 },
+              ],
+              from: 0,
+              to: 1,
+              easing: 'ease',
+              trail: false,
+            },
+          },
+        ],
+      },
+    ],
+  });
+}
+
+test('a re-laid-out arrow still points at the elements it was aimed at', () => {
+  const laid = layoutStoryboard(modelBoard(), { aspect: '16:9' });
+  parseStoryboard(laid);
+  const by = new Map(laid.scenes[0]!.elements.map((el) => [el.id, el] as const));
+  const encoder = by.get('encoder')!;
+  const decoder = by.get('decoder')!;
+  const link = by.get('link')!;
+  assert.equal(link.type, 'arrow');
+  if (link.type !== 'arrow') return;
+
+  // The packer moved both boxes. The arrow's endpoints have to have moved with them —
+  // before this, they stayed at (360,460)→(900,460) and the ink was drawn across empty
+  // canvas while the boxes it named sat somewhere else in the region.
+  assert.notDeepEqual(encoder.at, { x: 120, y: 400, w: 240, h: 120 }, 'the packer must move it');
+  const touches = (p: { x: number; y: number }, b: Box) =>
+    p.x >= b.x - 2 && p.x <= b.x + b.w + 2 && p.y >= b.y - 2 && p.y <= b.y + b.h + 2;
+  assert.ok(touches(link.from, encoder.at), `from ${JSON.stringify(link.from)} left the encoder`);
+  assert.ok(touches(link.to, decoder.at), `to ${JSON.stringify(link.to)} left the decoder`);
+  // And its own box bounds its ink, so every box-based check downstream measures the
+  // rectangle the arrow is actually in.
+  assert.ok(touches(link.from, link.at) && touches(link.to, link.at));
+});
+
+test('re-layout carries path waypoints and motion trajectories with their board', () => {
+  const laid = layoutStoryboard(modelBoard(), { aspect: '16:9' });
+  const hill = laid.scenes[0]!.elements.find((el) => el.id === 'hill')!;
+  assert.equal(hill.type, 'path');
+  if (hill.type !== 'path') return;
+
+  // Waypoints ride the element's own box: they are the shape inside it.
+  for (const p of hill.points ?? []) {
+    assert.ok(
+      p.x >= hill.at.x - 2 && p.x <= hill.at.x + hill.at.w + 2,
+      `waypoint ${JSON.stringify(p)} is outside the solved box ${JSON.stringify(hill.at)}`,
+    );
+    assert.ok(p.y >= hill.at.y - 2 && p.y <= hill.at.y + hill.at.h + 2);
+  }
+  // The shape survives the move: three points, still rising then falling.
+  assert.equal(hill.points?.length, 3);
+  assert.ok(hill.points![1]!.y > hill.points![0]!.y && hill.points![1]!.y > hill.points![2]!.y);
+
+  // A motion path rides the *scene*, not the moving element's footprint — a ball travels
+  // across the beat. What must hold is that it is inside the region the beat was framed in.
+  const bounds = laid.scenes[0]!.elements.reduce(
+    (b, el) => ({
+      x0: Math.min(b.x0, el.at.x),
+      y0: Math.min(b.y0, el.at.y),
+      x1: Math.max(b.x1, el.at.x + el.at.w),
+      y1: Math.max(b.y1, el.at.y + el.at.h),
+    }),
+    { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity },
+  );
+  for (const p of hill.motion!.path) {
+    assert.ok(
+      p.x >= bounds.x0 - 2 && p.x <= bounds.x1 + 2 && p.y >= bounds.y0 - 2 && p.y <= bounds.y1 + 2,
+      `motion waypoint ${JSON.stringify(p)} left the beat`,
+    );
+  }
+  // Every coordinate the model chose is gone — none of these are its numbers any more.
+  assert.notDeepEqual(hill.motion!.path[0], { x: 200, y: 800 });
+});
+
+test('an arrow anchored to nothing moves with its beat instead of being left behind', () => {
+  // The honest fallback: an endpoint that matches no element's authored box is not guessed
+  // at, it is carried along with the scene. Both ends here point into empty canvas.
+  const board = modelBoard();
+  const link = board.scenes[0]!.elements.find((el) => el.id === 'link')!;
+  if (link.type === 'arrow') {
+    link.from = { x: 20, y: 20 };
+    link.to = { x: 60, y: 60 };
+  }
+  const laid = layoutStoryboard(board, { aspect: '16:9' });
+  parseStoryboard(laid);
+  const moved = laid.scenes[0]!.elements.find((el) => el.id === 'link')!;
+  assert.equal(moved.type, 'arrow');
+  if (moved.type !== 'arrow') return;
+  assert.notDeepEqual(moved.from, { x: 20, y: 20 }, 'a stale endpoint must not survive');
+  assert.ok(moved.at.w >= 24 && moved.at.h >= 24);
+});
