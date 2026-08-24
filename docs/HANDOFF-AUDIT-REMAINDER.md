@@ -1,8 +1,9 @@
 # Handoff — the remaining items of PLAN-AUDIT-CLOSE
 
-Written 2026-08-24, at `5dd1797`+, branch `visuals-morph-density`, immediately after item
-6.1 landed; updated the same day when 6.2 (the code lane) and then 6.4 (the raster trust
-gate) landed and their sections were deleted from this file.
+Written 2026-08-24, branch `visuals-morph-density`, immediately after item 6.1 landed;
+updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`) and then
+6.4 (the raster trust gate, `e9487e7`) landed and their sections were deleted from this
+file.
 **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
@@ -267,13 +268,15 @@ any new waiver argued in writing). A new PARTIAL is a Phase-9 backlog item with 
 not a silent regression.
 
 **What the re-audit must be handed so it does not re-litigate settled decisions:** the
-four corpus-derived constants above (they are recalibrations, argued in their own
+seven corpus-derived constants listed above (they are recalibrations, argued in their own
 comments, not regressions); the deliberate deviations listed in
 `HANDOFF-AUDIT-CLOSE.md`'s "Deliberate deviations" section; 6.1's warn-not-suppress
-decision; and 5.1(b)'s written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver
-W7). `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
-under a second and should be run first — 69 checks, and each one is a fact some pass of
-the original audit established.
+decision; 6.4's two measured departures from its own bar (aspect scored absolutely rather
+than against the request, and cached rasters gated rather than trusted); and 5.1(b)'s
+written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
+`npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
+under a second and should be run first — 82 checks as of 6.4, and each one is a fact some
+pass of the original audit established.
 
 ## 8.2 The bake-off
 
@@ -306,7 +309,7 @@ returns 402.
 ## If you are picking this up cold
 
 Read in this order: `docs/PLAN-AUDIT-CLOSE.md` (the authority — its progress block is
-current through 6.1, and the coverage table plus 8.1 are the exit), then
+current through 6.4, and the coverage table plus 8.1 are the exit), then
 `docs/HANDOFF-AUDIT-CLOSE.md` (what landed, the argued deviations, and the traps earned
 per phase — its trap list is worth reading even for items it does not cover), then this
 file for the item you are about to start. `docs/AUDIT-FINDINGS.md` is the evidence base
