@@ -183,7 +183,18 @@ re-audit in Phase 8 is the exit.
 > 2.7 landed, so the claim that both shipped lessons pass every Phase 2 gate was
 > only ever verified for gradient-descent), and it is now caught before the encode
 > instead of after it. The corpus sweep in the handoff lists every other
-> pre-existing failure. Next: Phase 4.
+> pre-existing failure.
+>
+> **Fixed straight after, in `55b1147`, because the gate was right:** `recapChain`
+> emits a `stack` (a column) instead of a `flow` (a row), so each idea gets the recap
+> cell's full width and its whole clause on one line at the size it asked for — and the
+> word budget rises with the width, because at seven words the labels were truncated
+> mid-thought. Twelve lines of storyboard diff on longitude, sixteen on
+> gradient-descent, one of them `"layout"` and the rest labels that stop being
+> fragments; no geometry moved at all. All four pinned hashes re-pinned with the diff
+> and the rendered frames in `pinned-hashes.test.ts`'s header, and both shipped lessons
+> now cast strict-clean end to end (`projects/qc33-longitude`, `projects/qc33-gd`).
+> Next: Phase 4.
 
 **Two rules that shape everything here:**
 

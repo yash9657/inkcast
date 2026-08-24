@@ -79,7 +79,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   lines). The Tier-2 vision pass and OCR diff are injected from
   `pipeline/src/frame-vision.ts`, advisory for one release, and skip with the real
   reason when there is no key or the key has no credit.
-- 2026-08-23 — **the recap chain became a column** (`b8b26bd`), which is Phase-2 work
+- 2026-08-23 — **the recap chain became a column** (`55b1147`), which is Phase-2 work
   that Phase 3's gate found: see the trap list at the foot of this file. All four
   pinned hashes re-pinned, with the diff and the frames in
   `pinned-hashes.test.ts`'s header.
