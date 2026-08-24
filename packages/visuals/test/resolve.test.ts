@@ -611,3 +611,69 @@ test('a path element with neither points nor d warns and draws nothing', async (
   assert.equal(manifest.elements.nothing?.path, undefined);
   assert.equal(out.scenes.length, 1, 'the pipeline must survive it');
 });
+
+test('an entity the matcher cannot place at all is recorded, not just drawn (plan 3.4)', async () => {
+  // A score-0 match means the matcher exhausted every tier — slug, keyword table,
+  // lucide tags, fuzzy — and answered with the standing-in glyph. That is a generic
+  // shape in a teaching frame, indistinguishable from a deliberate one, and before
+  // this it was a lane label in a manifest nobody reads after a render.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'unmatchable',
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    assets: [{ id: 'xqzjvbn-frobnicator', kind: 'icon', prompt: 'zzqxvj plurbing' }],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'here it is',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'thing',
+            type: 'asset',
+            assetId: 'xqzjvbn-frobnicator',
+            at: { x: 800, y: 400, w: 300, h: 300 },
+          },
+        ],
+      },
+    ],
+  });
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-fallback-'));
+  const problems: string[] = [];
+  await resolveVisuals(sb, dir, {
+    images: 'off',
+    force: true,
+    onProblem: (p) => problems.push(p),
+  });
+  assert.equal(problems.length, 1, problems.join('\n'));
+  assert.match(problems[0] ?? '', /resolved to no icon at all/);
+  assert.match(problems[0] ?? '', /xqzjvbn-frobnicator/);
+
+  // And the honest half stays honest: a term the matcher *can* place says nothing.
+  const clean = parseStoryboard({
+    ...JSON.parse(JSON.stringify(sb)),
+    assets: [{ id: 'lightbulb', kind: 'icon', prompt: 'a lightbulb' }],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'here it is',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'thing',
+            type: 'asset',
+            assetId: 'lightbulb',
+            at: { x: 800, y: 400, w: 300, h: 300 },
+          },
+        ],
+      },
+    ],
+  });
+  const quiet: string[] = [];
+  await resolveVisuals(clean, await mkdtemp(path.join(tmpdir(), 'inkcast-fallback-')), {
+    images: 'off',
+    force: true,
+    onProblem: (p) => quiet.push(p),
+  });
+  assert.deepEqual(quiet, []);
+});

@@ -53,10 +53,12 @@
  * measurement of where the picture's ink actually is, and the lane that most needs it is
  * the one lane that has no trace to measure.
  */
-import type { Mark } from '@inkcast/core';
+import type { Lesson, LessonStep, Mark } from '@inkcast/core';
 import { DRAW_H, DRAW_W } from '@inkcast/core';
+import { prepareMarks } from './drawing.js';
 import type { Box } from './elements.js';
 import { handMeasure } from './elements.js';
+import { readInkBox } from './underlay.js';
 import {
   ADRIFT,
   LABEL_SIZE,
@@ -289,6 +291,48 @@ export function defectScore(defects: Defect[]): number {
 /** The defect list as the lines handed to the model. */
 export function defectLines(defects: Defect[]): string {
   return defects.map((d, i) => `${i + 1}. ${d.note}`).join('\n');
+}
+
+/**
+ * Every drawing in a finished lesson that still has something measurably wrong
+ * with it, one line each (plan item 3.4; audit X-e).
+ *
+ * Derived from `lesson.json` rather than remembered from the run that made it, and
+ * that is the whole point. The drawing lane's own tally — "9/9 drawings composed, 2
+ * still measurably imperfect" — is a log line inside a keyed run, and the runs that
+ * follow serve the lesson from cache, never call the lane, and print nothing at all.
+ * So a project's pictures were known to be flawed exactly once, on the day they were
+ * drawn. The marks are on disk; the audit is arithmetic; recomputing it is free.
+ *
+ * The *kept-or-rejected* half of the critic's decision cannot be recovered this way
+ * and does not need to be: what survives in the film is the standing defect, and that
+ * is what this reports. A correction that fixed everything leaves nothing here, which
+ * is the correct record of it having worked.
+ */
+export function lessonDrawingDefects(lesson: Lesson): string[] {
+  const steps: LessonStep[] = [
+    lesson.hook,
+    lesson.anchor,
+    ...lesson.steps,
+    lesson.worked,
+    lesson.misconception,
+    lesson.recap,
+  ].filter(Boolean) as LessonStep[];
+  const out: string[] = [];
+  for (const step of steps) {
+    for (const intent of step.visuals) {
+      if (intent.kind !== 'draw' || !intent.marks?.length) continue;
+      const under = readInkBox(intent.underlay?.inkBox);
+      const defects = auditDrawing(prepareMarks(intent.marks, under), under);
+      if (!defects.length) continue;
+      out.push(
+        `the drawing "${intent.describe.slice(0, 60)}" has ${defects.length} standing ` +
+          `defect${defects.length === 1 ? '' : 's'} (${defectSummary(defects)}): ` +
+          defects.map((d) => d.note).join(' · '),
+      );
+    }
+  }
+  return out;
 }
 
 /** A one-line count per kind, for logs and for the breadth sheet. */

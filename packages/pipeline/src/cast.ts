@@ -1,5 +1,5 @@
 /**
- * The orchestrator: ingest -> lesson -> storyboard -> voice -> visuals -> render.
+ * The orchestrator: ingest -> lesson -> storyboard -> voice -> visuals -> check -> render.
  *
  * ## Why the order is what it is
  *
@@ -32,6 +32,10 @@
  *    carrying `stage` and the original `cause`.
  *  - **Degradation is spoken aloud.** A stage running without its key reports what
  *    that costs and the one command that fixes it (see `./degrade.ts`).
+ *  - **Nothing is encoded that the pipeline knows is wrong.** The `check` stage sits
+ *    between visuals and render (plan item 3.1): it judges the finished board, writes
+ *    `qc.json`, and under `strict` stops the run there rather than after Chromium has
+ *    spent a minute drawing a film with ink written through other ink.
  */
 
 import { existsSync } from 'node:fs';
@@ -52,6 +56,7 @@ import {
   type BoardMode,
   type GateMode,
   type Lesson,
+  type ModelSpend,
   type OnProgress,
   type Scene,
   type Storyboard,
@@ -61,6 +66,7 @@ import { costOf, type CostReport } from './cost.js';
 import { degradations, formatDegradation, type Degradation } from './degrade.js';
 import { openDrawPreview } from './draw-preview.js';
 import { openDrawUnderlay } from './draw-underlay.js';
+import { openFrameVision } from './frame-vision.js';
 import { inStage, StageError } from './errors.js';
 import {
   assetFingerprint,
@@ -99,6 +105,7 @@ import {
   type VoiceRecord,
 } from './state.js';
 import {
+  loadCheck,
   loadLessonStage,
   loadPlanner,
   loadRender,
@@ -338,6 +345,20 @@ async function openRun(input: CastInput, opts: CastOptions): Promise<Run> {
 type Design = LessonResult & {
   doc: SourceDoc | undefined;
   sourceChars: number;
+  /**
+   * Degradations the stages behind this design reported — the `OnProblem` channel
+   * (`@inkcast/core`). Collected here rather than logged and forgotten because the
+   * gate stage writes them into `qc.json`, and this array is the only thing that
+   * carries them across the seam from a stage that has already returned.
+   */
+  stageProblems: string[];
+  /**
+   * Billable calls the stages behind this design reported (plan 3.5) — the drawing
+   * author, the critic, and each underlay picture that was really generated. Carried
+   * out of the stage the same way `stageProblems` is, and for the same reason: the run
+   * is what prices them, and by the time it can the stage has returned.
+   */
+  spend: ModelSpend[];
   presetShape: PresetShape;
   /** The loaded planner module, so the storyboard stage does not reload it. */
   planner: Awaited<ReturnType<typeof loadLessonStage>>;
@@ -361,12 +382,22 @@ export async function designLesson(
 }
 
 function stripDesign(d: Design): LessonResult {
-  const { doc: _doc, sourceChars: _n, presetShape: _p, planner: _pl, ...rest } = d;
+  const {
+    doc: _doc,
+    sourceChars: _n,
+    presetShape: _p,
+    planner: _pl,
+    stageProblems: _sp,
+    spend: _sd,
+    ...rest
+  } = d;
   return rest;
 }
 
 async function design_(run: Run, input: CastInput): Promise<Design> {
   const route: 'lesson' | 'document' = input.via ?? 'lesson';
+  const stageProblems: string[] = [];
+  const spend: ModelSpend[] = [];
   const supplied = input.lesson !== undefined;
   const metaOverrides = resolveMetaOverrides(input.meta);
   const provs = detectProviders(metaOverrides.voice);
@@ -446,7 +477,16 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     log.warn(
       'via=document skips the lesson stage — this is the renderer fixture path and it does not teach',
     );
-    return { ...base, author: 'none', doc, sourceChars, presetShape, planner };
+    return {
+      ...base,
+      author: 'none',
+      doc,
+      sourceChars,
+      presetShape,
+      planner,
+      stageProblems,
+      spend,
+    };
   }
 
   const brief = briefFor(input);
@@ -459,7 +499,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   // The other half of the drawing lane's seam: an intent that names a real object gets a
   // generated picture of it to compose its marks on top of (`draw-underlay.ts`). Same
   // laziness — no key, no vectoriser or no Chromium and the beat is drawn in marks alone.
-  const underlays = openDrawUnderlay(run.dir);
+  const underlays = openDrawUnderlay(run.dir, { onSpend: (u) => spend.push(u) });
   const lessonOpts: LessonStageOptions = {
     drawPreview: drawing.preview,
     drawUnderlay: underlays.underlay,
@@ -474,6 +514,8 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     // configured key drew nothing at all on a keyed render.
     illustrations: provs.images.cloud,
     onProgress: run.bus.child('lesson'),
+    onProblem: (p) => stageProblems.push(p),
+    onSpend: (u) => spend.push(u),
     force: run.force,
   };
 
@@ -567,6 +609,8 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     sourceChars,
     presetShape,
     planner,
+    stageProblems,
+    spend,
   };
 }
 
@@ -625,7 +669,7 @@ export function teach(
 export async function cast(input: CastInput, opts: CastOptions = {}): Promise<CastResult> {
   const run = await openRun(input, opts);
   const design = await design_(run, input);
-  const { planner, doc } = design;
+  const { planner, doc, stageProblems } = design;
   const provs = design.providers;
   const metaOverrides = resolveMetaOverrides(input.meta);
 
@@ -694,6 +738,11 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         meta: metaOverrides,
         via: 'document',
         onProgress: run.bus.child('storyboard'),
+        // Where `ensureAssets`' mint lands (plan 3.2): the document planner repairs an
+        // element that asks for an asset it never declared by inventing one from the
+        // id's own words, which is either right or a confident guess, and used to be a
+        // `log.debug`.
+        onProblem: (p: string) => stageProblems.push(p),
         force: run.force,
       };
       return parseStoryboard(await plan(doc!, planOpts));
@@ -807,6 +856,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       const { resolveVisuals } = await loadVisuals();
       const out = await resolveVisuals(sb!, run.dir, {
         onProgress: run.bus.child('visuals'),
+        // Where a lane that could not draw what was asked for says so durably (plan
+        // 3.4): a generated illustration that failed, an underlay that never arrived,
+        // and the score-0 icon match that puts a generic glyph on a teaching board.
+        onProblem: (p: string) => stageProblems.push(p),
         force: run.force,
         gates: run.gates,
       });
@@ -825,7 +878,44 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     (a) => a.source === 'generated' && !assetsBefore.has(a.id),
   ).length;
 
-  /* ------------------------------------------------------------- 6. render */
+  /* --------------------------------------------------------------- 6. check */
+
+  // The quality gate (plan 3.1). Deliberately not cache-checked: it is arithmetic
+  // over a board this function already holds, it costs milliseconds, and a cached
+  // "it was fine last time" is the one answer a gate must never give — a
+  // hand-edited `storyboard.json` has to be re-judged, and a failing board has to
+  // fail every time it is asked.
+  const qc = await run.time('check', async () => {
+    run.bus.stage('check', 10, `${sb!.scenes.length} scenes`);
+    const { check } = await loadCheck();
+    // Tier 2's keyed half (plan 3.3). `undefined` with no key, which the gate records
+    // as a skip with the reason rather than as a pass — the posture every keyed lane
+    // here takes. The pixel half of Tier 2 runs either way; it costs nothing.
+    const eyes = openFrameVision({ onSpend: (u) => design.spend.push(u) });
+    return check(sb!, run.dir, {
+      gates: run.gates,
+      ...(eyes ? { vision: eyes.vision } : {}),
+      inherited: [
+        // Advisory, and it stays advisory: the lesson stage revises against this
+        // critique and accepts what it cannot fix, so a surviving problem is a
+        // known compromise rather than a reason to refuse to draw the board. It
+        // is here so that "what is wrong with this film" has one answer.
+        { id: 'lesson', findings: design.problems },
+        // What the pictures in this film still have measurably wrong with them, read
+        // back off `lesson.json` rather than remembered from the run that drew them
+        // (plan 3.4) — so a cached re-run reports the same standing defects instead of
+        // reporting nothing because the lane did not run.
+        { id: 'drawing', findings: drawingDefects(design.lesson, planner) },
+        // What earlier stages told us they degraded this run: the planner minting an
+        // asset it never declared, a lane that could not draw what was asked for, a
+        // correction the critic rejected.
+        { id: 'stages', findings: stageProblems },
+      ],
+    });
+  });
+  run.bus.done('check', qc.ok ? 'passed' : `${qc.problems.length} problem(s)`);
+
+  /* ------------------------------------------------------------- 7. render */
 
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(run.dir, run.previous?.videoPath);
@@ -883,6 +973,9 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     ...(design.lesson ? { lessonChars: JSON.stringify(design.lesson).length } : {}),
     narratedChars,
     generatedAssets,
+    // What the drawing lane and the underlay generator reported spending. Nothing on a
+    // cached lesson, which is correct: those calls were made once and billed once.
+    spend: design.spend,
     /*
      * Did the lesson stage actually call a model on *this* run? Only the caller can
      * answer that, which is why `costOf` takes it rather than inferring it.
@@ -917,6 +1010,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     skipped: run.skipped,
     cost,
     gates: run.gates,
+    qc: { ok: qc.ok, problems: qc.problems },
     ...(renderProblems && renderProblems.length > 0
       ? { render: { problems: renderProblems } }
       : {}),
@@ -1061,6 +1155,20 @@ export async function rerender(
     bus.done('visuals');
   }
 
+  /* check: always, for the reason `cast()` gives — a board is re-judged, never
+   * remembered. This is the path a hand-edited `storyboard.json` takes (`inkcast edit`
+   * then `rerender`), which is exactly where a reference gets broken by hand. */
+  const qc = await time('check', async () => {
+    const { check } = await loadCheck();
+    return check(sb, dir, {
+      gates,
+      // The lesson is not re-read on this path, so its critique is carried from the
+      // last run rather than recomputed — the teaching did not change.
+      inherited: [{ id: 'lesson', findings: previous?.lesson?.problems ?? [] }],
+    });
+  });
+  bus.done('check', qc.ok ? 'passed' : `${qc.problems.length} problem(s)`);
+
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(dir, previous?.videoPath);
   let videoPath: string;
@@ -1127,6 +1235,7 @@ export async function rerender(
     skipped,
     cost,
     gates,
+    qc: { ok: qc.ok, problems: qc.problems },
     ...(renderProblems && renderProblems.length > 0
       ? { render: { problems: renderProblems } }
       : {}),
@@ -1144,6 +1253,27 @@ export async function rerender(
 }
 
 /* ------------------------------------------------------------------ helpers */
+
+/**
+ * What the drawings in this lesson still have measurably wrong with them.
+ *
+ * Defensive about the export, like `versionOf` above and for the same reason: this is
+ * a stage package's function reached through a lazily loaded module, and a project
+ * whose pictures cannot be re-audited should lose the *record*, not the render.
+ */
+function drawingDefects(
+  lesson: Lesson | undefined,
+  planner: { lessonDrawingDefects?: unknown },
+): string[] {
+  if (!lesson || typeof planner.lessonDrawingDefects !== 'function') return [];
+  try {
+    const out = (planner.lessonDrawingDefects as (l: Lesson) => unknown)(lesson);
+    return Array.isArray(out) ? out.filter((x): x is string => typeof x === 'string') : [];
+  } catch (err) {
+    log.warn("could not re-audit this lesson's drawings", err);
+    return [];
+  }
+}
 
 export function sourceRef(input: CastInput): SourceRef {
   if (input.lesson !== undefined) {

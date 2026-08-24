@@ -708,3 +708,183 @@ export function frameSize(aspect: StoryboardMeta['aspect']): { w: number; h: num
 export function parseStoryboard(input: unknown): Storyboard {
   return Storyboard.parse(input);
 }
+
+/* --------------------------------------------------------------- the critique */
+
+/**
+ * Structural critique of a storyboard — `critiqueLesson`'s missing sibling
+ * (audit S3-c, plan item 3.2).
+ *
+ * The lesson graph has been checked since the lesson stage existed: a
+ * `derivedFrom` naming no beat, a character who is not in the cast, an emphasis
+ * phrase the narration does not contain. The *board* graph had no equivalent, and
+ * it carries just as many references — `morph.fromId`, `emphasis.targetId`,
+ * `assetId`, `persistUntil`, a plot overlay's `curveId`, a diagram edge's node
+ * ids, and every `enter.cue` that has to be findable in the words it is cued to.
+ * Each of those, when it dangles, is silent: the renderer skips a morph whose
+ * source it cannot find, draws an emphasis around nothing, resolves an asset
+ * element to no artwork, and falls back from a cue to a guessed fraction. The
+ * board still renders, and what it renders is missing the move the beat was about.
+ *
+ * Everything here is a *dangling reference or a duplicate id* — facts, not taste.
+ * There is no "too many elements" or "this camera is too wide" in this function:
+ * those are judgements, they live in the gate stage as advisories, and mixing them
+ * in is how a structural check becomes unenforceable. Two rules keep it that way:
+ *
+ *  - **Nothing may forward-reference.** A morph grows out of ink already on the
+ *    board and an emphasis marks up something already drawn, so both have to name
+ *    an element from this scene or an earlier one. This is the same rule
+ *    `critiqueLesson` applies to `derivedFrom`, for the same reason.
+ *  - **On a wiping board, "on the board" is a window, not for ever.** A reference
+ *    to ink whose `persistUntil` has passed is exactly as dangling as one to an
+ *    element that was never drawn — it names a shape whose alpha is already zero.
+ *    That is the failure `persistUntil`'s own documentation warns about, and this
+ *    is where it is caught.
+ *
+ * Returns human-readable problems; empty means it passes.
+ */
+export function critiqueStoryboard(sb: Storyboard): string[] {
+  const problems: string[] = [];
+  const sceneIndex = new Map<string, number>();
+  sb.scenes.forEach((s, i) => {
+    if (sceneIndex.has(s.id)) {
+      problems.push(`two scenes share the id "${s.id}" — every reference to it is ambiguous`);
+      return;
+    }
+    sceneIndex.set(s.id, i);
+  });
+
+  const assetIds = new Set(sb.assets.map((a) => a.id));
+  const wipes = sb.meta.board === 'wipe';
+
+  /** Where each element was drawn, and the last scene index it is still ink. */
+  type Life = { scene: number; until: number };
+  const life = new Map<string, Life>();
+  sb.scenes.forEach((scene, i) => {
+    for (const el of scene.elements) {
+      if (life.has(el.id)) {
+        problems.push(
+          `two elements share the id "${el.id}" (scene ${scene.id} and scene ` +
+            `${sb.scenes[life.get(el.id)!.scene]?.id ?? '?'}) — the board keys geometry by ` +
+            'id, so one of them silently replaces the other',
+        );
+        continue;
+      }
+      // Persistence, read the way `heldBounds` and the renderer read it: an
+      // accumulating board never wipes, so `persist` means for ever; a wiping board
+      // honours `persistUntil` and otherwise ends the ink with its own scene.
+      const until = el.persist
+        ? sb.scenes.length - 1
+        : wipes && el.persistUntil !== undefined
+          ? (sceneIndex.get(el.persistUntil) ?? i)
+          : i;
+      life.set(el.id, { scene: i, until });
+    }
+  });
+
+  /** A reference to ink: does it exist, was it drawn yet, is it still there. */
+  const inkAt = (id: string, at: number, what: string, where: string): void => {
+    const found = life.get(id);
+    if (!found) {
+      problems.push(`${where} ${what} "${id}", which is not an element on this board`);
+      return;
+    }
+    if (found.scene > at) {
+      problems.push(
+        `${where} ${what} "${id}", which is not drawn until scene ` +
+          `${sb.scenes[found.scene]?.id ?? found.scene} — nothing may forward-reference`,
+      );
+      return;
+    }
+    if (found.until < at) {
+      problems.push(
+        `${where} ${what} "${id}", whose ink left the board after scene ` +
+          `${sb.scenes[found.until]?.id ?? found.until} — the reference is to a shape that is ` +
+          'no longer there',
+      );
+    }
+  };
+
+  sb.scenes.forEach((scene, i) => {
+    const where = `scene ${scene.id}`;
+    for (const el of scene.elements) {
+      const at = `${where}: "${el.id}"`;
+      if (el.enter.cue !== undefined) {
+        const cue = el.enter.cue.trim().toLowerCase();
+        if (cue && !scene.narration.toLowerCase().includes(cue)) {
+          problems.push(
+            `${at} is cued to "${el.enter.cue}", which is not in its scene's narration — ` +
+              'the cue cannot be placed on a word and the reveal falls back to a guess',
+          );
+        }
+      }
+      if (el.persistUntil !== undefined) {
+        if (!sceneIndex.has(el.persistUntil)) {
+          problems.push(`${at} persists until scene "${el.persistUntil}", which does not exist`);
+        } else if ((sceneIndex.get(el.persistUntil) as number) < i) {
+          problems.push(
+            `${at} persists until scene "${el.persistUntil}", which comes before the scene that ` +
+              'draws it — the ink is asked to leave before it arrives',
+          );
+        } else if (el.persist) {
+          problems.push(
+            `${at} is persistent and also names persistUntil "${el.persistUntil}" — one of the ` +
+              'two is a mistake, and the renderer believes `persist`',
+          );
+        }
+      }
+      if (el.morph) {
+        inkAt(el.morph.fromId, i, 'morphs out of', at);
+        for (const retired of el.morph.retires) inkAt(retired, i, 'retires', at);
+      }
+      switch (el.type) {
+        case 'emphasis':
+          inkAt(el.targetId, i, 'emphasises', at);
+          break;
+        case 'asset':
+          if (!assetIds.has(el.assetId)) {
+            problems.push(
+              `${at} draws asset "${el.assetId}", which this storyboard does not declare — ` +
+                'the visuals stage has nothing to resolve and the element draws nothing',
+            );
+          }
+          break;
+        case 'diagram': {
+          const nodes = new Set(el.nodes.map((n) => n.id));
+          for (const edge of el.edges) {
+            for (const end of [edge.from, edge.to]) {
+              if (!nodes.has(end)) {
+                problems.push(
+                  `${at} has an edge to node "${end}", which the diagram has no node for`,
+                );
+              }
+            }
+          }
+          break;
+        }
+        case 'plot': {
+          const curves = new Set(el.curves.map((c) => c.id));
+          for (const overlay of el.overlays) {
+            if (overlay.kind === 'annotate') continue;
+            if (!curves.has(overlay.curveId)) {
+              problems.push(
+                `${at} has a ${overlay.kind} overlay on curve "${overlay.curveId}", which this ` +
+                  'plot does not draw',
+              );
+            }
+            if (overlay.kind === 'shade' && overlay.toCurveId && !curves.has(overlay.toCurveId)) {
+              problems.push(
+                `${at} shades to curve "${overlay.toCurveId}", which this plot does not draw`,
+              );
+            }
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  });
+
+  return problems;
+}

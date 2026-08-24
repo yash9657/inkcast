@@ -2,9 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Mark } from '@inkcast/core';
 import { DRAW_H, DRAW_W } from '@inkcast/core';
-import { auditDrawing, defectScore, defectSummary } from '../src/draw-audit.js';
+import {
+  auditDrawing,
+  defectScore,
+  defectSummary,
+  lessonDrawingDefects,
+} from '../src/draw-audit.js';
 import { inkHitsBox, inkOf, markInk } from '../src/draw-geom.js';
 import { prepareMarks } from '../src/drawing.js';
+import { CARDIAC } from './cardiac-lesson.js';
 
 const mark = (m: Partial<Mark> & { id: string; kind: Mark['kind'] }): Mark => ({
   closed: false,
@@ -207,4 +213,67 @@ test('every mark kind resolves to ink or is honestly nothing', () => {
   assert.equal(inkOf(drawable.map(one)).length, drawable.length);
   // A label is not an obstacle: it is what we are placing.
   assert.equal(markInk(one('label')), undefined);
+});
+
+/* ---------------------------------------- the lesson-level audit (plan 3.4) */
+
+/**
+ * `lessonDrawingDefects` recovers the drawing lane's history from `lesson.json`.
+ *
+ * The reason it exists is that the lane's own tally is a log line inside a keyed run,
+ * and every later run of the same project serves the lesson from cache and prints
+ * nothing at all — so the pictures were known to be flawed exactly once. These two
+ * tests are the both-directions pin: a lesson whose marks are clean must produce
+ * silence (or the record is noise), and a lesson carrying a real defect must name it,
+ * with the drawing identified well enough to go and look at it.
+ */
+test('a lesson whose drawings are clean has no drawing history to report', () => {
+  const lesson = structuredClone(CARDIAC);
+  lesson.hook.visuals = [
+    {
+      kind: 'draw',
+      describe: 'two stacked bags of water, the top draining into the bottom',
+      marks: [
+        mark({ id: 'top', kind: 'ellipse', x: 300, y: 120, w: 200, h: 140 }),
+        mark({ id: 'name', kind: 'label', x: 300, y: 320, text: 'top bag', size: 28 }),
+      ],
+    },
+  ] as never;
+  assert.deepEqual(lessonDrawingDefects(lesson), []);
+});
+
+test("a defect standing in a lesson's marks is named, with the drawing it is in", () => {
+  const lesson = structuredClone(CARDIAC);
+  // A word too long for its line, which is the class the free repair pass cannot fix:
+  // it moves labels, and no amount of moving makes a word fit. So it is exactly what
+  // *stands* in a finished lesson — the defect that reaches the board as `sternocleido
+  // / mastoideus` — which is what this record exists to report.
+  lesson.hook.visuals = [
+    {
+      kind: 'draw',
+      describe: 'a neck muscle with its full anatomical name written beside it',
+      marks: [
+        mark({ id: 'muscle', kind: 'rect', x: 200, y: 200, w: 400, h: 200 }),
+        mark({
+          id: 'name',
+          kind: 'label',
+          x: 700,
+          y: 100,
+          text: 'sternocleidomastoideus',
+          size: 48,
+        }),
+      ],
+    },
+  ] as never;
+  const [line, ...rest] = lessonDrawingDefects(lesson);
+  assert.deepEqual(rest, [], 'one drawing, one line');
+  assert.match(line ?? '', /a neck muscle with its full anatomical name/);
+  assert.match(line ?? '', /1 standing defect \(broken-word×1\)/);
+  assert.match(line ?? '', /sternocleidomastoideus/);
+});
+
+test('a drawing intent with no marks is not audited — there is nothing on the board yet', () => {
+  const lesson = structuredClone(CARDIAC);
+  lesson.hook.visuals = [{ kind: 'draw', describe: 'a picture nobody drew' }] as never;
+  assert.deepEqual(lessonDrawingDefects(lesson), []);
 });

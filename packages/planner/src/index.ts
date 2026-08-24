@@ -121,7 +121,13 @@ export type { DrawOneOptions } from './draw-anthropic.js';
 /* The measurement in front of the drawing critic's gate, and the critic itself. Exported
  * because what decides whether a drawing needs a model is worth being able to run on its
  * own — `markcheck.mts` is that, and it needs no key. */
-export { auditDrawing, defectLines, defectScore, defectSummary } from './draw-audit.js';
+export {
+  auditDrawing,
+  defectLines,
+  defectScore,
+  defectSummary,
+  lessonDrawingDefects,
+} from './draw-audit.js';
 export type { Defect, DefectKind } from './draw-audit.js';
 export { reviseDrawing, FIX_VERSION } from './draw-critic.js';
 export type { Revision } from './draw-critic.js';

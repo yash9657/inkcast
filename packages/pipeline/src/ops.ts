@@ -13,6 +13,7 @@
  */
 
 import {
+  critiqueStoryboard,
   parseStoryboard,
   type Camera,
   type Scene,
@@ -117,7 +118,26 @@ export const EDIT_OPS_SCHEMA = {
 
 /* -------------------------------------------------------------- application */
 
-export type ApplyResult = { storyboard: Storyboard; applied: string[] };
+export type ApplyResult = {
+  storyboard: Storyboard;
+  applied: string[];
+  /**
+   * What `critiqueStoryboard` says about the board the edit produced (plan 3.2).
+   *
+   * An edit is the one place a human hand reaches into the IR, and half of these ops
+   * can dangle a reference by design: deleting a scene leaves every `persistUntil`
+   * and every morph that named it pointing at nothing, moving one turns a morph into
+   * a forward reference, and rewriting narration invalidates the cues of every
+   * element in that scene. `delete-element` already sweeps up the emphasis elements
+   * that would dangle, which is the whole class stated one op at a time — this is the
+   * general answer, and it says so at edit time rather than as a render log line
+   * about a move the film quietly no longer makes.
+   *
+   * Reported, not thrown: the edit is the user's, it is saved either way, and the
+   * gate stage (3.1) is where a broken board stops a render.
+   */
+  problems: string[];
+};
 
 export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
   if (ops.length === 0) throw new EditError('no edits to apply');
@@ -251,7 +271,7 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
       { cause },
     );
   }
-  return { storyboard, applied };
+  return { storyboard, applied, problems: critiqueStoryboard(storyboard) };
 }
 
 function clearAudio(scene: Scene): void {

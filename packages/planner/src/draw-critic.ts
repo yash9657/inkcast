@@ -31,8 +31,8 @@
  * A rejected revision is still cached, because the second call would fail the same way and
  * a picture is not worth paying for twice.
  */
-import type { Mark } from '@inkcast/core';
-import { DRAW_H, DRAW_W, Mark as MarkSchema, logger } from '@inkcast/core';
+import type { Mark, OnProblem, OnSpend } from '@inkcast/core';
+import { DRAW_H, DRAW_W, Mark as MarkSchema, logger, noteProblem, noteSpend } from '@inkcast/core';
 import { z } from 'zod';
 import { type Client, type Message, callTool, errorDetail, imagePart } from './anthropic.js';
 import {
@@ -132,6 +132,18 @@ export type CriticOptions = {
    * The gate is arithmetic and geometry is not arithmetic — see `revisesEverything`.
    */
   always?: boolean;
+  /**
+   * Where an outcome that is not "corrected and kept" is recorded (plan item 3.4).
+   *
+   * Three of this function's four exits leave the board with a picture the pass was
+   * meant to fix and did not: no preview to look at, a call that failed, a revision
+   * that measured worse than the original. All three were `log.warn` at best, inside a
+   * keyed run nobody re-reads, and the film shipped with the defect. Routed here they
+   * reach `qc.json`. See `OnProblem` in `@inkcast/core`.
+   */
+  onProblem?: OnProblem;
+  /** Where this call's tokens are recorded, as the `drawing-fix` lane (plan 3.5). */
+  onSpend?: OnSpend;
 };
 
 /**
@@ -170,11 +182,12 @@ export async function reviseDrawing(
     // measured defects are named here so the skip is a recorded fact, not a silence;
     // Phase 3's qc.json will carry them per project.
     if (defects.length) {
-      log.warn(
+      const note =
         `drawing "${short}" has ${defects.length} measured defect(s) but no preview could ` +
-          `be rendered — skipping the correction rather than revising blind. ` +
-          `Standing: ${defectSummary(defects)}`,
-      );
+        `be rendered — skipping the correction rather than revising blind. ` +
+        `Standing: ${defectSummary(defects)}`;
+      log.warn(note);
+      noteProblem(opts, note);
     } else {
       log.debug(`no preview for "${short}" and nothing measured wrong — skipping the look`);
     }
@@ -220,15 +233,28 @@ export async function reviseDrawing(
       opts.schema,
       { name: TOOL, description: 'Emit the complete corrected drawing as a list of marks.' },
       8000,
+      opts.onSpend
+        ? (u) => noteSpend(opts, { lane: 'drawing-fix', provider: 'anthropic', ...u })
+        : undefined,
     );
   } catch (err) {
     log.warn(`could not revise "${short}"`, errorDetail(err));
+    noteProblem(
+      opts,
+      `the correction call for drawing "${short}" failed, so it keeps its ` +
+        `${defects.length} measured defect(s): ${defectSummary(defects)}`,
+    );
     return undefined;
   }
 
   const parsed = RevisionSchema.safeParse(raw);
   if (!parsed.success) {
     log.warn(`the revision did not validate: "${short}"`, errorDetail(parsed.error));
+    noteProblem(
+      opts,
+      `the correction for drawing "${short}" did not validate, so it keeps its ` +
+        `${defects.length} measured defect(s): ${defectSummary(defects)}`,
+    );
     return undefined;
   }
 
@@ -249,5 +275,19 @@ export async function reviseDrawing(
     `revised "${short}": ${defectSummary(defects)} scored ${before} -> ${after}` +
       (kept ? ' (kept)' : ' (rejected, the original was better)'),
   );
+  // Only the rejection is recorded, and deliberately: a kept correction is the lane
+  // working, and whatever it *failed* to fix is still measurable in the marks on disk
+  // — `lessonDrawingDefects` recomputes that from `lesson.json` on every run, so the
+  // standing defect is reported whether or not this call happened. What cannot be
+  // recovered later is that a model looked at this picture, drew it again, and made it
+  // worse; that is a fact about the lane rather than about the film, and it is the one
+  // that has to be said now or never.
+  if (!kept) {
+    noteProblem(
+      opts,
+      `the correction for drawing "${short}" was rejected — it measured ${after} against ` +
+        `the original's ${before}, so the original ships with ${defectSummary(defects)}`,
+    );
+  }
   return { marks: kept ? parsed.data.elements : marks, before, after, kept };
 }

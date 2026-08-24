@@ -21,8 +21,36 @@
 export { render } from './render.js';
 export { buildPageHtml, buildPreviewHtml } from './html.js';
 export type { PageOptions, PreviewOptions } from './html.js';
-export { compilePlan, cueFraction, sceneDuration } from './compile.js';
-export type { CompileOptions } from './compile.js';
+export { compileBoard, compilePlan, cueFraction, sceneDuration } from './compile.js';
+export type { BoardReport, CompileOptions } from './compile.js';
+export { check, QC_FILE } from './check.js';
+export type { CheckOptions, InheritedProblems } from './check.js';
+export {
+  captureSamples,
+  inkFloorViolations,
+  inkNote,
+  ocrDiff,
+  sampleTimes,
+  textAt,
+  visionViolations,
+  MIN_INK_SHARE,
+  SAMPLES,
+} from './tier2.js';
+export type { FrameSample, FrameVerdict, VisionPass } from './tier2.js';
+export { inkShare, statFrame, rawFrames } from './ink.js';
+export {
+  densityWarnings,
+  dwellFloor,
+  dwellWarnings,
+  glyphFloorViolations,
+  inkOnInkViolations,
+  offFrameViolations,
+  overrunViolations,
+  realizedTextViolations,
+  MAX_REVEALS_PER_SCENE,
+  MIN_GLYPH_PX,
+} from './boardcheck.js';
+export type { BoardViolation, RealizedReport, TimedItem } from './boardcheck.js';
 export { chromiumAvailable, CHROMIUM_HINT } from './browser.js';
 export { captureStill, openStills } from './still.js';
 export type { StillOptions, StillSession } from './still.js';

@@ -8,10 +8,25 @@
  *    to the planner, characters narrated, images actually generated) multiplied
  *    by published list prices. Token counts are derived from character counts,
  *    so those lines are flagged `estimated: true` and the CLI says so.
+ *  - **Except where the provider counted for us.** A `ModelSpend` carries the token
+ *    counts the Messages API itself returned, so a line built from one is priced from
+ *    a real quantity and is not flagged estimated (plan item 3.5; audit X-c). This is
+ *    still not an invoice — see below — it is the provider's own accounting of a call
+ *    we made, at its published rate.
  *  - No provider gives us a per-request invoice, so we never claim to have one.
+ *
+ * ## What used to be free by construction
+ *
+ * Every quantity above except the last is one the pipeline can see from *outside* a
+ * stage. That is why the drawing lane cost nothing for as long as it existed: it
+ * composes a picture per beat and the critic looks at each one again — five to ten
+ * pictures a video, two Opus calls each, plus a generated raster per underlay — and
+ * none of it changed the storyboard's byte count, the narration's characters, or the
+ * asset count the visuals stage reports. The cheapest lane in the report was the
+ * expensive half of the run.
  */
 
-import { totalDuration, type Storyboard } from '@inkcast/core';
+import { totalDuration, type ModelSpend, type Storyboard } from '@inkcast/core';
 import type { Providers } from './providers.js';
 
 /** List prices in USD, recorded 2026-07. Sources noted per entry. */
@@ -114,6 +129,14 @@ export type CostInputs = {
    * producing nothing.
    */
   lessonAuthored?: boolean;
+  /**
+   * Billable calls the stages reported making, one entry per call (plan 3.5).
+   *
+   * Summed per lane and per model below, so a film that drew nine pictures gets one
+   * `drawing` line rather than nine — the useful question is what the lane cost, and
+   * per-call detail belongs in a log.
+   */
+  spend?: readonly ModelSpend[];
 };
 
 export function costOf(sb: Storyboard, input: CostInputs): CostReport {
@@ -161,6 +184,51 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
       usd: input.narratedChars * credits * PRICES.elevenlabsPerCredit,
       basis: `${input.narratedChars} characters × ${credits} credits/char at $${PRICES.elevenlabsPerCredit}/credit (Creator list price)`,
       estimated: true,
+    });
+  }
+
+  // The lanes that report their own calls. Grouped by (lane, model) rather than by
+  // lane alone: a run that switched `INKCAST_DRAW_MODEL` half way through was billed at
+  // two rates and the report should say so rather than average them.
+  const grouped = new Map<
+    string,
+    { spend: ModelSpend; inTok: number; outTok: number; images: number; calls: number }
+  >();
+  for (const s of input.spend ?? []) {
+    const key = `${s.lane}::${s.provider}::${s.model ?? ''}`;
+    const at = grouped.get(key) ?? { spend: s, inTok: 0, outTok: 0, images: 0, calls: 0 };
+    at.inTok += s.inTokens ?? 0;
+    at.outTok += s.outTokens ?? 0;
+    at.images += s.images ?? 0;
+    at.calls += 1;
+    grouped.set(key, at);
+  }
+  for (const g of grouped.values()) {
+    const { lane, provider, model } = g.spend;
+    if (g.images > 0) {
+      lines.push({
+        stage: lane,
+        provider,
+        usd: g.images * PRICES.imagePerAsset,
+        basis: `${g.images} image${g.images === 1 ? '' : 's'} generated at $${PRICES.imagePerAsset} each`,
+        // The count is exact — cache hits are not counted — but the per-image price is
+        // a list rate for a class of model, not this model's invoice.
+        estimated: true,
+      });
+      continue;
+    }
+    if (g.inTok === 0 && g.outTok === 0) continue;
+    const price = PRICES.anthropic[model ?? ''] ?? { in: 5, out: 25 };
+    lines.push({
+      stage: lane,
+      provider: `${provider}${model ? `/${model}` : ''}`,
+      usd: (g.inTok / 1e6) * price.in + (g.outTok / 1e6) * price.out,
+      basis:
+        `${g.calls} call${g.calls === 1 ? '' : 's'}, ${g.inTok} in + ${g.outTok} out tokens ` +
+        `as reported by the API, at $${price.in}/$${price.out} per MTok`,
+      // Not an estimate: the provider counted these tokens, we did not divide characters
+      // by four to guess them.
+      estimated: false,
     });
   }
 

@@ -25,8 +25,16 @@
  * the one advantage this lane has over any image model — the board can spell — so the
  * brief spends its words on naming parts rather than on style.
  */
-import type { Lesson, LessonStep, Mark, VisualIntent } from '@inkcast/core';
-import { DRAW_H, DRAW_W, Mark as MarkSchema, cacheDir, hash, logger } from '@inkcast/core';
+import type { Lesson, LessonStep, Mark, OnProblem, OnSpend, VisualIntent } from '@inkcast/core';
+import {
+  DRAW_H,
+  DRAW_W,
+  Mark as MarkSchema,
+  cacheDir,
+  hash,
+  logger,
+  noteSpend,
+} from '@inkcast/core';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -402,6 +410,17 @@ export type DrawOneOptions = {
   underlay?: { png: Uint8Array; box: Box; kind?: UnderlayKind };
   /** Default `true`. `INKCAST_DRAW_FIX=0` turns the correction pass off for a whole run. */
   revise?: boolean;
+  /** Where the critic's non-kept outcomes are recorded (plan 3.4). See `OnProblem`. */
+  onProblem?: OnProblem;
+  /**
+   * Where this lane's model calls are recorded (plan 3.5). See `ModelSpend`.
+   *
+   * Two lanes report through it and they are separated on purpose: `drawing` is the
+   * author composing a picture, `drawing-fix` is the critic looking at one it has
+   * already been shown. Told apart, the report answers the question the correction pass
+   * exists to argue about — what does looking at the render cost, per film.
+   */
+  onSpend?: OnSpend;
 };
 
 function revisionEnabled(opts: DrawOneOptions): boolean {
@@ -484,6 +503,8 @@ async function correct(
     ...(opts.underlay ? { underlay: opts.underlay } : {}),
     instruction,
     ...(revisesEverything() ? { always: true } : {}),
+    ...(opts.onProblem ? { onProblem: opts.onProblem } : {}),
+    ...(opts.onSpend ? { onSpend: opts.onSpend } : {}),
   });
   if (!revision) return undefined;
   await writeFix(key, revision.marks);
@@ -539,6 +560,9 @@ async function compose(
         schema,
         { name: TOOL, description: 'Emit the finished drawing as a list of marks.' },
         8000,
+        opts.onSpend
+          ? (u) => noteSpend(opts, { lane: 'drawing', provider: 'anthropic', ...u })
+          : undefined,
       );
     } catch (err) {
       log.warn(`could not draw "${short}"`, errorDetail(err));
@@ -776,6 +800,8 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
         ...(underlay ? { underlay } : {}),
         ...(opts.drawPreview ? { preview: opts.drawPreview } : {}),
         ...(opts.reviseDrawings === undefined ? {} : { revise: opts.reviseDrawings }),
+        ...(opts.onProblem ? { onProblem: opts.onProblem } : {}),
+        ...(opts.onSpend ? { onSpend: opts.onSpend } : {}),
       });
       if (marks?.length) {
         job.intent.marks = marks;

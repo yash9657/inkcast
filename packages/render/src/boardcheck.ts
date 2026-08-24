@@ -30,7 +30,7 @@ import type { Element, FrameSize, Rect, Scene, SceneFraming } from '@inkcast/cor
 import { rectContains } from './geom.js';
 
 export type BoardViolation = {
-  kind: 'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible';
+  kind: 'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible' | 'vacant' | 'crowded' | 'dwell';
   message: string;
 };
 
@@ -283,6 +283,50 @@ export function realizedTextViolations(
   return out;
 }
 
+/**
+ * The most distinct things one beat may introduce before the board is a list
+ * (plan 3.1's elements-per-board cap).
+ *
+ * A *warning*, not an error, and the plan says why: the working-memory bound behind
+ * it is taste, and taste in a blocking gate is how `--degrade` becomes the default
+ * flag. The number is the corpus's, with headroom: across 242 scenes of 26 projects
+ * the busiest beat introduces six distinct things (`longitude`'s s4), the median
+ * three. Nine fails nothing anyone has shipped and catches the board that has become
+ * a bulleted list with handwriting.
+ *
+ * "Distinct" is the load-bearing word. Counting *elements* would be meaningless: one
+ * drawing is up to 35 marks (`cardiac7`'s s6), and half the corpus's scenes carry
+ * more than nine elements for that reason alone. A drawing is one thing the viewer
+ * takes in, so its parts count once — the same `_v<n>_` grouping the ink-on-ink sweep
+ * uses, and for the same reason.
+ */
+export const MAX_REVEALS_PER_SCENE = 9;
+
+/**
+ * Beats that introduce more distinct things than a viewer can hold.
+ *
+ * Counted per scene, which on either board mode is per cell: what is being measured
+ * is the *new* ink this beat asks for. On an accumulating board the frame also holds
+ * earlier scenes' ink, and that is the design rather than a defect — the whole point
+ * of the persistent canvas is that the learner keeps their spatial context.
+ */
+export function densityWarnings(scenes: readonly Scene[]): BoardViolation[] {
+  const out: BoardViolation[] = [];
+  for (const scene of scenes) {
+    const distinct = new Set(scene.elements.map((el) => drawGroup(el.id) ?? el.id));
+    if (distinct.size <= MAX_REVEALS_PER_SCENE) continue;
+    out.push({
+      kind: 'crowded',
+      message:
+        `scene ${scene.id} introduces ${distinct.size} distinct things at once ` +
+        `(${[...distinct].slice(0, 6).join(', ')}…) — past about ${MAX_REVEALS_PER_SCENE} a ` +
+        'beat is a list rather than an idea. Split it, or let some of them arrive in a ' +
+        'later beat',
+    });
+  }
+  return out;
+}
+
 /** The slice of a `PlanItem` the timing checks need — importable by tests. */
 export type TimedItem = {
   id: string;
@@ -336,7 +380,7 @@ export function dwellWarnings(
     const floor = dwellFloor(item.words);
     if (residence + 1e-3 < floor) {
       out.push({
-        kind: 'overrun',
+        kind: 'dwell',
         message:
           `"${item.id}" finishes writing with ${residence.toFixed(2)}s left in its scene — ` +
           `${item.words} word${item.words === 1 ? '' : 's'} need about ${floor.toFixed(2)}s ` +

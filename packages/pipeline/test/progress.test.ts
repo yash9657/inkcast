@@ -12,11 +12,18 @@ import {
 } from '../src/progress.js';
 
 test('the stage order puts the lesson before anything visual, and voice before both', () => {
-  assert.deepEqual([...STAGES], ['ingest', 'lesson', 'storyboard', 'voice', 'visuals', 'render']);
+  assert.deepEqual(
+    [...STAGES],
+    ['ingest', 'lesson', 'storyboard', 'voice', 'visuals', 'check', 'render'],
+  );
   const at = (s: StageName) => STAGES.indexOf(s);
   assert.ok(at('lesson') < at('storyboard'), 'what to teach is decided before how to draw it');
   assert.ok(at('voice') < at('visuals'), 'cues must resolve before anything is drawn');
   assert.ok(at('voice') < at('render'), 'durations must be measured before frames are captured');
+  // The gate needs the enriched board — resolved plots, typeset equations — and it
+  // only earns its keep by running before the minute Chromium spends on the frames.
+  assert.ok(at('visuals') < at('check'), 'the gate judges the board the visuals stage finished');
+  assert.ok(at('check') < at('render'), 'a board known to be wrong is never encoded');
 });
 
 test('weights cover exactly 100 and render dominates', () => {

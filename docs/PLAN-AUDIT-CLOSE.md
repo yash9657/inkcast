@@ -114,6 +114,76 @@ re-audit in Phase 8 is the exit.
 > browser test in `page.test.ts` builds a board whose narrowed box passes every
 > compile-time check and fails from the realized report alone. Corpus strict-clean;
 > S4-f and S4-a lines in `auditcheck.mts` (23 checks). Next: Phase 3.
+>
+> **Progress (2026-08-23): all of Phase 3 is landed — QC is a stage.** The seventh
+> stage `check` sits between visuals and render (`render/src/check.ts`, driven by
+> `cast()` and `rerender()`), writes `qc.json` (`core/src/qc.ts` is the contract),
+> and blocks through `gate(...)`. Per item:
+>
+> - **3.2 first, because 3.1 runs it.** `critiqueStoryboard` in `core/storyboard.ts`
+>   — the board graph's own critique, beside `critiqueLesson`: dangling `morph.fromId`
+>   / `morph.retires` / `emphasis.targetId` / `assetId` / `persistUntil`, forward
+>   references (a morph out of ink drawn later), _expired_ references on a wiping
+>   board (ink whose `persistUntil` has passed — the failure `persistUntil`'s own
+>   docs warn about), cues absent from their scene's narration, plot overlays on
+>   curves the plot does not draw, diagram edges to absent nodes, and duplicate
+>   element or scene ids. Every rule is a dangling reference or a duplicate — no
+>   taste. Run by the gate and by `applyOps`, so a hand edit reports what it broke
+>   (`ApplyResult.problems`, surfaced by `editProject`). `ensureAssets`' silent mint
+>   is now a warn plus a recorded problem. All 26 corpus boards pass it.
+> - **3.1 the gate stage.** Tier 1 re-runs the Phase 2 sweeps from
+>   `compileBoard` — a new entry point beside `compilePlan` that returns the plan
+>   _and_ its `BoardReport`, so the numbers are computed once where the geometry
+>   exists rather than re-derived (the A-4 rule). It also runs the realized-layout
+>   sweep (2.7) and Tier 2 in **one** Chromium launch. `--degrade` still records;
+>   the density cap is `MAX_REVEALS_PER_SCENE = 9`, counting a drawing as one thing
+>   (measured: the busiest of 242 corpus scenes introduces six, the median three;
+>   counting raw elements would fire on half the corpus, because one drawing is up
+>   to 35 marks). `PIPELINE_VERSION` deliberately **not** bumped — the new stage
+>   produces no artefact any other stage reads, and bumping would re-render 26
+>   projects to add a file none of them depend on.
+> - **3.4 nothing degrades silently.** The score-0 lucide fallback, a failed
+>   illustration, a missing underlay, the critic's blind skip, a failed or rejected
+>   correction: all `noteProblem` now (`OnProblem` on `StageOptions`, collected by
+>   the run, written into `qc.json`). The drawing lane's _standing_ defects are
+>   recomputed from `lesson.json` every run by `lessonDrawingDefects` rather than
+>   remembered from the keyed run that drew them — measured on `projects/cardiac8f`,
+>   5 of its 12 drawings still carry defects, a fact that previously existed for one
+>   afternoon.
+> - **3.5 every model call is a cost line.** `callTool` reports the API's own
+>   `usage`, so the drawing author (`drawing`), the critic (`drawing-fix`), the
+>   underlay generator (`underlay`, generations only — a cache hit is free) and the
+>   Tier-2 vision pass (`frame-vision`) all reach `costOf` as `ModelSpend`. Those
+>   lines are `estimated: false`: the provider counted the tokens. The expensive half
+>   of a keyed run — two Opus calls per picture, five to ten pictures a film — was
+>   free by construction until this, because every quantity the report could see was
+>   one visible from _outside_ the lesson stage.
+> - **3.3 Tier 2 — something looks at the pixels.** `render/src/tier2.ts`: 8 frames
+>   per film, sampled at each beat's fullest moment. The ink floor is **1.0% of
+>   pixels**, corpus-derived by running this sampler over all 27 boards — the
+>   populations separate cleanly (keyed drawing films 2.2–4.0%, shipped lessons
+>   1.6–2.1%, reviewed lesson films 1.2–1.6%, **floor**, document-route slideshows
+>   0.8–1.0%, 4-scene smoke tests 0.8%) and the floor is drawn in the gap. What
+>   counts as ink now lives in `render/src/ink.ts`, shared with `inkstat.mts` (which
+>   still reproduces its documented 4.7% on `cardiac5`) so the bake-off's instrument
+>   and the gate cannot disagree. **The sampler reads the fade schedule, not the
+>   scene end**: sampling before the cut photographs the gap after a wiping board's
+>   card has gone, and `cardiac9`/`cardiac10` — two reviewed films — both measured a
+>   frame at 0.00% ink before that was fixed. The vision pass and OCR diff are
+>   injected (`pipeline/src/frame-vision.ts`, five fixed questions, cached on the
+>   frames' own bytes) so the renderer never acquires a model provider, and are
+>   **advisory for one release** per the plan. No key: the pixel half still runs and
+>   the other two skip with the real reason recorded.
+>
+> Eleven `auditcheck.mts` lines added (34 checks). **Found while verifying, and not
+> fixed here: `longitude` fails the strict gate**, on 2.7's realized-layout check —
+> its recap chain writes four 7-word sentences into a 4-wide horizontal `flow`
+> diagram, so the browser shrinks them to 7.2–9.7 output px against the 10px floor.
+> It is a pre-existing Phase-2 gap (that project was last cast 32 minutes before
+> 2.7 landed, so the claim that both shipped lessons pass every Phase 2 gate was
+> only ever verified for gradient-descent), and it is now caught before the encode
+> instead of after it. The corpus sweep in the handoff lists every other
+> pre-existing failure. Next: Phase 4.
 
 **Two rules that shape everything here:**
 

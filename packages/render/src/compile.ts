@@ -61,6 +61,7 @@ import {
   inkOnInkViolations,
   offFrameViolations,
   overrunViolations,
+  type BoardViolation,
 } from './boardcheck.js';
 import { layoutDiagram } from './layout.js';
 import { TYPE_SCALE, inkStyle, paletteFor, penArt, toneInk } from './palette.js';
@@ -113,6 +114,17 @@ export type CompileOptions = {
    * in the handwriting font. Absent means `degrade`: today's behaviour.
    */
   gates?: GateMode;
+  /**
+   * Compute the board assertions but do not gate or log them — the caller is
+   * reporting them itself.
+   *
+   * For `check()` (plan 3.1) and nothing else. The gate stage compiles a plan purely
+   * to measure it, and without this every advisory is printed twice per run and every
+   * blocking violation is warned about by a compile whose plan is then thrown away.
+   * The findings still come back in the report; what is suppressed is the *saying*,
+   * which belongs to whoever owns the verdict.
+   */
+  quiet?: boolean;
 };
 
 /** Words-per-second used only when the voice stage has not measured a scene. */
@@ -424,7 +436,46 @@ function withMeasuredDurations(sb: Storyboard): Storyboard {
   return { ...sb, scenes };
 }
 
+/**
+ * What the board assertions found, as data rather than as a log line.
+ *
+ * `compilePlan` gates on this itself — a strict render still stops here, at the last
+ * point before the encode — but the gate *stage* (plan 3.1) has to be able to run the
+ * same checks earlier and write them into `qc.json`, and it must get the same answer.
+ * So the numbers are computed once, here, where the plan's geometry and timings
+ * actually exist, and handed out; the alternative is a second implementation of the
+ * sweeps against a re-derived framing, which is exactly the A-4 defect plan 2.1 spent
+ * a day deleting.
+ */
+export type BoardReport = {
+  /** Violations that block under `strict`. */
+  blocking: BoardViolation[];
+  /** Said out loud, never blocking: derived-camera misses, thin dwell. */
+  advisories: BoardViolation[];
+  /** Per-scene content fill, as fractions of the frame. */
+  fill: number[];
+  /** The fill-floor breach, when the board is below it. Blocks separately. */
+  vacancy?: BoardViolation;
+};
+
 export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = {}): RenderPlan {
+  return compileBoard(sb, dir, opts).plan;
+}
+
+/**
+ * The compiler, plus what its assertions found.
+ *
+ * `compilePlan` is this without the report, and remains what every renderer path
+ * calls. Two entry points rather than a `checks` field on `RenderPlan`: the plan is
+ * hashed into the render cache key (`renderFingerprint`, `render.ts`'s `cacheKey`),
+ * so a new field on it would invalidate every rendered project on disk to carry
+ * information the video does not depend on.
+ */
+export function compileBoard(
+  sb: Storyboard,
+  dir: string,
+  opts: CompileOptions = {},
+): { plan: RenderPlan; report: BoardReport } {
   const canvas: Rect = { ...sb.canvas };
   const timed = withMeasuredDurations(sb);
 
@@ -545,6 +596,8 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
     log.warn(m);
     problems.push(m);
   };
+  let blocking: BoardViolation[] = [];
+  let advisories: BoardViolation[] = [];
   {
     const frameCheck = offFrameViolations(timed.scenes, framing, canvas, frame);
     const timedItems = items.map((it) => {
@@ -559,13 +612,13 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
         ...(words !== undefined ? { words } : {}),
       };
     });
-    const blocking = [
+    blocking = [
       ...inkOnInkViolations(timed.scenes, wipes),
       ...frameCheck.errors,
       ...overrunViolations(timedItems),
       ...glyphFloorViolations(timed.scenes, framing, canvas, frame, ctx.type),
     ];
-    if (blocking.length > 0) {
+    if (blocking.length > 0 && !opts.quiet) {
       gate(
         opts.gates,
         `${blocking.length} board assertion${blocking.length === 1 ? '' : 's'} failed:\n` +
@@ -573,8 +626,8 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
         spoke,
       );
     }
-    const advisories = [...frameCheck.warnings, ...dwellWarnings(timedItems)];
-    if (advisories.length > 0) {
+    advisories = [...frameCheck.warnings, ...dwellWarnings(timedItems)];
+    if (advisories.length > 0 && !opts.quiet) {
       // One line, not one per item: the useful signal is that the board has thin
       // dwell or scrolled-off ink, plus enough examples to find it.
       const shown = advisories.slice(0, 3).map((v) => `[${v.kind}] ${v.message}`);
@@ -613,43 +666,48 @@ export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = 
   // saying it cannot tell those two apart. Separating "sparse but composed" from
   // "sparse and empty" is the ink-pixel Tier-2 check's job (plan 3.3); this floor's
   // job is the board that is unmistakably vacant.
+  let vacancy: BoardViolation | undefined;
   if (fill.length > 0) {
     const fillMean = fill.reduce((a, b) => a + b, 0) / fill.length;
     const vacant = fill
       .map((v, i) => ({ v, id: timed.scenes[i]?.id ?? String(i) }))
       .filter((s) => s.v < 0.11);
     if (fillMean < 0.18 || vacant.length > 0) {
-      gate(
-        opts.gates,
-        `the board is mostly whitespace: mean content fill ${(fillMean * 100).toFixed(1)}% ` +
+      vacancy = {
+        kind: 'vacant',
+        message:
+          `the board is mostly whitespace: mean content fill ${(fillMean * 100).toFixed(1)}% ` +
           `(floor 18%)${vacant.length ? `, scenes below the 11% floor: ${vacant.map((s) => `${s.id} at ${(s.v * 100).toFixed(1)}%`).join(', ')}` : ''} — ` +
           `per-scene: ${fill.map((v, i) => `${timed.scenes[i]?.id ?? i}:${(v * 100).toFixed(0)}%`).join(' ')}`,
-        spoke,
-      );
+      };
+      if (!opts.quiet) gate(opts.gates, vacancy.message, spoke);
     }
   }
 
   return {
-    version: 1,
-    fps: sb.meta.fps,
-    duration,
-    frame,
-    aspect: sb.meta.aspect,
-    canvas,
-    paper: pal.paper,
-    ink: pal.ink,
-    grid: opts.grid === false ? null : pal.grid,
-    gridStep: 72 * scale,
-    style: sb.meta.style,
-    fontFamily: opts.fontFamily ?? 'InkcastHand, cursive',
-    scale,
-    typeScale: ctx.type,
-    safe,
-    fill,
-    ...(problems.length > 0 ? { problems } : {}),
-    scenes,
-    items,
-    pen: penArt(sb.meta.style, pal.accent),
+    plan: {
+      version: 1,
+      fps: sb.meta.fps,
+      duration,
+      frame,
+      aspect: sb.meta.aspect,
+      canvas,
+      paper: pal.paper,
+      ink: pal.ink,
+      grid: opts.grid === false ? null : pal.grid,
+      gridStep: 72 * scale,
+      style: sb.meta.style,
+      fontFamily: opts.fontFamily ?? 'InkcastHand, cursive',
+      scale,
+      typeScale: ctx.type,
+      safe,
+      fill,
+      ...(problems.length > 0 ? { problems } : {}),
+      scenes,
+      items,
+      pen: penArt(sb.meta.style, pal.accent),
+    },
+    report: { blocking, advisories, fill, ...(vacancy === undefined ? {} : { vacancy }) },
   };
 }
 

@@ -21,11 +21,16 @@ import type {
   BoardMode,
   Element,
   Lesson,
+  ModelSpend,
   OnProgress,
+  QcReport,
   Storyboard,
   StoryboardMeta,
 } from '@inkcast/core';
 import { StageError } from './errors.js';
+// A type-only import, so this file still pulls in no stage package: `frame-vision.ts`
+// depends on core and `providers.ts` alone, and the SDK inside it is dynamic.
+import type { VisionPass } from './frame-vision.js';
 import type { StageName } from './progress.js';
 
 export type IngestInput = { text?: string; filePath?: string; url?: string };
@@ -97,6 +102,18 @@ export type LessonStageOptions = FormatOptions & {
   drawUnderlay?: (prompt: string) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
   onProgress?: OnProgress;
   force?: boolean;
+  /**
+   * Where the stage records something it did worse than it should have — `OnProblem`
+   * in `@inkcast/core`. The run collects these and the gate stage (plan 3.1) writes
+   * them into `qc.json`, which is what makes a degradation outlive its log line.
+   */
+  onProblem?: (problem: string) => void;
+  /**
+   * Where the stage records a billable call it made — `ModelSpend` in `@inkcast/core`.
+   * The drawing author and its critic run inside this stage, and until they reported
+   * through here the expensive half of a keyed run appeared in no total (plan 3.5).
+   */
+  onSpend?: (spend: ModelSpend) => void;
 };
 
 export type CompileStageOptions = FormatOptions & {
@@ -165,6 +182,11 @@ type LessonStageModule = {
   parseLesson(input: unknown): Lesson;
   saveLesson(dir: string, lesson: Lesson): Promise<string>;
   loadLesson(dir: string): Promise<Lesson>;
+  /**
+   * Every drawing in a finished lesson that still has something measurably wrong with
+   * it, one line each (plan 3.4). Optional and read defensively — see `versionOf`.
+   */
+  lessonDrawingDefects?: unknown;
   /** Version constants, read defensively — see `versionOf`. */
   LESSON_VERSION?: unknown;
   COMPILER_VERSION?: unknown;
@@ -223,12 +245,16 @@ type VisualsModule = {
  * storyboard exists.
  */
 type ImageModule = {
-  illustrationRaster(args: {
-    id: string;
-    prompt: string;
-    dir: string;
-    seed?: number;
-  }): Promise<{ png: Buffer } | undefined>;
+  illustrationRaster(args: { id: string; prompt: string; dir: string; seed?: number }): Promise<
+    | {
+        png: Buffer;
+        /** True when nothing was generated — the picture came from a cache and is free. */
+        cached?: boolean;
+        /** The provider that drew it, for the cost line (plan 3.5). */
+        provider?: string;
+      }
+    | undefined
+  >;
   tracedInkBox(png: Buffer): Promise<{ x: number; y: number; w: number; h: number } | undefined>;
 };
 
@@ -236,6 +262,29 @@ type ImageModule = {
 export type StillSession = {
   capture(sb: Storyboard, dir: string, opts?: { t?: number }): Promise<Uint8Array>;
   close(): Promise<void>;
+};
+
+/**
+ * The quality gate (plan 3.1), which lives in `@inkcast/render`.
+ *
+ * Two stages out of one package, like `ingest`/`lesson`/`storyboard` out of the
+ * planner, and for the same kind of reason: the checks are arithmetic over the
+ * renderer's own compiled geometry, and a second implementation of them anywhere else
+ * would be a second truth about what the board looks like — the A-4 defect plan 2.1
+ * exists to have deleted. Loading the package is cheap; it is `launchChromium` that
+ * costs, and the gate never calls it.
+ */
+type CheckModule = {
+  check(
+    sb: Storyboard,
+    dir: string,
+    opts?: {
+      gates?: 'strict' | 'degrade';
+      inherited?: { id: string; findings: string[]; severity?: 'fail' | 'warn'; note?: string }[];
+      /** Tier 2's keyed half — see `frame-vision.ts`. Absent means it is skipped. */
+      vision?: VisionPass;
+    },
+  ): Promise<QcReport>;
 };
 
 type RenderModule = {
@@ -290,6 +339,7 @@ const PACKAGES = {
   storyboard: PLANNER,
   voice: { name: '@inkcast/voice', load: () => import('@inkcast/voice') },
   visuals: { name: '@inkcast/visuals', load: () => import('@inkcast/visuals') },
+  check: { name: '@inkcast/render', load: () => import('@inkcast/render') },
   render: { name: '@inkcast/render', load: () => import('@inkcast/render') },
 } as const satisfies Record<StageName, StagePackage>;
 
@@ -361,6 +411,11 @@ export async function loadUnderlay(): Promise<UnderlayModule> {
     'underlayInkBox',
     'assetSeed',
   ])) as unknown as UnderlayModule;
+}
+
+/** The quality gate. Reported against its own stage, so a failure names `check`. */
+export async function loadCheck(): Promise<CheckModule> {
+  return (await load('check', ['check'])) as unknown as CheckModule;
 }
 
 export async function loadRender(): Promise<RenderModule> {

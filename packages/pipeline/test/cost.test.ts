@@ -196,3 +196,107 @@ test('nothing synthesised is nothing billed, even on the paid provider', () => {
     [],
   );
 });
+
+/* ------------------------------------------- the drawing lane's own bill (3.5) */
+
+/**
+ * The lane that used to be free by construction.
+ *
+ * `projects/cardiac8f` is the film these numbers are shaped like: twelve drawings, each
+ * composed by Opus and five of them looked at again by the critic. None of that touched
+ * a quantity the pipeline could see from outside the lesson stage, so the report showed
+ * a lesson line, a voice line, and nothing at all for the expensive half of the run.
+ */
+const LOCAL: NodeJS.ProcessEnv = { PATH: process.env.PATH };
+
+function drawn(spend: Parameters<typeof costOf>[1]['spend']) {
+  return costOf(board(), {
+    providers: providers('af_heart', LOCAL),
+    sourceChars: 0,
+    storyboardChars: 0,
+    narratedChars: 0,
+    generatedAssets: 0,
+    spend,
+  });
+}
+
+test('the drawing lane is billed from the tokens the API reported, not from characters', () => {
+  const report = drawn([
+    {
+      lane: 'drawing',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      inTokens: 4000,
+      outTokens: 2000,
+    },
+    {
+      lane: 'drawing',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      inTokens: 6000,
+      outTokens: 3000,
+    },
+  ]);
+  const line = report.lines.find((l) => l.stage === 'drawing');
+  assert.ok(line, 'two composed drawings must produce a drawing line');
+  // Two calls, summed into one line: 10k in at $5/MTok + 5k out at $25/MTok.
+  assert.equal(line.usd, 0.175);
+  assert.match(line.basis, /2 calls, 10000 in \+ 5000 out tokens as reported by the API/);
+  // The one place in this file where a quantity is not a guess, and it says so.
+  assert.equal(line.estimated, false);
+  assert.equal(report.local, false);
+});
+
+test('the critic is a lane of its own, so what looking at the render costs is answerable', () => {
+  const report = drawn([
+    {
+      lane: 'drawing',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      inTokens: 4000,
+      outTokens: 2000,
+    },
+    {
+      lane: 'drawing-fix',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      inTokens: 9000,
+      outTokens: 2000,
+    },
+  ]);
+  const author = report.lines.find((l) => l.stage === 'drawing');
+  const critic = report.lines.find((l) => l.stage === 'drawing-fix');
+  assert.ok(author && critic, 'the two halves of the lane are priced separately');
+  // The correction is the more expensive call per picture — it sends the render.
+  assert.ok(critic.usd > author.usd);
+  // And the total moves when a drawing is corrected, which is 3.5's done-bar.
+  const uncorrected = drawn([
+    {
+      lane: 'drawing',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      inTokens: 4000,
+      outTokens: 2000,
+    },
+  ]);
+  assert.ok(report.usd > uncorrected.usd);
+});
+
+test('a generated underlay is billed once and a cached one is free', () => {
+  const paid = drawn([{ lane: 'underlay', provider: 'fal', images: 1 }]);
+  const line = paid.lines.find((l) => l.stage === 'underlay');
+  assert.ok(line);
+  assert.match(line.basis, /1 image generated/);
+  // Cache hits never reach this channel at all (`draw-underlay.ts` checks `cached`),
+  // so an empty tally is a free run and not a missing measurement.
+  assert.equal(drawn([]).local, true);
+  assert.equal(drawn(undefined).local, true);
+});
+
+test('a spend entry with no tokens and no images cannot invent a line', () => {
+  // The defensive floor this whole file is about, one field over: a response whose
+  // `usage` block was missing reports zeroes, and zero tokens is not a bill.
+  const report = drawn([{ lane: 'drawing', provider: 'anthropic', model: 'claude-opus-5' }]);
+  assert.deepEqual(report.lines, []);
+  assert.equal(report.local, true);
+});

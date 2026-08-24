@@ -108,6 +108,15 @@ export type PipelineState = {
    * and the defects it shipped with are on the record. Absent on a clean board.
    */
   render?: { problems: string[] };
+  /**
+   * What the quality gate found (plan 3.1). The full report is `qc.json`; this is
+   * the line a library listing needs — did it pass, and if not, what failed.
+   *
+   * Under `strict` a failing gate stops the run before this file is written, so a
+   * recorded `ok: false` can only mean a `degrade` run: the film exists, and the
+   * problems it exists with are named here rather than only in a log.
+   */
+  qc?: { ok: boolean; problems: string[] };
 };
 
 const FILE = 'pipeline.json';

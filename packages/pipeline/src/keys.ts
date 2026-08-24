@@ -270,6 +270,17 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // than traced ink, and the illustration cache key now carries the image kind so a form
   // and a figure of one subject cannot serve each other's picture.
   visuals: 9,
+  // The quality gate (plan 3.1) — and the one stage whose arrival deliberately did
+  // *not* bump `PIPELINE_VERSION` above, though that constant's own docs say a new
+  // stage invalidates everything. The test that rule states is whether a stage
+  // produces a different artefact for identical inputs, and `check` produces no
+  // artefact anything downstream reads: `qc.json` is a record of a verdict, the render
+  // does not consume it, and no other stage's output moved by a byte. Bumping would
+  // have re-run ingest, lesson, storyboard, voice, visuals and render for all 26
+  // corpus projects to add a file none of them depend on. The rigs note at the foot of
+  // the comment above is the same reasoning: a global bump is for when you cannot tell
+  // which artefacts moved, and here nothing did.
+  check: 1,
   render: 5,
 };
 

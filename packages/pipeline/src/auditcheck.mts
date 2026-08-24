@@ -274,6 +274,146 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S3-c (3.2): the board graph has a critique, and the edit path runs it ---- */
+{
+  const storyboard = read('packages/core/src/storyboard.ts');
+  const ops = read('packages/pipeline/src/ops.ts');
+  const anthropic = read('packages/planner/src/anthropic.ts');
+  check(
+    'S3-c: critiqueStoryboard exists and checks every reference the board carries',
+    /export function critiqueStoryboard/.test(storyboard) &&
+      /morphs out of/.test(storyboard) &&
+      /emphasises/.test(storyboard) &&
+      /does not declare/.test(storyboard) &&
+      /is cued to/.test(storyboard),
+    'the board graph is unchecked again — a dangling morph or emphasis is a move the film silently does not make',
+  );
+  check(
+    'S3-c: applyOps reports what the edit did to the graph',
+    /critiqueStoryboard\(storyboard\)/.test(ops),
+    'a hand edit can dangle a reference again with nothing said until the render log',
+  );
+  check(
+    'S3-d: the planner mint is loud, not a debug line',
+    /noteProblem\(opts, note\)/.test(anthropic) &&
+      !/log\.debug\(`added missing asset/.test(anthropic),
+    'ensureAssets invents an entity from an id again at a log level nobody reads',
+  );
+}
+
+/* ---- S9-a/S9-b (3.1): QC is a stage, and it writes its verdict down ---- */
+{
+  const stages = read('packages/pipeline/src/progress.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  const checkStage = read('packages/render/src/check.ts');
+  check(
+    'S9-a: `check` is a stage between visuals and render',
+    /'visuals',\n\s*\/\/[\s\S]*?'check',\n\s*'render',/.test(stages) &&
+      /const \{ check \} = await loadCheck\(\)/.test(cast),
+    'the quality gate is no longer a stage — nothing stands between a wrong board and the encode',
+  );
+  check(
+    'S9-b: the gate writes qc.json, and never calls a model to fix what it found',
+    /QC_FILE = 'qc.json'/.test(checkStage) &&
+      /qcReport\(/.test(checkStage) &&
+      // Call sites, not words: the file names `ANTHROPIC_API_KEY` in the sentence that
+      // explains why Tier 2 skipped, which is the opposite of calling a model.
+      !/messages\.create|@anthropic-ai\/sdk/.test(checkStage),
+    'the gate stopped recording its verdict, or has grown a repair loop (the S9.10 trap)',
+  );
+  check(
+    'S9-b: the gate runs the realized-layout sweep, not only the arithmetic',
+    /realizedTextViolations/.test(checkStage) && /chromiumAvailable/.test(checkStage),
+    'the one check that measures reality instead of intent is back to costing a whole encode to discover',
+  );
+}
+
+/* ---- X-e/X-d (3.4): every degradation is loud, and the record survives the run ---- */
+{
+  const icons = read('packages/visuals/src/resolve.ts');
+  const critic = read('packages/planner/src/draw-critic.ts');
+  const audit = read('packages/planner/src/draw-audit.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  check(
+    'X-e: a score-0 icon match is recorded, not just drawn',
+    /resolved to no icon at all/.test(icons) && /noteProblem\(args\.opts/.test(icons),
+    'a generic glyph stands in for an unmatched entity again with nothing said',
+  );
+  check(
+    'X-e: the critic records the outcomes that leave a defect standing',
+    /noteProblem\(\s*opts,/.test(critic) && /was rejected/.test(critic),
+    'a rejected or impossible correction is back to being a log line inside a keyed run',
+  );
+  check(
+    "S9-c/X-d: a project's drawing history is recomputed from lesson.json, not remembered",
+    /export function lessonDrawingDefects/.test(audit) &&
+      /id: 'drawing', findings: drawingDefects/.test(cast),
+    "the drawing lane's standing defects are known once, on the day they were drawn",
+  );
+}
+
+/* ---- X-c (3.5): the expensive half of a keyed run appears in the total ---- */
+{
+  const anthropic = read('packages/planner/src/anthropic.ts');
+  const cost = read('packages/pipeline/src/cost.ts');
+  const drawAnthropic = read('packages/planner/src/draw-anthropic.ts');
+  const critic = read('packages/planner/src/draw-critic.ts');
+  const underlay = read('packages/pipeline/src/draw-underlay.ts');
+  check(
+    'X-c: callTool can report the tokens the API counted',
+    /usage\?: \{ input_tokens\?: number; output_tokens\?: number \}/.test(anthropic) &&
+      /res\.usage\?\.input_tokens/.test(anthropic),
+    'the provider counts the tokens for us and the pipeline has stopped reading them',
+  );
+  check(
+    'X-c: the drawing author, the critic and the underlay all report what they spent',
+    /lane: 'drawing'/.test(drawAnthropic) &&
+      /lane: 'drawing-fix'/.test(critic) &&
+      /lane: 'underlay'/.test(underlay) &&
+      /!raster\.cached/.test(underlay),
+    'a lane that costs money is invisible to the cost report again — or a cache hit is being billed',
+  );
+  check(
+    'X-c: reported-token lines are priced as measured, not estimated',
+    /estimated: false,/.test(cost) && /as reported by the API/.test(cost),
+    'the one honest quantity in the report has been folded back into the guesses',
+  );
+}
+
+/* ---- S9-b/S9-d (3.3): something finally looks at the pixels ---- */
+{
+  const tier2 = read('packages/render/src/tier2.ts');
+  const checkStage = read('packages/render/src/check.ts');
+  const ink = read('packages/render/src/ink.ts');
+  const inkstat = read('packages/render/src/inkstat.mts');
+  const vision = read('packages/pipeline/src/frame-vision.ts');
+  check(
+    'S9-d: the gate measures ink in pixels, at the corpus-derived floor',
+    /MIN_INK_SHARE = 0\.01/.test(tier2) && /inkFloorViolations/.test(checkStage),
+    'the ungameable half of the fill gate is gone — a board can pass by inflating a box again',
+  );
+  check(
+    'A-4: one definition of what counts as ink, shared by the gate and the film scorer',
+    /export function statFrame/.test(ink) &&
+      /from '\.\/ink\.js'/.test(inkstat) &&
+      !/const DARK_ENOUGH/.test(inkstat),
+    'inkstat.mts has grown its own copy of the ink threshold — the bake-off instrument and the gate can now disagree',
+  );
+  check(
+    'S9-b: the sampler looks before the ink leaves, so a wiping board is not photographed blank',
+    /fadeAt - MAX_FADE/.test(tier2),
+    'the Tier-2 sampler is back to sampling scene ends — every wipe-mode card reads as 0% ink',
+  );
+  check(
+    'S9-b: the vision pass is injected, keyed, and asks the same five questions every time',
+    /export type VisionPass/.test(tier2) &&
+      !/messages\.create|@anthropic-ai\/sdk/.test(tier2) &&
+      /VISION_VERSION/.test(vision) &&
+      /report_frames/.test(vision),
+    'the renderer has acquired a model provider, or the rubric is no longer fixed',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

@@ -10,7 +10,7 @@
  * the pipeline — they only cost you the upgrade.
  */
 import type { Asset, Storyboard } from '@inkcast/core';
-import { logger, parseStoryboard, report } from '@inkcast/core';
+import { logger, noteProblem, parseStoryboard, report } from '@inkcast/core';
 import { ICONS } from './icons.js';
 import { optionalImport } from './optional.js';
 import { storyboardJsonSchema } from './schema.js';
@@ -25,7 +25,19 @@ const TOOL = 'emit_storyboard';
 /* ------------------------------------------------------------- SDK surface */
 
 type ContentBlock = { type: string; name?: string; input?: unknown; text?: string };
-type MessageResponse = { content: ContentBlock[]; stop_reason?: string | null };
+/**
+ * `usage` is the provider's own token accounting, and it is the only reason a cost line
+ * for a drawing can say `estimated: false` (plan 3.5). Optional because it is read
+ * defensively: a response without it costs us the record, never the run.
+ */
+type MessageResponse = {
+  content: ContentBlock[];
+  stop_reason?: string | null;
+  usage?: { input_tokens?: number; output_tokens?: number };
+};
+
+/** Where a call reports what it spent. Tagged with a lane by whoever made it. */
+export type CallSpend = (spend: { model: string; inTokens: number; outTokens: number }) => void;
 
 /** A picture in a message: what lets the drawing lane show a model its own render. */
 export type ImagePart = {
@@ -176,6 +188,7 @@ export async function callTool(
     description: 'Emit the finished storyboard for this document.',
   },
   maxTokens = 16000,
+  spend?: CallSpend,
 ): Promise<unknown> {
   const res = await c.messages.create({
     model,
@@ -191,6 +204,16 @@ export async function callTool(
     ],
     tool_choice: { type: 'tool', name: tool.name },
   });
+  // Reported before the response is judged: the tokens were spent whether or not the
+  // model emitted a usable tool call, and a failed expensive call is exactly the kind
+  // of cost that used to appear in nobody's total.
+  if (spend) {
+    spend({
+      model,
+      inTokens: res.usage?.input_tokens ?? 0,
+      outTokens: res.usage?.output_tokens ?? 0,
+    });
+  }
   const block = res.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
   if (!block || block.input === undefined) {
     throw new Error(
@@ -298,7 +321,7 @@ Rules:
       return undefined;
     }
     try {
-      return parseStoryboard(carryOver(raw, sb));
+      return parseStoryboard(carryOver(raw, sb, opts));
     } catch (err) {
       const detail = errorDetail(err);
       log.warn(`edited storyboard failed validation (attempt ${attempt + 1})`, detail);
@@ -339,22 +362,33 @@ function normalise(raw: unknown, doc: SourceDoc, opts: PlanOptions): unknown {
     voice: opts.voice ?? 'af_heart',
     fps: opts.fps ?? 30,
   };
-  ensureAssets(sb);
+  ensureAssets(sb, opts);
   return sb;
 }
 
-function carryOver(raw: unknown, previous: Storyboard): unknown {
+function carryOver(raw: unknown, previous: Storyboard, opts?: PlanOptions): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const sb = { ...(raw as Loose) };
   sb.version = 1;
   if (typeof sb.title !== 'string' || !sb.title.trim()) sb.title = previous.title;
   if (typeof sb.canvas !== 'object' || !sb.canvas) sb.canvas = previous.canvas;
-  ensureAssets(sb);
+  ensureAssets(sb, opts);
   return sb;
 }
 
-/** Every referenced assetId must exist in the library, or the visuals stage stalls. */
-function ensureAssets(sb: Loose): void {
+/**
+ * Every referenced assetId must exist in the library, or the visuals stage stalls.
+ *
+ * The mint is a repair, and it is now a *loud* one (audit S3-d, plan item 3.2). What
+ * it papers over is the storyboard's dangling-`assetId` defect — the class
+ * `critiqueStoryboard` blocks on everywhere else — and it papers over it by inventing
+ * an entity from the id's own words: an element asking for `mitochondrion` gets an
+ * illustration prompted "mitochondrion", which is either exactly right or a
+ * confidently drawn guess at what the model meant, and nobody ever finds out which.
+ * At `log.debug` that decision was invisible in a four-minute render. So it says so,
+ * and where the caller is collecting problems it says so durably.
+ */
+function ensureAssets(sb: Loose, opts?: PlanOptions): void {
   const assets: Asset[] = Array.isArray(sb.assets) ? (sb.assets as Asset[]) : [];
   const known = new Set(assets.filter((a) => a && typeof a.id === 'string').map((a) => a.id));
   const builtin = new Set(ICONS.map((i) => i.slug));
@@ -366,13 +400,18 @@ function ensureAssets(sb: Loose): void {
       const id = el.assetId;
       if (typeof id !== 'string' || !id || known.has(id)) continue;
       known.add(id);
+      const kind = builtin.has(id) ? 'icon' : 'illustration';
       assets.push({
         id,
-        kind: builtin.has(id) ? 'icon' : 'illustration',
+        kind,
         prompt: id.replace(/[-_]+/g, ' '),
         source: builtin.has(id) ? 'builtin' : 'generated',
       });
-      log.debug(`added missing asset "${id}" referenced by an element`);
+      const note =
+        `the planner drew asset "${id}" without declaring it — minted as a ${kind} prompted ` +
+        `"${id.replace(/[-_]+/g, ' ')}", which is a guess at what it meant`;
+      log.warn(note);
+      noteProblem(opts, note);
     }
   }
   sb.assets = assets;

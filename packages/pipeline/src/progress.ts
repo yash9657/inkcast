@@ -26,7 +26,18 @@ import type { OnProgress, Progress } from '@inkcast/core';
  * storyboard the voice stage has already resolved. Running visuals first would
  * silently reintroduce the drift the cue mechanism exists to remove.
  */
-export const STAGES = ['ingest', 'lesson', 'storyboard', 'voice', 'visuals', 'render'] as const;
+export const STAGES = [
+  'ingest',
+  'lesson',
+  'storyboard',
+  'voice',
+  'visuals',
+  // The quality gate (plan 3.1). Between visuals and render because it needs the
+  // enriched board — resolved plots, typeset equations, real durations — and because
+  // the whole reason it is a stage of its own is that it runs *before* the encode.
+  'check',
+  'render',
+] as const;
 export type StageName = (typeof STAGES)[number];
 
 export const STAGE_WEIGHT: Record<StageName, number> = {
@@ -35,7 +46,11 @@ export const STAGE_WEIGHT: Record<StageName, number> = {
   storyboard: 5,
   voice: 22,
   visuals: 12,
-  render: 48,
+  // One percent, and that is not modesty: the gate is arithmetic over a board the
+  // pipeline already holds, and it finishes in the time the bar takes to redraw.
+  // Taken off `render`, so the weights still sum to 100.
+  check: 1,
+  render: 47,
 };
 
 export const STAGE_LABEL: Record<StageName, string> = {
@@ -44,6 +59,7 @@ export const STAGE_LABEL: Record<StageName, string> = {
   storyboard: 'building the board',
   voice: 'narrating',
   visuals: 'drawing',
+  check: 'checking the board',
   render: 'rendering video',
 };
 
@@ -54,6 +70,7 @@ export const STAGE_BLURB: Record<StageName, string> = {
   storyboard: 'turn the lesson into plots, drawn ink, regions and a camera tour',
   voice: 'synthesise narration, measure it, and resolve every cue to a real timestamp',
   visuals: 'resolve assets and every element into hand-drawn vector strokes',
+  check: 'assert the board is legible, uncrowded and internally consistent, into qc.json',
   render: 'capture frames in Chromium and mux with ffmpeg',
 };
 

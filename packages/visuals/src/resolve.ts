@@ -22,6 +22,7 @@ import {
   isFresh,
   logger,
   markFresh,
+  noteProblem,
   report,
   type Asset,
   type AssetRef,
@@ -248,6 +249,7 @@ export async function resolveVisuals(
       canvasHeight,
       provider,
       fontHref,
+      opts,
       ...((asset.fit === 'exact' || asset.kind === 'figure') && usedAt.has(asset.id)
         ? { at: usedAt.get(asset.id) as Box }
         : {}),
@@ -414,6 +416,8 @@ async function resolveAsset(args: {
   fontHref?: string;
   /** The box of an element using this asset. Only read for an `exact` fit. */
   at?: Box;
+  /** The stage's own options, for the `onProblem` channel (plan 3.4). */
+  opts?: ResolveVisualsOptions;
 }): Promise<AssetVisual> {
   const { asset, dir, rel, style, font } = args;
   const seed = asset.seed ?? seedFrom('asset', asset.id);
@@ -571,7 +575,9 @@ async function resolveAsset(args: {
         lane = 'illustration';
         raster = drawn.raster;
       } else {
-        log.warn(`illustration "${asset.id}" could not be generated — using the icon lane`);
+        const note = `illustration "${asset.id}" could not be generated — using the icon lane`;
+        log.warn(note);
+        noteProblem(args.opts, note);
       }
     }
   }
@@ -582,10 +588,11 @@ async function resolveAsset(args: {
   // arrows pointing into it. Only reachable with the raster caches cleared and no key —
   // the planner does not emit this element unless the picture was made and measured.
   if (!items && exact) {
-    log.warn(
+    const note =
       `the underlay "${asset.id}" could not be generated, so the beat's marks are drawn on ` +
-        'blank board — set FAL_KEY or REPLICATE_API_TOKEN, or re-run the lesson stage',
-    );
+      'blank board — set FAL_KEY or REPLICATE_API_TOKEN, or re-run the lesson stage';
+    log.warn(note);
+    noteProblem(args.opts, note);
     items = [];
   }
 
@@ -598,6 +605,20 @@ async function resolveAsset(args: {
       items = pathItems(found.paths);
       lane = 'icon';
       icon = { slug: found.slug, how: match ? match.how : found.how };
+      // A score-0 match is the matcher saying it has no idea (audit X-e, plan 3.4): the
+      // term matched no slug, no keyword, no lucide tag and nothing fuzzily, so what goes
+      // on the board is a help-circle standing in for a thing nobody named. The lane is
+      // recorded in the manifest, which is why this was easy to leave silent — but a
+      // manifest is not read after a render and a generic glyph in a teaching frame is
+      // not distinguishable from a deliberate one.
+      if (icon.how === 'fallback') {
+        const note =
+          `"${asset.id}" resolved to no icon at all — the board draws the generic ` +
+          `"${found.slug}" glyph in its place. Give the entity a lucide-shaped id, a ` +
+          'clearer prompt, or an image key so the illustration lane can draw it';
+        log.warn(note);
+        noteProblem(args.opts, note);
+      }
     }
   }
 

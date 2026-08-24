@@ -32,7 +32,7 @@
  * ink is*, not what the pen does to it. Roughening moves nothing by more than a stroke's
  * width and the board's own hand is not the thing under test.
  */
-import { DRAW_H, DRAW_W, logger } from '@inkcast/core';
+import { DRAW_H, DRAW_W, logger, noteSpend, type OnSpend } from '@inkcast/core';
 import { loadImages, loadUnderlay } from './stages.js';
 
 const log = logger('pipeline:draw-underlay');
@@ -53,6 +53,19 @@ export type DrawUnderlayHandle = {
   close(): Promise<void>;
 };
 
+export type DrawUnderlayOptions = {
+  /**
+   * Where a picture this lane really paid for is recorded (plan 3.5).
+   *
+   * Only a generation, never a cache hit — `illustrationRaster` says which it was, and a
+   * subject drawn for an earlier project is free. That distinction is the whole reason
+   * this is reported from inside the lane rather than counted from the manifest
+   * afterwards: the manifest cannot tell a picture that was made from a picture that was
+   * found.
+   */
+  onSpend?: OnSpend;
+};
+
 /** The board's paper, so the author's view is the colour the film is. */
 const PAPER = '#fcfbf9';
 
@@ -68,7 +81,7 @@ const PAPER = '#fcfbf9';
  * Everything is lazy and nothing is fatal. No key, no vectoriser, no Chromium, a provider
  * error: the caller gets `undefined` and the beat is drawn in marks alone.
  */
-export function openDrawUnderlay(dir: string): DrawUnderlayHandle {
+export function openDrawUnderlay(dir: string, opts: DrawUnderlayOptions = {}): DrawUnderlayHandle {
   type Browser = { newPage(o: unknown): Promise<Page>; close(): Promise<void> };
   type Page = {
     setContent(html: string): Promise<void>;
@@ -127,6 +140,9 @@ export function openDrawUnderlay(dir: string): DrawUnderlayHandle {
     if (!raster) {
       log.debug(`no image came back for the underlay "${prompt.slice(0, 60)}"`);
       return undefined;
+    }
+    if (!raster.cached) {
+      noteSpend(opts, { lane: 'underlay', provider: raster.provider ?? 'images', images: 1 });
     }
 
     // Measured from the same trace the board will draw from, so the box the marks are

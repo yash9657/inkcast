@@ -7,4 +7,5 @@ export * from './log.js';
 export * from './fontmetrics.js';
 export * from './palette.js';
 export * from './gates.js';
+export * from './qc.js';
 export * from './project.js';
