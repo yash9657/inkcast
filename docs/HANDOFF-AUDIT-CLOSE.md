@@ -1,7 +1,8 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 4
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 5
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
-after all of Phase 2 landed (`182a342`) and again after all of Phase 3 (`ae18d4b`).
+after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
+again 2026-08-24 after all of Phase 4 (`3566ac0`).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -10,7 +11,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, 2 and 3 are landed, tested, and committed:**
+**Phases 0, 1, 2, 3 and 4 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -83,17 +84,49 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   that Phase 3's gate found: see the trap list at the foot of this file. All four
   pinned hashes re-pinned, with the diff and the frames in
   `pinned-hashes.test.ts`'s header.
+- 2026-08-24 — **all of Phase 4** (`d18c67a`, `653bee8`, `ff4a712`, `3566ac0`): sync
+  is exact and drift is measured. The plan's progress block has the item-by-item
+  inventory; the shape is four things.
+  1. **The narration normaliser lives in `@inkcast/core`** (`speech.ts`, was
+     `voice/src/text.ts`) — the third instance of the 2.1/2.2 move, because
+     `Enter.cueWord` is an index into its token stream and the _planner_ writes it.
+     The tokeniser and the exact locator came with it; `voice/src/cue.ts` keeps
+     placement, `voice/src/index.ts` re-exports the same names. Its tests moved to
+     `core/test/speech.test.ts`.
+  2. **4.4**: `foldScripts` + `stripLatex`, running _before_ `stripMarkdown` (markdown
+     eats the underscores of `a_{1} + b_{2}`), plus Dirac notation and stage
+     directions in `SYMBOLS`. The audit's six probes are pinned as exact strings.
+     **This moved the voice cache key** — cached audio re-synthesises — and no
+     storyboard, so the pinned hashes did not move here.
+  3. **4.1 + 4.2**: `Enter.cueWord` end to end, written by `assignTiming`, read as a
+     lookup, verified against the cue phrase beside it (in `critiqueStoryboard` and
+     again in the voice stage). All four pinned hashes moved **purely additively** —
+     30/23/47/38 `"cueWord"` lines, zero other changed lines, which is also the
+     coverage proof. `COMPILER_VERSION` 3 → 4.
+  4. **4.3**: `core/src/drift.ts`, called from `cast.ts`; numbers to `pipeline.json`
+     (`drift`), findings to `qc.json` (`duration` blocking at `critiqueLesson`'s own
+     1.25×, `pace-calibration` advisory at ±10%).
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
 
-**Verified end to end, after Phase 3:** strict no-key casts of _both_ shipped lessons
-now render clean with every Phase 2 and Phase 3 gate live —
-`projects/qc33-longitude/` and `projects/qc33-gd/` both record `"gates": "strict"`,
-`qc.ok: true` and no problems. That is the first time longitude has been true (see
-below). Those project directories are disposable evidence, not fixtures; the older
+**Verified end to end, after Phase 4:** strict no-key casts of _both_ shipped lessons
+render clean with every Phase 2, 3 and 4 gate live — `projects/qc43-longitude/` and
+`projects/qc43-gd/` record `"gates": "strict"`, `qc.ok: true`, no problems, and a
+`drift` block. The Phase-3 pair (`projects/qc33-*`) said the same thing one phase
+earlier, and `projects/qc41-*` are the Phase-4.1 pair the cue-index numbers were read
+off. Those project directories are disposable evidence, not fixtures; the older
 `audit-2p*` ones describe the tree as it was.
+
+**The step-8 done-bar, measured on those casts:** 30/30 and 47/47 reveals placed "by
+authored word index" with no fallback, and `synccheck.mts` reports 0 strokes landing on
+the same frame as the one before — identical to the pre-4.1 baseline, because an index
+resolves to the word the exact search was already finding. What changed is that
+placement no longer depends on a tolerant search finding it. The way to re-check this
+is not the render log (its info lines are suppressed at default level): call `narrate()`
+over a cast project's cached audio and read the `placed N elements … M/N by authored
+word index` line, which is what the numbers above came from.
 
 **The corpus is not clean, and that is the point.** Running the gate over all 27 boards
 in `projects/` (in `degrade`, so it reports rather than stops) on 2026-08-23:
@@ -107,8 +140,12 @@ in `projects/` (in `degrade`, so it reports rather than stops) on 2026-08-23:
 
 Every one of those is a board compiled by an older tree, and the ink-floor set is
 exactly the document-route slideshow plus the four-scene smoke tests — the class that
-floor was drawn to name. Nothing there needs fixing before Phase 4; it is listed so
-that a future session does not read a red corpus as a regression it caused.
+floor was drawn to name. Nothing there needs fixing before Phase 5; it is listed so
+that a future session does not read a red corpus as a regression it caused. **Phase 4
+adds two more ways an old project can read red, both benign**: a storyboard compiled
+before `enter.cueWord` reports its reveals as phrase-searched (recompile it — the
+`problems[]` line says so), and `duration`/`pace-calibration` now appear in every fresh
+`qc.json`.
 
 ## What Phase 0/1 built (the parts Phase 2+ will touch)
 
@@ -123,8 +160,8 @@ that a future session does not read a red corpus as a regression it caused.
   so degrade stays an escape and the message format stays uniform.
 - **The harness.** `packages/pipeline/src/auditcheck.mts`
   (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
-  re-checkable facts, currently 23, all green. **The plan (item 0.3) says each Phase
-  1–2 item adds its line here as it closes.** Every Phase 1–2 item's lines are in.
+  re-checkable facts, currently **50**, all green. **The plan (item 0.3) says each item
+  adds its line here as it closes.** Every Phase 1–4 item's lines are in.
 - **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
   (real cmap) in `packages/core/src/fontmetrics.ts` (moved there in 2.1); wired at the top of
   `resolveVisuals`. Tests in `packages/visuals/test/glyphgate.test.ts`.
@@ -163,21 +200,15 @@ that a future session does not read a red corpus as a regression it caused.
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: Phases 4 → 5 → 6 → 7 → 8
+## What remains to close the audit: Phases 5 → 6 → 7 → 8
 
-**The audit is not closed.** Phases 0–3 are landed; Phases 4–8 of
+**The audit is not closed.** Phases 0–4 are landed; Phases 5–8 of
 `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on scope,
 done-bars, and the coverage table that maps every non-PASS audit finding to exactly
-one item or waiver. Read the plan's Phase 4–8 sections in full before starting; the
+one item or waiver. Read the plan's Phase 5–8 sections in full before starting; the
 summary below exists only so a clean-context session knows the shape of the road,
 and the bullets after it are session-found context the plan cannot know.
 
-- **Phase 4 — sync exactness and drift** (~4 days, $0). 4.1 `entersAtWord` token
-  indices end to end (fuzzy cue search survives one release, then dies); 4.2 a
-  missed anchor is a problem, not a log line; 4.3 drift measured every run
-  (narration duration vs budget, delivered wps vs `DELIVERED_WPS`); 4.4 the
-  normalizer's known gaps (sub/superscript folding, bra-ket, LaTeX残余, stage
-  directions) as pinned voice tests.
 - **Phase 5 — grounding, pedagogy, IR hygiene** (~1 week). 5.1 bare topics record
   `grounding: 'parametric'` (honesty ships first; retrieval is a decision doc);
   5.2 `LessonStep.sourceRef` verified against the source doc; 5.3 the pedagogy
@@ -200,11 +231,10 @@ and the bullets after it are session-found context the plan cannot know.
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: 4 and 5 can run in parallel now that 3 is in; 6.2+ any time
-after 6.1; 7 after everything; 8 is the exit. API cost is negligible until 8.2 (3.3's
+Ordering per the plan: 5 is next and unblocked; 6.2+ any time after 6.1; 7 after everything; 8 is the exit. API cost is negligible until 8.2 (3.3's
 Tier 2 is keyed and cached, ~a few cents a film, and skips itself with no key).
 
-Session-found context for Phase 4 and after (so the next session does not re-derive it):
+Session-found context for Phase 5 and after (so the next session does not re-derive it):
 
 - **The gate stage is where new checks go.** `check()` in `render/src/check.ts`
   assembles `QcCheck`s; adding one is a `qcCheck(id, findings, {severity})` in that
@@ -230,6 +260,25 @@ Session-found context for Phase 4 and after (so the next session does not re-der
   like `MIN_GLYPH_PX` and the fill floor before them. The Phase 8 re-audit must treat
   all four as named recalibrations. The measurement scripts were throwaway; the tables
   and the reasoning are in the constants' own comments.
+- **`DELIVERED_WPS = 2.2` is now known not to fit both shipped films** (4.3, measured):
+  longitude delivers 2.23 w/s, gradient-descent 2.50. Every run says so — the
+  `pace-calibration` advisory in `qc.json` — and nothing was changed, because a new
+  number moves `adaptLesson`'s trimming and therefore the pinned hashes. Whoever picks
+  this up should decide between a re-measured constant, a per-cadence rate (the two
+  films differ in how many beats are `punchy`), and accepting the spread, and should
+  argue it in `presets.ts` beside the constant. It is a Phase 8 conversation at the
+  latest: the re-audit will read the advisory.
+- **The normaliser is `core/src/speech.ts` now, not `voice/src/text.ts`** (4.1), and it
+  is the tokeniser of record: `narrationTokens` is what `enter.cueWord` indexes into.
+  Anything that changes what the normaliser _says_ therefore changes what the indices
+  _mean_ — so a normaliser change and a compiler change must land in that order, or the
+  pinned hashes move twice. That is why 4.4 landed before 4.1.
+- **A cue index is verified, never trusted.** Two places check it (`critiqueStoryboard`
+  before any audio; `resolveSceneCues` against the measured phrases), and both compare
+  the word at the index against the cue phrase's own first word. If a future item
+  deletes `enter.cue` — the plan's 4.1 says the phrase search "then dies" — delete the
+  _search_, not the phrase: the phrase is the only thing that can detect a stale index,
+  and without it a wrong number is undetectable by construction.
 
 ## How to verify any phase as it lands
 
@@ -274,3 +323,29 @@ Earned in the Phase 3 session, and the more expensive lesson of the two:
   gone: two reviewed films measured 0.00% ink. It reads the fade schedule now. The
   general form — a measurement taken at the wrong instant is not a weak measurement, it
   is a confident wrong one — is worth carrying into 4.3's drift numbers.
+
+Earned in the Phase 4 session:
+
+- **Order a phase by what moves the pinned hashes, not by item number.** 4.4 changes
+  what the normaliser says; 4.1 writes indices counted _through_ the normaliser. Done
+  in plan order the four hashes would have moved twice, and the second diff would have
+  been unreadable against the first. Ask of every phase: which item changes the input
+  of which other item?
+- **A purely additive storyboard diff is its own coverage proof, and cheaper than
+  frames.** 4.1's re-pin was justified by compiling each board on both sides and
+  counting: 30/23/47/38 added `"cueWord"` lines and zero other changed lines — which
+  simultaneously says "nothing regressed" and "every cue got an index", because those
+  counts are the number of cues in each board. Rendering frames would have shown
+  nothing, since `enter.at` did not move. The header of `pinned-hashes.test.ts` already
+  allowed for this (the 2026-08-22 re-pin); it is worth reaching for deliberately.
+- **The default log level hides the line you are about to quote.** The voice stage's
+  "N/N by authored word index" is `log.info`, and the CLI prints warnings only, so the
+  end-to-end numbers came from calling `narrate()` over the cast project's cached audio
+  afterwards. Cheap (every clip is a cache hit) and repeatable — but if you plan to
+  claim a number from a stage's own log, check that the log level shows it before
+  spending the render.
+- **A new measurement's first job is to be believed, so check it against a number
+  somebody already wrote down.** 4.3's first real run re-derived the very measurement
+  `DELIVERED_WPS` was calibrated from (272 words over ~122s of longitude) to within
+  1.2%. That agreement is what makes its _disagreement_ on gradient-descent (+14%)
+  worth acting on rather than debugging.

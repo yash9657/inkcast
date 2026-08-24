@@ -195,6 +195,70 @@ re-audit in Phase 8 is the exit.
 > and the rendered frames in `pinned-hashes.test.ts`'s header, and both shipped lessons
 > now cast strict-clean end to end (`projects/qc33-longitude`, `projects/qc33-gd`).
 > Next: Phase 4.
+>
+> **Progress (2026-08-24): ALL OF PHASE 4 is landed** (`d18c67a`, `653bee8`, `ff4a712`,
+> `3566ac0`). 1023 tests green, auditcheck 50/50, lint and typecheck clean, both shipped
+> lessons re-cast strict-clean (`projects/qc43-longitude`, `projects/qc43-gd`).
+>
+> The order was chosen so the four pinned hashes move **once**: 4.4 changes what the
+> normaliser says, which changes the tokens an index counts, so it had to land before
+> 4.1 wrote any indices.
+>
+> - **The normaliser moved into core first** (`core/src/speech.ts`, was
+>   `voice/src/text.ts`), the third instance of the 2.1/2.2 move and for the same
+>   reason: `Enter.cueWord` is an index into that module's token stream and the
+>   _planner_ writes it, so both ends must count with one function. The tokeniser
+>   (`matchTokens`, `cueTokens`) and the exact locator moved out of `voice/src/cue.ts`
+>   to sit beside it; `voice` re-exports the same names, and placement — the part that
+>   needs measurements — stayed in `cue.ts`. No behaviour moved.
+> - **4.4 the normaliser's named gaps.** `foldScripts` (sub/superscripts) and
+>   `stripLatex` run _before_ `stripMarkdown`, because markdown reads a pair of
+>   underscores as italics and would silently delete the subscripts of `a_{1} + b_{2}`.
+>   `H₂O` → "aitch two oh" (attached after a capital, so the initialism speller reads
+>   the formula; `x₁` → "x one", an index, becomes its own word); ² and ³ deliberately
+>   stay with `SYMBOLS`, which says "squared" and "cubed". `\frac{1}{2} of $x^2$` → "One
+>   half of x squared", with `$…$` counting as maths only when what is between the
+>   dollars contains LaTeX — so "It costs $5 to $10" stays money. Dirac notation ahead
+>   of the `|`-as-pause rule (`α|0⟩` → "Alpha ket zero"); bracketed stage directions
+>   dropped. The audit's own six probes are the test, pinned as exact strings.
+> - **4.1 `entersAtWord`, shipped as `Enter.cueWord`.** Written by `assignTiming` — the
+>   one place holding both the narration and the cue — and read as a lookup. Three
+>   decisions the plan's letter did not cover: the cue phrase **stays**, because it is
+>   what makes a stale index detectable (checked in `critiqueStoryboard` before any
+>   audio, and again in the voice stage against the measured phrases); authoring is
+>   **exact-match only** (`cueWordIndex`), since an index from a 0.6 fuzzy window would
+>   be a guess wearing the costume of a fact; and a broken index is **gated but not
+>   fatal to the frame** — strict stops, degrade records it, and either way the reveal
+>   is then placed by search, because a film that refuses to render because a cue moved
+>   one word is worse than one that places it and says so. `set-narration` re-takes the
+>   indices it invalidates. **All four pinned hashes moved, purely additively**:
+>   30/23/47/38 added `"cueWord"` lines and zero other changed lines, which is also the
+>   coverage proof (every cue in every board got an index). `COMPILER_VERSION` 3 → 4.
+> - **4.2 falls out of 4.1.** A cue with no index is an old storyboard: placed the old
+>   way, counted, and carried out of the stage into `problems[]`. The count is what
+>   decides when the search can be deleted; a log line cannot be counted after the run.
+> - **4.3 drift measured every run.** `core/src/drift.ts`, called from `cast.ts` (which
+>   is where the budget is known, and which can compute it from measurements on disk so
+>   a cached voice stage still reports length). Runtime vs `maxSeconds` at
+>   `critiqueLesson`'s own 1.25× — shared, not re-chosen — blocking; delivered w/s vs
+>   the rate the run planned with, ±10%, advisory forever. Numbers in `pipeline.json`
+>   (`drift`), findings in `qc.json` (`duration`, `pace-calibration`).
+>
+> **The step-8 done-bar holds, measured:** 30/30 and 47/47 reveals placed "by authored
+> word index", zero fallbacks, and `synccheck.mts` still reports 0 strokes landing on
+> the same frame as the one before — identical to the pre-change baseline, because the
+> index resolves to the word the exact search was already finding. What changed is that
+> placement no longer _depends_ on a tolerant search finding it.
+>
+> **Found by 4.3 on its first outing, and deliberately not fixed here.** Longitude
+> delivers 2.23 w/s, confirming `DELIVERED_WPS = 2.2` to 1.2% (the constant was measured
+> from 272 words over 122.5s of this very film; it now re-measures at 272 over 122.1).
+> Gradient-descent delivers **2.50 w/s, +14%**, and raises the advisory. One constant
+> does not describe both shipped films — they disagree by 12% — so the estimate is
+> systematically wrong for one of them, and choosing what to do about it (a new number, a
+> per-cadence rate, or accepting the spread) is a `presets.ts` decision with pinned-hash
+> consequences, not a number to split the difference on inside 4.3. It is now impossible
+> to forget: every run says so. Next: Phase 5.
 
 **Two rules that shape everything here:**
 
