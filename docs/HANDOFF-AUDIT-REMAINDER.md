@@ -4,6 +4,9 @@ Written 2026-08-24, branch `visuals-morph-density`, immediately after item 6.1 l
 updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`), then 6.4
 (the raster trust gate, `e9487e7`), then 6.5 (the figure cache key, `b9cec6d`) and then
 7.2 (the inspectable plan) landed and their sections were deleted from this file.
+Updated again the same day, after 7.2, with **an ordered plan** ("The order to knock these
+out", below) and with gating findings 3 and 4 promoted into **item 0**, a real work item
+with verified anchors.
 **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
@@ -23,18 +26,41 @@ the newest, and the corpus's only board with a listing on it). Five items remain
 7.1, 7.3, 8.1, 8.2 — and none of 6.3, 7.1 and 7.3 blocks another, so they can be reordered
 freely by whoever picks them up. Phase 8 needs all of them plus a funded API key.
 
-**Which to pick, if nobody has said.** 6.3's own rule is that the next lane is chosen from
-6.1's findings rather than from taste, and **there are still no findings** — the guard has
-fired on nothing in the corpus, so no lane has earned itself. That makes 6.3 the wrong item
-to start cold, and it is now the only item left in Phase 6. **7.3 is the natural next
-one** — its dark-surface pack was sequenced after 6.4, which has landed — but read its
-section before believing that unblocks it: 6.4 gave a dark pack a way to _detect_ an opaque
-white ground, not a way to remove it, and a slate board needs the removal. 7.1 is the big
-one and wants a session of its own; it now has a new instrument, since `--emit-plan` and
-`planhash --timing` are how a partial re-encode's segment boundaries and schedule can be
-inspected without rendering anything. The four gating findings below are unowned and each
-is an hour or two; items 3 and 4 both make cost reports wrong on runs that are now the
-common case.
+## The order to knock these out
+
+Five plan items and three loose findings remain. This is the order they are best done in
+and the reason for each; only two of the reasons are real dependencies, and they say so.
+
+**1. Item 0 below — "the run reports what it did, not what it intended"** (gating findings
+3 and 4, promoted to a work item with anchors). Half a day, no key needed, and it is first
+because every cost line and every `providers lesson …` line printed between now and 8.1 is
+wrong without it — on runs that are now the common case. It is also the smallest possible
+warm-up in the two files the next three items all touch.
+
+**2. Gating finding 2 — decide `DELIVERED_WPS`.** A measurement and an argument, not a
+feature. First real dependency: **do it before 7.1**. A new pacing constant moves
+`adaptLesson`'s trimming and therefore the four pinned hashes, and 7.1's done-bar is a
+_byte-identical_ comparison — settling the hashes first keeps "the splice is exact" and
+"the film got shorter" from being argued in the same diff.
+
+**3. 7.1 — partial re-encode.** The only **FAIL** left in the audit's table (S10-b); every
+other open item is a PARTIAL. It is the biggest item in the plan and wants a session of its
+own, and its first piece is a design decision (segments are worker slices today, not
+scenes) rather than typing. 7.2 just handed it two instruments — see that section.
+
+**4. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
+believing 6.4 unblocked it. The honest reading is that a dark pack needs the real-alpha
+work S5.6 deferred, so budget for that or scope the pack to light surfaces and say which
+in writing — either is defensible, silence is not.
+
+**5. 6.3 — circuits, chemistry, geography.** Last on purpose. Its own rule is that the next
+lane is chosen from 6.1's findings, and the guard has still fired on nothing, so the honest
+output of this item today is a **written decision plus the two lane docs**, not a lane. Do
+it once the corpus has had a few more films through it — which items 1–4 will produce.
+
+**6. 8.1, then 8.2.** 8.1 needs 6.3–7.3 landed or waived in writing and re-reads everything
+below. 8.2 additionally needs ~$3 of credit and a small harness that does not exist yet
+(see its section). Neither is startable today.
 
 ## How to verify anything you land
 
@@ -84,7 +110,8 @@ done-bar the plan's wording did not have.
    credit should spend one keyed cast reading `qc.json`'s `frame-vision` findings against
    the frames by eye, because that false-positive count is what decides whether the check
    is promoted from advisory to blocking (plan 3.3).
-2. **`DELIVERED_WPS = 2.2` fits one shipped film and not the other** — longitude delivers
+2. **`DELIVERED_WPS = 2.2` fits one shipped film and not the other** — _second in the
+   order above, and before 7.1._ — longitude delivers
    2.23 w/s, gradient-descent 2.50 (+14%). Every run says so through the
    `pace-calibration` advisory. Nothing has been changed because a new number moves
    `adaptLesson`'s trimming and therefore the four pinned hashes. Somebody has to choose
@@ -92,7 +119,8 @@ done-bar the plan's wording did not have.
    beats are `punchy`) and accepting the spread, and argue it in `presets.ts` beside the
    constant. **The re-audit will read that advisory**, so it is an 8.1 conversation at the
    latest.
-3. **`deriveLesson` lies about who wrote the lesson.** On a run whose key has no credit
+3. **`deriveLesson` lies about who wrote the lesson.** _(Owned by item 0 below, which
+   carries the verified anchors and the shape of the fix.)_ On a run whose key has no credit
    the CLI reports `providers lesson anthropic` and a ~$0.04 lesson cost while the
    heuristic author actually wrote it (`projects/qc53-doc`). `resolveLessonAdapter`
    answers "which adapter _would_ run" and `teachLesson` falls back inside the stage, so
@@ -100,7 +128,8 @@ done-bar the plan's wording did not have.
    flag closed for a cached lesson, and the same fix: the stage reports the author it
    turned out to be. Small, unowned, and it makes every cost report on a degraded run
    wrong — which is now the common case.
-4. **The image cost line is billed from intent, not from what happened.** `generatedAssets`
+4. **The image cost line is billed from intent, not from what happened.** _(Owned by item
+   0 below.)_ `generatedAssets`
    at `cast.ts:989` counts every asset whose `source` is `generated`, whether or not a
    provider was called, so a run served entirely from the machine cache still reports
    `visuals fal $0.0120` (measured on `projects/qc64-hashmap`: four "generated" assets, zero
@@ -135,6 +164,70 @@ done-bar the plan's wording did not have.
 - **`--degrade` exists so a demo is never blocked while you fix the real thing.**
 
 ---
+
+# Item 0 — the run reports what it did, not what it intended
+
+**Not a numbered plan item.** It is gating findings 3 and 4 promoted to work, because they
+are one bug wearing two hats and the rails to fix them both already exist (plan 3.4's
+`onProblem`, plan 3.5's `onSpend`; audit X-c, X-e). 8.1 will read a cost report, so this is
+an 8.1 conversation at the latest — better to have it now, when it is half a day.
+
+**The bar (this file's, argued rather than quoted).** Every line the run prints about what
+it spent and who wrote the lesson is built from what it _observed_. _Done when:_ a
+creditless cast of a shipped lesson reports `lesson heuristic` and a `$0` lesson line, and a
+cast whose rasters all came from the machine cache reports no image cost while still drawing
+the same film. Both are reproducible today, for free — that is the point.
+
+**Where the code is** (line numbers verified 2026-08-24, after 7.2 — they moved twice
+already, so re-grep rather than trusting them):
+
+- `author = adapter` at `cast.ts:615`, taken from `resolveLessonAdapter`, which answers
+  "which adapter _would_ run".
+- The fallback that makes it a lie is inside the stage: `planner/src/lesson.ts:86-90` —
+  `anthropicLesson` returns `undefined` on a 402 and `deriveLesson` writes the lesson
+  instead. `teachLesson` returns a bare `Lesson`, so nothing upstream can learn what
+  happened.
+- `generatedAssets` at `cast.ts:1008` counts assets whose `source` is `generated` and that
+  are new this run; `cost.ts:235-240` turns that count into the image line.
+- **The visuals package reports no spend at all** — `grep -rn onSpend packages/visuals/src`
+  is empty, and `cast.ts:988` passes `onProblem` but not `onSpend`. That is _why_ the image
+  line is built from intent: there is currently nothing else to build it from.
+- The rail exists and is already used one lane over: `draw-underlay.ts` notes
+  `{ lane: 'underlay', images: 1 }` only when `!raster.cached`, and `cost.ts:195` already
+  groups `ModelSpend`s by lane and provider.
+- 6.4 left `IllustrationRaster.from` reading `project | cache | provider` on every resolve,
+  so the lane already knows which tier answered. This is a counting change, not an
+  investigation.
+
+**The shape of both fixes is one sentence: the stage reports what it turned out to do.**
+
+- _The lesson._ `teachLesson` reports the author it actually used (an `onAuthor`-shaped
+  callback beside `onProblem`/`onSpend` keeps the return type alone and matches the idiom;
+  returning `{ lesson, author }` is the other defensible choice and costs every caller).
+  **Then record it** — and this is the half that is easy to miss: neither `lesson.json` nor
+  `pipeline.json`'s `lesson` block (`cast.ts:1246`) carries an author, so a _cached_ lesson
+  cannot answer the question at all. `state.lesson` is inherited on a cached run
+  (`state.ts:266`), so recording the author there is what makes the second run as honest as
+  the first. 3.5's `lessonAuthored` flag is the precedent for the cost half.
+- _The images._ Thread `onSpend` into `resolveVisuals`, report one image per real provider
+  call (`cached === false`, or `from === 'provider'` for the finer story), and let `cost.ts`
+  group them. `generatedAssets` then stops being a cost input.
+
+**Traps.**
+
+- **Do not double-bill the underlay.** It is generated in the _lesson_ stage and reappears
+  in the visuals stage as a project-cache hit, so a spend keyed on `cached === false` counts
+  it exactly once — verify that on a keyed run rather than assuming it.
+- **A cached stage must not re-report a spend it did not make this run.** That is the whole
+  content of the phantom-cost bug 3.5 closed; the same trap is one line away here.
+- **Fixing the author must not turn a supplied lesson into a heuristic one.** `supplied` and
+  `none` are authors too, and `costProviders` overrides `providers.planner` for `supplied`
+  (`cast.ts:1154`). The CLI prints this on the `providers` line, so a regression here is
+  visible in the summary of every run.
+- **The creditless path is the one that is wrong, so the bug is free to reproduce**
+  (`projects/qc53-doc`); the keyed path — "anthropic really did write it" — stays untested
+  until there is credit, and the commit should say so rather than implying both were
+  exercised.
 
 # Phase 6 — what is left of topic coverage (6.3, and only 6.3)
 
@@ -190,7 +283,7 @@ those two goals pull against each other on a film with eight uneven scenes, and 
 trade is the actual design work of this item.
 
 The rest of the machinery is in place: `openSegmentEncoder`, `writeConcatList` and
-`concatAndMux` in `render/src/ffmpeg.ts`, the segment loop at `render.ts:236`, and
+`concatAndMux` in `render/src/ffmpeg.ts`, the segment loop at `render.ts:237`, and
 `keepSegments` (`types.ts:253`) already exists as a debugging flag — the plan wants that
 behaviour on failure, which is `render.ts:276`, where `segDir` is currently removed
 unconditionally unless the flag is set.
@@ -228,7 +321,7 @@ colour packs (chalk on dark slate) are this item's decision and not a second tab
 Per-style _personality_ (stroke, roughness, face) lives in `visuals/src/style.ts`; the
 renderer keeps pen personality in `render/palette.ts` and re-exports the colours. The
 union to collapse is `z.enum(['marker', 'pencil', 'chalk', 'ink'])` at
-`core/src/storyboard.ts:645`.
+`core/src/storyboard.ts:688`.
 
 **Trap, and it is a sequencing one — now satisfied, but read it before you rely on that.**
 A dark-surface pack is where every raster's opaque white ground becomes visible: the S5.6
@@ -298,7 +391,7 @@ returns 402.
 ## If you are picking this up cold
 
 Read in this order: `docs/PLAN-AUDIT-CLOSE.md` (the authority — its progress block is
-current through 6.4, and the coverage table plus 8.1 are the exit), then
+current through 7.2, and the coverage table plus 8.1 are the exit), then
 `docs/HANDOFF-AUDIT-CLOSE.md` (what landed, the argued deviations, and the traps earned
 per phase — its trap list is worth reading even for items it does not cover), then this
 file for the item you are about to start. `docs/AUDIT-FINDINGS.md` is the evidence base
@@ -306,4 +399,6 @@ behind all three, and `docs/PLAN-RETRIEVAL.md` is item 5.1(b)'s written deferral
 
 Keep the plan's progress block and `HANDOFF-AUDIT-CLOSE.md` current as items land, and
 **delete each item's section from this file when it does** — a remainder file that still
-lists finished work is how a handoff stops being trusted.
+lists finished work is how a handoff stops being trusted. That applies to item 0 and to the
+gating findings as much as to the numbered items: a finding that has been fixed comes out of
+the list, and the ordered plan above gets re-cut rather than annotated.
