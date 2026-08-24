@@ -13,6 +13,7 @@
  * the core quality differentiator — learners keep their spatial context.
  */
 import { z } from 'zod';
+import { cueTokens, narrationTokens } from './speech.js';
 
 /** Canvas units. The camera is what maps these to output pixels. */
 // `.finite()` everywhere and positive extents (plan 2.3): a NaN coordinate or a
@@ -142,6 +143,30 @@ export const Enter = z.object({
    * found, the voice stage warns and falls back to `at`.
    */
   cue: z.string().optional(),
+  /**
+   * Which word of the spoken narration `cue` starts on — PIPELINE.md step 8's
+   * `entersAtWord`, shipped as plan item 4.1.
+   *
+   * An index into `narrationTokens(scene.narration)`: the scene's narration
+   * normalised as it will be spoken, then tokenised (`core/src/speech.ts`, the one
+   * tokeniser both ends of this contract count with). Written by the compiler,
+   * which has the narration in front of it, and read by the voice stage, which has
+   * the measured phrases.
+   *
+   * The docs argued for this shape years before it existed and the argument holds:
+   * "a phrase has to be found again by the aligner and can fail to match or match
+   * twice; an index cannot". The search it replaces was tolerant by necessity —
+   * exact, then a 50% prefix, then an in-order fuzzy window at `MIN_CUE_SCORE`
+   * 0.6 — and a tolerant search on a phrase that occurs twice will silently anchor
+   * a reveal to the wrong occurrence, with "matched loosely" as the only trace.
+   *
+   * `cue` stays beside it, and not as decoration: it is what makes a stale index
+   * *detectable*. The voice stage checks that the word at this index is still the
+   * word the cue starts with, so narration edited without recompiling is named
+   * rather than silently mis-anchored. Absent means an older storyboard, which the
+   * phrase search still resolves for one release.
+   */
+  cueWord: z.number().int().min(0).optional(),
   /** Seconds spent animating in. The renderer clamps this to fit the scene. */
   duration: z.number().positive().default(0.8),
   style: z.enum(['draw', 'write', 'fade', 'pop', 'grow']).default('draw'),
@@ -815,6 +840,28 @@ export function critiqueStoryboard(sb: Storyboard): string[] {
           problems.push(
             `${at} is cued to "${el.enter.cue}", which is not in its scene's narration — ` +
               'the cue cannot be placed on a word and the reveal falls back to a guess',
+          );
+        }
+      }
+      // A cue index that no longer names its own cue's first word. Caught here
+      // because here is the cheapest place it can be: the alternative is finding
+      // out from the voice stage, a minute of synthesis later, on a run that has
+      // already spent money. The usual cause is narration edited without
+      // recompiling — `set-narration` re-derives for exactly this reason.
+      if (el.enter.cueWord !== undefined) {
+        const words = narrationTokens(scene.narration);
+        const first = cueTokens(el.enter.cue ?? '')[0];
+        const found = words[el.enter.cueWord];
+        if (found === undefined) {
+          problems.push(
+            `${at} is cued at word ${el.enter.cueWord}, but its narration has only ` +
+              `${words.length} spoken word${words.length === 1 ? '' : 's'} — the index and the ` +
+              'narration were written by different versions of this scene',
+          );
+        } else if (first !== undefined && found !== first) {
+          problems.push(
+            `${at} is cued at word ${el.enter.cueWord}, which is "${found}", but its cue ` +
+              `"${el.enter.cue}" starts on "${first}" — the narration changed after it was compiled`,
           );
         }
       }

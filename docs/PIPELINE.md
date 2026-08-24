@@ -282,6 +282,8 @@ type BeatVisual = {
      * A phrase has to be found again by the aligner and can fail to match or match
      * twice; an index cannot. The aligner maps index -> timestamp, so the contract
      * between planning and timing carries no ambiguity to resolve later.
+     *
+     * Shipped as `Enter.cueWord` — see step 8 in "Order of work".
      */
     entersAtWord: number;
     role: 'subject' | 'annotation' | 'label';
@@ -782,6 +784,33 @@ of the _narration_, most of which is never written down.
 
 **8. `entersAtWord`.** Replace phrase cues with word indices end to end. _Done when:_
 every element resolves to a timestamp with no fallback warnings in the render log.
+
+**Shipped** (2026-08-24, plan item 4.1), as `Enter.cueWord` — the field is nested under
+`enter` alongside the cue it indexes, so it reads as "enters at word", and it is an index
+into `narrationTokens(scene.narration)`: the narration normalised as it will be spoken,
+then tokenised. That module (`core/src/speech.ts`) moved out of the voice stage into core
+to make this possible, because the argument above only holds if both ends count the same
+words — the compiler writing the index and the voice stage reading it.
+
+Three details the plan did not anticipate, each earned:
+
+- **The cue phrase stays.** It is what makes a stale index _detectable_: the voice stage
+  checks that the word at the index is still the word the cue starts with, so narration
+  edited without recompiling is named rather than silently mis-anchored. That check is also
+  in `critiqueStoryboard`, which catches it before a minute of synthesis is spent.
+- **Authoring is exact-match only.** The voice stage's search has tolerances (a 50% prefix,
+  a 0.6 fuzzy window) because it is handed a phrase and has to make the best of it; the
+  compiler is handed the narration and can simply pick a phrase that occurs in it. An index
+  taken from a fuzzy window would be a guess wearing the costume of a fact.
+- **A wrong index does not stop a render on its own.** It is gated (`strict` stops,
+  `degrade` records it in `problems[]`) and then placed by search anyway, because a film
+  that refuses to render because a cue moved by one word is worse than one that places it
+  and says so.
+
+The done-bar holds: both shipped lessons compile with an index on every cue (30/23/47/38,
+which is every cue in each board), and a strict cast reports every reveal placed by
+authored word index with no fallback. The phrase search survives one release for
+storyboards on disk that predate the field, reporting how many reveals it placed.
 
 **9. Symbol libraries and process flow.** `symbols/physics`, `symbols/circuit`,
 node-and-edge auto-layout revealed in traversal order.

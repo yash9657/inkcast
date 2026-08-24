@@ -621,6 +621,8 @@ export async function narrate(
   /** The local aligner's paired fractions, one per scene it ran on. */
   const alignFractions: number[] = [];
   let unresolvedCues = 0;
+  /** Cues placed by the legacy phrase search because they carry no index (4.1/4.2). */
+  let searchedCues = 0;
   let spokenWords = 0;
   let spokenSeconds = 0;
   /**
@@ -798,6 +800,7 @@ export async function narrate(
           gateProblems.length = 0;
           alignFractions.length = 0;
           unresolvedCues = 0;
+          searchedCues = 0;
           spokenWords = 0;
           spokenSeconds = 0;
           spoken.clear();
@@ -882,13 +885,33 @@ export async function narrate(
         }
       }
 
-      const { resolved, warnings, dominantMisses } = resolveSceneCues(scene, {
-        phrases: timing.phrases,
-        narrationSec: timing.narrationSec,
-        words: timing.words,
-        sceneLabel: `${i + 1}:${scene.id}`,
-      });
+      const { resolved, warnings, dominantMisses, searched, brokenIndices } = resolveSceneCues(
+        scene,
+        {
+          phrases: timing.phrases,
+          narrationSec: timing.narrationSec,
+          words: timing.words,
+          sceneLabel: `${i + 1}:${scene.id}`,
+        },
+      );
       for (const warning of warnings) log.warn(warning);
+      // An authored cue index that does not name its own cue's first word (plan
+      // item 4.1). Not a degradation — the compiler writes the index against the
+      // narration in the same pass, so the only ways to get here are narration
+      // edited without recompiling and two tokenisers disagreeing, and both are
+      // bugs. Strict stops; degrade places the reveal by search and keeps the
+      // reason where `pipeline.json` will show it.
+      for (const broken of brokenIndices) {
+        gateProblems.push(broken);
+        log.warn(broken);
+        gate(opts.gates, broken, () => {});
+      }
+      // Cues with no index at all: a storyboard compiled before 4.1. The film is
+      // fine — this is the search that has always placed them — but it is recorded
+      // rather than logged (plan item 4.2) so "how many reveals in this film were
+      // anchored by a search" is answerable after the run, which is what decides
+      // when the fallback can be deleted.
+      searchedCues += searched.length;
       // A missed cue on the beat's MAIN picture is the D5 defect, not a nuance:
       // the dominant visual keeps an authored fallback time while the narration
       // names it somewhere else. Strict stops here; degrade records it where
@@ -966,6 +989,20 @@ export async function narrate(
   // discarded low-match alignments. Under strict none of these are reachable
   // (the gate threw); under degrade they are exactly what makes it honest.
   problems.push(...gateProblems);
+  // The one-release fallback, said out loud (plan items 4.1 and 4.2). A cue with no
+  // index was placed by the phrase search: exact, then a 50% prefix, then an
+  // in-order fuzzy window — tolerances that can anchor a reveal to the second
+  // occurrence of a phrase and only ever said "matched loosely" about it. The film
+  // is not broken; the storyboard is old, and recompiling it is the fix. Recorded
+  // rather than logged because the count is what decides when the search goes.
+  if (searchedCues) {
+    problems.push(
+      `${searchedCues} reveal${searchedCues === 1 ? ' was' : 's were'} anchored by searching for ` +
+        `their cue phrase instead of by word index — this storyboard was compiled before ` +
+        `enter.cueWord existed. Recompile it (cast --force, or delete storyboard.json) for ` +
+        `word-exact placement`,
+    );
+  }
   // Said separately from the fallback lines above because it is a different fact, and
   // the one the person watching is owed: not "a provider failed" but "this film is
   // narrated locally, all of it, and you were not charged". The result UI shows this
@@ -999,6 +1036,9 @@ export async function narrate(
   const cued = cueLog.length;
   if (cued) {
     const exact = cueLog.filter((c) => c.source === 'words').length;
+    // How many landed on a word the compiler named, rather than on a word this
+    // stage went looking for. The step-8 done-bar is this number being all of them.
+    const indexed = cueLog.filter((c) => c.via === 'index').length;
     // The adjective is earned, not asserted: when the local aligner provided the
     // word timings, say how much of the text it actually matched. Provider-native
     // timings (no fraction recorded) are exact by construction.
@@ -1013,7 +1053,8 @@ export async function narrate(
                 ? ''
                 : `, alignment matched ${Math.round(meanFraction * 100)}% of tokens`
             })`
-          : ' (phrase-accurate)'),
+          : ' (phrase-accurate)') +
+        `, ${indexed}/${cued} by authored word index`,
     );
   }
   if (unresolvedCues)

@@ -14,6 +14,7 @@
 
 import {
   critiqueStoryboard,
+  cueWordIndex,
   parseStoryboard,
   type Camera,
   type Scene,
@@ -178,6 +179,7 @@ export function applyOps(input: Storyboard, ops: EditOp[]): ApplyResult {
         clearAudio(scene);
         applied.push(`scene ${scene.id} narration -> "${truncate(text, 60)}"`);
         scene.narration = text;
+        recueScene(scene, applied);
         break;
       }
       case 'delete-scene': {
@@ -278,6 +280,46 @@ function clearAudio(scene: Scene): void {
   delete scene.audioPath;
   delete scene.durationSec;
   delete scene.words;
+}
+
+/**
+ * Re-take every cue index in a scene whose narration just changed.
+ *
+ * `enter.cueWord` is an index into the *spoken* words of this scene's narration
+ * (plan item 4.1), so rewriting the narration is exactly the event that makes it
+ * false. Left alone it would be a number that still resolves and no longer means
+ * anything — the voice stage would catch it, one minute of synthesis later, and
+ * only because the cue phrase beside it disagrees.
+ *
+ * A cue that still occurs in the new text gets a fresh index and keeps its
+ * word-exact placement; one that does not loses the index and falls to the phrase
+ * search, which is what `critiqueStoryboard` already reports as a cue that names
+ * words its scene no longer says. The edit is the user's and is applied either
+ * way: this is bookkeeping, not judgement.
+ */
+function recueScene(scene: Scene, applied: string[]): void {
+  let moved = 0;
+  let lost = 0;
+  for (const el of scene.elements) {
+    if (!el.enter.cue?.trim()) {
+      if (el.enter.cueWord !== undefined) delete el.enter.cueWord;
+      continue;
+    }
+    const at = cueWordIndex(scene.narration, el.enter.cue);
+    if (at === undefined) {
+      if (el.enter.cueWord !== undefined) lost++;
+      delete el.enter.cueWord;
+      continue;
+    }
+    if (el.enter.cueWord !== at) moved++;
+    el.enter.cueWord = at;
+  }
+  if (moved || lost) {
+    applied.push(
+      `re-cued scene ${scene.id}: ${moved} cue index/indices moved` +
+        (lost ? `, ${lost} dropped (the cue is not in the new narration)` : ''),
+    );
+  }
 }
 
 function sceneIndex(sb: Storyboard, ref: SceneRef): number {

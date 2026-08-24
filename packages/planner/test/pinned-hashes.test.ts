@@ -136,12 +136,33 @@ import { compileLesson } from '../src/compile.js';
  * latitude for free" → "Longitude is a difference between two clocks" → "So the problem
  * was never astronomy" → "A carpenter built the clock the astronomers could not". That
  * is the argument, legible, where there used to be a smudge.
+ *
+ * ## The re-pin, 2026-08-24: all four, for `enter.cueWord` (plan item 4.1)
+ *
+ * From `e1212df828d0` / `6b03be35c3c6` / `a8c3f262502a` / `f03df5431b68`.
+ *
+ * Every cue now leaves the compiler with the index of the word it starts on, so the
+ * voice stage looks a reveal up instead of searching for its phrase. **The diff is
+ * purely additive and nothing else moved at all** — measured, not asserted: compiling
+ * each board under `HEAD` and under the working tree and diffing the pretty-printed
+ * JSON gives 30 / 23 / 47 / 38 added `"cueWord"` lines and **zero** other changed
+ * lines. Not a fraction, not a string, not a box. The counts are also the coverage
+ * proof: each board has exactly that many cues, so every cue in both shipped lessons
+ * resolved to an exact index and none fell back.
+ *
+ * No frames were rendered for this re-pin and none were needed, for the reason the
+ * 2026-08-22 one gives: the header asks for pixels because a moved hash is normally a
+ * moved *shape*, and here there is no shape to look at — the numbers describe when ink
+ * arrives, and `enter.at` is unchanged in all four boards. What was verified instead is
+ * the thing that *is* new: a strict end-to-end cast of both lessons, where the voice
+ * stage reports every reveal placed `by authored word index` and no fallback, and
+ * `synccheck.mts` still finds no stroke landing on the same frame as the one before it.
  */
 const PINNED = [
-  { lesson: 'gradient-descent', preset: 'standard', hash: 'e1212df828d0', scenes: 9 },
-  { lesson: 'gradient-descent', preset: 'short', hash: '6b03be35c3c6', scenes: 7 },
-  { lesson: 'longitude', preset: 'standard', hash: 'a8c3f262502a', scenes: 8 },
-  { lesson: 'longitude', preset: 'short', hash: 'f03df5431b68', scenes: 6 },
+  { lesson: 'gradient-descent', preset: 'standard', hash: 'd3f35564b27b', scenes: 9 },
+  { lesson: 'gradient-descent', preset: 'short', hash: 'e3a1f7338b26', scenes: 7 },
+  { lesson: 'longitude', preset: 'standard', hash: '417495edcde8', scenes: 8 },
+  { lesson: 'longitude', preset: 'short', hash: '01b682decdbd', scenes: 6 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

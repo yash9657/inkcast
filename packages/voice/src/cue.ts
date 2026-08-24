@@ -29,9 +29,37 @@
  * Matching is normalised (case, punctuation, whitespace) and runs the cue through
  * the *same* text pipeline as the narration, so a cue written "the rate is 0.1"
  * still matches narration spoken as "the rate is zero point one".
+ *
+ * ## Which word, and how we know (plan item 4.1)
+ *
+ * *Finding* the cue used to be this module's hardest job and is now, for a
+ * freshly compiled board, not its job at all. The compiler writes
+ * `enter.cueWord` — the index of the cue's first spoken word, taken with the
+ * tokeniser this file counts with (`@inkcast/core`'s `speech.ts`) — and
+ * resolution becomes a lookup. That is the shape `docs/PIPELINE.md` argued for
+ * from the beginning: an index cannot fail to match or match twice, and a
+ * tolerant search on a phrase that occurs twice will anchor a reveal to the wrong
+ * occurrence while logging nothing worse than "matched loosely".
+ *
+ * The search below therefore has two jobs left, and both are temporary:
+ *
+ * - **A storyboard compiled before 4.1** has cues and no indices. It is placed by
+ *   search, every use is reported, and the fallback dies one release after the
+ *   corpus has been recompiled.
+ * - **An index that no longer names its own cue's first word** is not a
+ *   degradation, it is a bug: narration edited without recompiling, or a compiler
+ *   and a tokeniser that disagree. It is named as such (`brokenIndices`), gated by
+ *   the caller, and — under `degrade` — placed by search so the film still
+ *   renders.
+ *
+ * The one invariant everything above rests on: the token stream built from the
+ * *measured phrases* must be the token stream the compiler counted. Phrases are
+ * cut at punctuation and `matchTokens` throws punctuation away, so it holds by
+ * construction — and is checked anyway, once per scene, because a silent
+ * off-by-one in that stream would move every reveal in the beat.
  */
 import type { Scene } from '@inkcast/core';
-import { cueTokens, findTokens, matchTokens } from '@inkcast/core';
+import { cueTokens, findTokens, matchTokens, narrationTokens } from '@inkcast/core';
 import type { PhraseTiming } from './phrase.js';
 import type { WordTiming } from './providers/types.js';
 
@@ -168,6 +196,13 @@ export type CueResolution = {
   score: number;
   /** Which precision tier produced the offset. */
   source: 'words' | 'phrase';
+  /**
+   * How the *word* was found: the compiler's `enter.cueWord`, or this module
+   * searching for the phrase. Orthogonal to `source`, which says how that word
+   * was turned into a second — an index resolved against measured phrases is
+   * `via: 'index', source: 'phrase'`.
+   */
+  via: 'index' | 'search';
 };
 
 export type ResolveCuesResult = {
@@ -183,6 +218,24 @@ export type ResolveCuesResult = {
    * (degrade); a missed cue on a decoration stays a warning only.
    */
   dominantMisses: Array<{ elementId: string; cue: string }>;
+  /**
+   * Cues placed by searching for their phrase because they carry no index.
+   *
+   * A storyboard compiled before plan item 4.1, in other words. Recorded rather
+   * than merely logged (plan item 4.2) because "how many reveals in this film were
+   * anchored by a search" is the number that decides when the fallback can be
+   * deleted, and a log line cannot be counted after the run.
+   */
+  searched: Array<{ elementId: string; cue: string }>;
+  /**
+   * An authored index that could not be used, already written out for a human.
+   *
+   * Not a degradation and not a tolerance: an index is written by the compiler
+   * against the narration in the same pass, so it can only be wrong if the
+   * narration changed underneath it or two tokenisers disagree. Both are bugs, so
+   * the caller gates these rather than recording them — see `narrate()`.
+   */
+  brokenIndices: string[];
 };
 
 /**
@@ -325,22 +378,54 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
   const resolved: CueResolution[] = [];
   const warnings: string[] = [];
   const dominantMisses: ResolveCuesResult['dominantMisses'] = [];
+  const searched: ResolveCuesResult['searched'] = [];
+  const brokenIndices: string[] = [];
   const label = opts.sceneLabel ?? scene.id;
+  const empty = (): ResolveCuesResult => ({
+    resolved,
+    warnings,
+    dominantMisses,
+    searched,
+    brokenIndices,
+  });
 
   const cued = scene.elements.filter((el) => el.enter.cue?.trim());
-  if (!cued.length) return { resolved, warnings, dominantMisses };
+  if (!cued.length) return empty();
 
   if (!(opts.narrationSec > 0)) {
     warnings.push(
       `scene "${label}" has no measured narration, so ${cued.length} cue(s) cannot be resolved`,
     );
-    return { resolved, warnings, dominantMisses };
+    return empty();
   }
 
   const stream = sceneTokenStream(opts.phrases);
   if (!stream.length) {
     warnings.push(`scene "${label}" has no speakable narration, so its cues cannot be resolved`);
-    return { resolved, warnings, dominantMisses };
+    return empty();
+  }
+
+  const tokens = stream.map((s) => s.token);
+  // The invariant every index rests on, checked once rather than trusted: the
+  // words the clips were cut into are the words the compiler counted. It holds by
+  // construction (phrases are cut at punctuation, `matchTokens` discards
+  // punctuation) — but an off-by-one here would move every reveal in the beat by
+  // one word and look exactly like good sync, so it is not left to construction.
+  //
+  // Only asked when something in the beat actually carries an index: without one,
+  // nothing here reads the stream positionally and a disagreement is not a defect
+  // in anything. (It is also how a caller may hand this function measured phrases
+  // for narration it is not literally quoting, which several tests do.)
+  const anyIndexed = cued.some((el) => el.enter.cueWord !== undefined);
+  const authored = anyIndexed ? narrationTokens(scene.narration) : tokens;
+  const streamAgrees =
+    authored.length === tokens.length && authored.every((t, i) => t === tokens[i]);
+  if (!streamAgrees) {
+    brokenIndices.push(
+      `scene "${label}": the measured phrases tokenise to ${tokens.length} word(s) but its ` +
+        `narration tokenises to ${authored.length} — the phrase splitter and the tokeniser ` +
+        'disagree, so no cue index in this scene can be trusted',
+    );
   }
 
   const dominant = dominantId(scene);
@@ -352,10 +437,11 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
 
   for (const el of cued) {
     const cue = el.enter.cue!.trim();
-    const span = findCueSpan(
-      stream.map((s) => s.token),
-      cue,
-    );
+    const span = spanFor(el, cue, tokens, streamAgrees, {
+      label,
+      searched,
+      brokenIndices,
+    });
 
     if (!span) {
       warnings.push(
@@ -402,6 +488,7 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
       at: round3(at),
       score: round3(span.score),
       source: wordsUsable ? 'words' : 'phrase',
+      via: span.via,
     });
 
     if (span.score < 1) {
@@ -413,7 +500,61 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
   }
 
   spreadGesture(scene, opts.narrationSec, resolved);
-  return { resolved, warnings, dominantMisses };
+  return empty();
+}
+
+/**
+ * Where in the token stream this element's cue starts, and how that was decided.
+ *
+ * The order is the whole of plan item 4.1: an authored index if there is one and it
+ * still names its cue's own first word, otherwise the phrase search, with the
+ * reason for the demotion recorded either way. Nothing here throws — a film that
+ * stops rendering because a cue moved by one word is worse than one that places it
+ * by search and says so — and the caller turns `brokenIndices` into an error under
+ * `strict`.
+ */
+function spanFor(
+  el: Scene['elements'][number],
+  cue: string,
+  tokens: readonly string[],
+  streamAgrees: boolean,
+  sink: { label: string; searched: ResolveCuesResult['searched']; brokenIndices: string[] },
+): (TokenSpan & { via: 'index' | 'search' }) | undefined {
+  const search = (): (TokenSpan & { via: 'search' }) | undefined => {
+    const found = findCueSpan(tokens, cue);
+    return found ? { ...found, via: 'search' } : undefined;
+  };
+
+  const index = el.enter.cueWord;
+  if (index === undefined) {
+    // A board compiled before the index existed. Placed the old way, counted so
+    // the fallback can be deleted on evidence rather than on a hunch.
+    sink.searched.push({ elementId: el.id, cue });
+    return search();
+  }
+  if (!streamAgrees) return search();
+
+  const first = cueTokens(cue)[0];
+  const at = tokens[index];
+  if (at === undefined) {
+    sink.brokenIndices.push(
+      `scene "${sink.label}": element "${el.id}" is cued at word ${index}, but the narration has ` +
+        `only ${tokens.length} spoken word(s) — the index and the narration come from different ` +
+        'versions of this scene, so the reveal is placed by searching for its phrase instead',
+    );
+    return search();
+  }
+  if (first !== undefined && at !== first) {
+    sink.brokenIndices.push(
+      `scene "${sink.label}": element "${el.id}" is cued at word ${index}, which is "${at}", but ` +
+        `its cue "${cue}" starts on "${first}" — the narration changed after it was compiled, so ` +
+        'the reveal is placed by searching for its phrase instead',
+    );
+    return search();
+  }
+  // Length is the cue's own, and the score is 1 by construction: the compiler
+  // wrote this index from an exact match against this very text.
+  return { index, length: Math.max(1, cueTokens(cue).length), score: 1, via: 'index' };
 }
 
 /**

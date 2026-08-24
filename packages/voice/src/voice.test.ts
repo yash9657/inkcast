@@ -87,7 +87,7 @@ import type { Element, Scene, Storyboard } from '@inkcast/core';
 // The normaliser lives in core since plan 4.1 — see `core/src/speech.ts`. What it
 // does to *narration* is tested beside it (`core/test/speech.test.ts`); what it is
 // used for here is phrasing, clip keys and cue placement.
-import { normalizeNarration, speakInitialisms } from '@inkcast/core';
+import { cueWordIndex, normalizeNarration, speakInitialisms } from '@inkcast/core';
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -1061,6 +1061,130 @@ test('cues match verbatim, tolerate drift, and fail loudly when absent', () => {
   assert.equal(findCueSpan(stream, ''), undefined);
 });
 
+/* ---------------------------------------------- cue indices (plan item 4.1) */
+
+/** The same cued text element, carrying the compiler's word index. */
+function indexedText(id: string, cue: string, cueWord: number, at = 0): Element {
+  const el = cuedText(id, cue, at);
+  el.enter = { ...el.enter, cueWord };
+  return el;
+}
+
+/**
+ * The narration these tests share, and the phrases a voice run would measure for
+ * it. Written out rather than paraphrased because the point of an index is that
+ * both sides count the *same* words: the phrases below are what `splitPhrases`
+ * produces for this text, so the token stream they build is the stream the
+ * compiler's `cueWordIndex` counted.
+ */
+const INDEXED_NARRATION = 'Feel which way is downhill, and take one small step that way.';
+const INDEXED_PHRASES = timings([
+  ['Feel which way is downhill,', 0, 2, 0, false],
+  ['and take one small step that way.', 2.1, 4.5, 0, true],
+]);
+
+test('a cue with an index is looked up, not searched for', () => {
+  const at = cueWordIndex(INDEXED_NARRATION, 'take one small step');
+  assert.equal(at, 6);
+  const s = scene(
+    { narration: INDEXED_NARRATION, elements: [indexedText('step', 'take one small step', at!)] },
+    0,
+  );
+
+  const { resolved, searched, brokenIndices, warnings } = resolveSceneCues(s, {
+    phrases: INDEXED_PHRASES,
+    narrationSec: 4.5,
+  });
+
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0]?.via, 'index');
+  assert.equal(resolved[0]?.score, 1);
+  // The word really is where the compiler said, so the offset lands inside the
+  // phrase that contains it rather than at a plausible-looking guess.
+  assert.ok(resolved[0]!.offsetSec >= 2.1 && resolved[0]!.offsetSec < 4.5);
+  assert.deepEqual([searched, brokenIndices, warnings], [[], [], []]);
+});
+
+test('a cue with no index is placed by the old search, and the fallback is counted', () => {
+  const s = scene(
+    { narration: INDEXED_NARRATION, elements: [cuedText('step', 'take one small step')] },
+    0,
+  );
+
+  const { resolved, searched, brokenIndices } = resolveSceneCues(s, {
+    phrases: INDEXED_PHRASES,
+    narrationSec: 4.5,
+  });
+
+  // The film is fine — this is the placement that has always worked. What is new
+  // is that the run can say how many reveals needed it, which is what decides when
+  // the search can be deleted (plan item 4.2).
+  assert.equal(resolved[0]?.via, 'search');
+  assert.deepEqual(searched, [{ elementId: 'step', cue: 'take one small step' }]);
+  assert.deepEqual(brokenIndices, []);
+});
+
+test('an index that no longer names its own cue is a bug, and says which word it found', () => {
+  // Narration edited after compiling: the cue is still in the text, three words
+  // later than the index says.
+  const s = scene(
+    {
+      narration: `Now then, ${INDEXED_NARRATION}`,
+      elements: [indexedText('step', 'take one small step', 6)],
+    },
+    0,
+  );
+
+  const { resolved, brokenIndices } = resolveSceneCues(s, {
+    phrases: timings([
+      ['Now then, feel which way is downhill,', 0, 2.4, 0, false],
+      ['and take one small step that way.', 2.5, 4.9, 0, true],
+    ]),
+    narrationSec: 4.9,
+  });
+
+  assert.equal(brokenIndices.length, 1);
+  assert.match(brokenIndices[0]!, /cued at word 6, which is "downhill"/);
+  assert.match(brokenIndices[0]!, /starts on "take"/);
+  // Named, and then placed by search anyway: a film that stops rendering because a
+  // cue moved by one word is worse than one that places it and says so. The caller
+  // is what turns this into an error under strict.
+  assert.equal(resolved[0]?.via, 'search');
+  assert.ok(resolved[0]!.offsetSec >= 2.5);
+});
+
+test('an index past the end of the narration is named, not clamped', () => {
+  const s = scene(
+    { narration: INDEXED_NARRATION, elements: [indexedText('step', 'take one small step', 99)] },
+    0,
+  );
+  const { brokenIndices, resolved } = resolveSceneCues(s, {
+    phrases: INDEXED_PHRASES,
+    narrationSec: 4.5,
+  });
+  assert.equal(brokenIndices.length, 1);
+  assert.match(brokenIndices[0]!, /only 12 spoken word\(s\)/);
+  assert.equal(resolved[0]?.via, 'search');
+});
+
+test('a beat whose measured phrases are not its narration trusts no index in it', () => {
+  // The invariant behind every index: the words the clips were cut into are the
+  // words the compiler counted. Here they are not, and the disagreement is named
+  // once for the scene rather than mis-anchoring every reveal in it by one word.
+  const s = scene(
+    { narration: INDEXED_NARRATION, elements: [indexedText('step', 'take one small step', 6)] },
+    0,
+  );
+  const { brokenIndices, resolved } = resolveSceneCues(s, {
+    phrases: timings([['A different sentence entirely, spoken instead.', 0, 3, 0, true]]),
+    narrationSec: 3,
+  });
+  assert.equal(brokenIndices.length, 1);
+  assert.match(brokenIndices[0]!, /phrase splitter and the tokeniser disagree/);
+  // Nothing resolved: the cue is not in what was actually said.
+  assert.equal(resolved.length, 0);
+});
+
 /* ------------------------------------------------------------ cue resolution */
 
 test('cue resolution places a known phrase at a plausible offset', () => {
@@ -1443,6 +1567,67 @@ test('narrate() resolves a cue to a plausible offset and writes it into enter.at
     // A cached second pass reaches the same conclusion.
     const { storyboard: again } = await narrate(sb, dir, { provider: 'silence', padSec: 0 });
     assert.equal(again.scenes[0]!.elements.find((e) => e.id === 'step')!.enter.at, at('step'));
+  });
+});
+
+test('a stale cue index stops a strict run and is recorded by a degraded one', async () => {
+  // The hard error plan item 4.1 asks for, at the stage boundary where it matters.
+  // An index is written by the compiler against the narration in the same pass, so
+  // it can only be wrong if the two came apart — and a wrong index that still
+  // resolves is a reveal landing on the wrong word with nothing in the log.
+  await withTempProject(async (dir) => {
+    const build = (): Storyboard =>
+      storyboard([
+        {
+          narration: 'Feel which way is downhill, and take one small step that way.',
+          elements: [indexedText('step', 'take one small step', 0, 0.5)],
+        },
+      ]);
+
+    await assert.rejects(
+      () => narrate(build(), dir, { provider: 'silence', padSec: 0, gates: 'strict' }),
+      /cued at word 0/,
+      'strict must not render a film whose reveals are anchored to the wrong words',
+    );
+
+    // Degraded: the film renders, the reveal is placed by searching for its phrase,
+    // and the reason survives the run in `problems` — which is what `pipeline.json`
+    // and `qc.json` are written from.
+    const { storyboard: out, voice } = await narrate(build(), dir, {
+      provider: 'silence',
+      padSec: 0,
+      gates: 'degrade',
+    });
+    const problem = voice.problems.find((p) => /cued at word 0/.test(p));
+    assert.ok(problem, voice.problems.join('\n'));
+    assert.match(problem!, /placed by searching for its phrase instead/);
+    // Placed where the words actually are, not at the authored 0.5 and not at word 0.
+    const at = out.scenes[0]!.elements[0]!.enter.at;
+    assert.ok(at > 0.3 && at < 1, `resolved to ${at}`);
+  });
+});
+
+test('a storyboard with no cue indices renders, and says how many were searched for', async () => {
+  // The one-release fallback (plan items 4.1 and 4.2). A board compiled before the
+  // index existed still resolves, under strict too — it is old, not broken — and the
+  // count is carried out of the stage so it can be read after the run.
+  await withTempProject(async (dir) => {
+    const sb = storyboard([
+      {
+        narration: 'Feel which way is downhill, and take one small step that way.',
+        elements: [cuedText('step', 'take one small step', 0.5)],
+      },
+    ]);
+    const { storyboard: out, voice } = await narrate(sb, dir, {
+      provider: 'silence',
+      padSec: 0,
+      gates: 'strict',
+    });
+    assert.ok(out.scenes[0]!.elements[0]!.enter.at !== 0.5, 'the cue was still placed');
+    const note = voice.problems.find((p) => /anchored by searching for their cue phrase/.test(p));
+    assert.ok(note, voice.problems.join('\n'));
+    assert.match(note!, /^1 reveal was anchored/);
+    assert.match(note!, /compiled before enter.cueWord existed/);
   });
 });
 

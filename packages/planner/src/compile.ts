@@ -42,6 +42,7 @@ import type {
   VisualIntent,
 } from '@inkcast/core';
 import {
+  cueWordIndex,
   holdForCadence,
   lessonBeats,
   logger,
@@ -105,12 +106,21 @@ const log = logger('planner:compile');
  * canvas and one fewer generated image — `cardiac8f` goes from 10 cells and 4 generated
  * pictures to 8 and 2 — and no cached storyboard would show any of it without this.
  *
- * This is a cache key and nothing else — it is not written into the storyboard — so a bump
- * must leave the pinned hashes exactly where they were:
- * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
- * e1212df828d0 / 6b03be35c3c6 / a8c3f262502a / f03df5431b68.
+ * 4: every cue leaves with the index of the word it starts on (`enter.cueWord`, plan item
+ * 4.1). A cached board has to be recompiled to gain the indices, and without this bump the
+ * voice stage would spend a release reporting the phrase-search fallback on every project
+ * on disk while the fix sat here in the compiler.
  *
- * All four were re-pinned 2026-08-23 (from 2a014f1e2eae / 0670ab50fe80 / a750d3d78b5e /
+ * The constant is a cache key and nothing else — it is never written into the storyboard —
+ * so bumping it may not itself move a pinned hash. What moves a hash is the change the
+ * bump exists to ship, and version 4 is the first that did:
+ * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` reads
+ * d3f35564b27b / e3a1f7338b26 / 417495edcde8 / 01b682decdbd.
+ *
+ * All four were re-pinned 2026-08-24 (from e1212df828d0 / 6b03be35c3c6 / a8c3f262502a /
+ * f03df5431b68) for the cue indices of version 4 above: a purely additive diff, 30/23/47/38
+ * added `"cueWord"` lines and no other changed line in any of the four boards. All four
+ * were re-pinned 2026-08-23 (from 2a014f1e2eae / 0670ab50fe80 / a750d3d78b5e /
  * e6e5e7d6e6b2) when the recap chain became a column instead of a row — see `recapChain`
  * below for the measurement, and `test/pinned-hashes.test.ts` for the frames. Earlier the
  * same day all four moved (from b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 /
@@ -121,7 +131,7 @@ const log = logger('planner:compile');
  * shortened exactly one caption. The reasoning and the frame evidence for every re-pin
  * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
-export const COMPILER_VERSION = 3;
+export const COMPILER_VERSION = 4;
 
 /* ------------------------------------------------------------------ assets */
 
@@ -1803,6 +1813,15 @@ function buildMotion(describe: string, ctx: IntentContext): Element[] {
  * agree. A builder's deliberate fraction is preserved as the fallback the voice
  * stage uses if the phrase cannot be found — the two are complementary, not
  * alternatives.
+ *
+ * Each cue also leaves with a **word index** (`enter.cueWord`, plan item 4.1):
+ * which word of the spoken narration it starts on, counted by `@inkcast/core`'s
+ * `cueWordIndex` — the same tokeniser the voice stage resolves with. This is the
+ * one place in the pipeline that has both the narration and the cue in hand, so it
+ * is the only place the number can honestly be taken; downstream it is read, never
+ * re-derived. A cue that does not survive normalisation exactly gets no index and
+ * falls to the phrase search, which is the honest outcome rather than a guessed
+ * number.
  */
 export function assignTiming(scene: Scene, elements: Element[]): void {
   const n = elements.length;
@@ -1815,6 +1834,7 @@ export function assignTiming(scene: Scene, elements: Element[]): void {
   ordered.forEach((entry, k) => {
     const derived = cues[k];
     const cue = preferredCue(scene.narration, entry.el.enter.cue, derived);
+    const cueWord = cue === undefined ? undefined : cueWordIndex(scene.narration, cue);
     let at = entry.at > 0 ? entry.at : k === 0 ? 0 : 0.06 + (k * 0.72) / Math.max(1, n - 1);
     if (at <= previous) at = previous + 0.04;
     at = Math.min(0.92, Math.max(0, at));
@@ -1824,6 +1844,7 @@ export function assignTiming(scene: Scene, elements: Element[]): void {
       duration: entry.el.enter.duration,
       style: entry.el.enter.style,
       ...(cue ? { cue } : {}),
+      ...(cueWord === undefined ? {} : { cueWord }),
     };
     if (entry.el.motion) {
       const start = Math.min(0.9, Math.max(entry.el.motion.from, at + 0.06));

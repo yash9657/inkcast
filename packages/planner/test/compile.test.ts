@@ -5,7 +5,9 @@ import type { PlotElement, Scene, Storyboard, TextElement } from '@inkcast/core'
 import {
   CADENCE,
   Storyboard as StoryboardSchema,
+  cueTokens,
   lessonBeats,
+  narrationTokens,
   parseStoryboard,
 } from '@inkcast/core';
 import {
@@ -269,6 +271,47 @@ test('every element lands on a cue, or deliberately at the start of its beat', (
       );
     }
   }
+});
+
+test('every cue also leaves with the index of the word it starts on', () => {
+  // Plan item 4.1's authoring half, asserted over whole shipped boards rather than
+  // one fixture: a number the voice stage is going to trust has to be right for
+  // every reveal in the film, and the way it goes wrong is one beat at a time.
+  let indexed = 0;
+  for (const board of [sb, vertical]) {
+    for (const scene of board.scenes) {
+      const words = narrationTokens(scene.narration);
+      for (const el of scene.elements) {
+        const cue = el.enter.cue;
+        if (cue === undefined) {
+          assert.equal(
+            el.enter.cueWord,
+            undefined,
+            `${scene.id}/${el.id} has an index but no cue to index`,
+          );
+          continue;
+        }
+        // Every cue the compiler writes is verbatim from the narration (the test
+        // above), so every one of them resolves exactly and none may be missing.
+        assert.equal(
+          typeof el.enter.cueWord,
+          'number',
+          `${scene.id}/${el.id} is cued "${cue}" with no word index`,
+        );
+        const at = el.enter.cueWord!;
+        const expected = cueTokens(cue);
+        assert.deepEqual(
+          words.slice(at, at + expected.length),
+          expected,
+          `${scene.id}/${el.id}: word ${at} is not where "${cue}" starts`,
+        );
+        indexed++;
+      }
+    }
+  }
+  // Both boards are fully covered, so the voice stage never needs its phrase
+  // search on a freshly compiled film — which is PIPELINE.md step 8's done-bar.
+  assert.ok(indexed > 40, `only ${indexed} cues carried an index`);
 });
 
 test('an authored cue is preferred, and a drifted one is replaced', () => {

@@ -250,3 +250,39 @@ test('two scenes sharing an id is caught — every reference to it is ambiguous'
   );
   assert.match(p, /two scenes share the id "s1"/);
 });
+
+test('a cue index that no longer names its own cue is caught before any audio (4.1)', () => {
+  const p = onlyProblem(
+    board((sb) => {
+      // "the hillside" starts on word 2 of this narration; 0 is "here".
+      sb.scenes[0]!.elements[0]!.enter.cueWord = 0;
+    }),
+  );
+  assert.match(p, /cued at word 0, which is "here"/);
+  assert.match(p, /starts on "the"/);
+  assert.match(p, /narration changed after it was compiled/);
+});
+
+test('a cue index past the end of the narration is caught', () => {
+  const p = onlyProblem(
+    board((sb) => {
+      sb.scenes[0]!.elements[0]!.enter.cueWord = 99;
+    }),
+  );
+  assert.match(p, /is cued at word 99/);
+  assert.match(p, /spoken words/);
+});
+
+test('a cue index that is right is silent — the check must pass the corpus', () => {
+  assert.deepEqual(
+    critiqueStoryboard(
+      board((sb) => {
+        // Where "the hillside" and "the rover" actually start, counted the way the
+        // compiler counts: normalise the narration, then tokenise.
+        sb.scenes[0]!.elements[0]!.enter.cueWord = 2;
+        sb.scenes[0]!.elements[1]!.enter.cueWord = 7;
+      }),
+    ),
+    [],
+  );
+});

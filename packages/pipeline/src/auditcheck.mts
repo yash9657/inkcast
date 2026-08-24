@@ -414,6 +414,38 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S6-a/A-6 (4.1/4.2): a reveal lands on a word, not on a search ---- */
+{
+  const storyboardIr = read('packages/core/src/storyboard.ts');
+  const compile = read('packages/planner/src/compile.ts');
+  const cue = read('packages/voice/src/cue.ts');
+  const narrate = read('packages/voice/src/narrate.ts');
+  const ops = read('packages/pipeline/src/ops.ts');
+  check(
+    'S6-a: the IR carries the cue word index, and the compiler writes it',
+    /cueWord: z\.number\(\)\.int\(\)\.min\(0\)\.optional\(\)/.test(storyboardIr) &&
+      /cueWordIndex\(scene\.narration, cue\)/.test(compile),
+    'PIPELINE.md step 8 has been un-shipped — reveals are back to being found by phrase search',
+  );
+  check(
+    'S6-a: the voice stage prefers the index and verifies it against its own cue',
+    /via: 'index'/.test(cue) && /brokenIndices/.test(cue) && /cueTokens\(cue\)\[0\]/.test(cue),
+    'the index is trusted blind or ignored — a stale index must be named, not silently obeyed',
+  );
+  check(
+    'A-6: an unusable index is gated, and a searched cue is recorded',
+    /for \(const broken of brokenIndices\)/.test(narrate) &&
+      /gate\(opts\.gates, broken/.test(narrate) &&
+      /searchedCues/.test(narrate),
+    'a mis-anchored reveal is back to being a log line nobody reads',
+  );
+  check(
+    'S6-a: editing narration re-takes the indices it invalidates',
+    /function recueScene/.test(ops) && /recueScene\(scene, applied\)/.test(ops),
+    'set-narration leaves indices that resolve and no longer mean anything',
+  );
+}
+
 /* ---- S2-c/S6-c (4.4): the normaliser's named gaps stay closed ---- */
 {
   const speech = read('packages/core/src/speech.ts');
