@@ -49,7 +49,13 @@ import {
   shapePaths,
 } from './geometry.js';
 import { iconPaths, iconsAvailable, matchAsset } from './icons.js';
-import { detectImageProvider, figureRaster, illustrationPaths } from './image.js';
+import {
+  detectImageProvider,
+  figureModelOverride,
+  figureModelToken,
+  figureRaster,
+  illustrationPaths,
+} from './image.js';
 import { libraryFingerprint, libraryPaths, matchLibrary } from './library.js';
 import type { AssetVisual, ElementVisual, VisualManifest } from './manifest.js';
 import {
@@ -153,6 +159,18 @@ export async function resolveVisuals(
     monoMetrics()?.unitsPerEm ?? 0,
     monoMetrics()?.ascent ?? 0,
   ].join('|');
+  /**
+   * The figure lane's own model, folded into a `figure` asset's hash and nothing else's.
+   *
+   * `codeFP`'s pattern above, for the same reason and one lane over (plan 6.5). Without it
+   * the raster key's new honesty is unreachable on the case that matters: re-casting an
+   * existing project with a different `INKCAST_FIGURE_MODEL` finds the asset fresh in the
+   * manifest and never reaches `illustrationRaster` at all, so the film keeps the old
+   * model's picture and the switch appears to do nothing. Empty unless the override names
+   * something that is not a built-in endpoint — `hash()` concatenates, so an empty term
+   * leaves every asset on disk exactly as fresh as it was.
+   */
+  const figureFP = figureModelToken(figureModelOverride());
   const canvasHeight = out.canvas.h;
   // The board's own scale, from the same `boardMetrics` the renderer calls. Framing is
   // a function of elements and regions only — never of measured durations — so it does
@@ -235,6 +253,9 @@ export async function resolveVisuals(
       styleFP,
       fontFP,
       provider,
+      // Which model draws it, for the one kind that is shown as it arrived (plan 6.5).
+      // Empty for every other asset, and for the built-in endpoints.
+      asset.kind === 'figure' ? figureFP : '',
     );
     assetHashes.set(asset.id, inputHash);
 

@@ -1,9 +1,9 @@
 # Handoff — the remaining items of PLAN-AUDIT-CLOSE
 
 Written 2026-08-24, branch `visuals-morph-density`, immediately after item 6.1 landed;
-updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`) and then
-6.4 (the raster trust gate, `e9487e7`) landed and their sections were deleted from this
-file.
+updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`), then 6.4
+(the raster trust gate, `e9487e7`) and then 6.5 (the figure cache key) landed and their
+sections were deleted from this file.
 **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
@@ -14,23 +14,26 @@ disagrees with the plan it says so out loud.
 ## Where execution stands, in one paragraph
 
 Phases 0–5 are landed and tested, and so are 6.1 (the honest guard for the three remaining
-unserved topic classes), 6.2 (the code lane — the fourth class is served now) and 6.4 (the
-raster trust gate). The tree is committed through 6.4. At that point: **1121 tests green** (3
-pre-existing keyvault skips), **auditcheck 82/82**, lint and typecheck clean, and three
-shipped lessons casting strict-clean end to end (`hash-map` is the newest, and the corpus's
-only board with a listing on it). Seven items remain — 6.3, 6.5, 7.1, 7.2, 7.3, 8.1, 8.2 —
-and none of 6.3–7.3 blocks another, so they can be reordered freely by whoever picks them
-up. Phase 8 needs all of them plus a funded API key.
+unserved topic classes), 6.2 (the code lane — the fourth class is served now), 6.4 (the
+raster trust gate) and 6.5 (the figure cache key names the model that drew it). The tree is
+committed through 6.5. At that point: **1125 tests green** (3 pre-existing keyvault skips,
+1128 total), **auditcheck 87/87**, lint and typecheck clean, and three shipped lessons
+casting strict-clean end to end (`hash-map` is the newest, and the corpus's only board with
+a listing on it). Six items remain — 6.3, 7.1, 7.2, 7.3, 8.1, 8.2 — and none of 6.3–7.3
+blocks another, so they can be reordered freely by whoever picks them up. Phase 8 needs all
+of them plus a funded API key.
 
 **Which to pick, if nobody has said.** 6.3's own rule is that the next lane is chosen from
 6.1's findings rather than from taste, and **there are still no findings** — the guard has
 fired on nothing in the corpus, so no lane has earned itself. That makes 6.3 the wrong item
-to start cold. **6.5 is the natural next one**: it is the smallest in the phase, and it is
-in the file 6.4 just worked in (`illustrationKey` and the new trust gate are both in
-`visuals/src/image.ts`). 7.3 is also unblocked now — its dark-surface pack was sequenced
-after 6.4 deliberately, and 6.4 has landed. The four gating findings
-below are unowned and each is an hour or two; items 3 and 4 both make cost reports wrong on
-runs that are now the common case.
+to start cold, and it is now the only item left in Phase 6. **7.2 is the natural next one**:
+it is the smallest thing left anywhere in the plan (a flag that writes `plan.json`, and a
+second mode on a tool that already exists), it needs no key, and its done-bar is two
+assertions. 7.3 is unblocked — its dark-surface pack was sequenced after 6.4, which has
+landed — but read its section first: 6.4 gave a dark pack a way to _detect_ an opaque white
+ground, not a way to remove it. 7.1 is the big one and wants a session of its own. The four
+gating findings below are unowned and each is an hour or two; items 3 and 4 both make cost
+reports wrong on runs that are now the common case.
 
 ## How to verify anything you land
 
@@ -44,9 +47,10 @@ The last line is the strict end-to-end proof (strict is the default; no key need
 voice-provider fallback in the output is a provider event, not a gate failure). The three
 shipped lessons are `examples/lessons/*.lesson.json`; cast `hash-map` too when you touch
 the compiler, because it is the only board in the corpus with a listing on it. Disposable
-evidence projects follow the `qc<phase>-<lesson>` convention (`projects/qc64-hashmap`,
-`qc64-longitude` and `qc64-gd` are the newest — the whole shipped corpus at 6.4). Two more
-instruments worth knowing, both used to prove 6.2's and 6.4's done-bars and both cheap:
+evidence projects follow the `qc<phase>-<lesson>` convention (`projects/qc65-longitude` is
+the newest; `qc64-hashmap`, `qc64-longitude` and `qc64-gd` are the whole shipped corpus at
+6.4). Two more instruments worth knowing, both used to prove 6.2's and 6.4's done-bars and
+both cheap:
 `npx tsx packages/visuals/src/geomhash.mts <project>` hashes every element's
 resolved geometry (one line each, ideal across a `git stash`), and
 `npx tsx packages/render/src/frames.mts <projectDir> <outDir> [t...]` grabs single frames
@@ -56,9 +60,16 @@ determinism check.
 **If you touch the illustration lane, measure against the cache before choosing a number.**
 6.4's three thresholds were each set by tracing all 42 rasters in
 `~/.inkcast/cache/illustrations` and then _opening them_ — the numbers are in the constants'
-own comments in `visuals/src/image.ts`. That cache is the only corpus of real provider
-output this repo has, it costs nothing to read, and a threshold argued without it is a
-threshold nobody can defend at the re-audit.
+own comments in `visuals/src/image.ts`. 6.5 used the same corpus for a different question
+(8 of those 42 are colour figures, 34 are form line art), which is what decided that a
+built-in model contributes nothing to a cache key. That cache is the only corpus of real
+provider output this repo has, it costs nothing to read, and a threshold — or an
+invalidation — argued without it is one nobody can defend at the re-audit.
+
+**And if you touch a cache key, cast a project that already exists.** Four tiers sit between
+a storyboard and a raster, and the visual manifest's freshness record is asked first: a key
+that is honest at the raster tier is never reached on a re-cast. That is the half of 6.5's
+done-bar the plan's wording did not have.
 
 ## Four things that gate the work
 
@@ -121,7 +132,7 @@ threshold nobody can defend at the re-audit.
 
 ---
 
-# Phase 6 — the rest of topic coverage and asset trust
+# Phase 6 — what is left of topic coverage (6.3, and only 6.3)
 
 ## 6.3 Circuits, chemistry, geography — by demand, not speculatively
 
@@ -154,27 +165,6 @@ The library's `match` alias arrays in `library.json` are how a symbol gets found
   `core/src/codegrid.ts` (the one measurement both stages share), and the `code` cases in
   `visuals/src/resolve.ts` and `planner/src/compile.ts`. The shape it followed is
   `equation.ts`'s contract, stated in that file's header.
-
-## 6.5 The figure cache key tells the truth
-
-**The bar (plan):** `illustrationKey` folds in the figure model id (and style, for
-`kind:'figure'` only), preserving the existing `form` cache. _Done when_ switching
-`INKCAST_FIGURE_MODEL` misses the figure cache and says why.
-
-**Where the code is.** `illustrationKey` at `visuals/src/image.ts:460`, hashing
-`illustration/v2` with kind, prompt and shape. **Read its header before touching it** —
-it already documents why a square request contributes nothing to the hash (every raster in
-every machine cache was generated when both providers were hard-coded square, so the token
-has to stay absent or a few dollars of images invalidate for bytes that would be
-identical). The same reasoning is why the model id goes in for `figure` only: a `form`
-raster is binarised and re-traced, so the model that drew it does not survive into the
-board, and invalidating those would be paying twice for the same ink.
-
-**One thing 6.4 changed under this item.** Every cache hit is now run past the trust gate
-before it is served (`judge()` in `illustrationRaster`), so an invalidation no longer just
-costs a generation — a key change that starts missing on rasters the gate would have
-rejected anyway is doing you a favour, and the `qc.json` note will say which ones. Worth
-casting `hash-map` before and after so the delta is a diff and not a surprise.
 
 ## Phase 7 — scale and cost
 
@@ -272,10 +262,12 @@ seven corpus-derived constants listed above (they are recalibrations, argued in 
 comments, not regressions); the deliberate deviations listed in
 `HANDOFF-AUDIT-CLOSE.md`'s "Deliberate deviations" section; 6.1's warn-not-suppress
 decision; 6.4's two measured departures from its own bar (aspect scored absolutely rather
-than against the request, and cached rasters gated rather than trusted); and 5.1(b)'s
+than against the request, and cached rasters gated rather than trusted); 6.5's one (style
+stays out of the figure key until a style pack can change a pixel, which is 7.3, and it
+keys itself through the model then); and 5.1(b)'s
 written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
-under a second and should be run first — 82 checks as of 6.4, and each one is a fact some
+under a second and should be run first — 87 checks as of 6.5, and each one is a fact some
 pass of the original audit established.
 
 ## 8.2 The bake-off

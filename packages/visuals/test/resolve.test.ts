@@ -354,6 +354,78 @@ test('changing the ink style invalidates the cache', async () => {
   assert.equal(manifest?.font.family !== undefined, true);
 });
 
+test('switching the figure model re-resolves the figure asset and nothing else', async () => {
+  // Plan 6.5's other half. The raster key's new honesty is unreachable without this: a
+  // re-cast of an existing project finds the asset fresh in the manifest and never reaches
+  // `illustrationRaster` at all, so the film would keep the old model's picture and the
+  // switch would appear to do nothing.
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-figmodel-'));
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'The heart',
+    meta: { style: 'marker', palette: 'color' },
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    assets: [
+      { id: 'heart', kind: 'figure', prompt: 'a cutaway human heart' },
+      { id: 'brain', kind: 'icon', prompt: 'a brain thinking' },
+    ],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'The heart is a pump with four rooms.',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'heart-el',
+            type: 'asset',
+            assetId: 'heart',
+            at: { x: 200, y: 200, w: 600, h: 400 },
+          },
+          {
+            id: 'brain-el',
+            type: 'asset',
+            assetId: 'brain',
+            at: { x: 900, y: 200, w: 220, h: 220 },
+          },
+        ],
+      },
+    ],
+  });
+  const hashes = async (): Promise<Record<string, string>> =>
+    JSON.parse(await readFile(path.resolve(dir, 'cache.json'), 'utf8')) as Record<string, string>;
+
+  await resolveVisuals(sb, dir);
+  const before = await hashes();
+
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/nano-banana';
+  try {
+    await resolveVisuals(sb, dir);
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
+  const after = await hashes();
+  assert.notEqual(
+    after['visuals:asset:heart'],
+    before['visuals:asset:heart'],
+    'a figure is shown as it arrived, so the model that draws it is one of its inputs',
+  );
+  assert.equal(
+    after['visuals:asset:brain'],
+    before['visuals:asset:brain'],
+    'every other asset must be exactly as fresh as it was — the token is empty for them',
+  );
+
+  // Naming a built-in endpoint is the default, so it puts the project back where it was
+  // rather than inventing a third key.
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/flux/dev';
+  try {
+    await resolveVisuals(sb, dir);
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
+  assert.deepEqual(await hashes(), before);
+});
+
 test('resolveVisuals is a pure enrichment: it does not mutate its input', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-visuals-'));
   const sb = fixture();

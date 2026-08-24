@@ -239,6 +239,7 @@ export {
   detectImageProvider,
   extractPathData,
   figureGround,
+  figureModelOverride,
   figurePrompt,
   figureRaster,
   formPlausibility,

@@ -559,6 +559,51 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   entirely from cache still reports `visuals fal $0.0120`. Same family as the phantom-cost
 >   bug 3.5 closed and the `deriveLesson` one still open, and the lane now knows the answer —
 >   `IllustrationRaster.from` says `project`, `cache` or `provider`. Next: 6.3, 6.5.
+>
+> **Progress (2026-08-24): 6.5 is landed — the figure cache key names the model that drew
+> it.** 1125 tests green (3 pre-existing keyvault skips, 1128 total), auditcheck 87/87, lint
+> and typecheck clean, and `examples/lessons/longitude.lesson.json` casts strict-clean end to
+> end (`projects/qc65-longitude`). `illustrationKey` now takes the model and hashes it for
+> `kind: 'figure'` only; `figureModelToken` is the single place that rule lives, because two
+> keys have to agree about it (see the next point).
+>
+> - **The bar's own wording would have been demonstrable only on a fresh project.** Switching
+>   `INKCAST_FIGURE_MODEL` misses the raster cache — but a re-cast of an existing project
+>   finds the figure asset fresh in the visual manifest and never reaches
+>   `illustrationRaster` at all, so the film would keep the old model's picture and the
+>   switch would appear to do nothing. So the model is folded into the `figure` asset's own
+>   hash in `resolve.ts` too, by `codeFP`'s pattern from 6.2: one term, empty for every other
+>   kind, and `hash()` concatenates, so an empty term leaves every asset on disk exactly as
+>   fresh as it was.
+> - **A built-in endpoint contributes nothing, and that was measured before it was decided.**
+>   All 42 rasters in the machine cache were sampled for saturation: **8 are figures** (7.0%
+>   to 28.5% of sampled pixels off-grey) and 34 are form line art (30 at 0.0%, the rest under
+>   1%). Hashing the resolved model id unconditionally would have invalidated all 8 for bytes
+>   two of the three candidate endpoints would have redrawn identically. The square token's
+>   rule, applied a second time: a token that cannot change a pixel does not go in the key.
+>   Setting the override to the value it already had is therefore a no-op on both keys, which
+>   `resolve.test.ts` pins.
+> - **Style stays out, and this is a deviation from this item's own wording ("and style").**
+>   `figurePrompt` takes no style and `InkStyle` has no `stylePrompt` to give it — that field
+>   is still only a line in `docs/STYLES.md` §2. Nothing style-dependent reaches a figure
+>   raster today, so a style token would invalidate those 8 figures for identical bytes. What
+>   STYLES.md §6 actually asks for (an asset cached per style, not per prompt) is satisfied
+>   the moment a style pack picks the endpoint — `PLAN-FIGURE-LANE.md`'s own plan for it,
+>   "nano-banana when the style pack asks for marker" — and that arrives here as a different
+>   model and keys itself. **7.3 needs no change in this file**, and 8.1 should read this as
+>   an argued deviation rather than an unimplemented half.
+> - **What the key cannot do is label the past.** Nothing records which model drew a raster
+>   already in the cache, so a figure generated under an override is still filed under the
+>   default key and will still be served for a default-model request. The key tells the truth
+>   from here on; clearing the cache by hand is the only way to make it retroactive.
+> - **"Says why" is a real line, not a comment.** A miss the key caused on purpose names the
+>   model and the file it declined to serve, guarded so the common path pays nothing for it
+>   (two `existsSync` calls, only on a figure whose model was overridden). Without it,
+>   switching models re-bills a subject the cache visibly holds and nothing in the run says
+>   why.
+> - **Proven in tests, not against a provider.** Both keys have no credit (402), so the
+>   switch is exercised through injected generators rather than a live model — the same
+>   limit as gating finding 1 in `HANDOFF-AUDIT-REMAINDER.md`. Next: 6.3, 7.1, 7.2, 7.3.
 
 **Two rules that shape everything here:**
 

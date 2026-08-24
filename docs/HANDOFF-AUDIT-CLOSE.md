@@ -3,8 +3,8 @@
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
 five times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
-(`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), and after 6.4 (the raster
-trust gate).
+(`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
+trust gate), and after 6.5 (the figure cache key).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -14,7 +14,7 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2 and 6.4:**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4 and 6.5:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -287,6 +287,40 @@ function`, `a map of the analogy`) is in the QUIET list in
   6.4 left the answer sitting there — `IllustrationRaster.from` is `project`, `cache` or
   `provider` on every resolve.
 
+- 2026-08-24 — **6.5, the figure cache key names its model** — small, and three things in it
+  are worth more than the diff.
+  1. **The done-bar as written is only half the mechanism.** Switching
+     `INKCAST_FIGURE_MODEL` does miss the raster cache — but only on a project that resolves
+     the asset. A re-cast of an existing project finds the `figure` asset fresh in the visual
+     manifest and never calls `illustrationRaster` at all, so the switch would have looked
+     like a no-op on exactly the case a user would try it on. The model is therefore folded
+     into the asset's own `asset/v6` hash as well, by 6.2's `codeFP` pattern: one term, empty
+     for every other kind. `hash()` concatenates its parts, which is why an empty term
+     invalidates nothing — that property is load-bearing for both this item and 6.2, and it
+     is worth knowing before adding a third such term.
+  2. **A built-in endpoint contributes nothing to either key, and that was measured first.**
+     Sampling saturation across all 42 rasters in `~/.inkcast/cache/illustrations` says **8
+     are figures** (7.0–28.5% of sampled pixels off-grey) and 34 are form line art. Hashing
+     the resolved model id unconditionally would have invalidated those 8 for bytes that
+     would come back identical. Same rule as the square token in `illustrationKey`'s header,
+     applied a second time. `figureModelToken` is the single place that rule lives, because
+     the raster key and the asset key have to agree about which models are the default or a
+     project would re-resolve an asset whose raster then arrives straight from the cache.
+  3. **Style is deliberately not in the key, and 8.1 should be handed this as an argued
+     deviation** — the item's wording says "and style". Nothing style-dependent reaches a
+     figure raster today: `figurePrompt` takes no style, and `InkStyle` has no `stylePrompt`
+     to give it (still only a line in `STYLES.md` §2). What §6 actually wants — an asset
+     cached per (style, prompt) — happens the moment a style pack picks the endpoint, which
+     is `PLAN-FIGURE-LANE.md`'s own plan ("nano-banana when the style pack asks for marker"):
+     that arrives as a different model and keys itself. **7.3 needs no change in `image.ts`
+     for this.**
+
+  **What it cannot do:** label the past. No cache records which model drew a raster, so a
+  figure generated under an override is still filed under the default key and still served
+  for a default-model request. Clearing the cache by hand is the only retroactive fix. And
+  with both providers at 402, the switch is proven through injected generators in tests, not
+  against a live model.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -429,14 +463,14 @@ image cost line billed from intent). Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
-**The audit is not closed.** Phases 0–5 and items 6.1, 6.2 and 6.4 are landed; the rest of
+**The audit is not closed.** Phases 0–5 and items 6.1, 6.2, 6.4 and 6.5 are landed; the rest of
 Phases 6–8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
 scope, done-bars, and the coverage table that maps every non-PASS audit finding to exactly
 one item or waiver.
 
-- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1, 6.2 and 6.4 are
-  done. Left: 6.3 circuits/chemistry/geography by demand, lane docs first; 6.5
-  `illustrationKey` folds in the figure model id.
+- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1, 6.2, 6.4 and 6.5
+  are done. Left: 6.3 circuits/chemistry/geography by demand, lane docs first — the last
+  item in the phase.
   **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
   auditcheck line will say so, but the studio would otherwise go on apologising for a
   lane that exists.
@@ -451,7 +485,7 @@ one item or waiver.
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: **6.1, 6.2 and 6.4 are in, and nothing among 6.3, 6.5 and 7.1–7.3
+Ordering per the plan: **6.1, 6.2, 6.4 and 6.5 are in, and nothing among 6.3 and 7.1–7.3
 blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
 signal is 6.1's findings and the guard has fired on nothing in the corpus. API cost is
 negligible until 8.2 (3.3's Tier 2 is keyed and cached, ~a few cents a film, and skips
@@ -703,3 +737,23 @@ Earned in the 6.4 session:
   the tier whose whole job is making two films agree about what the rover looks like.
   `cacheDir()` reads the environment on every call, so one line at the top of the test file
   fixes it; without it a test suite quietly poisons a shared cache.
+
+Earned in the 6.5 session:
+
+- **Fixing a cache key is dead code until you find which cache is asked first.** This repo
+  has four tiers between a storyboard and a raster (the visual manifest's freshness record,
+  the project's `assets/illustrations`, the machine-wide cache, the in-process memo), and a
+  key that is honest at tier three is never consulted when tier zero says "fresh". Before
+  adding an input to any key here, cast the change on a project that already exists — a
+  fresh directory will pass a done-bar that the case a user would actually try still fails.
+- **An empty hash term is free, and that is what lets a key gain an input without a
+  migration.** `hash()` concatenates its parts, so `cond ? token : ''` leaves every artefact
+  on disk exactly as fresh as it was. That property is why 6.2's `codeFP` and 6.5's
+  `figureFP` could both be added without re-billing anything, and it is worth checking
+  rather than assuming the next time — a `join('|')` would have invalidated the world.
+- **A bar's parenthetical can outlive its reason; check whether the input can change a pixel
+  before you hash it.** This item's wording said "the figure model id (and style)". The
+  model changes the picture. The style, today, cannot reach it at all — there is no
+  `stylePrompt` yet — so hashing it would have re-billed eight cached figures for identical
+  bytes while looking like compliance. Implementing the words rather than the reason is how
+  a cache key acquires tokens nobody can defend at a re-audit.

@@ -30,6 +30,7 @@ import {
   resetIllustrationCache,
   resetImageProviderNotice,
   vectoriseToInk,
+  type IllustrationRaster,
   type RasterGate,
   type RasterVerdict,
 } from '../src/image.js';
@@ -343,6 +344,127 @@ test('the form gate rejects a blank page and a strip, and accepts a drawing', as
   const verdict = await formPlausibility(strip);
   assert.equal(verdict.ok, false);
   assert.match(verdict.why ?? '', /strip rather than a subject/);
+});
+
+/* ------------------------------------ the model in the figure key (6.5) */
+
+test('the figure key names its model, and only when it is not a built-in one', () => {
+  const plain = illustrationKey('ventricle', 'a cutaway heart', 'figure');
+  // Both providers' own endpoints contribute nothing, so the eight figure rasters already
+  // in the machine cache stay served and `illustration/v2` stays an honest version token.
+  // Setting the override to the value it already had is a no-op, as it should be.
+  assert.equal(
+    plain,
+    illustrationKey('ventricle', 'a cutaway heart', 'figure', 1, 'fal-ai/flux/dev'),
+  );
+  assert.equal(
+    plain,
+    illustrationKey('ventricle', 'a cutaway heart', 'figure', 1, 'black-forest-labs/flux-dev'),
+  );
+  // A model that draws a different heart is a different picture, and a figure is shown as
+  // it arrived — this is the aliasing the `kind` token already exists to stop.
+  assert.notEqual(
+    plain,
+    illustrationKey('ventricle', 'a cutaway heart', 'figure', 1, 'fal-ai/nano-banana'),
+  );
+  // A form raster is binarised and re-traced, so the model that drew it does not survive
+  // into the board: invalidating those would be paying twice for the same ink.
+  const form = illustrationKey('ventricle', 'a cutaway heart');
+  assert.equal(
+    form,
+    illustrationKey('ventricle', 'a cutaway heart', 'form', 1, 'fal-ai/nano-banana'),
+  );
+  assert.notEqual(form, plain);
+});
+
+/** Everything the lane wrote to stdout while it ran. */
+async function logged(fn: () => Promise<void>): Promise<string> {
+  const out: string[] = [];
+  const real = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    out.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = real;
+  }
+  return out.join('');
+}
+
+test('switching INKCAST_FIGURE_MODEL misses the figure cache and says why', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-figmodel-'));
+  const pass: RasterGate = async (): Promise<RasterVerdict> => ({ ok: true, score: 1 });
+  const ask = async (bytes: string): Promise<IllustrationRaster | undefined> => {
+    resetIllustrationCache();
+    return illustrationRaster({
+      id: 'ventricle',
+      prompt: 'a cutaway heart',
+      dir,
+      kind: 'figure',
+      gate: pass,
+      generate: async () => Buffer.from(bytes),
+    });
+  };
+
+  const first = await ask('built-in-bytes');
+  assert.ok(first);
+  assert.equal(first.cached, false);
+  // The built-in model's picture is on disk now, so the same ask is free.
+  assert.equal((await ask('never-called'))?.cached, true);
+
+  let switched: IllustrationRaster | undefined;
+  let said = '';
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/nano-banana';
+  try {
+    said = await logged(async () => {
+      switched = await ask('banana-bytes');
+    });
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
+
+  assert.ok(switched);
+  assert.equal(switched.cached, false, 'a different model draws a different picture');
+  assert.notEqual(switched.rel, first.rel, 'and it is filed under its own key, not over the old');
+  assert.equal(switched.png.toString(), 'banana-bytes');
+  // "says why": the miss names the model that caused it and the file it declined to serve,
+  // so a re-bill of a subject the cache visibly holds is never unexplained.
+  assert.match(said, /INKCAST_FIGURE_MODEL=fal-ai\/nano-banana/);
+  assert.match(said, /was not served/);
+  assert.ok(said.includes(path.resolve(dir, first.rel)), 'the note names the declined file');
+
+  // Back on the built-in model the original picture returns, unbilled: the override adds a
+  // key, it does not replace one.
+  const back = await ask('never-called');
+  assert.equal(back?.cached, true);
+  assert.equal(back?.png.toString(), 'built-in-bytes');
+});
+
+test('the form lane does not read INKCAST_FIGURE_MODEL at all', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-figmodel-'));
+  const pass: RasterGate = async (): Promise<RasterVerdict> => ({ ok: true, score: 1 });
+  const ask = async (bytes: string): Promise<IllustrationRaster | undefined> => {
+    resetIllustrationCache();
+    return illustrationRaster({
+      id: 'derrick',
+      prompt: 'a drilling derrick',
+      dir,
+      gate: pass,
+      generate: async () => Buffer.from(bytes),
+    });
+  };
+
+  assert.equal((await ask('line-art'))?.cached, false);
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/nano-banana';
+  try {
+    const again = await ask('never-called');
+    assert.equal(again?.cached, true, 'the figure model must not invalidate traced line art');
+    assert.equal(again?.png.toString(), 'line-art');
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
 });
 
 test('provider selection prefers replicate, then fal, then none', () => {

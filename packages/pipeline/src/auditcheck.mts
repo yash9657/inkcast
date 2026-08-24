@@ -783,6 +783,43 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S5-d (6.5): the figure cache key names the model that draws it ---- */
+{
+  const image = read('packages/visuals/src/image.ts');
+  const resolve = read('packages/visuals/src/resolve.ts');
+
+  check(
+    'S5-d: a figure’s model is one of its cache key’s inputs',
+    /export function figureModelToken/.test(image) &&
+      /const token = kind === 'figure' \? figureModelToken\(model\) : ''/.test(image) &&
+      /illustrationKey\(args\.id, args\.prompt, kind, aspect, model\)/.test(image),
+    'an INKCAST_FIGURE_MODEL switch silently serves the old model’s raster again — a figure is shown as it arrived, so the model is the picture',
+  );
+  check(
+    'S5-d: the built-in endpoints keep contributing nothing',
+    /const DEFAULT_FIGURE_MODELS = new Set\(Object\.values\(MODELS\)\.map\(\(m\) => m\.figure\)\)/.test(
+      image,
+    ),
+    'the default model is in the key now, so every figure raster in every machine cache invalidates for bytes that would be identical — the square token’s mistake, made twice',
+  );
+  check(
+    'S5-d: a form raster’s key still ignores the model',
+    /kind === 'figure' \? figureModelOverride\(\) : undefined/.test(image),
+    'a form raster is binarised and re-traced, so the model does not survive into the board — invalidating those pays twice for the same ink',
+  );
+  check(
+    'S5-d: the project’s own asset key moves with the figure model too',
+    /const figureFP = figureModelToken\(figureModelOverride\(\)\)/.test(resolve) &&
+      /asset\.kind === 'figure' \? figureFP : ''/.test(resolve),
+    'a re-cast finds the asset fresh in the manifest and never reaches the raster tier, so the switch appears to do nothing and the film keeps the old picture',
+  );
+  check(
+    'S5-d: a key-caused miss says which file it declined to serve',
+    /was not served/.test(image) && /INKCAST_FIGURE_MODEL=\$\{model\}/.test(image),
+    'switching the model re-bills a subject the cache visibly holds, with nothing in the run saying why (plan 6.5’s done-bar is “misses *and says why*”)',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

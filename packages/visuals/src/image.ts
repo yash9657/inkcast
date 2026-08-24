@@ -96,6 +96,42 @@ const MODELS: Record<Exclude<ImageProvider, 'none'>, Record<ImageKind, string>> 
 const STEPS: Record<ImageKind, number> = { form: 4, figure: 28 };
 
 /**
+ * Every built-in figure endpoint, across providers.
+ *
+ * A model token naming one of these contributes nothing to a cache key (see
+ * `illustrationKey`), which is what lets the key start telling the truth without
+ * invalidating the eight figure rasters already in the machine cache. Setting
+ * `INKCAST_FIGURE_MODEL` to the value it already had is therefore a no-op on the key,
+ * as it should be — the override is only interesting when it changes the picture.
+ */
+const DEFAULT_FIGURE_MODELS = new Set(Object.values(MODELS).map((m) => m.figure));
+
+/**
+ * The figure endpoint `INKCAST_FIGURE_MODEL` asks for, or `undefined` for the built-in one.
+ *
+ * Read here rather than in two places so the model that goes into the cache key and the
+ * model that is actually called can never disagree — which is the whole of plan 6.5.
+ */
+export function figureModelOverride(): string | undefined {
+  const raw = process.env.INKCAST_FIGURE_MODEL?.trim();
+  return raw && raw.length > 0 ? raw : undefined;
+}
+
+/**
+ * What a figure model contributes to a cache key — nothing, unless it is not a built-in one.
+ *
+ * Kept as one function because two callers hash it: the raster key here and the `figure`
+ * asset's key in `resolve.ts`. They have to agree about which models are the default, or a
+ * project would re-resolve an asset whose raster then comes straight back from the cache.
+ * Takes the model explicitly rather than reading the environment, so every key it feeds
+ * stays a pure function of its inputs.
+ */
+export function figureModelToken(model: string | undefined): string {
+  const named = model?.trim();
+  return named && !DEFAULT_FIGURE_MODELS.has(named) ? `model:${named}` : '';
+}
+
+/**
  * What both providers price an image at, and what `square_hd` already was: ~1 megapixel.
  * Holding the *area* rather than the long edge is what makes a 3:2 request cost the same
  * as a square one.
@@ -168,8 +204,8 @@ export function replicateAspect(aspect: number): string {
 }
 
 function modelFor(provider: Exclude<ImageProvider, 'none'>, kind: ImageKind): string {
-  const override = kind === 'figure' ? process.env.INKCAST_FIGURE_MODEL : undefined;
-  return override && override.trim().length > 0 ? override.trim() : MODELS[provider][kind];
+  const override = kind === 'figure' ? figureModelOverride() : undefined;
+  return override ?? MODELS[provider][kind];
 }
 
 /** Where cached rasters live, relative to the project directory. */
@@ -456,16 +492,42 @@ export async function generateIllustration(
  * square, so the square token has to stay absent or the whole machine cache — a few dollars
  * of images, and the only reason two videos about the rover agree what the rover looks
  * like — invalidates on a change that would ask for the identical bytes.
+ *
+ * **The model goes in for `figure` only** (plan 6.5, audit S5-d), and by the same rule: a
+ * token only when it is not one of the built-in endpoints, so today's keys are byte-identical
+ * to yesterday's and `illustration/v2` stays honest. Three things decided the shape of this:
+ *
+ * - A `form` raster is binarised and re-traced, so the model that drew it does not survive
+ *   into the board and re-billing those would be paying twice for the same ink. A `figure`
+ *   is shown as it arrived, so the model *is* the picture — `flux/dev` and `nano-banana`
+ *   draw two different hearts, and serving one for the other is the silent aliasing the
+ *   `kind` token already exists to stop.
+ * - **Style reaches the raster through the model and nowhere else.** `figurePrompt` takes no
+ *   style, and `InkStyle` has no `stylePrompt` to give it — the field is still only a line in
+ *   `docs/STYLES.md` §2. What STYLES.md §6 actually wants (an asset cached per style, not per
+ *   prompt) is satisfied the moment a style pack picks the endpoint, which is
+ *   `PLAN-FIGURE-LANE.md`'s own plan for it ("nano-banana when the style pack asks for
+ *   marker"): that arrives here as a different `model` and keys itself. Folding a style name
+ *   in *before* it can change a pixel would invalidate eight cached figures for bytes that
+ *   would be identical — the square token's mistake, made deliberately. 7.3 is where this
+ *   becomes real, and it needs no change here.
+ * - What this cannot do is label the past. Nothing records which model drew a raster already
+ *   in the cache, so a figure generated under an override is still filed under the default
+ *   key and will still be served for a default-model request. The key tells the truth from
+ *   here on; a cache cleared by hand is the only way to make it retroactive.
  */
 export function illustrationKey(
   id: string,
   prompt: string,
   kind: ImageKind = 'form',
   aspect = 1,
+  model?: string,
 ): string {
   const size = rasterSize(aspect);
   const shape = size.width === size.height ? [] : [`${size.width}x${size.height}`];
-  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim(), ...shape).slice(0, 10)}`;
+  const token = kind === 'figure' ? figureModelToken(model) : '';
+  const tier = token ? [token] : [];
+  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim(), ...shape, ...tier).slice(0, 10)}`;
 }
 
 export type IllustrationRaster = {
@@ -546,7 +608,10 @@ export async function illustrationRaster(args: {
         kind: a.kind,
         aspect: a.aspect,
       }));
-  const key = illustrationKey(args.id, args.prompt, kind, aspect);
+  // The endpoint this raster would be drawn by, in the key as well as in the request: a
+  // figure is shown as it arrived, so a switched model is a different picture (plan 6.5).
+  const model = kind === 'figure' ? figureModelOverride() : undefined;
+  const key = illustrationKey(args.id, args.prompt, kind, aspect, model);
   const rel = `${ILLUSTRATION_DIR}/${key}.png`;
   const abs = path.resolve(args.dir, rel);
   const shared = path.join(cacheDir('illustrations'), `${key}.png`);
@@ -607,6 +672,25 @@ export async function illustrationRaster(args: {
       if (!(await judge(machine, 'from the machine cache', shared))) return undefined;
       await stash(abs, machine, 'project');
       return { png: machine, rel, cached: true, from: 'cache', provider: detectImageProvider() };
+    }
+
+    // A miss the key caused on purpose says so, and names the file it declined to serve —
+    // otherwise switching `INKCAST_FIGURE_MODEL` looks like an unexplained re-bill of a
+    // subject the cache visibly already holds. Two `existsSync` calls, only on a figure
+    // whose model was overridden, so the common path pays nothing for it.
+    if (model && figureModelToken(model)) {
+      const plain = illustrationKey(args.id, args.prompt, kind, aspect);
+      const drawn = [
+        path.resolve(args.dir, `${ILLUSTRATION_DIR}/${plain}.png`),
+        path.join(cacheDir('illustrations'), `${plain}.png`),
+      ].find((f) => existsSync(f));
+      if (drawn) {
+        log.info(
+          `the figure for "${args.id}" is keyed to INKCAST_FIGURE_MODEL=${model}, so the ` +
+            `cached raster drawn by the built-in model (${drawn}) was not served — ` +
+            `${model} draws this subject under its own key`,
+        );
+      }
     }
 
     const provider = detectImageProvider();
