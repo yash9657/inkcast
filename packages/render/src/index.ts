@@ -23,6 +23,7 @@ export { buildPageHtml, buildPreviewHtml } from './html.js';
 export type { PageOptions, PreviewOptions } from './html.js';
 export { compileBoard, compilePlan, cueFraction, sceneDuration } from './compile.js';
 export type { BoardReport, CompileOptions } from './compile.js';
+export { emitPlan, PLAN_FILE } from './emitplan.js';
 export { check, QC_FILE } from './check.js';
 export type { CheckOptions, InheritedProblems } from './check.js';
 export {

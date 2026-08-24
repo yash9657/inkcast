@@ -4,7 +4,7 @@ Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-0
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
 five times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
 (`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
-trust gate), and after 6.5 (the figure cache key).
+trust gate), after 6.5 (the figure cache key), and after 7.2 (the inspectable plan).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -14,7 +14,7 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4 and 6.5:**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5 and 7.2:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -321,6 +321,28 @@ function`, `a map of the analogy`) is in the QUIET list in
   with both providers at 402, the switch is proven through injected generators in tests, not
   against a live model.
 
+- 2026-08-24 — **7.2, the plan becomes inspectable on demand** — two files, one flag, and
+  three decisions a re-audit will ask about.
+  1. **The emission is not in `render()`, and that is the item.** `render()` is what the
+     pipeline skips when the mp4 is current, so a flag implemented there writes nothing on
+     exactly the runs where somebody is inspecting rather than rendering. `emitPlan()` does
+     its own quiet compile outside every cache — measured: a second cast of
+     `projects/qc65-longitude` reports `render —` and still writes 105 KB of `plan.json`.
+     Nor is it the gate stage's plan: `check()` compiles without the resolved font family,
+     because it is measuring rather than drawing.
+  2. **`plan.json` is a report, never an input.** The audit's objection to S7-a was that a
+     persisted plan is a drift-capable derived copy, not that no timeline exists. The file
+     therefore leads with a `_note` saying nothing reads it back, and `auditcheck` pins both
+     that sentence and the absence of any reader in the tree. If a future item ever wants to
+     _read_ a plan, that is a different decision and it has to be argued against
+     Spec-is-wrong #4, not slipped in.
+  3. **`--timing` is a second mode, never a change to the default.** The default hash
+     excludes timing because `enter.at` is rewritten by the voice stage on every
+     re-narration; a tool that reported that would cry wolf every run. Proved both ways on a
+     real film: +1.5s of `hold` on one scene is **0 changed lines in default mode and 50 in
+     `--timing`**. The row-building moved out of the `.mts` tool into `planrows.ts` so that
+     claim is a unit test rather than a demonstration somebody did once.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -463,7 +485,7 @@ image cost line billed from intent). Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
-**The audit is not closed.** Phases 0–5 and items 6.1, 6.2, 6.4 and 6.5 are landed; the rest of
+**The audit is not closed.** Phases 0–5 and items 6.1, 6.2, 6.4, 6.5 and 7.2 are landed; the rest of
 Phases 6–8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
 scope, done-bars, and the coverage table that maps every non-PASS audit finding to exactly
 one item or waiver.
@@ -474,9 +496,10 @@ one item or waiver.
   **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
   auditcheck line will say so, but the studio would otherwise go on apologising for a
   lane that exists.
-- **Phase 7 — scale and cost** (~1 week, after everything above). 7.1 per-scene
-  segment cache / partial re-encode (byte-identical splice is the test); 7.2
-  `--emit-plan` + `planhash --timing`; 7.3 declarative StylePacks (depends on 2.2, and
+- **Phase 7 — scale and cost** (~1 week, after everything above). 7.2 is done
+  (`--emit-plan` + `planhash --timing`). Left: 7.1 per-scene
+  segment cache / partial re-encode (byte-identical splice is the test); 7.3 declarative
+  StylePacks (depends on 2.2, and
   sequenced after 6.4, which has landed — but see the remainder handoff's 7.3 section:
   6.4 gave a dark pack a way to _detect_ an opaque white ground, not a way to remove it).
 - **Phase 8 — the exit** (~2 days + ~$3). 8.1 re-run the audit: every check PASS
@@ -485,8 +508,8 @@ one item or waiver.
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: **6.1, 6.2, 6.4 and 6.5 are in, and nothing among 6.3 and 7.1–7.3
-blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
+Ordering per the plan: **6.1, 6.2, 6.4, 6.5 and 7.2 are in, and nothing among 6.3, 7.1 and
+7.3 blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
 signal is 6.1's findings and the guard has fired on nothing in the corpus. API cost is
 negligible until 8.2 (3.3's Tier 2 is keyed and cached, ~a few cents a film, and skips
 itself with no key).
@@ -757,3 +780,23 @@ Earned in the 6.5 session:
   `stylePrompt` yet — so hashing it would have re-billed eight cached figures for identical
   bytes while looking like compliance. Implementing the words rather than the reason is how
   a cache key acquires tokens nobody can defend at a re-audit.
+
+Earned in the 7.2 session:
+
+- **The same trap twice in two items: ask which cache the feature sits behind.** 6.5 learned
+  it about a key; 7.2 learned it about a flag. `--emit-plan` implemented in `render()` — the
+  obvious place, where the plan already exists — writes nothing on any run whose mp4 is
+  current, which is most runs. The fix in both cases was to move the work outside the cache
+  that skips it, and the way to notice is the same: run the feature twice in a row on the
+  same project and check that the second run still does it.
+- **A tool nobody can test is a claim, not an instrument.** `planhash`'s two modes rest on a
+  property ("a schedule change shows here and not there") that is exactly the kind of thing
+  that rots silently. Moving the row-building out of the `.mts` and into `planrows.ts` cost
+  twenty lines and turned a demonstration into a test — and the `.mts` is still the thin
+  argv-in, rows-out shell it always was.
+- **When you add a second artefact to a project directory, say in the file what reads it.**
+  `plan.json` leads with a `_note` because the audit's objection to persisting a plan was
+  never about disk space: it was that a derived copy on disk grows readers, and then edits,
+  and then it is a source of truth nobody decided to create. One sentence at the top is
+  cheaper than the bug report, and `auditcheck` now fails if the sentence or the property
+  goes away.

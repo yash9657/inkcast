@@ -314,6 +314,8 @@ type RenderModule = {
   ): Promise<{ videoPath: string; problems?: string[] }>;
   /** One frame without an encode. `undefined` when Chromium is not installed. */
   openStills(): Promise<StillSession | undefined>;
+  /** `--emit-plan`: write the compiled timeline to `<dir>/plan.json` (plan 7.2). */
+  emitPlan(sb: Storyboard, dir: string): Promise<string>;
 };
 
 /**
@@ -438,7 +440,7 @@ export async function loadCheck(): Promise<CheckModule> {
 }
 
 export async function loadRender(): Promise<RenderModule> {
-  return (await load('render', ['render', 'openStills'])) as unknown as RenderModule;
+  return (await load('render', ['render', 'openStills', 'emitPlan'])) as unknown as RenderModule;
 }
 
 /** The drawing compiler, for the critic's preview. Reported against the lesson stage. */

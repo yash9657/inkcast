@@ -119,11 +119,13 @@ export type CompileOptions = {
    * Compute the board assertions but do not gate or log them — the caller is
    * reporting them itself.
    *
-   * For `check()` (plan 3.1) and nothing else. The gate stage compiles a plan purely
-   * to measure it, and without this every advisory is printed twice per run and every
-   * blocking violation is warned about by a compile whose plan is then thrown away.
-   * The findings still come back in the report; what is suppressed is the *saying*,
-   * which belongs to whoever owns the verdict.
+   * For `check()` (plan 3.1) and `emitPlan()` (plan 7.2), and nothing else. The gate
+   * stage compiles a plan purely to measure it, and without this every advisory is
+   * printed twice per run and every blocking violation is warned about by a compile
+   * whose plan is then thrown away. `--emit-plan` compiles for the same reason in a
+   * different direction — to write the plan down rather than to draw it. The findings
+   * still come back in the report; what is suppressed is the *saying*, which belongs to
+   * whoever owns the verdict.
    */
   quiet?: boolean;
 };

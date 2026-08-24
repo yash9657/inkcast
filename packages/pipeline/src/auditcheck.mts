@@ -820,6 +820,59 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S7-a (7.2): the plan is inspectable on demand, and only on demand ---- */
+{
+  const emit = read('packages/render/src/emitplan.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  const rows = read('packages/render/src/planrows.ts');
+  const tool = read('packages/render/src/planhash.mts');
+
+  check(
+    'S7-a: the emitted plan says nothing reads it back',
+    /Nothing reads it back/.test(emit) && /_note/.test(emit),
+    'the audit’s whole objection to persisting the plan was that a derived copy can drift — the file has to tell the next person who edits it that it changes no pixel',
+  );
+  check(
+    'S7-a: nothing in the tree reads plan.json',
+    !/readFile[^\n]*PLAN_FILE|readFileSync[^\n]*plan\.json|require\([^\n]*plan\.json/.test(
+      [
+        emit,
+        cast,
+        read('packages/render/src/render.ts'),
+        read('packages/render/src/check.ts'),
+      ].join('\n'),
+    ),
+    'plan.json has become an input — that is the drift-capable derived copy S7-a argued against, and the plan is a pure function of storyboard.json',
+  );
+  {
+    // Ordering, in the source: the emission has to happen before the render cache is
+    // consulted, or `--emit-plan` writes nothing on exactly the runs where the video is
+    // already current — which is the common case on a re-cast.
+    const emitAt = cast.indexOf('planPath = await emitPlan(sb!, run.dir)');
+    const keyAt = cast.indexOf('const renderKey = renderFingerprint(sb)');
+    check(
+      'S7-a: --emit-plan runs outside the render cache',
+      emitAt > 0 && keyAt > emitAt,
+      'the flag is inside the branch that a cached render skips, so it silently writes nothing whenever the mp4 is up to date',
+    );
+  }
+  check(
+    'S7-a: the plan is compiled quietly, and cannot fail a run',
+    /gates: 'degrade'/.test(emit) && /quiet: true/.test(emit),
+    'asking to see the plan can now throw, or prints every board advisory a second time — the run’s real gate already fired in check()',
+  );
+  check(
+    'S7-a: planhash keeps timing opt-in, in a mode of its own',
+    /--timing/.test(tool) &&
+      /export function timed/.test(rows) &&
+      /if \(opts\.timing\)/.test(rows) &&
+      !/'start'|'dur'/.test(
+        rows.slice(rows.indexOf('export function drawn'), rows.indexOf('export function timed')),
+      ),
+    'timing has leaked into the default hash — `enter.at` is rewritten on every re-narration, so that tool would report a diff on every run and answer no geometry question',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

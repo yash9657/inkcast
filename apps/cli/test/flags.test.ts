@@ -134,3 +134,18 @@ test('every preset the flag accepts is a preset the help text offers', () => {
   // way to fixing the list, or this test would pass for a flag that accepts anything.
   assert.throws(() => readFlags({ preset: 'widescreen' }), UsageError);
 });
+
+test('--emit-plan reaches the pipeline, and is documented where a user would look', () => {
+  // The link `--board` was missing for a whole phase, checked here for the same reason:
+  // a flag that parses and reaches nothing is indistinguishable from a flag that works,
+  // right up to the moment somebody looks for the file it promised.
+  assert.equal(readFlags({ 'emit-plan': true }).emitPlan, true);
+  assert.equal(readFlags({}).emitPlan, false, 'a plan on every run is a derived copy');
+  const line = usage(false)
+    .split('\n')
+    .find((l) => l.includes('--emit-plan'));
+  assert.ok(line, 'usage() must document --emit-plan');
+  // And it says what the file is for. The audit's objection to a persisted plan was that
+  // it becomes an input; the help text is the first place that can be said.
+  assert.match(usage(false), /nothing reads it back/);
+});

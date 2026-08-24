@@ -2,8 +2,8 @@
 
 Written 2026-08-24, branch `visuals-morph-density`, immediately after item 6.1 landed;
 updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`), then 6.4
-(the raster trust gate, `e9487e7`) and then 6.5 (the figure cache key) landed and their
-sections were deleted from this file.
+(the raster trust gate, `e9487e7`), then 6.5 (the figure cache key, `b9cec6d`) and then
+7.2 (the inspectable plan) landed and their sections were deleted from this file.
 **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
@@ -15,25 +15,26 @@ disagrees with the plan it says so out loud.
 
 Phases 0–5 are landed and tested, and so are 6.1 (the honest guard for the three remaining
 unserved topic classes), 6.2 (the code lane — the fourth class is served now), 6.4 (the
-raster trust gate) and 6.5 (the figure cache key names the model that drew it). The tree is
-committed through 6.5. At that point: **1125 tests green** (3 pre-existing keyvault skips,
-1128 total), **auditcheck 87/87**, lint and typecheck clean, and three shipped lessons
-casting strict-clean end to end (`hash-map` is the newest, and the corpus's only board with
-a listing on it). Six items remain — 6.3, 7.1, 7.2, 7.3, 8.1, 8.2 — and none of 6.3–7.3
-blocks another, so they can be reordered freely by whoever picks them up. Phase 8 needs all
-of them plus a funded API key.
+raster trust gate), 6.5 (the figure cache key names the model that drew it) and 7.2 (the
+plan is inspectable on demand). The tree is committed through 7.2. At that point: **1128
+tests green** (3 pre-existing keyvault skips, 1131 total), **auditcheck 92/92**, lint and
+typecheck clean, and three shipped lessons casting strict-clean end to end (`hash-map` is
+the newest, and the corpus's only board with a listing on it). Five items remain — 6.3,
+7.1, 7.3, 8.1, 8.2 — and none of 6.3, 7.1 and 7.3 blocks another, so they can be reordered
+freely by whoever picks them up. Phase 8 needs all of them plus a funded API key.
 
 **Which to pick, if nobody has said.** 6.3's own rule is that the next lane is chosen from
 6.1's findings rather than from taste, and **there are still no findings** — the guard has
 fired on nothing in the corpus, so no lane has earned itself. That makes 6.3 the wrong item
-to start cold, and it is now the only item left in Phase 6. **7.2 is the natural next one**:
-it is the smallest thing left anywhere in the plan (a flag that writes `plan.json`, and a
-second mode on a tool that already exists), it needs no key, and its done-bar is two
-assertions. 7.3 is unblocked — its dark-surface pack was sequenced after 6.4, which has
-landed — but read its section first: 6.4 gave a dark pack a way to _detect_ an opaque white
-ground, not a way to remove it. 7.1 is the big one and wants a session of its own. The four
-gating findings below are unowned and each is an hour or two; items 3 and 4 both make cost
-reports wrong on runs that are now the common case.
+to start cold, and it is now the only item left in Phase 6. **7.3 is the natural next
+one** — its dark-surface pack was sequenced after 6.4, which has landed — but read its
+section before believing that unblocks it: 6.4 gave a dark pack a way to _detect_ an opaque
+white ground, not a way to remove it, and a slate board needs the removal. 7.1 is the big
+one and wants a session of its own; it now has a new instrument, since `--emit-plan` and
+`planhash --timing` are how a partial re-encode's segment boundaries and schedule can be
+inspected without rendering anything. The four gating findings below are unowned and each
+is an hour or two; items 3 and 4 both make cost reports wrong on runs that are now the
+common case.
 
 ## How to verify anything you land
 
@@ -55,7 +56,10 @@ both cheap:
 resolved geometry (one line each, ideal across a `git stash`), and
 `npx tsx packages/render/src/frames.mts <projectDir> <outDir> [t...]` grabs single frames
 without an encode — run it twice into two directories and `cmp` them for a real
-determinism check.
+determinism check. 7.2 added two more: `--emit-plan` on any cast or rerender writes
+`<project>/plan.json` (the compiled timeline, written for reading and never read back), and
+`npx tsx packages/render/src/planhash.mts --timing <project>` turns a _schedule_ change into
+a diff the way the default mode does for geometry.
 
 **If you touch the illustration lane, measure against the cache before choosing a number.**
 6.4's three thresholds were each set by tracing all 42 rasters in
@@ -203,19 +207,12 @@ unconditionally unless the flag is set.
 - **Encoder settings are part of the key** (crf, preset, threads, fps, frame size). A
   segment encoded by a differently-configured worker will concat without complaint and
   will not be byte-identical.
-
-## 7.2 The plan becomes inspectable on demand
-
-**The bar (plan):** `--emit-plan` writes `plan.json`; `planhash.mts` gains a `--timing`
-mode so a timing regression is a diff. _Done when_ both exist and a `hold` change shows up
-in `--timing` and not in default mode.
-
-**Where the code is.** `--emit-plan` does not exist anywhere yet (grep is clean).
-`planhash.mts` is `packages/render/src/planhash.mts`, and **its header already states the
-constraint**: timing is deliberately excluded from the hash, because `enter.at` is
-rewritten by the voice stage on every re-narration and a tool that reported a diff for
-that would cry wolf on every run. So `--timing` is an opt-in second mode, never a change
-to the default — which is also exactly what the done-bar's two halves are testing.
+- **7.2 left two instruments pointed at exactly this item.** `--emit-plan` writes the
+  compiled timeline without rendering anything, and `planhash --timing` turns a schedule
+  into a diff — between them, "which scenes does this edit actually move?" is answerable
+  before a single frame is encoded, which is the question the segment key exists to answer.
+  Note the caution in `emitplan.ts`: the file is written for reading and nothing reads it
+  back, so a segment cache must key off the plan it compiled, never off `plan.json`.
 
 ## 7.3 Style packs go declarative
 
@@ -267,7 +264,7 @@ stays out of the figure key until a style pack can change a pixel, which is 7.3,
 keys itself through the model then); and 5.1(b)'s
 written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
-under a second and should be run first — 87 checks as of 6.5, and each one is a fact some
+under a second and should be run first — 92 checks as of 7.2, and each one is a fact some
 pass of the original audit established.
 
 ## 8.2 The bake-off

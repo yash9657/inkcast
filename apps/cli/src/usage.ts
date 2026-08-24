@@ -48,6 +48,8 @@ ${h('OPTIONS')}
   -f, --force            redo every stage, ignoring the cache
       --degrade          render through detected quality defects (they are
                          recorded instead of blocking; the default is strict)
+      --emit-plan        also write the compiled timeline to plan.json (for
+                         reading — nothing reads it back)
       --open             open the video when it is done
       --json             machine-readable result on stdout, no progress bar
       --verbose          debug logging instead of the progress bar

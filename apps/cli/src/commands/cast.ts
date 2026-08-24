@@ -76,6 +76,7 @@ export async function runCast(ctx: CliContext, input: CastInput, flags: Flags): 
       ...(flags.project ? { projectId: flags.project } : {}),
       force: flags.force,
       ...(flags.degrade ? { gates: 'degrade' as const } : {}),
+      ...(flags.emitPlan ? { emitPlan: true } : {}),
       onProgress: rep.progress,
     });
   } catch (err) {
@@ -259,6 +260,7 @@ function jsonResult(result: CastResult, copied?: string) {
     ...(copied ? { copiedTo: copied } : {}),
     dir: result.dir,
     storyboardPath: path.join(result.dir, 'storyboard.json'),
+    ...(result.planPath ? { planPath: result.planPath } : {}),
     ...(result.lessonPath ? { lessonPath: result.lessonPath } : {}),
     lesson: result.lesson
       ? {
@@ -356,6 +358,14 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     'storyboard',
     `${pretty(ctx, path.join(result.dir, 'storyboard.json'))} ${c.dim(`(${count(sb.scenes.length, 'scene')}, ${count(sb.assets.length, 'asset')})`)}`,
   );
+  // Only when it was asked for, and said plainly: the plan is a report of what the
+  // storyboard compiled to, not a file the pipeline will read next time.
+  if (result.planPath) {
+    out += row(
+      'plan',
+      `${pretty(ctx, result.planPath)} ${c.dim('(the compiled timeline — written for reading, never read back)')}`,
+    );
+  }
   out += row(
     'stages',
     STAGES.map((s) =>

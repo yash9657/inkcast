@@ -234,6 +234,17 @@ export type CastOptions = {
    * recorded instead of blocking. See `GateMode` in `@inkcast/core`.
    */
   gates?: GateMode;
+  /**
+   * `--emit-plan`: write the compiled render plan to `<dir>/plan.json` (plan 7.2;
+   * audit S7-a).
+   *
+   * Off by default and deliberately so. The plan is a pure function of
+   * `storyboard.json` and nothing ever reads the file back — persisting it on every
+   * run would create the drift-capable derived copy the audit argued against, and
+   * writing it only when asked is what keeps it a report rather than a source of
+   * truth. See `emitPlan` in `@inkcast/render`.
+   */
+  emitPlan?: boolean;
 };
 
 /** What the front half of the pipeline produced. */
@@ -287,6 +298,14 @@ export type LessonResult = {
 export type CastResult = LessonResult & {
   /** Absolute path to the finished mp4. */
   videoPath: string;
+  /**
+   * Absolute path to `plan.json`, when `--emit-plan` asked for one.
+   *
+   * Reported rather than left to be discovered: a flag whose only evidence is a file
+   * appearing in a directory the user may not be looking at is a flag people run twice
+   * because they cannot tell whether it worked.
+   */
+  planPath?: string;
   storyboard: Storyboard;
   cost: CostReport;
   /**
@@ -1075,6 +1094,18 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   /* ------------------------------------------------------------- 7. render */
 
+  // `--emit-plan` (plan 7.2), before the render's own cache is consulted and outside
+  // it. The question the file answers — what timeline does this storyboard compile
+  // to? — has the same answer whether or not the mp4 is current, and the flag would be
+  // worse than useless if it wrote nothing on exactly the runs where the video is
+  // already rendered. Its own quiet compile, costing milliseconds; see `emitPlan`.
+  let planPath: string | undefined;
+  if (opts.emitPlan) {
+    const { emitPlan } = await loadRender();
+    planPath = await emitPlan(sb!, run.dir);
+    log.info(`wrote ${path.relative(process.cwd(), planPath)}`);
+  }
+
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(run.dir, run.previous?.videoPath);
   let videoPath: string;
@@ -1230,6 +1261,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
   return {
     ...stripDesign(design),
     videoPath,
+    ...(planPath ? { planPath } : {}),
     storyboard: sb,
     cost,
     voice: resolvedVoice ?? cachedVoice(voiceRecord),
@@ -1256,6 +1288,8 @@ export async function rerender(
   cost: CostReport;
   projectId: string;
   dir: string;
+  /** Absolute path to `plan.json`, when `--emit-plan` asked for one (plan 7.2). */
+  planPath?: string;
 }> {
   const project = await openProject(projectId);
   const dir = project.dir;
@@ -1349,6 +1383,16 @@ export async function rerender(
   });
   bus.done('check', qc.ok ? 'passed' : `${qc.problems.length} problem(s)`);
 
+  // `--emit-plan` here as well as in `cast()`, and this is the path that wants it most:
+  // re-voicing comes through `rerender`, and re-voicing is what moves the schedule. A
+  // plan emitted before and after is exactly the `planhash --timing` diff (plan 7.2).
+  let planPath: string | undefined;
+  if (opts.emitPlan) {
+    const { emitPlan } = await loadRender();
+    planPath = await emitPlan(sb, dir);
+    log.info(`wrote ${path.relative(process.cwd(), planPath)}`);
+  }
+
   const renderKey = renderFingerprint(sb);
   const existing = await findVideo(dir, previous?.videoPath);
   let videoPath: string;
@@ -1437,7 +1481,7 @@ export async function rerender(
     ...(previous?.grounding ? { grounding: previous.grounding } : {}),
     ...(previous?.lanes ? { lanes: previous.lanes } : {}),
   });
-  return { videoPath, storyboard: sb, cost, projectId, dir };
+  return { videoPath, storyboard: sb, cost, projectId, dir, ...(planPath ? { planPath } : {}) };
 }
 
 /* ------------------------------------------------------------------ helpers */

@@ -26,21 +26,35 @@
  * and that has now cost one measurement: `git stash -u` takes untracked files with it,
  * so a throwaway version of this vanishes at the moment it is needed.
  *
- * Timing is deliberately excluded from the hash. `enter.at` is rewritten by the voice
- * stage on every re-narration, and a tool that reported a diff for that would be
+ * Timing is deliberately excluded from the default hash. `enter.at` is rewritten by the
+ * voice stage on every re-narration, and a tool that reported a diff for that would be
  * useless for the geometry questions it exists to answer. What is hashed is what is
  * drawn, not when.
+ *
+ * **`--timing` is the opt-in second mode** (plan 7.2), for the question the paragraph
+ * above declines to answer: did the *schedule* move? It adds the film's length, each
+ * scene's start/speech/hold and each item's start, duration and schedule hash to the
+ * same rows. Never the default, for exactly the reason the default excludes timing —
+ * see `planrows.ts`, which is where both modes are implemented and tested.
+ *
+ *     npx tsx packages/render/src/planhash.mts --timing final-169 > /tmp/after.txt
  */
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { parseStoryboard } from '@inkcast/core';
 import { compilePlan } from './compile.js';
-import type { PlanPrim } from './types.js';
+import { planRows } from './planrows.js';
 
-const projects = process.argv.slice(2);
-if (projects.length === 0) {
-  console.error('usage: planhash.mts <project|path...>   (a name under projects/, or a path)');
+const argv = process.argv.slice(2);
+const timing = argv.includes('--timing');
+const projects = argv.filter((a) => a !== '--timing');
+const unknown = projects.find((a) => a.startsWith('--'));
+if (projects.length === 0 || unknown) {
+  console.error(
+    unknown
+      ? `unknown flag ${unknown}`
+      : 'usage: planhash.mts [--timing] <project|path...>   (a name under projects/, or a path)',
+  );
   process.exit(2);
 }
 
@@ -57,53 +71,12 @@ function projectDir(nameOrPath: string): string {
     ? path.resolve(nameOrPath)
     : path.join(repoRoot, 'projects', nameOrPath);
 }
-const sha = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 12);
-
-/** Everything about a prim that decides what lands on screen, and nothing about when. */
-function drawn(p: PlanPrim): unknown {
-  const any = p as unknown as Record<string, unknown>;
-  const keep: Record<string, unknown> = { kind: any.kind };
-  for (const k of [
-    'd',
-    'text',
-    'svg',
-    'x',
-    'y',
-    'w',
-    'h',
-    'size',
-    'color',
-    'stroke',
-    'fill',
-    'width',
-    'align',
-    'baseline',
-    'opacity',
-    'flipX',
-    'box',
-  ]) {
-    if (any[k] !== undefined) keep[k] = any[k];
-  }
-  return keep;
-}
 
 for (const name of projects) {
   const dir = projectDir(name);
   const sb = parseStoryboard(JSON.parse(readFileSync(path.join(dir, 'storyboard.json'), 'utf8')));
   const plan = compilePlan(sb, dir);
-
-  // Board-level numbers first: `scale` and `typeScale` are what every pixel-quoted
-  // constant is multiplied by, so a change there moves every stroke at once and is
-  // worth seeing on its own line rather than inferring from 39 changed hashes.
-  console.log([name, '-', '(board)', 'scale', `${plan.scale}/${plan.typeScale}`, ''].join('\t'));
-
-  // `items` is flat and carries its scene index, and its order is the draw order, so
-  // it is diffable line for line as it stands.
-  for (const item of plan.items) {
-    const scene = plan.scenes[item.scene]?.id ?? String(item.scene);
-    const geom = sha(JSON.stringify(item.prims.map(drawn)));
-    // Tab-separated, and note the compiler logs to stdout too: filter on the tabs
-    // rather than assuming this is the only thing on the stream.
-    console.log([name, scene, item.id, item.style, geom, item.prims.length].join('\t'));
-  }
+  // Tab-separated, and note the compiler logs to stdout too: filter on the tabs
+  // rather than assuming this is the only thing on the stream.
+  for (const row of planRows(name, plan, { timing })) console.log(row);
 }

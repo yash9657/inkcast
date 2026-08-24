@@ -604,6 +604,34 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 > - **Proven in tests, not against a provider.** Both keys have no credit (402), so the
 >   switch is exercised through injected generators rather than a live model — the same
 >   limit as gating finding 1 in `HANDOFF-AUDIT-REMAINDER.md`. Next: 6.3, 7.1, 7.2, 7.3.
+>
+> **Progress (2026-08-24): 7.2 is landed — the plan is inspectable on demand.** 1128 tests
+> green (3 pre-existing keyvault skips, 1131 total), auditcheck 92/92, lint and typecheck
+> clean. Both halves of the done-bar are proved on a real film rather than argued:
+>
+> - **`--emit-plan` writes `<project>/plan.json`**, and writes it on a run whose render is
+>   cached. That second half is the whole design of it. The obvious home for the emission is
+>   `render()`, and `render()` is exactly what the pipeline skips when the mp4 is current —
+>   the flag would have written nothing on the common re-cast. So `emitPlan()` does its own
+>   quiet compile (`gates: 'degrade'`, `quiet: true`) outside every cache: measured on
+>   `projects/qc65-longitude`, a second cast reports `render —` in its stage line and still
+>   writes 105 KB of `plan.json`. It is also not the gate stage's plan, which is compiled
+>   without the resolved font family because it is measuring rather than drawing.
+> - **`planhash.mts --timing` makes a schedule a diff.** Adding 1.5s of `hold` to scene `s3`
+>   of that film changes **0 lines in the default mode and 50 in `--timing`** (the board's
+>   length, the held scene, and every scene and item after it). Both directions are asserted
+>   in `render/src/planrows.test.ts` — the row-building moved into `planrows.ts` precisely so
+>   that claim could be tested rather than demonstrated once by hand.
+> - **The artefact says nothing reads it back.** The audit's objection to S7-a was never
+>   "there is no timeline" — `RenderPlan` is a genuine compiled timeline — it was that
+>   persisting one creates a drift-capable derived copy (Spec-is-wrong #4). So the file leads
+>   with a `_note` telling the next person who edits it that it changes no pixel, nothing in
+>   the tree reads it, and `auditcheck` pins both facts.
+> - **Two columns of judgement, written down where they are made.** The timing hash is over
+>   exact numbers while the printed columns round to milliseconds (rounding the hash would
+>   hide a sub-millisecond move; rounding the print keeps `0.39844999999999997` out of a
+>   diff), and `--timing` only ever _appends_ columns, so a `before.txt` from either mode
+>   still diffs line-for-line against an `after.txt` from the other. Next: 6.3, 7.1, 7.3.
 
 **Two rules that shape everything here:**
 

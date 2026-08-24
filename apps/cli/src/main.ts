@@ -88,6 +88,14 @@ export type Flags = {
    * font, missed cue on a dominant visual) stops the run before the encode.
    */
   degrade: boolean;
+  /**
+   * `--emit-plan`: also write the compiled render plan to `<project>/plan.json`.
+   *
+   * A report, never an input — nothing reads it back (see `emitPlan` in
+   * `@inkcast/render`). Off by default because a plan written on every run is a
+   * derived copy that can drift out of step with the storyboard it came from.
+   */
+  emitPlan: boolean;
 };
 
 export class UsageError extends Error {}
@@ -122,6 +130,7 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         port: { type: 'string' },
         force: { type: 'boolean', short: 'f', default: false },
         degrade: { type: 'boolean', default: false },
+        'emit-plan': { type: 'boolean', default: false },
         open: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
         verbose: { type: 'boolean', default: false },
@@ -237,6 +246,7 @@ export function readFlags(values: Record<string, unknown>): Flags {
     force: values.force === true,
     open: values.open === true,
     degrade: values.degrade === true,
+    emitPlan: values['emit-plan'] === true,
   };
   if (typeof values.title === 'string') flags.title = values.title;
   if (typeof values.out === 'string') flags.out = values.out;
