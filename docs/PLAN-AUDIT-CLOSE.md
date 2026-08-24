@@ -259,6 +259,110 @@ re-audit in Phase 8 is the exit.
 > per-cadence rate, or accepting the spread) is a `presets.ts` decision with pinned-hash
 > consequences, not a number to split the difference on inside 4.3. It is now impossible
 > to forget: every run says so. Next: Phase 5.
+>
+> **Progress (2026-08-24): ALL OF PHASE 5 is landed.** 1045 tests green, auditcheck 65/65,
+> lint and typecheck clean. **No pinned hash moved, and that was checked rather than hoped
+> for**: `sourceRef` is an optional field with no default so an existing `lesson.json`
+> hashes unchanged, `layoutStoryboard` is reached only by the document route and
+> `edit.ts`, and everything else in this phase is critique, bookkeeping or a sidecar.
+> Verified end to end at `strict`: `projects/qc53-longitude`, `projects/qc53-gd` (both
+> shipped lessons, clean), `projects/qc53-doc` (a document through the lesson route —
+> `grounding: document`, refs on 6 of 8 beats) and `projects/qc53-viadoc` (the document
+> route itself, for the re-layout).
+>
+> - **5.1(a) grounding honesty.** `PipelineState.grounding` is `document` | `parametric` |
+>   `supplied` — three values, because "the user handed us a document" and "the user handed
+>   us a finished lesson" are different claims and neither is "the model remembered it".
+>   Derived from what actually reached the author rather than from `source.kind`, since
+>   `topic` and `text` are both things a person typed and only one of them grounds
+>   anything. Surfaced by the CLI (`grounded` row) and by the studio (`GroundingNote`,
+>   which renders nothing when the field is absent — a film cast before this has no
+>   answer, and `parametric` is not the honest default for it).
+> - **5.1(b) retrieval is a written decision, not code** — `docs/PLAN-RETRIEVAL.md`. The
+>   recommendation deviates from this plan's letter: **not** a `SEARCH_API_KEY` lane
+>   populating `SourceDoc`, but the server-side web-search tool on the lesson call the
+>   pipeline already makes. A search API puts the retrieval _policy_ (how many results,
+>   which to fetch, when to stop) in the planner, which is the enumeration mistake
+>   `Mark`'s own docstring is about, and adds a fifth key to a four-lane degradation
+>   story. The doc also fixes what a retrieved run would store (`grounding: 'retrieved'`,
+>   a real `source.json` whose sections are one per source, so 5.2's refs work unchanged)
+>   and names the trigger for building it: one film whose facts are wrong in a way
+>   retrieval would have caught — findable now, because every film says which kind it is.
+> - **5.2 `sourceRef`, verified against the document.** The **section heading, verbatim**,
+>   rather than a minted id: it is the one identifier the author is already shown (the
+>   `SOURCE OUTLINE` block), it needs nothing added at ingest, and it is checkable —
+>   `critiqueLesson` matches it against the real headings and a ref naming none is the
+>   same class as a dangling `derivedFrom`. Two decisions worth the words: the rule is
+>   told to the model in `documentContext` beside the outline rather than in the teaching
+>   brief, because a field a bare-topic author _cannot_ fill is a field it fills wrongly;
+>   and **absent `sections` means "cannot check", never "nothing is valid"** — `lesson-edit`
+>   and `critiqueFor` hold a lesson and no document. The **no-key author populates it
+>   truthfully**, which is what makes the done-bar measurable with no key at all: it lifts
+>   sentences out of a document rather than summarising one, so the section is a fact it
+>   holds. Measured: **6 of 7 citable beats on all three `examples/*.md` (86%)**. The
+>   plan's bar counts `given` beats; the recap is excluded because it retraces beats
+>   already said and the brief tells every author to leave its ref out. The single miss on
+>   each document is a passage lifted from the lead paragraphs _before the first heading_,
+>   where there is no section to name — honest, and the alternative (cite the nearest
+>   heading) is precisely the untestable citation the field exists to prevent.
+> - **5.3 the three pedagogy rules.** (a) a `stem` or `first-principles` lesson with no
+>   `misconception` is a critique problem; (b) `adaptLesson` reports **every** beat the
+>   budget deletes through `onProblem` — not just the misconception, because a deleted step
+>   is a deleted link and it was a `log.debug`; (c) a `plot` beat before any `path`/`draw`
+>   beat is reported, outside the `analogy` lane which `findReuse` already mechanises.
+>   **(a) and (b) both fire on a trimmed lesson, deliberately.** They are different facts —
+>   "this film names no misconception" and "the 60s budget cut it" — neither derivable from
+>   the other, both advisory in `qc.json`. The consequence is on the record: the shipped
+>   gradient-descent lesson at `short`/`explainer`/`square` now carries one advisory, and
+>   the no-key `deriveLesson` path carries (a) always and (c) sometimes, which is the same
+>   thing its own warning already says out loud ("it cannot invent the misconception a
+>   learner actually forms"). Four tests were updated to assert that rather than silence.
+>   **`sniffMath` was deliberately not moved into core for (c)**: notation reaches the
+>   board as a `math` mark written by the drawing stage, which does not exist when a lesson
+>   is critiqued, so axes are the only honest signal and a second copy of the sniffer would
+>   be the two-catalogues defect this repo has fixed three times.
+> - **5.4 the DAG's second opinion, and it is not in the critique.** `lessonOrderAdvisories`
+>   is its own function in `core/src/lesson.ts`, reported as the `lesson-order` warn check.
+>   That placement is the load-bearing decision: critique output is fed back to the author
+>   as failures to fix, and authored order carries information a toposort destroys — putting
+>   this in critique would make the model reorder a lesson to satisfy a machine with a
+>   weaker model of teaching than its own. It reports an _inversion_ only: two or more beats
+>   depending on neither end sitting between an antecedent and the beat that needs it. Both
+>   shipped lessons are silent.
+> - **5.5 IR hygiene.** `enterAt`/`enterDuration`/`persist` are gone from `ElementVisual`,
+>   `MANIFEST_VERSION` 2 → 3 so no half-read sidecar survives. `reveal` stays and has to:
+>   `draw` and `write` resolve to different geometry. The `--force` clobber warn needed a
+>   new idea — the cache records a stage's _inputs_, so it cannot answer "was this file
+>   edited by hand" — so `compiledFingerprint` hashes the storyboard with every later
+>   stage's in-place enrichment removed (`durationSec`/`words`/`audioPath`, `enter.at`,
+>   `Asset.svg`, `ref.version`, title and meta). On `via: 'lesson'` the compile is pure and
+>   pinned, so any remaining difference _is_ a hand edit. Scoped to that route on purpose:
+>   on the document route a difference is the model, and comparing would cry wolf on every
+>   forced run.
+> - **5.6 the document route stops leaking coordinates.** `layoutStoryboard` snapshots every
+>   authored box before the packer overwrites it, then **recovers the intent rather than
+>   transforming the numbers**: each un-hinted arrow endpoint is matched against the
+>   authored boxes (nearest within a twelfth of the scene's own diagonal, because an arrow's
+>   end sits _outside_ what it joins), and an arrow whose both ends resolve is handed to the
+>   same `fromId`/`toId` anchoring hint-carrying planners have always used — which also
+>   pulls it out of the shelf, where an un-hinted arrow used to reserve a row slot and draw
+>   its ink somewhere else entirely. Path `points` ride the element's own box→box affine;
+>   `motion.path` rides the _scene's_, because a ball travels across the beat and not across
+>   the footprint of the thing following it; an arrow that anchored to nothing rides the
+>   scene too and takes its `at` from the new endpoints, so no box-based check downstream
+>   measures an empty rectangle. `set-camera` now takes `framing: 'tighter' | 'wider'`,
+>   `on: '<element id>'` and `transition` — no x, no y, no zoom — and the `on` case is
+>   computed with `fitCamera`, the renderer's own arithmetic, then clamped inside the canvas
+>   like both solvers do. The zero-key parser gained the request people actually type
+>   ("zoom in on \<element\>"), which it previously read as a scene reference and discarded.
+>
+> **Not fixed here, and now visible on every document run:** the `deriveLesson` fallback
+> reports `providers lesson anthropic` and a ~$0.04 lesson cost on a run where the model was
+> reached, refused for credit, and the heuristic wrote the lesson. `resolveLessonAdapter`
+> answers "which adapter _would_ run" and `teachLesson` falls back inside the stage, so
+> `design.author` never learns what happened. Same shape as the phantom-cost bug 3.5's
+> `lessonAuthored` flag closed for a _cached_ lesson, and the same fix: the stage has to
+> report the author it turned out to be. Next: Phase 6 — and **6.1 before 6.2/6.3, always**.
 
 **Two rules that shape everything here:**
 
@@ -655,7 +759,7 @@ after, deliberately).
 ## Phase 8 — the re-audit and the bake-off (the exit; ~2 days + ~$3 of renders)
 
 **8.1 Re-run the audit.** Same spec, same seven-pass method, against the tree with
-Phases 1–7 landed. Exit bar: **every check PASS or named-waiver (W1–W6, plus any new
+Phases 1–7 landed. Exit bar: **every check PASS or named-waiver (W1–W7, plus any new
 waiver argued in writing).** Any new PARTIAL is a Phase-9 backlog item with an owner,
 not a silent regression.
 

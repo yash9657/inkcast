@@ -1452,3 +1452,25 @@ appear in the narration character-for-character, rejected otherwise
 (`core/src/lesson.ts:721-727`), every beat must carry a visual
 (`planner/src/lesson-anthropic.ts:311-317`) — prevents the desync the spec's ordering
 guards against, structurally, at half the model calls. Ordering is not adopted.
+
+**W7 — S0-a, retrieval at intake.** Added 2026-08-24, with plan item 5.1. **Half of this
+finding is closed by code and half by a written deferral, and the split is the point.**
+The honesty ships: a run records `grounding: 'document' | 'parametric' | 'supplied'` in
+`pipeline.json` (`pipeline/src/state.ts`), derived from what actually reached the lesson
+author rather than from `source.kind`, and it is said out loud by the CLI's `grounded` row
+and the studio's `GroundingNote`. That is the audit's own stated minimum — "or at minimum
+flag bare-topic lessons as ungrounded in the project record".
+
+The retrieval lane itself is deferred, and the decision is argued in full in
+`docs/PLAN-RETRIEVAL.md`: **not** the `SEARCH_API_KEY` lane the plan's letter proposed
+(which would put retrieval _policy_ — how many results, which to fetch, when to stop — in
+the planner, the enumeration mistake `Mark`'s own docstring is about, and add a fifth key
+to a four-lane degradation story) but the server-side web-search tool on the lesson call
+the pipeline already makes. Three reasons it is not built yet, in order of weight: the
+load-bearing half has shipped; **nothing in this repo measures factual accuracy**, so
+"retrieval makes the films better" is currently a belief and Tier 3 — the instrument — cannot
+exist before a source does; and Phase 6.1's honest guard for the four undrawable topic
+classes is a larger class of visible defect on the same week. The trigger for building it
+is written down: one film whose facts are wrong in a way retrieval would have caught, now
+findable because every film on disk says which kind it is. If that arrives, the waiver is
+void and `docs/PLAN-RETRIEVAL.md` §2 is the implementation.
