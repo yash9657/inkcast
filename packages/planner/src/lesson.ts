@@ -9,7 +9,8 @@
  * nothing to be about.
  *
  * Two authors, one contract. Claude is the primary path and the product's quality
- * ceiling; the derived author is the honest zero-key fallback, and says so.
+ * ceiling; the derived author is the honest zero-key fallback, and says so — to the log,
+ * and through `onAuthor` to whoever is going to print a provider name or a bill.
  * Either way the result is validated against the Lesson schema and put through
  * `critiqueLesson`, so a weak plan is caught before it costs a render.
  */
@@ -87,7 +88,12 @@ export async function teachLesson(input: LessonInput, opts: LessonOptions = {}):
     lesson = await anthropicLesson(input, opts, preset.maxSeconds);
     if (!lesson) log.warn('the model did not produce a usable lesson — deriving one instead');
   }
+  // The fallback that used to be invisible from outside. `adapter` above is what the
+  // environment resolved to; this is what wrote the lesson, and on a keyless — or, more
+  // often, a creditless — run they are different. See `LessonOptions.onAuthor`.
+  const author: Exclude<PlannerAdapter, 'auto'> = lesson ? adapter : 'heuristic';
   if (!lesson) lesson = deriveLesson(input, opts, preset);
+  opts.onAuthor?.(author);
 
   const problems = critiqueFor(lesson, preset);
   if (problems.length) {

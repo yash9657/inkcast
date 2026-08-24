@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { cacheDir, hash, logger } from '@inkcast/core';
+import { cacheDir, hash, logger, type OnSpend } from '@inkcast/core';
 import { groundWhiteness, pngSize } from './png.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import { roughenPathData } from './geometry.js';
@@ -596,6 +596,31 @@ export async function illustrationRaster(args: {
   generate?: RasterGenerator;
   /** Where a rejection is reported, so it reaches `qc.json` and not only the bill. */
   onProblem?: (note: string) => void;
+  /**
+   * Where a **real** provider call is reported, one `images: 1` per call.
+   *
+   * Here rather than in the caller, and that is the whole point of the field. Three tiers
+   * answer above this function's generator — the project's copy, the machine cache, and
+   * then the provider — and only this function can tell which one did. A caller counting
+   * assets that came back marked `generated` counts a film's worth of cache hits as a bill
+   * (audit X-e); `projects/qc64-hashmap` measures four such assets, zero provider calls,
+   * and a `$0.0120` line for them.
+   *
+   * **A rejected generation is still a call.** The gate below throws away a raster that
+   * arrived and was not good enough, and the provider still charged for drawing it — so
+   * the spend is reported the moment bytes come back, before the verdict, and a run whose
+   * two attempts were both rejected is billed for two images and draws none. A call that
+   * returned nothing at all (no key, a 402, a network error) is not billed, because
+   * nothing was drawn.
+   */
+  onSpend?: OnSpend;
+  /**
+   * The cost lane these calls belong to. Defaults to the asset kind, which is what the
+   * visuals stage wants; the underlay generator passes `underlay`, because it spends in
+   * the *lesson* stage and a bill that filed it under `figure` would be describing a
+   * different part of the run.
+   */
+  lane?: string;
 }): Promise<IllustrationRaster | undefined> {
   const kind = args.kind ?? 'form';
   const aspect = args.aspect ?? 1;
@@ -717,6 +742,13 @@ export async function illustrationRaster(args: {
         args.onProblem?.(note);
         continue;
       }
+      // Bytes came back, so this was billed — before the gate looks at them, because the
+      // provider does not refund a picture we decide not to use. See `onSpend`.
+      args.onSpend?.({
+        lane: args.lane ?? (kind === 'figure' ? 'figure' : 'illustration'),
+        provider,
+        images: 1,
+      });
       const verdict = await gate({ png, kind, aspect });
       if (verdict.ok) {
         // Only an *accepted* candidate is written, and that is the part that matters most:
@@ -1195,6 +1227,8 @@ export async function figureRaster(args: {
   seed?: number;
   gate?: RasterGate;
   onProblem?: (note: string) => void;
+  /** Where a real provider call is billed. See `illustrationRaster`'s `onSpend`. */
+  onSpend?: OnSpend;
 }): Promise<{ svg: string; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
@@ -1203,6 +1237,7 @@ export async function figureRaster(args: {
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
     ...(args.gate ? { gate: args.gate } : {}),
     ...(args.onProblem ? { onProblem: args.onProblem } : {}),
+    ...(args.onSpend ? { onSpend: args.onSpend } : {}),
     kind: 'figure',
     // The box is the whole point of asking. Every figure before this drew at **66.7% of
     // the box reserved for it** — measured on all three of `cardiac8`'s cutaways, e.g. a
@@ -1260,6 +1295,8 @@ export async function illustrationPaths(args: {
   fit?: 'contain' | 'exact';
   gate?: RasterGate;
   onProblem?: (note: string) => void;
+  /** Where a real provider call is billed. See `illustrationRaster`'s `onSpend`. */
+  onSpend?: OnSpend;
 }): Promise<{ paths: InkPath[]; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
@@ -1268,6 +1305,7 @@ export async function illustrationPaths(args: {
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
     ...(args.gate ? { gate: args.gate } : {}),
     ...(args.onProblem ? { onProblem: args.onProblem } : {}),
+    ...(args.onSpend ? { onSpend: args.onSpend } : {}),
     kind: 'form',
   });
   if (!raster) return undefined;

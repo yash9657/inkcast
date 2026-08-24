@@ -104,7 +104,6 @@ test('a re-render that reached no provider is billed nothing at all', () => {
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars: 0,
-    generatedAssets: 0,
   });
   assert.deepEqual(report.lines, []);
   assert.equal(report.usd, 0);
@@ -123,7 +122,6 @@ test('a cached lesson bills nothing, and an authored one still bills the cardiac
     storyboardChars: 0,
     lessonChars: cardiacLessonChars,
     narratedChars: 0,
-    generatedAssets: 0,
   });
   assert.equal(authored.lines.find((l) => l.stage === 'lesson')?.usd, 0.2567);
   assert.match(
@@ -137,7 +135,6 @@ test('a cached lesson bills nothing, and an authored one still bills the cardiac
     storyboardChars: 0,
     lessonChars: cardiacLessonChars,
     narratedChars: 0,
-    generatedAssets: 0,
     lessonAuthored: false,
   });
   assert.deepEqual(cached.lines, []);
@@ -150,7 +147,6 @@ test('a cached lesson bills nothing, and an authored one still bills the cardiac
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars: 0,
-    generatedAssets: 0,
     lessonAuthored: true,
   });
   assert.equal(claimed.usd, 0);

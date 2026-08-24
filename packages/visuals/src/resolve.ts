@@ -23,6 +23,7 @@ import {
   logger,
   markFresh,
   noteProblem,
+  noteSpend,
   report,
   type Asset,
   type AssetRef,
@@ -569,6 +570,10 @@ async function resolveAsset(args: {
         // was paid for and a cached raster that will no longer be drawn both belong in
         // `qc.json` beside every other thing this stage degraded.
         onProblem: (note) => noteProblem(args.opts, note),
+        // And what was paid belongs on the bill. Reported from inside the lane because
+        // only the lane can tell a generated raster from one of the three cache tiers
+        // that answered above the generator — see `illustrationRaster`'s `onSpend`.
+        onSpend: (s) => noteSpend(args.opts, s),
       });
       if (drawn) {
         await writeFile(path.resolve(dir, rel), `${drawn.svg}\n`);
@@ -618,6 +623,9 @@ async function resolveAsset(args: {
         // subject out from under the marks aimed at it.
         ...(asset.fit ? { fit: asset.fit } : {}),
         onProblem: (note) => noteProblem(args.opts, note),
+        // See the figure lane above: the bill is built from calls the lane made, not from
+        // assets that came back marked `generated`.
+        onSpend: (s) => noteSpend(args.opts, s),
       });
       if (drawn) {
         items = pathItems(drawn.paths);

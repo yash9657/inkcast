@@ -632,6 +632,41 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   hide a sub-millisecond move; rounding the print keeps `0.39844999999999997` out of a
 >   diff), and `--timing` only ever _appends_ columns, so a `before.txt` from either mode
 >   still diffs line-for-line against an `after.txt` from the other. Next: 6.3, 7.1, 7.3.
+>
+> **Progress (2026-08-24): gating findings 3 and 4 are closed — the run reports what it did,
+> not what it intended.** Not a numbered item: it is the two cost-honesty findings
+> `HANDOFF-AUDIT-REMAINDER.md` carried, promoted to work because 8.1 reads a cost report and
+> both were free to reproduce. 1138 tests green (3 pre-existing keyvault skips, 1141 total),
+> auditcheck 92/92, lint and typecheck clean. One rule, applied twice: **the stage reports
+> what it turned out to do**, on the `onProblem`/`onSpend` rails 3.4 and 3.5 already built.
+>
+> - **Who wrote the lesson.** `resolveLessonAdapter` answers "which adapter _would_ run", and
+>   `teachLesson` fell back to `deriveLesson` inside the stage where nothing could see it. So
+>   the stage now says which author it used (`onAuthor`), and the pipeline **records it**
+>   (`LessonSummary.author`) — because `lesson.json` carries no byline, a cached lesson could
+>   not otherwise answer the question and would re-guess from an environment that has since
+>   changed. Measured on the document that produced `projects/qc53-doc`: that file records
+>   `providers.lesson: anthropic/claude-opus-5` and **$0.0429** for a lesson whose objective is
+>   the derived author's own template; the same document re-cast is `lesson heuristic` and
+>   **$0.00**, and the _second_ cast — lesson served from cache — still says `heuristic`.
+> - **What the images cost.** `generatedAssets` counted assets the finished board marked
+>   `generated`, which says where a picture came from _originally_ and stays true on every
+>   later run that serves it from a cache. The board-derived image line is gone; the two
+>   raster lanes report their own calls through `onSpend`, as the drawing author and the
+>   underlay already did. Measured on `projects/qc64-hashmap` (`visuals fal $0.0120`, "4
+>   images at $0.003 each", zero provider calls): the same lesson re-cast reports **no cost
+>   line at all**, draws the same film, and leaves the machine cache at 42 files.
+> - **One deliberate departure from the finding's own wording.** It proposed keying the spend
+>   on `cached === false`. The bill is instead written where the bytes arrive, _before_ the
+>   6.4 trust gate judges them, because `image.ts` already said so in a comment: "a rejected
+>   generation still cost money". A raster the gate throws away never reaches the caller, so
+>   keying off the returned raster would bill two attempts as zero. A call that returned
+>   nothing — a 402, a network error, no key — is still not billed.
+> - **The keyed path is not proved and the commit says so.** The creditless path is the one
+>   that was wrong, so the bug reproduced for free; "Anthropic really did write it" is pinned
+>   by a local server standing in for the Messages API (the client's base URL is an
+>   environment variable), which is a real client against a real 200 — not a real model.
+>   Next: 6.3, 7.1, 7.3.
 
 **Two rules that shape everything here:**
 

@@ -23,6 +23,7 @@ import type {
   Lesson,
   ModelSpend,
   OnProgress,
+  OnSpend,
   QcReport,
   Storyboard,
   StoryboardMeta,
@@ -123,6 +124,16 @@ export type LessonStageOptions = FormatOptions & {
    * through here the expensive half of a keyed run appeared in no total (plan 3.5).
    */
   onSpend?: (spend: ModelSpend) => void;
+  /**
+   * Where the stage says which author **turned out** to write the lesson.
+   *
+   * `resolveLessonAdapter` below answers a different question — which adapter would run in
+   * this environment — and the two part company exactly where the money is: a key that is
+   * set but out of credit resolves to `anthropic`, the request comes back 402, and the
+   * derived author writes the lesson. Everything downstream reported Claude and a
+   * Claude-sized bill for a lesson Claude never saw (`projects/qc53-doc`).
+   */
+  onAuthor?: (author: 'anthropic' | 'heuristic') => void;
 };
 
 export type CompileStageOptions = FormatOptions & {
@@ -264,7 +275,16 @@ type VisualsModule = {
  * storyboard exists.
  */
 type ImageModule = {
-  illustrationRaster(args: { id: string; prompt: string; dir: string; seed?: number }): Promise<
+  illustrationRaster(args: {
+    id: string;
+    prompt: string;
+    dir: string;
+    seed?: number;
+    /** Which cost lane its provider calls are filed under. See the visuals package. */
+    lane?: string;
+    /** Where a real provider call is billed, one entry per call. */
+    onSpend?: OnSpend;
+  }): Promise<
     | {
         png: Buffer;
         /** True when nothing was generated — the picture came from a cache and is free. */

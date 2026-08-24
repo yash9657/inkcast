@@ -67,7 +67,6 @@ function bill(
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars: chars,
-    generatedAssets: 0,
   });
 }
 
@@ -172,7 +171,6 @@ test('a run that ran out of credits half way through is still billed for the hal
       sourceChars: 0,
       storyboardChars: 0,
       narratedChars: 900,
-      generatedAssets: 0,
     }).lines.find((l) => l.stage === 'voice')?.usd;
 
   // 900 × 0.5 credits × $0.00022. The engine was measured and the paid half of the run
@@ -215,7 +213,6 @@ function drawn(spend: Parameters<typeof costOf>[1]['spend']) {
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars: 0,
-    generatedAssets: 0,
     spend,
   });
 }
@@ -287,10 +284,59 @@ test('a generated underlay is billed once and a cached one is free', () => {
   const line = paid.lines.find((l) => l.stage === 'underlay');
   assert.ok(line);
   assert.match(line.basis, /1 image generated/);
-  // Cache hits never reach this channel at all (`draw-underlay.ts` checks `cached`),
-  // so an empty tally is a free run and not a missing measurement.
+  // Cache hits never reach this channel at all — `illustrationRaster` reports a spend only
+  // where it really calls a provider — so an empty tally is a free run and not a missing
+  // measurement.
   assert.equal(drawn([]).local, true);
   assert.equal(drawn(undefined).local, true);
+});
+
+/* --------------------------------------------- the image lane's own bill (X-e) */
+
+/** A run with an image key set: `images.cloud` is true and drew nothing. */
+const IMAGE_KEYED: NodeJS.ProcessEnv = { FAL_KEY: 'fal_test', PATH: process.env.PATH };
+
+test('a configured image key is not evidence that an image was drawn', () => {
+  // The defect this replaces: `generatedAssets` counted assets the finished board marked
+  // `generated`, which describes where a picture came from *originally* and stays true on
+  // every later run that serves it from a cache. `projects/qc64-hashmap` measures four such
+  // assets, zero provider calls, the machine cache unchanged at 42 files afterwards — and
+  // `visuals fal $0.0120` on the report. There is no board-derived image line any more, so
+  // a run that drew nothing cannot produce one.
+  const report = costOf(board(), {
+    providers: providers('af_heart', IMAGE_KEYED),
+    sourceChars: 0,
+    storyboardChars: 0,
+    narratedChars: 0,
+    spend: [],
+  });
+  assert.equal(providers('af_heart', IMAGE_KEYED).images.cloud, true, 'the key is really set');
+  assert.deepEqual(report.lines, []);
+  assert.equal(report.local, true);
+});
+
+test('the two raster lanes are billed separately, from the calls they made', () => {
+  // Grouped by (lane, provider, model), exactly as the drawing author and the underlay
+  // already were — so "what did the figures cost" is a question the report answers.
+  const report = costOf(board(), {
+    providers: providers('af_heart', IMAGE_KEYED),
+    sourceChars: 0,
+    storyboardChars: 0,
+    narratedChars: 0,
+    spend: [
+      { lane: 'illustration', provider: 'fal', images: 1 },
+      { lane: 'illustration', provider: 'fal', images: 1 },
+      { lane: 'figure', provider: 'fal', images: 1 },
+    ],
+  });
+  const forms = report.lines.find((l) => l.stage === 'illustration');
+  const figures = report.lines.find((l) => l.stage === 'figure');
+  assert.ok(forms && figures);
+  assert.match(forms.basis, /2 images generated/);
+  assert.match(figures.basis, /1 image generated/);
+  // Three images at the same list rate, whichever lane asked for them.
+  assert.equal(forms.usd, 2 * figures.usd);
+  assert.equal(report.usd, Math.round((forms.usd + figures.usd) * 1e4) / 1e4);
 });
 
 test('a spend entry with no tokens and no images cannot invent a line', () => {

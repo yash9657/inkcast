@@ -109,8 +109,6 @@ export type CostInputs = {
   lessonChars?: number;
   /** Characters of narration synthesised this run (0 when all cached). */
   narratedChars: number;
-  /** Assets synthesised by a cloud image model this run. */
-  generatedAssets: number;
   /**
    * Did the lesson stage actually reach the model **this run**?
    *
@@ -141,7 +139,7 @@ export type CostInputs = {
 
 export function costOf(sb: Storyboard, input: CostInputs): CostReport {
   const lines: CostLine[] = [];
-  const { planner, voice, images } = input.providers;
+  const { planner, voice } = input.providers;
 
   // The same rule as the voice line, one field over: a stage that did not run may not
   // be billed, whatever the provider block says. Two guards, because the two ways this
@@ -232,16 +230,14 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
     });
   }
 
-  if (images.cloud && input.generatedAssets > 0) {
-    lines.push({
-      stage: 'visuals',
-      provider: images.name,
-      usd: input.generatedAssets * PRICES.imagePerAsset,
-      basis: `${input.generatedAssets} images at $${PRICES.imagePerAsset} each`,
-      estimated: true,
-    });
-  }
-
+  // There is no image line built from the board any more, and its absence is the point.
+  // `generatedAssets` counted every asset the manifest marked `generated` — which is a
+  // statement about where a picture came from *originally*, and stays true on every later
+  // run that serves it from a cache. `projects/qc64-hashmap` is the measurement: four such
+  // assets, zero provider calls, the machine cache unchanged at 42 files afterwards, and
+  // `visuals fal $0.0120` on the report. The two raster lanes now report their own calls
+  // through `spend` above, exactly as the drawing author and the underlay already did, and
+  // `images.cloud` is not evidence that anything was drawn.
   const usd = round4(lines.reduce((a, l) => a + l.usd, 0));
   const minutes = totalDuration(sb) / 60;
   return {

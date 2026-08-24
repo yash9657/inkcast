@@ -574,6 +574,9 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   // generated picture of it to compose its marks on top of (`draw-underlay.ts`). Same
   // laziness — no key, no vectoriser or no Chromium and the beat is drawn in marks alone.
   const underlays = openDrawUnderlay(run.dir, { onSpend: (u) => spend.push(u) });
+  // Declared before the options that assign it: `onAuthor` fires inside the stage, and
+  // `supplied` is the honest starting value because that branch never reaches the stage.
+  let author: LessonResult['author'] = 'supplied';
   const lessonOpts: LessonStageOptions = {
     drawPreview: drawing.preview,
     drawUnderlay: underlays.underlay,
@@ -590,11 +593,16 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     onProgress: run.bus.child('lesson'),
     onProblem: (p) => stageProblems.push(p),
     onSpend: (u) => spend.push(u),
+    // Who *wrote* it, as opposed to which adapter resolved. Assigned below, after the
+    // stage has run, and the reason it has to come from the stage is that the fallback
+    // lives inside it: see `LessonOptions.onAuthor`.
+    onAuthor: (a: LessonResult['author']) => {
+      author = a;
+    },
     force: run.force,
   };
 
   let lesson: Lesson;
-  let author: LessonResult['author'] = 'supplied';
   if (supplied) {
     lesson = await run.time('lesson', async () => {
       const supplied_ =
@@ -612,6 +620,10 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   } else {
     const lessonInput: SourceDoc | string = doc ?? input.topic!;
     const adapter = planner.resolveLessonAdapter(lessonOpts);
+    // The environment's answer, and only a provisional one: it is what the cache key is
+    // built from and what the progress line announces, but `onAuthor` overwrites it with
+    // what the stage turned out to do, and the cached branch below replaces it with what
+    // the file on disk recorded. Neither of those can be known here.
     author = adapter;
     const key = cacheKey(
       'lesson',
@@ -640,6 +652,14 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     }
     if (cached) {
       lesson = cached;
+      // Who wrote the file we are about to reuse. Recorded on the run that wrote it (see
+      // `LessonSummary.author`) precisely so this run does not have to guess, and guessing
+      // is exactly what `adapter` above does: a project whose lesson was derived on a
+      // creditless Tuesday would report `anthropic` for the rest of its life once a key
+      // with credit appeared. Absent on files written before this was recorded, and then
+      // the resolved adapter is the only answer available — which is the old behaviour,
+      // kept rather than invented, and no worse than it was.
+      author = run.previous?.lesson?.author ?? adapter;
       run.skip('lesson', 'cached');
     } else {
       lesson = await run.time('lesson', async () => {
@@ -977,7 +997,13 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     staleAssets.size === 0 &&
     (await isFresh(run.dir, cacheSlot('visuals'), boardVisualsKey, visualsArtefacts(sb)));
 
-  const assetsBefore = new Set(sb.assets.filter((a) => a.svg).map((a) => a.id));
+  // What the drawing lanes really paid for this run (plan 3.5; audit X-e). Collected here
+  // rather than counted off the finished board, because the board cannot tell a picture
+  // that was generated from one that was found: `source: 'generated'` describes where an
+  // asset *came from originally*, and stays true for every later run that serves it from
+  // a cache. Measured on `projects/qc64-hashmap` — four "generated" assets, zero provider
+  // calls, the machine cache unchanged at 42 files, and a $0.0120 line for it.
+  const visualSpend: ModelSpend[] = [];
   if (visualsFresh) {
     run.skip('visuals', 'cached');
   } else {
@@ -991,6 +1017,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // 3.4): a generated illustration that failed, an underlay that never arrived,
         // and the score-0 icon match that puts a generic glyph on a teaching board.
         onProblem: (p: string) => stageProblems.push(p),
+        // Inside the `else` on purpose: a visuals stage served from cache makes no calls,
+        // so there is nothing here to collect and nothing to bill. That is the phantom
+        // cost of 3.5 in its second home.
+        onSpend: (s: ModelSpend) => visualSpend.push(s),
         force: run.force,
         gates: run.gates,
       });
@@ -1005,9 +1035,6 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     await markFresh(run.dir, cacheSlot('visuals'), visualsFingerprint(sb));
     run.bus.done('visuals');
   }
-  const generatedAssets = sb.assets.filter(
-    (a) => a.source === 'generated' && !assetsBefore.has(a.id),
-  ).length;
 
   /* ---------------------------------------------------------------- drift */
 
@@ -1161,10 +1188,10 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     storyboardChars: JSON.stringify(sb).length,
     ...(design.lesson ? { lessonChars: JSON.stringify(design.lesson).length } : {}),
     narratedChars,
-    generatedAssets,
-    // What the drawing lane and the underlay generator reported spending. Nothing on a
-    // cached lesson, which is correct: those calls were made once and billed once.
-    spend: design.spend,
+    // What the drawing lane, the underlay generator and the two raster lanes reported
+    // spending. Nothing on a cached lesson or a cached visuals stage, which is correct:
+    // those calls were made once and billed once.
+    spend: [...design.spend, ...visualSpend],
     /*
      * Did the lesson stage actually call a model on *this* run? Only the caller can
      * answer that, which is why `costOf` takes it rather than inferring it.
@@ -1248,6 +1275,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
             objective: design.lesson.objective,
             beats: beatCount(design.lesson),
             problems: design.problems,
+            // The byline `lesson.json` does not have. See `LessonSummary.author` — this is
+            // what makes the *second* cast of this project as honest as the first, because
+            // the second one reads the lesson off disk and cannot otherwise know. `'none'`
+            // is unreachable here: it is the `via: 'document'` route, which has no lesson
+            // and so never enters this branch.
+            ...(design.author === 'none' ? {} : { author: design.author }),
           },
         }
       : {}),
@@ -1444,7 +1477,6 @@ export async function rerender(
     sourceChars: 0,
     storyboardChars: 0,
     narratedChars,
-    generatedAssets: 0,
   });
   const now = new Date().toISOString();
   await writeState(dir, {

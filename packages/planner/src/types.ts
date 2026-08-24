@@ -179,6 +179,24 @@ export type LessonOptions = StageOptions &
     reviseDrawings?: boolean;
     /** Project directory. When given, `lesson.json` is cached there. */
     dir?: string;
+    /**
+     * Which author **turned out** to write the lesson, reported by the stage.
+     *
+     * `resolveLessonAdapter` answers a different question — "which adapter would run in
+     * this environment" — and the two diverge exactly where it matters: a key that is set
+     * but has no credit resolves to `anthropic`, the request comes back 402, and
+     * `deriveLesson` writes the lesson. Every caller that only had the resolved adapter
+     * then reported a Claude lesson and a Claude-sized bill for a lesson Claude never saw.
+     *
+     * A callback rather than a richer return type, for the reason `onProblem` and
+     * `onSpend` are: `teachLesson` returns a `Lesson` and every caller of it wants a
+     * `Lesson`, so the observation rides beside the result instead of wrapping it.
+     *
+     * Not called when the lesson came from this stage's own cache — nothing here knows who
+     * wrote a file on disk last week. A caller that needs the answer on a cached run has to
+     * have recorded it on the first one.
+     */
+    onAuthor?: (author: Exclude<PlannerAdapter, 'auto'>) => void;
   };
 
 export type CompileOptions = StageOptions &

@@ -2,9 +2,10 @@
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
-five times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
+six times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
 (`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
-trust gate), after 6.5 (the figure cache key), and after 7.2 (the inspectable plan).
+trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan), and
+after gating findings 3 and 4 (the run reports what it did, not what it intended).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -14,7 +15,8 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5 and 7.2:**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, 7.2 and the two
+cost-honesty findings the remainder handoff carried (3 and 4):**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -342,6 +344,47 @@ function`, `a map of the analogy`) is in the QUIET list in
      real film: +1.5s of `hold` on one scene is **0 changed lines in default mode and 50 in
      `--timing`**. The row-building moved out of the `.mts` tool into `planrows.ts` so that
      claim is a unit test rather than a demonstration somebody did once.
+
+- 2026-08-24 — **gating findings 3 and 4 — the run reports what it did, not what it
+  intended.** Not a numbered plan item: two cost-honesty findings the remainder handoff was
+  carrying, promoted to work because 8.1 reads a cost report and both reproduced for free.
+  One rule applied twice — a stage reports what it _turned out_ to do, on the rails 3.4 and
+  3.5 already built. Four things a re-audit will ask about.
+  1. **The author is observed, and then it is _recorded_.** `resolveLessonAdapter` answers
+     "which adapter would run"; the fallback to `deriveLesson` happens inside `teachLesson`,
+     where nothing could see it, so a creditless run reported `providers lesson
+anthropic/claude-opus-5` and billed for it. The observation is `onAuthor` (a callback
+     beside `onProblem`/`onSpend`, so the stage still returns a bare `Lesson`). The half that
+     is easy to miss is the recording: `lesson.json` carries no byline, so a **cached** lesson
+     has no way to answer the question and would re-guess from an environment that has since
+     changed. `LessonSummary.author` is where it lives, `rerender()` inherits `previous.lesson`
+     wholesale, and the proof is the second cast: lesson served from cache, still `heuristic`.
+  2. **The image bill is built from calls, not from the board.** `generatedAssets` counted
+     assets marked `source: 'generated'` — a statement about where a picture came from
+     _originally_, true forever after. The board-derived line is deleted; `illustrationRaster`
+     reports one `images: 1` per real provider call and `cost.ts` groups it by lane, exactly
+     as the drawing author and the underlay already were. The underlay's own
+     `if (!raster.cached)` count moved down into the lane with it, so it is counted once.
+  3. **The spend is recorded before the 6.4 gate judges the bytes**, which is a deliberate
+     departure from the finding's own `cached === false` wording. `image.ts` had already
+     written the reason: "a rejected generation still cost money". A raster the gate throws
+     away never reaches the caller at all, so keying off the returned raster bills two paid
+     attempts as zero. Bytes arriving is the billable event; a call that returned nothing —
+     402, network error, no key — is not billed.
+  4. **The keyed path is still untested against a real model, and the tests say so.** The
+     creditless path is the one that was wrong, so it reproduced for free. "Anthropic really
+     did write it" is pinned by a local HTTP server standing in for the Messages API — the
+     SDK reads its base URL from the environment, so it is a real client against a real 200,
+     which is not the same as a real model. First credit should re-check it.
+
+  **Measured, both halves, against the files that recorded the defect.**
+  `projects/qc53-doc` books `providers.lesson: anthropic/claude-opus-5` and **$0.0429** for a
+  lesson whose objective is the derived author's own template sentence; the same document
+  re-cast (`projects/qc0-doc`) reports `lesson heuristic` and **$0.00**, and says so again on
+  its cached second run. `projects/qc64-hashmap` books `visuals fal $0.0120` ("4 images at
+  $0.003 each") on a run that made zero provider calls; the same lesson re-cast
+  (`projects/qc0-hashmap`) has **no cost line at all**, draws the same film, and leaves
+  `~/.inkcast/cache/illustrations` at 42 files.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory

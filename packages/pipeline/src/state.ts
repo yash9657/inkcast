@@ -60,6 +60,19 @@ export type LessonSummary = {
   beats: number;
   /** `critiqueLesson()` output at the time of the run. Empty means it passed. */
   problems: string[];
+  /**
+   * Who actually wrote it — the observed author, not the configured one.
+   *
+   * Here rather than only in `providers.lesson` because `lesson.json` itself carries no
+   * byline, so a run that reuses a cached lesson has no other way to answer the question.
+   * Without it the second cast of a project re-derives the answer from the environment,
+   * and the environment has changed: a lesson derived on a creditless run reports
+   * `anthropic` the moment a working key is present, and the bill follows the label.
+   *
+   * Absent on files written before this was recorded. Absent is not `heuristic` — it means
+   * nobody wrote it down, exactly as a missing `grounding` does.
+   */
+  author?: 'anthropic' | 'heuristic' | 'supplied';
 };
 
 /**

@@ -15,6 +15,7 @@ import test from 'node:test';
 // test that started failing mysteriously is the sign that something began to.
 process.env.INKCAST_HOME = mkdtempSync(path.join(tmpdir(), 'inkcast-home-'));
 
+import type { ModelSpend } from '@inkcast/core';
 import { ctxFor } from '../src/geometry.js';
 import {
   ILLUSTRATION_DIR,
@@ -294,6 +295,128 @@ test('a cached raster is gated too, and a rejected one is reported, not re-bille
   assert.equal(generated, 0, 'a cache hit is never silently re-billed to fix itself');
   assert.equal(problems.length, 1);
   assert.match(problems[0] as string, /Delete .*\.png/, 'the note names the file to remove');
+});
+
+/* ------------------------------------------------------- what was really billed */
+
+/**
+ * The image cost line, built from calls instead of from intent (audit X-e).
+ *
+ * `generatedAssets` used to count every asset the finished board marked `generated`, which
+ * is a statement about where a picture came from *originally* and stays true forever. The
+ * measurement is `projects/qc64-hashmap`: four such assets, zero provider calls, the
+ * machine cache unchanged at 42 files afterwards, and `visuals fal $0.0120` on the report.
+ * Only this lane can tell a generation from the three cache tiers above it, so this is
+ * where the bill is now written.
+ */
+test('a cache hit is not billed, and a real generation is', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-spend-'));
+  resetIllustrationCache();
+  const spend: ModelSpend[] = [];
+
+  const made = await illustrationRaster({
+    id: 'sonde',
+    prompt: 'a weather sonde',
+    dir,
+    gate: stubGate,
+    onSpend: (s) => spend.push(s),
+    generate: async () => Buffer.from('good-bytes'),
+  });
+  assert.ok(made);
+  assert.equal(made.cached, false);
+  // A copy, not `spend` itself: `assert.deepEqual` narrows its argument's type, and this
+  // array is pushed to again below.
+  assert.deepEqual([...spend], [{ lane: 'illustration', provider: 'none', images: 1 }]);
+
+  // The same subject again, now sitting in the project. This is the run the old counter
+  // billed: the asset is still `generated`, and nothing was generated.
+  resetIllustrationCache();
+  const again = await illustrationRaster({
+    id: 'sonde',
+    prompt: 'a weather sonde',
+    dir,
+    gate: stubGate,
+    onSpend: (s) => spend.push(s),
+    generate: async () => Buffer.from('good-bytes'),
+  });
+  assert.ok(again);
+  assert.equal(again.cached, true);
+  assert.equal(spend.length, 1, 'a picture that was found is free');
+});
+
+test('a raster the gate throws away was still paid for', async () => {
+  // The one place this departs from the handoff's `cached === false` shape, and the file
+  // said so before the bill did: "a rejected generation still cost money". Two attempts
+  // rejected means two images billed and none drawn — a caller keying off the returned
+  // raster sees `undefined` and would bill nothing at all.
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-spend-'));
+  resetIllustrationCache();
+  const spend: ModelSpend[] = [];
+
+  const got = await illustrationRaster({
+    id: 'balloon',
+    prompt: 'a stratospheric balloon',
+    dir,
+    gate: stubGate,
+    onSpend: (s) => spend.push(s),
+    generate: async () => Buffer.from('garbage-bytes'),
+  });
+
+  assert.equal(got, undefined);
+  assert.equal(spend.length, 2, 'both rejected attempts were charged for');
+  assert.equal(
+    spend.reduce((n, s) => n + (s.images ?? 0), 0),
+    2,
+  );
+});
+
+test('a call that returned nothing at all is not billed', async () => {
+  // A 402, a network error, a provider with no key: nothing was drawn, so nothing is owed.
+  // The distinction is bytes coming back, not the gate's opinion of them.
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-spend-'));
+  resetIllustrationCache();
+  const spend: ModelSpend[] = [];
+
+  const got = await illustrationRaster({
+    id: 'kite',
+    prompt: 'a box kite',
+    dir,
+    gate: stubGate,
+    onSpend: (s) => spend.push(s),
+    generate: async () => undefined,
+  });
+
+  assert.equal(got, undefined);
+  assert.deepEqual(spend, []);
+});
+
+test('the lane a raster is billed under is the lane that asked for it', async () => {
+  // A figure and a form are two lanes on the report; the underlay is a third, and it spends
+  // inside the *lesson* stage, so filing it under `figure` would describe a different part
+  // of the run. Grouping in `cost.ts` is by (lane, provider, model).
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-spend-'));
+  const spend: ModelSpend[] = [];
+  const draw = async (id: string, extra: { kind?: 'form' | 'figure'; lane?: string }) => {
+    resetIllustrationCache();
+    await illustrationRaster({
+      id,
+      prompt: `a ${id}`,
+      dir,
+      gate: stubGate,
+      onSpend: (s) => spend.push(s),
+      generate: async () => Buffer.from('good-bytes'),
+      ...extra,
+    });
+  };
+
+  await draw('glider', {});
+  await draw('airship', { kind: 'figure' });
+  await draw('anemometer', { lane: 'underlay' });
+
+  assert.deepEqual(
+    spend.map((s) => s.lane),
+    ['illustration', 'figure', 'underlay'],
+  );
 });
 
 test('the gate abstains on bytes it cannot see, so a missing tracer is not a lane outage', async () => {

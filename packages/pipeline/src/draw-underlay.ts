@@ -136,13 +136,16 @@ export function openDrawUnderlay(dir: string, opts: DrawUnderlayOptions = {}): D
       prompt: asset.prompt,
       dir,
       seed: place.assetSeed(asset.id),
+      // Billed from inside the lane, one entry per call it really made. This used to be
+      // `if (!raster.cached) noteSpend(...)` here, which is right about the three cache
+      // tiers and wrong about the retry: a raster the trust gate throws away never
+      // reaches this line and was paid for all the same.
+      lane: 'underlay',
+      onSpend: (s) => noteSpend(opts, s),
     });
     if (!raster) {
       log.debug(`no image came back for the underlay "${prompt.slice(0, 60)}"`);
       return undefined;
-    }
-    if (!raster.cached) {
-      noteSpend(opts, { lane: 'underlay', provider: raster.provider ?? 'images', images: 1 });
     }
 
     // Measured from the same trace the board will draw from, so the box the marks are
