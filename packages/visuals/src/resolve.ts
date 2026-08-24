@@ -538,7 +538,17 @@ async function resolveAsset(args: {
           'Drawing nothing rather than substituting a different picture.',
       );
     } else {
-      const drawn = await figureRaster({ id: asset.id, prompt: term, dir, box, seed });
+      const drawn = await figureRaster({
+        id: asset.id,
+        prompt: term,
+        dir,
+        box,
+        seed,
+        // The trust gate's rejections are the run's business, not the log's: a retry that
+        // was paid for and a cached raster that will no longer be drawn both belong in
+        // `qc.json` beside every other thing this stage degraded.
+        onProblem: (note) => noteProblem(args.opts, note),
+      });
       if (drawn) {
         await writeFile(path.resolve(dir, rel), `${drawn.svg}\n`);
         return {
@@ -586,6 +596,7 @@ async function resolveAsset(args: {
         // same trace, so it is already exactly right and padding it would slide the
         // subject out from under the marks aimed at it.
         ...(asset.fit ? { fit: asset.fit } : {}),
+        onProblem: (note) => noteProblem(args.opts, note),
       });
       if (drawn) {
         items = pathItems(drawn.paths);

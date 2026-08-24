@@ -1,58 +1,35 @@
 # Handoff — the remaining items of PLAN-AUDIT-CLOSE
 
 Written 2026-08-24, at `5dd1797`+, branch `visuals-morph-density`, immediately after item
-6.1 landed; updated the same day when 6.2 (the code lane) landed and its section was
-deleted from this file. **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
+6.1 landed; updated the same day when 6.2 (the code lane) and then 6.4 (the raster trust
+gate) landed and their sections were deleted from this file.
+**Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
 `docs/PLAN-AUDIT-CLOSE.md` — remains the authority on scope, done-bars and the coverage
 table; every item below quotes its bar rather than restating it, and where this file
 disagrees with the plan it says so out loud.
 
-## Before anything else: the tree is uncommitted
-
-`git status` at `5dd1797` shows **two plan items sitting in the working tree** — 6.1, which
-a previous session finished without committing, and 6.2 on top of it. Everything is green
-(the commands below), so this is a bookkeeping step, not unfinished work. Do it first,
-because the next item's diff is unreadable on top of two others.
-
-The split is not clean, and that is worth knowing before attempting one. Five files are
-6.1-only (`apps/cli/src/commands/cast.ts`, `apps/web/lib/api.ts`, `apps/web/lib/store.ts`,
-`packages/pipeline/src/cast.ts`, `packages/pipeline/src/state.ts`) and most of the rest is
-6.2-only, but six files carry both items and cannot be separated by path:
-`core/src/lanes.ts` and `core/test/lanes.test.ts` (6.1 wrote them, 6.2 deleted the `code`
-entry from both), `core/src/index.ts`, `pipeline/src/auditcheck.mts`,
-`apps/web/components/studio/result-view.tsx` (6.1 added `LaneNote`, 6.2 removed the `code`
-label), and the three docs. Two commits therefore means partial staging, and the first of
-them would not typecheck on its own. **One commit naming both items is the honest option**;
-take it unless you want the split badly enough to hand-stage hunks.
-
-Untracked and intended to be committed: `assets/fonts/code/` (the vendored JetBrains Mono
-`.ttf` and its OFL), `examples/lessons/hash-map.lesson.json`, `core/src/codegrid.ts`,
-`core/test/codegrid.test.ts`, `visuals/src/code.ts`, `visuals/test/code.test.ts`,
-`planner/test/code-lane.test.ts`, and this file. `pnpm-lock.yaml` moved because 6.2 added
-`shiki` to `@inkcast/visuals`.
-
 ## Where execution stands, in one paragraph
 
 Phases 0–5 are landed and tested, and so are 6.1 (the honest guard for the three remaining
-unserved topic classes) and 6.2 (the code lane — the fourth class is served now). At
-`5dd1797`+ plus the code lane: **1106 tests green** (3 pre-existing keyvault skips),
-**auditcheck 75/75**, lint and typecheck clean, and three shipped lessons casting
-strict-clean end to end (`hash-map` is the new one, and the corpus's only board with a
-listing on it). Eight items remain — 6.3, 6.4, 6.5, 7.1, 7.2, 7.3, 8.1, 8.2 — and none of
-6.3–7.3 blocks another, so they can be reordered freely by whoever picks them up. Phase 8
-needs all of them plus a funded API key.
+unserved topic classes), 6.2 (the code lane — the fourth class is served now) and 6.4 (the
+raster trust gate). The tree is committed through 6.4. At that point: **1121 tests green** (3
+pre-existing keyvault skips), **auditcheck 82/82**, lint and typecheck clean, and three
+shipped lessons casting strict-clean end to end (`hash-map` is the newest, and the corpus's
+only board with a listing on it). Seven items remain — 6.3, 6.5, 7.1, 7.2, 7.3, 8.1, 8.2 —
+and none of 6.3–7.3 blocks another, so they can be reordered freely by whoever picks them
+up. Phase 8 needs all of them plus a funded API key.
 
 **Which to pick, if nobody has said.** 6.3's own rule is that the next lane is chosen from
-6.1's findings rather than from taste, and **there are no findings yet** — the guard has
+6.1's findings rather than from taste, and **there are still no findings** — the guard has
 fired on nothing in the corpus, so no lane has earned itself. That makes 6.3 the wrong item
-to start cold, and it makes **6.4 the natural next one**: it is the only item whose evidence
-is already sitting on disk and reproducible in one command (see its section — the `hash-map`
-cast's illustration beats), and 7.3 is sequenced after it deliberately. 6.5 is the smallest
-item in the phase if you want a short one. The three gating findings below are unowned and
-each is an hour or two; item 3 in particular makes every cost report on a keyless run wrong,
-which is now the common case.
+to start cold. **6.5 is the natural next one**: it is the smallest in the phase, and it is
+in the file 6.4 just worked in (`illustrationKey` and the new trust gate are both in
+`visuals/src/image.ts`). 7.3 is also unblocked now — its dark-surface pack was sequenced
+after 6.4 deliberately, and 6.4 has landed. The four gating findings
+below are unowned and each is an hour or two; items 3 and 4 both make cost reports wrong on
+runs that are now the common case.
 
 ## How to verify anything you land
 
@@ -66,15 +43,23 @@ The last line is the strict end-to-end proof (strict is the default; no key need
 voice-provider fallback in the output is a provider event, not a gate failure). The three
 shipped lessons are `examples/lessons/*.lesson.json`; cast `hash-map` too when you touch
 the compiler, because it is the only board in the corpus with a listing on it. Disposable
-evidence projects follow the `qc<phase>-<lesson>` convention (`projects/qc62-hashmap` is
-the newest). Two more instruments worth knowing, both used to prove 6.2's done-bar and
-both cheap: `npx tsx packages/visuals/src/geomhash.mts <project>` hashes every element's
+evidence projects follow the `qc<phase>-<lesson>` convention (`projects/qc64-hashmap`,
+`qc64-longitude` and `qc64-gd` are the newest — the whole shipped corpus at 6.4). Two more
+instruments worth knowing, both used to prove 6.2's and 6.4's done-bars and both cheap:
+`npx tsx packages/visuals/src/geomhash.mts <project>` hashes every element's
 resolved geometry (one line each, ideal across a `git stash`), and
 `npx tsx packages/render/src/frames.mts <projectDir> <outDir> [t...]` grabs single frames
 without an encode — run it twice into two directories and `cmp` them for a real
 determinism check.
 
-## Three things that gate the work
+**If you touch the illustration lane, measure against the cache before choosing a number.**
+6.4's three thresholds were each set by tracing all 42 rasters in
+`~/.inkcast/cache/illustrations` and then _opening them_ — the numbers are in the constants'
+own comments in `visuals/src/image.ts`. That cache is the only corpus of real provider
+output this repo has, it costs nothing to read, and a threshold argued without it is a
+threshold nobody can defend at the re-audit.
+
+## Four things that gate the work
 
 1. **There is no API credit.** Both providers answer `402 Payment Required`, which is why
    `qc.json` records `frame-vision: skip` on every recent cast. Two consequences: **8.2
@@ -99,6 +84,14 @@ determinism check.
    flag closed for a cached lesson, and the same fix: the stage reports the author it
    turned out to be. Small, unowned, and it makes every cost report on a degraded run
    wrong — which is now the common case.
+4. **The image cost line is billed from intent, not from what happened.** `generatedAssets`
+   at `cast.ts:989` counts every asset whose `source` is `generated`, whether or not a
+   provider was called, so a run served entirely from the machine cache still reports
+   `visuals fal $0.0120` (measured on `projects/qc64-hashmap`: four "generated" assets, zero
+   provider calls, the cache unchanged at 42 files afterwards). Same family as item 3 and as
+   the phantom-cost bug 3.5 closed, and **the lane already knows the answer** — 6.4 left
+   `IllustrationRaster.from` reading `project`, `cache` or `provider` on every resolve, so
+   this is a counting change, not an investigation.
 
 ## Rules that apply to every item below
 
@@ -117,8 +110,9 @@ determinism check.
   describing the _film_ (not the run) have to be inherited in `rerender()`, which
   rebuilds the file from scratch. `grounding` was silently lost this way until 6.1.
 - **Corpus-derived constants are named recalibrations, not spec values.** `MIN_GLYPH_PX`
-  (10 output px), the fill floor (mean 18% / scene 11%), `MIN_INK_SHARE` (1.0%) and
-  `MAX_REVEALS_PER_SCENE` (9) were each measured against the corpus and argued in the
+  (10 output px), the fill floor (mean 18% / scene 11%), `MIN_INK_SHARE` (1.0%),
+  `MAX_REVEALS_PER_SCENE` (9), and 6.4's `MIN_TRACED_INK` (3.0), `MAX_INK_ASPECT` (4.0) and
+  `MIN_GROUND_WHITE` (0.9) were each measured against the corpus and argued in the
   constant's own comment. 8.1 must treat them as such.
 - **Do not let a gate become a re-prompt loop.** Structural failures stop and name the
   beat; the bounded repair loops live upstream where repair is cheap.
@@ -160,45 +154,13 @@ The library's `match` alias arrays in `library.json` are how a symbol gets found
   `visuals/src/resolve.ts` and `planner/src/compile.ts`. The shape it followed is
   `equation.ts`'s contract, stated in that file's header.
 
-## 6.4 Illustrations earn the pose lane's trust machinery
-
-**The bar (plan):** `illustrationPaths` gets retry-once plus the existing ink/aspect
-plausibility gate — the `resolveGeneratedPose` pattern, verbatim; figure rasters get a
-corner/edge whiteness check (non-white ground → retry, then problem). Real alpha stays
-deferred until a dark-surface style pack exists.
-
-**Where the code is.** `illustrationPaths` is `visuals/src/image.ts:875`. The pattern to
-copy is `resolveGeneratedPose` at `character.ts:506` — one retry and no more (`:379`
-carries the "1 on the first try, 2 on the single retry" comment), `plausibilityGate` at
-`:424` with its 0.5 threshold, and **only accepted candidates are cached**, which is the
-part that matters most: caching a rejected generation makes the retry permanent.
-
-**Traps.**
-
-- **`plausibilityGate` is explicitly not an identity check** — its own comment says it
-  "will accept a different person's face". Extending it to illustrations extends a
-  cheap-and-honest gate, not a good one; do not let the commit message claim more.
-- **A rejected generation still costs money.** Report it through `onProblem` so the
-  retry shows up in `qc.json` rather than only in the bill.
-- **6.1 makes this measurable in a way it was not before.** The aspirin evidence in
-  `HANDOFF-AUDIT-CLOSE.md` (a blank page reading "Salèylic acisH.") is exactly what a
-  plausibility gate should be catching, and it is now easy to reproduce.
-- **There is a one-command reproduction now, and it needs no chemistry.** Cast
-  `examples/lessons/hash-map.lesson.json` (the 6.2 evidence project is
-  `projects/qc62-hashmap`): its six `draw` beats have no drawing author on a keyless run and
-  fall to the illustration lane, where `fal` — which does still have credit, unlike
-  Anthropic — returns tiny illegible scribbles for describes as concrete as "a name, an
-  arrow into a small box marked with a rule, an arrow out to a single highlighted
-  pigeonhole". Those are the frames to hold this item's gate against, because they are
-  cheap, repeatable, and not a molecule.
-
 ## 6.5 The figure cache key tells the truth
 
 **The bar (plan):** `illustrationKey` folds in the figure model id (and style, for
 `kind:'figure'` only), preserving the existing `form` cache. _Done when_ switching
 `INKCAST_FIGURE_MODEL` misses the figure cache and says why.
 
-**Where the code is.** `illustrationKey` at `visuals/src/image.ts:458`, hashing
+**Where the code is.** `illustrationKey` at `visuals/src/image.ts:460`, hashing
 `illustration/v2` with kind, prompt and shape. **Read its header before touching it** —
 it already documents why a square request contributes nothing to the hash (every raster in
 every machine cache was generated when both providers were hard-coded square, so the token
@@ -206,6 +168,12 @@ has to stay absent or a few dollars of images invalidate for bytes that would be
 identical). The same reasoning is why the model id goes in for `figure` only: a `form`
 raster is binarised and re-traced, so the model that drew it does not survive into the
 board, and invalidating those would be paying twice for the same ink.
+
+**One thing 6.4 changed under this item.** Every cache hit is now run past the trust gate
+before it is served (`judge()` in `illustrationRaster`), so an invalidation no longer just
+costs a generation — a key change that starts missing on rasters the gate would have
+rejected anyway is doing you a favour, and the `qc.json` note will say which ones. Worth
+casting `hash-map` before and after so the delta is a diff and not a surprise.
 
 ## Phase 7 — scale and cost
 
@@ -274,10 +242,20 @@ renderer keeps pen personality in `render/palette.ts` and re-exports the colours
 union to collapse is `z.enum(['marker', 'pencil', 'chalk', 'ink'])` at
 `core/src/storyboard.ts:645`.
 
-**Trap, and it is a sequencing one.** A dark-surface pack is where every raster's opaque
-white ground becomes visible — the S5.6 real-alpha work the audit deferred. **Sequence
-7.3 after 6.4**, deliberately, as the plan says: shipping a dark pack first turns a known
-quality ceiling into a visible defect in every film that uses it.
+**Trap, and it is a sequencing one — now satisfied, but read it before you rely on that.**
+A dark-surface pack is where every raster's opaque white ground becomes visible: the S5.6
+real-alpha work the audit deferred. The plan sequences 7.3 after 6.4 for that reason, and
+**6.4 has landed**, so this item is unblocked.
+
+What 6.4 actually bought you here is narrower than "solved", and the difference matters on
+a dark board. `groundWhiteness` (`visuals/src/png.ts`) will tell you a figure's ground is
+white, and `figureGround` rejects one that is not — so a dark pack can _detect_ the card.
+It cannot remove it: every raster in every cache is still opaque white behind the subject,
+and against a slate board that is a white rectangle, not a subtle one. Real alpha — asking
+for it, or keying it out on the way in — is still unwritten, and the honest reading is that
+a dark pack needs it rather than that 6.4 supplied it. The gate's threshold (0.9) was set
+against 42 rasters that are all ≥0.954, so it has never been exercised on a real
+non-white ground either.
 
 ## Phase 8 — the exit
 

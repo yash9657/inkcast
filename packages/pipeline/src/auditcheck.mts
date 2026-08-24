@@ -727,6 +727,62 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S5-e / S5.6 (6.4): a raster earns its place on the board ---- */
+{
+  const image = read('packages/visuals/src/image.ts');
+  const png = read('packages/visuals/src/png.ts');
+  const resolve = read('packages/visuals/src/resolve.ts');
+
+  // The trap the pose lane learned first: caching a rejection makes it permanent, and the
+  // retry then pays to enshrine the miss. Checked as an *ordering* fact in the source,
+  // because both spellings compile and only one is right.
+  {
+    const loop = image.slice(image.indexOf('for (let attempt = 1; attempt <= 2; attempt++)'));
+    const verdictAt = loop.indexOf('if (verdict.ok) {');
+    const stashAt = loop.indexOf('stash(abs, png');
+    check(
+      'S5-e: only an accepted generation is ever written to a cache',
+      verdictAt > 0 && stashAt > verdictAt,
+      'a rejected raster is being cached — the retry above then costs money to reject it once and keep it forever',
+    );
+  }
+  check(
+    'S5-e: one retry and no more',
+    /attempt <= 2; attempt\+\+/.test(image),
+    'the illustration lane loops on a provider now — a model that missed twice will miss a third time, and a render is waiting (`resolveGeneratedPose`’s rule)',
+  );
+  check(
+    'S5-e: a cached raster is judged too, not trusted for being old',
+    /judge\(own, /.test(image) && /judge\(machine, /.test(image),
+    'the caches predate the gate and hold the audit’s own evidence (a blank page reading “Salèylic acisH.”) — a gate that trusts them never fires on the corpus we have',
+  );
+  check(
+    'S5-e: a rejection reaches the run’s record, not only the log',
+    /args\.onProblem\?\.\(note\)/.test(image) &&
+      /onProblem: \(note\) => noteProblem\(/.test(resolve),
+    'a rejected generation was paid for; if it only reaches the log it shows up in the bill and nowhere a reader looks (plan 3.4’s rail)',
+  );
+  check(
+    'S5-e: the gate and the draw measure the same ink',
+    /const SPECK_AREA_SHARE/.test(image) &&
+      (image.match(/SPECK_AREA_SHARE/g) ?? []).length >= 3 &&
+      (image.match(/MAX_TRACED_PATHS/g) ?? []).length >= 3,
+    'the gate scores a trace the reveal will not draw — the A-4 defect again: two measurements of one thing',
+  );
+  check(
+    'S5.6: a figure’s ground is read from real pixels, and abstains when it cannot be',
+    /export function groundWhiteness/.test(png) &&
+      /return ABSTAIN/.test(image) &&
+      /if \(white === undefined\) return ABSTAIN/.test(image),
+    'the ground check condemns what it cannot see — a missing decode path would turn every unusual PNG into a lane outage',
+  );
+  check(
+    'S5-e: the gate does not claim to be the identity check it is not',
+    /accepts a confident drawing of the wrong thing/.test(image),
+    'the gate’s header has stopped saying what it cannot do — it passes the hallucinated benzene ring at 0.91, and the next reader has to be told that before they trust it',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

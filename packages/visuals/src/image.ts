@@ -33,10 +33,12 @@
  * OpenAPI for `black-forest-labs/flux-schnell`, fal's OpenAPI for
  * `fal-ai/flux/schnell`) rather than recalled; see the notes on each adapter.
  */
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { cacheDir, hash, logger } from '@inkcast/core';
+import { groundWhiteness, pngSize } from './png.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import { roughenPathData } from './geometry.js';
 import type { Box } from './svg.js';
@@ -486,9 +488,10 @@ export type IllustrationRaster = {
  */
 const inflight = new Map<string, Promise<IllustrationRaster | undefined>>();
 
-/** Drop the per-process raster memo. Tests only. */
+/** Drop the per-process raster and trace memos. Tests only. */
 export function resetIllustrationCache(): void {
   inflight.clear();
+  traceMemo.clear();
 }
 
 /** Read a PNG, treating an empty or unreadable file as a cache miss. */
@@ -525,9 +528,24 @@ export async function illustrationRaster(args: {
   kind?: ImageKind;
   /** Width over height of the box this raster will fill. Defaults to square. */
   aspect?: number;
+  /** The trust gate. Defaults to `rasterGate`; injected for tests. */
+  gate?: RasterGate;
+  /** Where the raster comes from. Defaults to the real provider call. */
+  generate?: RasterGenerator;
+  /** Where a rejection is reported, so it reaches `qc.json` and not only the bill. */
+  onProblem?: (note: string) => void;
 }): Promise<IllustrationRaster | undefined> {
   const kind = args.kind ?? 'form';
   const aspect = args.aspect ?? 1;
+  const gate = args.gate ?? rasterGate;
+  const generate: RasterGenerator =
+    args.generate ??
+    ((a) =>
+      generateIllustration(a.prompt, {
+        ...(a.seed !== undefined ? { seed: a.seed } : {}),
+        kind: a.kind,
+        aspect: a.aspect,
+      }));
   const key = illustrationKey(args.id, args.prompt, kind, aspect);
   const rel = `${ILLUSTRATION_DIR}/${key}.png`;
   const abs = path.resolve(args.dir, rel);
@@ -547,10 +565,36 @@ export async function illustrationRaster(args: {
     }
   };
 
+  /**
+   * Judge a raster on its way to the board, whichever tier it came from.
+   *
+   * **Cached rasters are gated too, which is where this departs from the pose lane.**
+   * `resolveGeneratedPose` trusts its cache because that cache has only ever held accepted
+   * candidates. These two caches predate the gate by months and contain the audit's own
+   * evidence — a blank page reading "Salèylic acisH.", a page of gibberish handwriting.
+   * A gate that trusted them would be a gate that never fires on the corpus we have.
+   *
+   * A rejected *cache hit* is not regenerated, though. Silently re-billing for a subject
+   * the cache already answered would break the lane's one loud promise (one generation per
+   * id, ever) to fix a picture the cache can be cleared of by hand — so it is reported,
+   * naming the file, and the caller degrades.
+   */
+  const judge = async (png: Buffer, where: string, file: string): Promise<boolean> => {
+    const verdict = await gate({ png, kind, aspect });
+    if (verdict.ok) return true;
+    const note =
+      `the ${kind} raster for "${args.id}" (${where}) was rejected: ${verdict.why} ` +
+      `[score ${verdict.score.toFixed(2)}]. Delete ${file} to have it drawn again`;
+    log.warn(note);
+    args.onProblem?.(note);
+    return false;
+  };
+
   const task = (async (): Promise<IllustrationRaster | undefined> => {
     const own = await readCachedPng(abs);
     if (own) {
       log.debug(`illustration ${args.id} served from the project`, rel);
+      if (!(await judge(own, 'from the project', abs))) return undefined;
       return { png: own, rel, cached: true, from: 'project', provider: detectImageProvider() };
     }
 
@@ -560,21 +604,53 @@ export async function illustrationRaster(args: {
     const machine = await readCachedPng(shared);
     if (machine) {
       log.debug(`illustration ${args.id} served from the machine cache`, shared);
+      if (!(await judge(machine, 'from the machine cache', shared))) return undefined;
       await stash(abs, machine, 'project');
       return { png: machine, rel, cached: true, from: 'cache', provider: detectImageProvider() };
     }
 
     const provider = detectImageProvider();
-    if (provider === 'none') return undefined;
-    const png = await generateIllustration(args.prompt, {
-      ...(args.seed !== undefined ? { seed: args.seed } : {}),
-      kind,
-      aspect,
-    });
-    if (!png || png.length === 0) return undefined;
-    await stash(abs, png, 'project');
-    await stash(shared, png, 'machine cache');
-    return { png, rel, cached: false, from: 'provider', provider };
+    // The keyless short-circuit, kept: a run with no provider must not spend two turns of a
+    // retry loop discovering that twice. An injected generator answers for itself.
+    if (provider === 'none' && !args.generate) return undefined;
+
+    // One retry and no more — `resolveGeneratedPose`'s rule, for its reason: a model that
+    // missed twice on the same prompt will miss a third time, and the caller is holding up
+    // a render. The seed moves with the attempt so the retry is a different draw rather
+    // than a re-request of the picture that was just rejected, and moves *deterministically*
+    // so the second attempt is reproducible from the same inputs.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const png = await generate({
+        prompt: args.prompt,
+        kind,
+        aspect,
+        attempt,
+        ...(args.seed !== undefined ? { seed: args.seed + attempt - 1 } : {}),
+      });
+      if (!png || png.length === 0) {
+        const note = `the ${kind} raster for "${args.id}": attempt ${attempt} produced nothing`;
+        log.warn(note);
+        args.onProblem?.(note);
+        continue;
+      }
+      const verdict = await gate({ png, kind, aspect });
+      if (verdict.ok) {
+        // Only an *accepted* candidate is written, and that is the part that matters most:
+        // caching a rejection makes it permanent, and the retry above would then be paying
+        // to reject it once and enshrine it forever.
+        await stash(abs, png, 'project');
+        await stash(shared, png, 'machine cache');
+        return { png, rel, cached: false, from: 'provider', provider };
+      }
+      // A rejected generation still cost money, so it goes on the run's record and not
+      // just in the log.
+      const note =
+        `the ${kind} raster for "${args.id}": attempt ${attempt} was rejected because ` +
+        `${verdict.why} [score ${verdict.score.toFixed(2)}] — it was paid for and not kept`;
+      log.warn(note);
+      args.onProblem?.(note);
+    }
+    return undefined;
   })();
 
   inflight.set(memoKey, task);
@@ -689,6 +765,30 @@ export function extractPathData(svg: string): string[] {
 type TracedPath = { segs: ReturnType<typeof parsePath>; bbox: Box; area: number };
 
 /**
+ * What a trace turned out to be. The failures are named rather than collapsed to
+ * `undefined` because the gate below has to tell two of them apart:
+ *
+ * - `unavailable` / `unreadable` — the tracer could not run, or could not read these bytes.
+ *   The gate **abstains**: a check that condemns what it cannot see turns a missing
+ *   optional dependency into a lane outage.
+ * - `empty` — the tracer ran fine and found nothing. That is a measurement, and a blank
+ *   page is exactly what this lane is supposed to stop paying for twice.
+ */
+type TraceResult =
+  | { ok: true; paths: TracedPath[]; ink: Box }
+  | { ok: false; why: 'unavailable' | 'unreadable' | 'empty' };
+
+/**
+ * Traces, memoised on the raster's own bytes.
+ *
+ * The gate and the draw both trace, and they trace the very same bytes: gating first and
+ * then re-tracing would double the most expensive step in the lane for no new information.
+ * Safe to share because a trace is pure — `vectoriseToInk` transforms the segments into new
+ * arrays rather than in place, and vtracer is deterministic on identical input.
+ */
+const traceMemo = new Map<string, TraceResult>();
+
+/**
  * A raster traced to measured paths, plus the box its ink occupies.
  *
  * One function because two callers must agree on it exactly: the lane that draws the ink,
@@ -696,30 +796,39 @@ type TracedPath = { segs: ReturnType<typeof parsePath>; bbox: Box; area: number 
  * can aim marks at it. Two implementations of "where is the ink" would put a leader arrow
  * on empty board and look like the model being bad at aiming.
  */
-async function traceImage(png: Buffer): Promise<{ paths: TracedPath[]; ink: Box } | undefined> {
-  const v = await loadVectorizer();
-  if (!v) return undefined;
-  let traced: string;
-  try {
-    traced = await v.vectorize(png, v.config);
-  } catch (err) {
-    log.warn('vectorisation failed', err);
-    return undefined;
-  }
-  const raw = extractPathData(traced);
-  if (raw.length === 0) {
-    log.warn('vectoriser produced no paths');
-    return undefined;
-  }
-  const paths = raw
-    .map((d) => {
-      const segs = parsePath(d);
-      const bbox = pointsBBox(samplePath(segs));
-      return { segs, bbox, area: bbox.w * bbox.h };
-    })
-    .filter((p) => p.area > 0);
-  if (paths.length === 0) return undefined;
-  return { paths, ink: unionBox(paths.map((p) => p.bbox)) };
+async function traceImage(png: Buffer): Promise<TraceResult> {
+  const memoKey = createHash('sha1').update(png).digest('hex');
+  const memo = traceMemo.get(memoKey);
+  if (memo) return memo;
+
+  const result = await (async (): Promise<TraceResult> => {
+    const v = await loadVectorizer();
+    if (!v) return { ok: false, why: 'unavailable' };
+    let traced: string;
+    try {
+      traced = await v.vectorize(png, v.config);
+    } catch (err) {
+      log.warn('vectorisation failed', err);
+      return { ok: false, why: 'unreadable' };
+    }
+    const raw = extractPathData(traced);
+    if (raw.length === 0) {
+      log.warn('vectoriser produced no paths');
+      return { ok: false, why: 'empty' };
+    }
+    const paths = raw
+      .map((d) => {
+        const segs = parsePath(d);
+        const bbox = pointsBBox(samplePath(segs));
+        return { segs, bbox, area: bbox.w * bbox.h };
+      })
+      .filter((p) => p.area > 0);
+    if (paths.length === 0) return { ok: false, why: 'empty' };
+    return { ok: true, paths, ink: unionBox(paths.map((p) => p.bbox)) };
+  })();
+
+  traceMemo.set(memoKey, result);
+  return result;
 }
 
 /**
@@ -731,8 +840,20 @@ async function traceImage(png: Buffer): Promise<{ paths: TracedPath[]; ink: Box 
  * is derived from this, and the author is shown a picture of exactly that.
  */
 export async function tracedInkBox(png: Buffer): Promise<Box | undefined> {
-  return (await traceImage(png))?.ink;
+  const traced = await traceImage(png);
+  return traced.ok ? traced.ink : undefined;
 }
+
+/**
+ * How small a traced path has to be, against the subject's own ink box, to be a speck —
+ * and how many paths the reveal will draw at most.
+ *
+ * Named because two readers have to agree on them: the lane that draws the ink, and the
+ * gate that judges the raster. A gate that scored the raw trace would be scoring 400
+ * two-pixel paths the reveal never draws, and would call a page of dust a drawing.
+ */
+const SPECK_AREA_SHARE = 0.0006;
+const MAX_TRACED_PATHS = 40;
 
 /**
  * Raster → traced SVG → roughened strokes fitted into `box`.
@@ -750,14 +871,14 @@ export async function vectoriseToInk(
   opts: { maxPaths?: number; fit?: 'contain' | 'exact' } = {},
 ): Promise<InkPath[] | undefined> {
   const traced = await traceImage(png);
-  if (!traced) return undefined;
+  if (!traced.ok) return undefined;
   const { paths: measured, ink: source } = traced;
 
-  const minArea = source.w * source.h * 0.0006;
+  const minArea = source.w * source.h * SPECK_AREA_SHARE;
   const kept = measured
     .filter((p) => p.area >= minArea)
     .sort((a, b) => b.area - a.area)
-    .slice(0, opts.maxPaths ?? 40);
+    .slice(0, opts.maxPaths ?? MAX_TRACED_PATHS);
   if (kept.length === 0) return undefined;
 
   // `exact` is for an asset something else on the board is aimed at. The caller has
@@ -779,23 +900,191 @@ export async function vectoriseToInk(
   return paths.length > 0 ? paths : undefined;
 }
 
+/* ------------------------------------------------------------- the trust gate */
+
 /**
- * A PNG's intrinsic size, straight out of the IHDR chunk.
+ * The verdict on one raster.
  *
- * The placement reads the real header rather than assuming the shape it asked for: a
- * provider is free to round a request to its own latent grid, and an aspect assumption that
- * is right until it is not is the kind of thing that comes back as a stretched heart nobody
- * can explain. Falls back to a square if the header is not a PNG.
+ * `score` is normalised the way `plausibilityGate`'s is, so the same sentence reads here:
+ * **1 is comfortably fine, 0.5 is exactly at the floor, and `ok` is `score >= 0.5`.** A
+ * gate that abstained returns `ok: true` with no `why` — see `TraceResult`.
  */
-function pngSize(png: Buffer): { w: number; h: number } {
-  const PNG_MAGIC = '89504e470d0a1a0a';
-  if (png.length < 24 || png.subarray(0, 8).toString('hex') !== PNG_MAGIC) {
-    log.warn('a figure raster is not a PNG — assuming it is square');
-    return { w: 1024, h: 1024 };
+export type RasterVerdict = { ok: boolean; score: number; why?: string };
+
+/**
+ * The seam a better check arrives through, exactly as `PoseGate` is for the pose lane.
+ * Injected so the retry orchestration below is testable with no provider and no tracer.
+ */
+export type RasterGate = (args: {
+  png: Buffer;
+  kind: ImageKind;
+  /** Width over height of the box this raster will fill. */
+  aspect: number;
+}) => Promise<RasterVerdict>;
+
+/** Abstention: the check could not run, so it says nothing. */
+const ABSTAIN: RasterVerdict = { ok: true, score: 1 };
+
+/**
+ * Where a raster comes from.
+ *
+ * Injected rather than imported for the reason `PoseGenerator` gives: it is the only way
+ * the retry orchestration below can be tested with no provider, no key and no network, and
+ * the orchestration — not the request shape — is what this item added.
+ */
+export type RasterGenerator = (args: {
+  prompt: string;
+  kind: ImageKind;
+  aspect: number;
+  seed?: number;
+  /** 1 on the first try, 2 on the single retry. */
+  attempt: number;
+}) => Promise<Buffer | undefined>;
+
+/**
+ * The floor under a traced illustration: total stroke length over the diagonal of the box
+ * that ink occupies — `inkProfile`'s measure in `character.ts`, scale-free for the same
+ * reason.
+ *
+ * **A corpus recalibration, not a spec value.** Measured over all 42 rasters in this
+ * machine's illustration cache on 2026-08-24. Three came back with essentially nothing on
+ * them and all three are failures anyone would call by eye: a page of pale blobs the tracer
+ * could not even find (1.6), a page of gibberish handwriting (1.8), and three dots where a
+ * lithium nucleus was asked for (2.0). The next lowest raster measured **4.3** and is a real
+ * drawing. The floor sits at 3.0 — 1.5× above the worst accepted failure and 1.4× below the
+ * lowest real drawing — and the number is the corpus's, not a threshold anyone liked the
+ * look of.
+ */
+const MIN_TRACED_INK = 3.0;
+
+/**
+ * How far out of shape a subject may be before it is a strip rather than a picture.
+ *
+ * The same corpus: the two rasters where the model wrote a line of words instead of drawing
+ * anything measured **4.57:1** and **4.81:1** (`"Salèylic acisH."` across an empty page is
+ * the second), and the widest genuine drawing in the corpus — two stacks side by side, and
+ * a ship on a horizon — measured **3.15:1** and **2.90:1**. So the ceiling is 4:1, and the
+ * margin above real work is 1.27×, which is thinner than the ink floor's and is stated here
+ * rather than hidden.
+ *
+ * **This is where the plan's "the ink/aspect plausibility gate, verbatim" cannot be taken
+ * verbatim, and the reason is worth keeping.** `plausibilityGate` compares a candidate pose
+ * against *a composed pose of the same character*, so a wildly different aspect means a
+ * different subject. An illustration has no base: the shape we asked the provider for is the
+ * shape of the **box**, not a prediction of the subject, and a ship really is wider than its
+ * box. Scoring illustration aspect against the request the way the pose lane scores it
+ * against its base was measured on this corpus and rejected two good drawings out of 42 — a
+ * ship and a cross-section — which would have cost a retry each and then drawn a lucide icon
+ * in their place. An absolute ceiling on how strip-like a subject may be is what survives.
+ */
+const MAX_INK_ASPECT = 4.0;
+
+/**
+ * How white a figure's ground has to be, as the median luminance of its border ring.
+ *
+ * A figure is composited with `mix-blend-mode: multiply`, which is the identity against
+ * white — that is the whole reason the card disappears into the paper. A ground that is not
+ * white multiplies into a visible grey rectangle sitting on the board.
+ *
+ * The corpus again: all 42 cached rasters measure **0.954 or whiter**, and the lowest is a
+ * faint paper texture that reads as white to the eye. 0.90 is below every raster the
+ * providers have actually returned and at the point where a card is unmistakable — a ground
+ * a tenth darker than the board's own paper. A subtly-off ground is deliberately *not*
+ * caught, because the corpus says good rasters live there.
+ *
+ * **Only figures are checked.** A `form` raster on a grey ground is caught by the trace
+ * instead and more decisively: a ground below vtracer's luminance cut traces as one filled
+ * rectangle, whose perimeter over its diagonal is ~2.8 and therefore under `MIN_TRACED_INK`.
+ */
+const MIN_GROUND_WHITE = 0.9;
+
+/**
+ * The default gate — and read the name the way `plausibilityGate`'s header asks its name to
+ * be read, because this one is no better than that one.
+ *
+ * It measures how much ink a raster traces to and how strip-like that ink is. So it rejects
+ * a blank page, a page of handwriting where a drawing was asked for, and a smear. It
+ * **accepts a confident drawing of the wrong thing**, and the corpus proves it: the
+ * hallucinated benzene ring the audit's S5-a is named after — a red circle containing
+ * `"B,H,"` with eight arrows into it — scores 5.5 on ink and 1.02 on aspect and sails
+ * through. That failure needs a model that can look at a picture, which is Tier 2's vision
+ * pass, not this. This is a floor under the lane, and the commit that added it should not
+ * claim more.
+ */
+export const rasterGate: RasterGate = async ({ png, kind }) =>
+  kind === 'figure' ? figureGround(png) : formPlausibility(png);
+
+/** The ink/shape floor under a `form` raster, measured on what the tracer will actually draw. */
+export async function formPlausibility(png: Buffer): Promise<RasterVerdict> {
+  const traced = await traceImage(png);
+  if (!traced.ok) {
+    if (traced.why === 'empty') {
+      return { ok: false, score: 0, why: 'it traced to nothing at all — the page is blank' };
+    }
+    return ABSTAIN;
   }
-  const w = png.readUInt32BE(16);
-  const h = png.readUInt32BE(20);
-  return w > 0 && h > 0 ? { w, h } : { w: 1024, h: 1024 };
+
+  // Measured on the paths that survive the lane's own speck filter and cap, because those
+  // are the ones that reach the board. Judging the raw trace would score specks the reveal
+  // never draws.
+  const minArea = traced.ink.w * traced.ink.h * SPECK_AREA_SHARE;
+  const kept = traced.paths
+    .filter((p) => p.area >= minArea)
+    .sort((a, b) => b.area - a.area)
+    .slice(0, MAX_TRACED_PATHS);
+  if (kept.length === 0) {
+    return { ok: false, score: 0, why: 'every traced path was a speck — there is no drawing here' };
+  }
+
+  const diag = Math.hypot(traced.ink.w, traced.ink.h) || 1;
+  let length = 0;
+  for (const p of kept) {
+    const s = samplePath(p.segs);
+    for (let i = 1; i < s.length; i++) {
+      const a = s[i - 1];
+      const b = s[i];
+      if (a && b) length += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+  }
+  const ink = length / diag;
+  const aspect =
+    Math.max(traced.ink.w, traced.ink.h) / Math.max(1e-6, Math.min(traced.ink.w, traced.ink.h));
+
+  // Each leg is normalised so that sitting exactly on its floor scores 0.5, which is what
+  // lets one `score >= 0.5` stand for both — the shape `plausibilityGate` established.
+  const inkLeg = Math.min(1, ink / (2 * MIN_TRACED_INK));
+  const aspectLeg = Math.min(1, MAX_INK_ASPECT / (2 * aspect));
+  const score = Math.min(inkLeg, aspectLeg);
+  if (score >= 0.5) return { ok: true, score };
+  return {
+    ok: false,
+    score,
+    why:
+      inkLeg < aspectLeg
+        ? `it traced to too little ink (${ink.toFixed(1)} against a floor of ${MIN_TRACED_INK}) — ` +
+          'a nearly blank page, or words where a drawing was asked for'
+        : `its ink is ${aspect.toFixed(1)}:1 — a strip rather than a subject, which is what ` +
+          'comes back when the model writes a line of text instead of drawing',
+  };
+}
+
+/** The ground check under a `figure` raster: white paper, or a visible card. */
+export async function figureGround(png: Buffer): Promise<RasterVerdict> {
+  const white = groundWhiteness(png);
+  if (white === undefined) return ABSTAIN;
+  const score = Math.max(
+    0,
+    Math.min(1, 0.5 + (0.5 * (white - MIN_GROUND_WHITE)) / (1 - MIN_GROUND_WHITE)),
+  );
+  if (score >= 0.5) return { ok: true, score };
+  return {
+    ok: false,
+    score,
+    why:
+      `its ground is not white (${white.toFixed(3)} against a floor of ${MIN_GROUND_WHITE}) — ` +
+      'the figure is composited with multiply, so a ground like this draws a grey card on ' +
+      'the board with the picture inside it',
+  };
 }
 
 /**
@@ -820,12 +1109,16 @@ export async function figureRaster(args: {
   dir: string;
   box: Box;
   seed?: number;
+  gate?: RasterGate;
+  onProblem?: (note: string) => void;
 }): Promise<{ svg: string; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
     prompt: args.prompt,
     dir: args.dir,
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.gate ? { gate: args.gate } : {}),
+    ...(args.onProblem ? { onProblem: args.onProblem } : {}),
     kind: 'figure',
     // The box is the whole point of asking. Every figure before this drew at **66.7% of
     // the box reserved for it** — measured on all three of `cardiac8`'s cutaways, e.g. a
@@ -881,12 +1174,16 @@ export async function illustrationPaths(args: {
   seed?: number;
   /** `exact` when the box was sized to this image's own ink and must not be padded. */
   fit?: 'contain' | 'exact';
+  gate?: RasterGate;
+  onProblem?: (note: string) => void;
 }): Promise<{ paths: InkPath[]; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
     prompt: args.prompt,
     dir: args.dir,
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.gate ? { gate: args.gate } : {}),
+    ...(args.onProblem ? { onProblem: args.onProblem } : {}),
     kind: 'form',
   });
   if (!raster) return undefined;

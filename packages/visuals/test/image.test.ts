@@ -1,14 +1,27 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+// The machine-wide cache is a real directory in the developer's home, and the tests below
+// generate rasters into it — a run would otherwise leave a `rover-*.png` in the cache that
+// makes two videos about the rover agree, and would read whatever is already in there.
+//
+// Setting it here works because `cacheDir()` reads the environment on every call, not at
+// import: ESM hoists the imports below this line above it, so a module that resolved the
+// directory once at load time would already have the real one. Nothing does today, and a
+// test that started failing mysteriously is the sign that something began to.
+process.env.INKCAST_HOME = mkdtempSync(path.join(tmpdir(), 'inkcast-home-'));
+
 import { ctxFor } from '../src/geometry.js';
 import {
   ILLUSTRATION_DIR,
   detectImageProvider,
   extractPathData,
+  figureGround,
+  formPlausibility,
   generateIllustration,
   illustrationKey,
   illustrationPaths,
@@ -17,10 +30,16 @@ import {
   resetIllustrationCache,
   resetImageProviderNotice,
   vectoriseToInk,
+  type RasterGate,
+  type RasterVerdict,
 } from '../src/image.js';
 import { inkStyleFor } from '../src/style.js';
+import { flatPng, makePng, type Rgba } from './pngfixture.js';
 
 const style = inkStyleFor({ style: 'marker', palette: 'color' });
+
+const WHITE: Rgba = [255, 255, 255, 255];
+const BLACK: Rgba = [0, 0, 0, 255];
 
 test('with no key configured the text-to-image lane reports none', () => {
   assert.equal(process.env.REPLICATE_API_TOKEN, undefined);
@@ -154,6 +173,176 @@ test('a cached raster on disk is reused, so an id is generated once ever', async
     await illustrationRaster({ id: 'rover', prompt: 'a different rover', dir }),
     undefined,
   );
+});
+
+/* -------------------------------------------------------- the trust gate (6.4) */
+
+/** A gate that says yes to bytes containing `good` and no to everything else. */
+const stubGate: RasterGate = async ({ png }): Promise<RasterVerdict> =>
+  png.includes('good') ? { ok: true, score: 1 } : { ok: false, score: 0.1, why: 'it is garbage' };
+
+test('a garbage generation is rejected and retried once, and only the keeper is cached', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-gate-'));
+  resetIllustrationCache();
+  const attempts: number[] = [];
+  const problems: string[] = [];
+
+  const got = await illustrationRaster({
+    id: 'rover',
+    prompt: 'a mars rover',
+    dir,
+    seed: 7,
+    gate: stubGate,
+    onProblem: (n) => problems.push(n),
+    generate: async ({ attempt }) => {
+      attempts.push(attempt);
+      return Buffer.from(attempt === 1 ? 'garbage-bytes' : 'good-bytes');
+    },
+  });
+
+  assert.deepEqual(attempts, [1, 2], 'the first miss must be retried exactly once');
+  assert.ok(got, 'the accepted second attempt is what the lane returns');
+  assert.equal(got.png.toString(), 'good-bytes');
+  assert.equal(got.cached, false);
+
+  // The trap this item exists to avoid: caching a rejection makes the retry permanent, so
+  // the only file on disk must be the one that passed.
+  const written = await readdir(path.join(dir, ILLUSTRATION_DIR));
+  assert.deepEqual(written, [`${illustrationKey('rover', 'a mars rover')}.png`]);
+  assert.equal(
+    (await readFile(path.join(dir, got.rel))).toString(),
+    'good-bytes',
+    'the file under the cache key must be the accepted attempt, not the rejected one',
+  );
+  assert.equal(problems.length, 1, 'the rejected attempt was paid for, so it is reported');
+  assert.match(problems[0] as string, /rejected/);
+  assert.match(problems[0] as string, /paid for and not kept/);
+});
+
+test('two misses give up rather than looping, and both reach the run’s record', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-gate-'));
+  resetIllustrationCache();
+  let calls = 0;
+  const problems: string[] = [];
+
+  // Its own subject: the machine-wide cache is shared across these tests exactly as it is
+  // across projects, so two tests using one id would be one test reading the other's raster.
+  const got = await illustrationRaster({
+    id: 'lander',
+    prompt: 'a mars lander',
+    dir,
+    gate: stubGate,
+    onProblem: (n) => problems.push(n),
+    generate: async () => {
+      calls++;
+      return Buffer.from('garbage-bytes');
+    },
+  });
+
+  assert.equal(got, undefined, 'the caller falls back rather than drawing a rejected raster');
+  assert.equal(calls, 2, 'one retry and no more — a model that missed twice will miss again');
+  assert.equal(problems.length, 2);
+  // Nothing was written, so a later run is free to try again from scratch.
+  assert.equal(existsSync(path.join(dir, ILLUSTRATION_DIR)), false);
+});
+
+test('the retry asks for a different draw, not the same one again', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-gate-'));
+  resetIllustrationCache();
+  const seeds: (number | undefined)[] = [];
+  await illustrationRaster({
+    id: 'orbiter',
+    prompt: 'a mars orbiter',
+    dir,
+    seed: 41,
+    gate: stubGate,
+    generate: async ({ seed }) => {
+      seeds.push(seed);
+      return Buffer.from('garbage-bytes');
+    },
+  });
+  // Deterministically derived from the asset's own seed, so the second attempt is
+  // reproducible from the same inputs rather than random.
+  assert.deepEqual(seeds, [41, 42]);
+});
+
+test('a cached raster is gated too, and a rejected one is reported, not re-billed', async () => {
+  // Where this departs from the pose lane, deliberately: these caches predate the gate and
+  // hold the audit's own evidence, so a gate that trusted them would never fire.
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-gate-'));
+  const key = illustrationKey('probe', 'a mars probe');
+  await mkdir(path.join(dir, ILLUSTRATION_DIR), { recursive: true });
+  await writeFile(path.join(dir, ILLUSTRATION_DIR, `${key}.png`), Buffer.from('garbage-bytes'));
+
+  resetIllustrationCache();
+  const problems: string[] = [];
+  let generated = 0;
+  const got = await illustrationRaster({
+    id: 'probe',
+    prompt: 'a mars probe',
+    dir,
+    gate: stubGate,
+    onProblem: (n) => problems.push(n),
+    generate: async () => {
+      generated++;
+      return Buffer.from('good-bytes');
+    },
+  });
+
+  assert.equal(got, undefined);
+  assert.equal(generated, 0, 'a cache hit is never silently re-billed to fix itself');
+  assert.equal(problems.length, 1);
+  assert.match(problems[0] as string, /Delete .*\.png/, 'the note names the file to remove');
+});
+
+test('the gate abstains on bytes it cannot see, so a missing tracer is not a lane outage', async () => {
+  // `formPlausibility` on something that is not an image: the tracer either is not
+  // installed or refuses the bytes, and neither is evidence that the raster is bad.
+  const verdict = await formPlausibility(Buffer.from('not a png'));
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.score, 1);
+  assert.equal(verdict.why, undefined);
+});
+
+test('a grey-ground figure raster is flagged, and a white one is not', async () => {
+  // A figure is composited with multiply, which is the identity only against white.
+  const grey = await figureGround(flatPng(64, 64, [200, 200, 200, 255]));
+  assert.equal(grey.ok, false);
+  assert.match(grey.why ?? '', /ground is not white/);
+  assert.match(grey.why ?? '', /grey card/);
+
+  const white = await figureGround(flatPng(64, 64, WHITE));
+  assert.equal(white.ok, true);
+  assert.equal(white.score, 1);
+});
+
+test('the form gate rejects a blank page and a strip, and accepts a drawing', async (t) => {
+  // The tracer is an optionalDependency; where it is absent the gate abstains and there is
+  // nothing here to assert. That abstention is itself covered above.
+  const grid = makePng(256, 256, (x, y) => {
+    const inBlock = (v: number): boolean => v >= 28 && (v - 28) % 40 < 20 && v < 228;
+    return inBlock(x) && inBlock(y) ? BLACK : WHITE;
+  });
+  const drawing = await formPlausibility(grid);
+  if (drawing.ok && drawing.score === 1 && (await formPlausibility(flatPng(64, 64, WHITE))).ok) {
+    t.skip('the optional native tracer is not installed here — the gate abstains');
+    return;
+  }
+
+  assert.equal(drawing.ok, true, 'a page of drawn blocks is a drawing');
+
+  const blank = await formPlausibility(flatPng(256, 256, WHITE));
+  assert.equal(blank.ok, false);
+  assert.match(blank.why ?? '', /blank|nothing/);
+
+  // One long thin bar: the shape a model returns when it writes a line of words instead of
+  // drawing. 200×8 is 25:1, well past the 4:1 ceiling.
+  const strip = makePng(256, 256, (x, y) =>
+    x >= 28 && x < 228 && y >= 124 && y < 132 ? BLACK : WHITE,
+  );
+  const verdict = await formPlausibility(strip);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.why ?? '', /strip rather than a subject/);
 });
 
 test('provider selection prefers replicate, then fal, then none', () => {

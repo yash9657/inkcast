@@ -238,13 +238,16 @@ export {
   ILLUSTRATION_DIR,
   detectImageProvider,
   extractPathData,
+  figureGround,
   figurePrompt,
   figureRaster,
+  formPlausibility,
   generateIllustration,
   illustrationKey,
   illustrationPaths,
   illustrationPrompt,
   illustrationRaster,
+  rasterGate,
   resetIllustrationCache,
   resetImageProviderNotice,
   shapePrompt,
@@ -253,7 +256,13 @@ export {
   type IllustrationRaster,
   type ImageKind,
   type ImageProvider,
+  type RasterGate,
+  type RasterGenerator,
+  type RasterVerdict,
 } from './image.js';
+
+/* ---- reading the pixels a provider sent back --------------------------- */
+export { groundWhiteness, pngSize, readPng, type PngPixels } from './png.js';
 
 /* ---- SVG helpers the renderer needs ------------------------------------ */
 export {

@@ -2,8 +2,9 @@
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
-four times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
-(`af524b7`, `1a1d58a`), after 6.1, and after 6.2 (the code lane).
+five times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
+(`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), and after 6.4 (the raster
+trust gate).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -13,7 +14,7 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1 and 6.2:**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2 and 6.4:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -238,6 +239,54 @@ function`, `a map of the analogy`) is in the QUIET list in
   either, the test that catches a regression is `planner/test/code-lane.test.ts`'s "keeps a
   fence verbatim and still collapses prose".**
 
+- 2026-08-24 — **6.4, the raster trust gate** — five things a next session needs from this
+  file rather than from the plan's progress block.
+  1. **Every threshold came off the cache, and the cache was opened.** All 42 rasters in
+     `~/.inkcast/cache/illustrations` were traced, measured and then _looked at_ one by one.
+     That is the only corpus of real provider output this repo owns, it costs nothing to
+     read, and the three constants in `visuals/src/image.ts` each carry their measurement in
+     their own comment. **5 of 42 rejected, all five failures by eye, zero false positives.**
+     Do the same before moving any of them; a number argued without the corpus will not
+     survive 8.1.
+  2. **The aspect half of the plan's bar could not be taken verbatim, and the measurement is
+     why.** `plausibilityGate` scores a pose against a composed pose of the same character,
+     so aspect means "is this the same subject". An illustration has no base — the shape we
+     ask for is the shape of the _box_. Scoring illustration aspect against the request that
+     way rejected a ship on a horizon (2.90:1) and a cross-section (3.15:1), both good. What
+     shipped is an absolute ceiling on how strip-like a subject may be (4:1), which catches
+     the two rasters where the model wrote words instead of drawing (4.57:1, 4.81:1).
+  3. **Cached rasters are gated, which the pose lane does not do to its cache.** That cache
+     only ever held accepted poses; these two predate the gate and hold the audit's own
+     evidence. It is not a theoretical difference: the one real rejection on a full cast came
+     from the machine cache, not from a generation. A rejected _cache hit_ is reported and
+     the caller degrades — it is never regenerated, because silently re-billing for a subject
+     the cache already answered would break "one generation per id, ever". The note names the
+     file so a human can delete it.
+  4. **The gate abstains when it cannot see, and that is load-bearing.** A missing native
+     tracer, an unreadable PNG, an interlaced one — all return `ok` with no reason. The
+     tracer is an `optionalDependency`; a gate that condemned what it could not measure would
+     turn a platform without a prebuild into a lane that draws nothing. `TraceResult` names
+     `unavailable`/`unreadable`/`empty` precisely so `empty` — the tracer ran and found
+     nothing — can still be a rejection.
+  5. **A PNG reader went into `visuals/src/png.ts`, not into `package.json`** — 6.2's `glyf`
+     reasoning, one lane over. It reads 8- and 16-bit, non-interlaced, colour types 0/2/3/4/6
+     (every PNG either provider has returned) and abstains on the rest. `test/pngfixture.ts`
+     encodes fixtures so the reader is tested against bytes this repo produced from a known
+     image, all five filter types included, rather than against a checked-in blob.
+
+  **What it does not do, and the commit should not be read as saying otherwise.** It is a
+  floor, exactly as `plausibilityGate` is. The hallucinated benzene ring the audit's S5-a is
+  named after — a red circle containing `"B,H,"` with eight arrows into it — scores 0.91 and
+  passes; so does the structural-formula page at 0.75. Catching a confident drawing of the
+  wrong thing needs a model that can look at a picture, which is Tier 2's vision pass and is
+  still unexercised against a live model. `auditcheck` pins the header sentence that says so.
+
+  **Found on the way past, not fixed:** `generatedAssets` (`pipeline/src/cast.ts:989`) counts
+  assets whose `source` is `generated` whether or not a provider was called, so a run served
+  entirely from cache still bills for images. It is finding 4 in the remainder handoff, and
+  6.4 left the answer sitting there — `IllustrationRaster.from` is `project`, `cache` or
+  `provider` on every resolve.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -370,40 +419,43 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: 6.2 → 7 → 8
+## What remains to close the audit: 6.3 → 7 → 8
 
-**The nine remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+**The seven remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
 carries, per item, the plan's bar, the verified file anchors to start from, the decisions
-already made that constrain it, and the traps — plus the three things that gate the work
-(no API credit, the `DELIVERED_WPS` disagreement, the `deriveLesson` author bug). Open it
+already made that constrain it, and the traps — plus the four things that gate the work
+(no API credit, the `DELIVERED_WPS` disagreement, the `deriveLesson` author bug, and the
+image cost line billed from intent). Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
-**The audit is not closed.** Phases 0–5 and item 6.1 are landed; the rest of Phases 6–8 of
-`docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on scope,
-done-bars, and the coverage table that maps every non-PASS audit finding to exactly
+**The audit is not closed.** Phases 0–5 and items 6.1, 6.2 and 6.4 are landed; the rest of
+Phases 6–8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
+scope, done-bars, and the coverage table that maps every non-PASS audit finding to exactly
 one item or waiver.
 
-- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1 is done, which
-  unblocks the rest: 6.2 the code lane (Shiki → crisp ink); 6.3 circuits/chemistry/
-  geography by demand, lane docs first; 6.4 illustrations get the pose lane's
-  retry + plausibility gates; 6.5 `illustrationKey` folds in the figure model id.
+- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1, 6.2 and 6.4 are
+  done. Left: 6.3 circuits/chemistry/geography by demand, lane docs first; 6.5
+  `illustrationKey` folds in the figure model id.
   **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
   auditcheck line will say so, but the studio would otherwise go on apologising for a
   lane that exists.
 - **Phase 7 — scale and cost** (~1 week, after everything above). 7.1 per-scene
   segment cache / partial re-encode (byte-identical splice is the test); 7.2
-  `--emit-plan` + `planhash --timing`; 7.3 declarative StylePacks (depends on 2.2;
-  where a dark-chalk pack would force 6.4's real-alpha work).
+  `--emit-plan` + `planhash --timing`; 7.3 declarative StylePacks (depends on 2.2, and
+  sequenced after 6.4, which has landed — but see the remainder handoff's 7.3 section:
+  6.4 gave a dark pack a way to _detect_ an opaque white ground, not a way to remove it).
 - **Phase 8 — the exit** (~2 days + ~$3). 8.1 re-run the audit: every check PASS
   or named-waiver (W1–W7 plus the two Phase-2 recalibrations argued in W2 and the
   plan's progress block). 8.2 the bake-off: render Golpo's two reference topics,
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: **6.1 is in, so 6.2 is next and unblocked**;
-7 after everything; 8 is the exit. API cost is negligible until 8.2 (3.3's Tier 2 is keyed
-and cached, ~a few cents a film, and skips itself with no key).
+Ordering per the plan: **6.1, 6.2 and 6.4 are in, and nothing among 6.3, 6.5 and 7.1–7.3
+blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
+signal is 6.1's findings and the guard has fired on nothing in the corpus. API cost is
+negligible until 8.2 (3.3's Tier 2 is keyed and cached, ~a few cents a film, and skips
+itself with no key).
 
 Session-found context for Phase 6 and after (so the next session does not re-derive it):
 
@@ -621,3 +673,33 @@ Earned in the Phase 4 session:
   `DELIVERED_WPS` was calibrated from (272 words over ~122s of longitude) to within
   1.2%. That agreement is what makes its _disagreement_ on gradient-descent (+14%)
   worth acting on rather than debugging.
+
+Earned in the 6.4 session:
+
+- **Measure the corpus, then _open_ it — the numbers and the eye disagree about which
+  failure is which.** The metric that looked obviously right for catching a blank page
+  (how much of the raster the ink covers) turned out to be nearly useless, because
+  `vectoriseToInk` scales the traced ink box to fill its element: a subject drawn tiny in
+  the corner of a page is not drawn tiny on the board. Only opening the images showed
+  that. Conversely a metric that looked crude — total stroke length over the ink box's own
+  diagonal — separated three real failures from every real drawing with a 2.4× gap.
+- **A threshold's honesty is the false positives you looked for and did not find.** Every
+  candidate rule here was run over all 42 cached rasters and its rejections opened one by
+  one. That is what killed the aspect-against-the-request rule (it rejected a ship and a
+  cross-section) and what makes the shipped 4:1 ceiling defensible at the re-audit. It cost
+  about twenty minutes.
+- **A check that cannot see must abstain, and the failure modes have to be named to let
+  it.** `traceImage` used to collapse "the optional native tracer is missing", "these bytes
+  are not an image" and "the tracer ran and found nothing" into one `undefined`. A gate
+  built on that would have turned a platform without a vtracer prebuild into a lane that
+  draws nothing. Splitting them was three lines and is the difference between a gate and an
+  outage.
+- **"Verbatim" in a plan's bar is a hypothesis about transferability, not an instruction.**
+  `plausibilityGate` works because it has a base to compare against. Half of it does not
+  transfer to a lane with no base, and the corpus said so in minutes. Copy the _shape_ —
+  retry-once, an injectable seam, cache only what passed — and re-derive the _thresholds_.
+- **Point tests at a throwaway `INKCAST_HOME`.** These were the first tests to generate
+  rasters, and the first run wrote `rover-c6875525a1.png` into the real machine-wide cache —
+  the tier whose whole job is making two films agree about what the rover looks like.
+  `cacheDir()` reads the environment on every call, so one line at the top of the test file
+  fixes it; without it a test suite quietly poisons a shared cache.

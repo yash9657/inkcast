@@ -503,6 +503,62 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 > for "a name, an arrow into a rule box, an arrow out to a highlighted pigeonhole". Same
 > class as the aspirin blank page in `HANDOFF-AUDIT-CLOSE.md`, now reproducible in one
 > command. Next: 6.3, 6.4, 6.5.
+>
+> **Progress (2026-08-24): 6.4 is landed — a raster now has to earn its place.** 1121 tests
+> green (3 pre-existing keyvault skips), auditcheck 82/82, lint and typecheck clean, and all
+> three shipped lessons cast strict-clean. The done-bar holds both halves in tests, and the
+> gate also fired for real: `projects/qc64-hashmap` rejected the cached raster for
+> `three-different-words-the` — a 4.6:1 strip reading "Word → Rule 3:30" — named the score,
+> the reason and the file to delete, put it in `qc.json`, and drew the matched icon instead.
+> Frames at five timestamps are byte-identical across two renders, so nothing here moved
+> determinism.
+>
+> - **The thresholds are the corpus's, and the corpus was looked at.** All 42 rasters in the
+>   machine's illustration cache were traced and measured, then opened by eye. `MIN_TRACED_INK
+= 3.0`: the three pages with essentially nothing on them measured 1.6 (pale blobs the
+>   tracer could not find), 1.8 (a page of gibberish handwriting) and 2.0 (three dots for a
+>   lithium nucleus), and the lowest real drawing measured 4.3. `MAX_INK_ASPECT = 4.0`: the
+>   two rasters where the model wrote words instead of drawing measured 4.57:1 and 4.81:1,
+>   and the widest genuine drawings measured 3.15:1 and 2.90:1. `MIN_GROUND_WHITE = 0.9`:
+>   every raster either provider has returned measures 0.954 or whiter. **5 of 42 rejected,
+>   all five confirmed failures by eye, zero false positives.**
+> - **A deviation from this item's own wording, measured rather than argued.** The bar says
+>   "the ink/aspect plausibility gate, verbatim". The aspect half cannot be taken verbatim:
+>   `plausibilityGate` scores a candidate against _a composed pose of the same character_, so
+>   a different aspect means a different subject. An illustration has no base — the shape we
+>   ask a provider for is the shape of the **box**, and a ship really is wider than its box.
+>   Scoring illustration aspect against the request the way the pose lane scores it against
+>   its base was tried on the corpus and rejected two good drawings out of 42, a ship and a
+>   cross-section, each of which would have cost a retry and then drawn an icon. An absolute
+>   ceiling on how strip-like a subject may be is what survived.
+> - **Cached rasters are gated too, and that is the second deviation.** The pose lane trusts
+>   its cache because that cache only ever held accepted candidates; these two caches predate
+>   the gate by months and hold the audit's own evidence. A gate that trusted them would never
+>   fire on the corpus we have — and the one real rejection above came from the machine cache,
+>   not from a generation. A rejected _cache hit_ is not regenerated, though: silently
+>   re-billing for a subject the cache already answered would break the lane's one loud
+>   promise, so the note names the file and the caller degrades.
+> - **The gate abstains when it cannot see.** A missing native tracer, an unreadable PNG, an
+>   interlaced one: all return `ok` with no reason. A check that condemns what it cannot
+>   measure turns an optional dependency into a lane outage, and the lane already has an
+>   honest path for "nothing traceable".
+> - **What it does not catch, said out loud in its own header and pinned by `auditcheck`.**
+>   The hallucinated benzene ring the audit's S5-a is named after — a red circle containing
+>   `"B,H,"` with eight arrows into it — scores 0.91 and sails through. So does the
+>   `"Salèylic acisH."` page's sibling, the structural formula at 0.75. This is a floor under
+>   the lane, not the identity check `PIPELINE.md` specifies; catching a confident drawing of
+>   the wrong thing needs a model that can look at a picture, which is Tier 2's vision pass.
+> - **A PNG reader went into the package rather than into `package.json`**, for the reason
+>   6.2's `glyf` reader did: `groundWhiteness` needs pixels, a decoder is ~150 lines of a
+>   well-specified format, and the alternative is a native or wasm dependency on the one lane
+>   that already has to degrade when its optional native tracer is absent. It reads 8- and
+>   16-bit, non-interlaced, colour types 0/2/3/4/6 — every PNG either provider has returned —
+>   and abstains on the rest.
+> - **Found on the way past, not fixed here:** `generatedAssets` in `cast.ts:989` counts
+>   assets whose `source` is `generated` whether or not a provider was called, so a run served
+>   entirely from cache still reports `visuals fal $0.0120`. Same family as the phantom-cost
+>   bug 3.5 closed and the `deriveLesson` one still open, and the lane now knows the answer —
+>   `IllustrationRaster.from` says `project`, `cache` or `provider`. Next: 6.3, 6.5.
 
 **Two rules that shape everything here:**
 
