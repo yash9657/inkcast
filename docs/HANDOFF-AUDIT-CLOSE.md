@@ -2,7 +2,8 @@
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
 after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
-twice on 2026-08-24 — after all of Phase 4 (`3566ac0`) and after all of Phase 5.
+twice on 2026-08-24 — after all of Phase 4 (`3566ac0`) and after all of Phase 5
+(`af524b7`, `1a1d58a`).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -108,7 +109,7 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
      (`drift`), findings to `qc.json` (`duration` blocking at `critiqueLesson`'s own
      1.25×, `pace-calibration` advisory at ±10%).
 
-- 2026-08-24 — **all of Phase 5**: grounding honesty, `sourceRef`, the pedagogy
+- 2026-08-24 — **all of Phase 5** (`af524b7`, `1a1d58a`): grounding honesty, `sourceRef`, the pedagogy
   critiques, IR hygiene, and the document route's leaked coordinates. The plan's progress
   block has the item-by-item inventory; six things a next session needs from this file.
   1. **No pinned hash moved, and it was checked.** `sourceRef` is optional with no

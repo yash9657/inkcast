@@ -260,7 +260,7 @@ re-audit in Phase 8 is the exit.
 > consequences, not a number to split the difference on inside 4.3. It is now impossible
 > to forget: every run says so. Next: Phase 5.
 >
-> **Progress (2026-08-24): ALL OF PHASE 5 is landed.** 1045 tests green, auditcheck 65/65,
+> **Progress (2026-08-24): ALL OF PHASE 5 is landed** (`af524b7`, `1a1d58a`). 1046 tests green, auditcheck 65/65,
 > lint and typecheck clean. **No pinned hash moved, and that was checked rather than hoped
 > for**: `sourceRef` is an optional field with no default so an existing `lesson.json`
 > hashes unchanged, `layoutStoryboard` is reached only by the document route and
