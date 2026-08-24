@@ -117,6 +117,29 @@ export type PipelineState = {
    * problems it exists with are named here rather than only in a log.
    */
   qc?: { ok: boolean; problems: string[] };
+  /**
+   * Length as measured against the length that was planned (plan item 4.3).
+   *
+   * `durationSec` above already says how long the film is; this says whether that
+   * was what the pipeline *intended*, and — the half the audit (S6-d) actually asked
+   * for — whether `DELIVERED_WPS`, the constant every length decision upstream is
+   * made with, still describes the voice this film was spoken in. It was measured
+   * once, from one film, and re-measuring it was a comment rather than a mechanism.
+   *
+   * Kept per run because that is the only way the question can be answered: one
+   * film's rate is a data point, and the calibration is the trend across them.
+   * Absent on files written before 4.3.
+   */
+  drift?: {
+    measuredSec: number;
+    spokenSec: number;
+    words: number;
+    wps: number;
+    wpsDrift: number;
+    expectedWps: number;
+    budgetSec?: number;
+    budgetRatio?: number;
+  };
 };
 
 const FILE = 'pipeline.json';

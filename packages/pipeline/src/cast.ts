@@ -45,6 +45,7 @@ import {
   critiqueLesson,
   hash,
   loadStoryboard,
+  measureDrift,
   logger,
   isFresh,
   markFresh,
@@ -878,6 +879,24 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     (a) => a.source === 'generated' && !assetsBefore.has(a.id),
   ).length;
 
+  /* ---------------------------------------------------------------- drift */
+
+  // What the plan promised about length against what the audio measured (plan item
+  // 4.3). Here rather than inside the voice stage for two reasons: this is where the
+  // *budget* is known — `targetSec` is a pipeline decision, from the preset and the
+  // depth flag, and the storyboard does not carry it — and it is computed from
+  // measurements that live on disk, so a run whose every clip was cached still
+  // reports its film's length instead of reporting nothing.
+  const drift = measureDrift(sb, {
+    budgetSec: design.targetSec,
+    // The rate *this run* planned with, read off the resolved preset rather than
+    // imported: `wordsPerSecond` is `DELIVERED_WPS` for every shipped preset and is
+    // also what an explicit `--wps` would have overridden it to, so this compares
+    // the film against the number that actually budgeted it.
+    expectedWps: design.presetShape.wordsPerSecond,
+  });
+  for (const line of [...drift.problems, ...drift.advisories]) log.warn(line);
+
   /* --------------------------------------------------------------- 6. check */
 
   // The quality gate (plan 3.1). Deliberately not cache-checked: it is arithmetic
@@ -910,6 +929,23 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // asset it never declared, a lane that could not draw what was asked for, a
         // correction the critic rejected.
         { id: 'stages', findings: stageProblems },
+        // Length, measured against the budget the film was planned to (plan 4.3).
+        // Blocking, at `critiqueLesson`'s own 1.25× tolerance: the trimming already
+        // ran, so a film still over it is one the estimate would have refused to
+        // plan, and the note carries the numbers whether or not anything breached.
+        {
+          id: 'duration',
+          findings: drift.problems,
+          severity: 'fail',
+          note:
+            `${drift.measuredSec.toFixed(1)}s measured` +
+            (drift.budgetSec ? ` against a ${drift.budgetSec}s target` : '') +
+            `, ${drift.wps.toFixed(2)} words a second delivered (plans with ${drift.expectedWps})`,
+        },
+        // The calibration behind every length decision upstream, checked against this
+        // run's own delivery. Advisory forever: the film is fine, and the thing that
+        // is wrong is a constant in `presets.ts` that wants re-measuring.
+        { id: 'pace-calibration', findings: drift.advisories, severity: 'warn' },
       ],
     });
   });
@@ -1011,6 +1047,20 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     cost,
     gates: run.gates,
     qc: { ok: qc.ok, problems: qc.problems },
+    // Length as measured, beside the budget it was planned to (plan 4.3). On the
+    // record rather than only in `qc.json` because this is the pair of numbers that
+    // says whether `DELIVERED_WPS` still describes this pipeline, and answering that
+    // means comparing runs — which needs the numbers where every run keeps them.
+    drift: {
+      measuredSec: drift.measuredSec,
+      spokenSec: drift.spokenSec,
+      words: drift.words,
+      wps: drift.wps,
+      wpsDrift: drift.wpsDrift,
+      expectedWps: drift.expectedWps,
+      ...(drift.budgetSec === undefined ? {} : { budgetSec: drift.budgetSec }),
+      ...(drift.budgetRatio === undefined ? {} : { budgetRatio: drift.budgetRatio }),
+    },
     ...(renderProblems && renderProblems.length > 0
       ? { render: { problems: renderProblems } }
       : {}),

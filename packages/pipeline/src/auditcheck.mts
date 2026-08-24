@@ -446,6 +446,31 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S0-c/S6-d (4.3): length is measured against the plan every run ---- */
+{
+  const drift = read('packages/core/src/drift.ts');
+  const cast = read('packages/pipeline/src/cast.ts');
+  const state = read('packages/pipeline/src/state.ts');
+  const lesson = read('packages/core/src/lesson.ts');
+  check(
+    'S0-c: the film is measured against its budget, at the critique’s own tolerance',
+    /BUDGET_TOLERANCE = 1\.25/.test(drift) && /opts\.maxSeconds \* 1\.25/.test(lesson),
+    'the gate and the lesson critique no longer agree about what "over budget" means',
+  );
+  check(
+    'S6-d: DELIVERED_WPS is compared against what the run delivered, not remembered',
+    /measureDrift\(sb, \{/.test(cast) &&
+      /expectedWps: design\.presetShape\.wordsPerSecond/.test(cast) &&
+      /WPS_TOLERANCE = 0\.1/.test(drift),
+    'the calibration behind every length decision is back to being a comment that says re-measure me',
+  );
+  check(
+    'S0-c: both numbers reach the record, not just the log',
+    /id: 'duration'/.test(cast) && /id: 'pace-calibration'/.test(cast) && /drift\?: \{/.test(state),
+    'the drift numbers are a log line again — a run cannot be compared with the one before it',
+  );
+}
+
 /* ---- S2-c/S6-c (4.4): the normaliser's named gaps stay closed ---- */
 {
   const speech = read('packages/core/src/speech.ts');
