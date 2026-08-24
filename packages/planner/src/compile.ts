@@ -108,14 +108,17 @@ const log = logger('planner:compile');
  * This is a cache key and nothing else — it is not written into the storyboard — so a bump
  * must leave the pinned hashes exactly where they were:
  * `npx tsx packages/pipeline/src/sbhash.mts gradient-descent longitude` still reads
- * 2a014f1e2eae / 0670ab50fe80 / a750d3d78b5e / e6e5e7d6e6b2.
+ * e1212df828d0 / 6b03be35c3c6 / a8c3f262502a / f03df5431b68.
  *
- * All four were re-pinned 2026-08-23 (from b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 /
+ * All four were re-pinned 2026-08-23 (from 2a014f1e2eae / 0670ab50fe80 / a750d3d78b5e /
+ * e6e5e7d6e6b2) when the recap chain became a column instead of a row — see `recapChain`
+ * below for the measurement, and `test/pinned-hashes.test.ts` for the frames. Earlier the
+ * same day all four moved (from b6ed04d68aaa / 4aa467530110 / a9b5b8960ed0 /
  * 882002cbf24c) when the planner's text metrics moved from the chars × 0.52 estimate to
  * the real advance table (plan item 2.1) — every reserved box tightened a few percent
  * and two headings re-wrapped honestly. Before that, longitude/short was `c0f2ccc5024c`
  * until 2026-08-22, when `text.ts`'s `DANGLING` list learned the word `between` and
- * shortened exactly one caption. The reasoning and the frame evidence for both re-pins
+ * shortened exactly one caption. The reasoning and the frame evidence for every re-pin
  * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
 export const COMPILER_VERSION = 3;
@@ -1613,15 +1616,38 @@ function buildDiagram(describe: string, ctx: IntentContext): Element[] {
   return [el];
 }
 
+/**
+ * The recap's chain of ideas, when the beat has no visuals of its own.
+ *
+ * **A column, not a row, and the layout is the whole of it.** These labels are
+ * sentences — a beat's `idea` is a clause, six or seven words — and a `flow` diagram
+ * reads left to right, so four of them divide the recap's cell into four columns about
+ * 160 units wide. A sentence has nowhere to go in 160 units: the browser wraps it to
+ * five lines, finds five lines do not fit either, and shrinks the type until they do.
+ * Measured on the shipped `longitude` lesson, that is 31 canvas units asked for and
+ * **16.3 delivered — 7.2 output pixels**, against a 10px legibility floor. Four boxes
+ * of grey mush at the foot of the board, under a heading that says "From a wreck to a
+ * watch", on a board with an empty middle. It is the one defect in that film a viewer
+ * cannot miss, and it survived every check in the repo until the realized-layout sweep
+ * (plan 2.7) read what the browser had really done.
+ *
+ * A `stack` gives each idea the cell's full width — 860 units, room for the whole
+ * clause on one line at the size it asked for — and the edges still chain them, so the
+ * argument reads top to bottom instead of not reading at all. The word budget rises
+ * with the width for the same reason: at seven words the labels were truncated
+ * mid-thought ("A carpenter built the clock the astronomers"), which a recap of the
+ * argument can least afford, and a full-width row fits the sentence that finishes it.
+ */
 function recapChain(lesson: Lesson, id: string, box: Box, preset: Preset): Element | undefined {
-  const ideas = lesson.steps.map((s) => shorten(stripMarkdown(s.idea), preset.vertical ? 5 : 7));
-  const nodes = [shorten(stripMarkdown(lesson.anchor.idea), 5), ...ideas]
+  const words = preset.vertical ? 6 : 10;
+  const ideas = lesson.steps.map((s) => shorten(stripMarkdown(s.idea), words));
+  const nodes = [shorten(stripMarkdown(lesson.anchor.idea), words), ...ideas]
     .filter(Boolean)
     .slice(0, preset.vertical ? 4 : 6)
     .map((label, k) => ({ id: `r${k}`, label }));
   if (nodes.length < 2) return undefined;
   const edges = nodes.slice(1).map((n, k) => ({ from: nodes[k]!.id, to: n.id }));
-  const el = makeDiagram(id, 'flow', nodes, edges, { w: box.w, h: box.h });
+  const el = makeDiagram(id, 'stack', nodes, edges, { w: box.w, h: box.h });
   el.at = { x: box.x, y: box.y, w: box.w, h: box.h };
   el.enter = { ...el.enter, at: 0.12 };
   return el;

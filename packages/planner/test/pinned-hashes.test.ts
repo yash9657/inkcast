@@ -100,12 +100,48 @@ import { compileLesson } from '../src/compile.js';
  * frame letters the latitude headline broken as "…latitude / for free" inside its
  * two-line reservation; the new frame letters it on one line over its underline, and
  * the freed vertical space goes to the figure beside it.
+ *
+ * ## The re-pin, 2026-08-23 (later): all four, for the recap chain's layout
+ *
+ * From `2a014f1e2eae` / `0670ab50fe80` / `a750d3d78b5e` / `e6e5e7d6e6b2`.
+ *
+ * `recapChain` emitted a `flow` diagram, which reads left to right, so four or five
+ * ideas divided the recap's cell into columns about 160 units wide. A beat's `idea` is a
+ * clause of six or seven words and has nowhere to go in 160 units: the browser wrapped
+ * each to five lines, found five lines did not fit either, and shrank the type until they
+ * did. On longitude that is **31 canvas units asked for and 16.3 delivered — 7.2 output
+ * pixels**, against the 10px floor. The rendered frame is four boxes of grey mush at the
+ * foot of the board under a heading reading "From a wreck to a watch". It survived every
+ * check in the repo until the realized-layout sweep (plan 2.7) was finally pointed at
+ * this lesson, and it is the reason that sweep exists.
+ *
+ * The fix is one word — `stack`, a column — plus the word budget rising with the width
+ * (7 → 10 on 16:9, 5 → 6 vertical), because at seven words the labels were truncated
+ * mid-thought and a full-width row fits the sentence that finishes them.
+ *
+ * The delta is small enough to read in full. Longitude: 12 lines of `diff`, one of them
+ * `"layout"`, and two labels that stop being fragments —
+ *
+ *     "The sky gives you latitude"                 -> "…latitude for free"
+ *     "A carpenter built the clock the astronomers" -> "…the astronomers could not"
+ *
+ * Gradient-descent: 16 lines, `"layout"` and three labels ("Feel the ground" -> "Feel
+ * the ground, step downhill, repeat", and two more). **No geometry moved at all** — the
+ * diagram's own `at` box is unchanged and the node boxes are computed by the renderer at
+ * layout time, which is why a change this visible is this small in the bytes.
+ *
+ * Frames were rendered and looked at, on a full strict cast of longitude
+ * (`projects/qc33-longitude`, which now passes the gate that was blocking it). The recap
+ * reads as four full-width rows, one line each, chained downward: "The sky gives you
+ * latitude for free" → "Longitude is a difference between two clocks" → "So the problem
+ * was never astronomy" → "A carpenter built the clock the astronomers could not". That
+ * is the argument, legible, where there used to be a smudge.
  */
 const PINNED = [
-  { lesson: 'gradient-descent', preset: 'standard', hash: '2a014f1e2eae', scenes: 9 },
-  { lesson: 'gradient-descent', preset: 'short', hash: '0670ab50fe80', scenes: 7 },
-  { lesson: 'longitude', preset: 'standard', hash: 'a750d3d78b5e', scenes: 8 },
-  { lesson: 'longitude', preset: 'short', hash: 'e6e5e7d6e6b2', scenes: 6 },
+  { lesson: 'gradient-descent', preset: 'standard', hash: 'e1212df828d0', scenes: 9 },
+  { lesson: 'gradient-descent', preset: 'short', hash: '6b03be35c3c6', scenes: 7 },
+  { lesson: 'longitude', preset: 'standard', hash: 'a8c3f262502a', scenes: 8 },
+  { lesson: 'longitude', preset: 'short', hash: 'f03df5431b68', scenes: 6 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

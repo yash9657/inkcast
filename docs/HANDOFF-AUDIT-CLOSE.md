@@ -1,7 +1,8 @@
-# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 3
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 4
 
 Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
-after all of Phase 2 landed (`182a342`). **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
+after all of Phase 2 landed (`182a342`) and again after all of Phase 3 (`ae18d4b`).
+**The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
 where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDINGS.md`
@@ -9,7 +10,7 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
 
 ## Where things stand
 
-**Phases 0, 1, and all of Phase 2 are landed, tested, and committed:**
+**Phases 0, 1, 2 and 3 are landed, tested, and committed:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -67,16 +68,47 @@ where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDIN
   degrade records into `problems`. The done-bar browser test (`page.test.ts`) builds
   a narrowed box that passes every compile check and fails from the realized report
   alone.
+- 2026-08-23 — **all of Phase 3 (`ae18d4b`): QC is a stage.** The plan's progress block
+  has the item-by-item inventory; the shape is a seventh stage `check` between visuals
+  and render (`render/src/check.ts`) that writes `qc.json` (contract in
+  `core/src/qc.ts`), re-runs the Phase 2 sweeps from the new `compileBoard`, runs
+  `critiqueStoryboard` (`core/storyboard.ts`), and looks at eight sampled frames
+  (`render/src/tier2.ts`) — all in one Chromium launch, blocking through `gate(...)`.
+  Two new `StageOptions` channels carry what stages used to only log: `onProblem`
+  (degradations → `qc.json`) and `onSpend` (billable calls → real, non-estimated cost
+  lines). The Tier-2 vision pass and OCR diff are injected from
+  `pipeline/src/frame-vision.ts`, advisory for one release, and skip with the real
+  reason when there is no key or the key has no credit.
+- 2026-08-23 — **the recap chain became a column** (`b8b26bd`), which is Phase-2 work
+  that Phase 3's gate found: see the trap list at the foot of this file. All four
+  pinned hashes re-pinned, with the diff and the frames in
+  `pinned-hashes.test.ts`'s header.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
 
-**Verified end to end:** strict no-key casts of both shipped lessons render clean with
-every Phase 2 gate live — `projects/audit-2p47-gd/pipeline.json` (gradient-descent,
-cast after 2.4+2.7 landed) and `projects/audit-2p3-longitude/pipeline.json` both
-record `"gates": "strict"` with no problems. Those project directories are disposable
-evidence, not fixtures.
+**Verified end to end, after Phase 3:** strict no-key casts of _both_ shipped lessons
+now render clean with every Phase 2 and Phase 3 gate live —
+`projects/qc33-longitude/` and `projects/qc33-gd/` both record `"gates": "strict"`,
+`qc.ok: true` and no problems. That is the first time longitude has been true (see
+below). Those project directories are disposable evidence, not fixtures; the older
+`audit-2p*` ones describe the tree as it was.
+
+**The corpus is not clean, and that is the point.** Running the gate over all 27 boards
+in `projects/` (in `degrade`, so it reports rather than stops) on 2026-08-23:
+
+| what fails                | where                                                     |
+| ------------------------- | --------------------------------------------------------- |
+| `ink-floor` (Tier 2, new) | `5b5566b87593`, `f70a4904eb30`, `integ-doc/-final/-teach` |
+| `vacant` (bbox fill, 2.6) | `5b5566b87593`, `cardiac`, `cardiac7`                     |
+| `ink-on-ink` (2.3)        | `cardiac2`, `cardiac6`                                    |
+| `realized-layout` (2.7)   | `cardiac7`, `try`, and the pre-fix longitude projects     |
+
+Every one of those is a board compiled by an older tree, and the ink-floor set is
+exactly the document-route slideshow plus the four-scene smoke tests — the class that
+floor was drawn to name. Nothing there needs fixing before Phase 4; it is listed so
+that a future session does not read a red corpus as a regression it caused.
 
 ## What Phase 0/1 built (the parts Phase 2+ will touch)
 
@@ -131,25 +163,15 @@ evidence, not fixtures.
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: Phases 3 → 4 → 5 → 6 → 7 → 8
+## What remains to close the audit: Phases 4 → 5 → 6 → 7 → 8
 
-**The audit is not closed.** Phases 0–2 are landed; Phases 3–8 of
+**The audit is not closed.** Phases 0–3 are landed; Phases 4–8 of
 `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on scope,
 done-bars, and the coverage table that maps every non-PASS audit finding to exactly
-one item or waiver. Read the plan's Phase 3–8 sections in full before starting; the
+one item or waiver. Read the plan's Phase 4–8 sections in full before starting; the
 summary below exists only so a clean-context session knows the shape of the road,
 and the bullets after it are session-found context the plan cannot know.
 
-- **Phase 3 — QC becomes a stage** (~1 week; ~$0.10/video for Tier 2 when keyed).
-  3.1 a thin `check` stage between visuals and render writing `qc.json`, blocking
-  under strict, never re-prompting models; 3.2 `critiqueStoryboard` (dangling
-  `morph.fromId`/`targetId`/`assetId`/`persistUntil`, cue phrases present in
-  narration); 3.3 Tier-2 keyed frame checks (vision pass, OCR diff, inkstat floor —
-  advisory one release, then strict; also the instrument that scores Golpo in the
-  bake-off); 3.4 nothing degrades silently (the score-0 lucide `fallbackMatch` at
-  `icons.ts:1420`, the blind critic, draw-audit defect lists → persisted); 3.5 every
-  model call emits a `CostLine` (drawing author, critic vision calls, lesson-stage
-  generations).
 - **Phase 4 — sync exactness and drift** (~4 days, $0). 4.1 `entersAtWord` token
   indices end to end (fuzzy cue search survives one release, then dies); 4.2 a
   missed anchor is a problem, not a log line; 4.3 drift measured every run
@@ -178,23 +200,36 @@ and the bullets after it are session-found context the plan cannot know.
   score both films and Golpo's with the same instruments, publish the scorecard in
   `docs/STATUS.md` — and watch both films end to end first.
 
-Ordering per the plan: 3 first; 4 and 5 can run in parallel after 3; 6.2+ any time
-after 6.1; 7 after everything; 8 is the exit. API cost is negligible until 3.3 and
-8.2.
+Ordering per the plan: 4 and 5 can run in parallel now that 3 is in; 6.2+ any time
+after 6.1; 7 after everything; 8 is the exit. API cost is negligible until 8.2 (3.3's
+Tier 2 is keyed and cached, ~a few cents a film, and skips itself with no key).
 
-Session-found context for Phase 3 (so the next session does not re-derive it):
+Session-found context for Phase 4 and after (so the next session does not re-derive it):
 
-- **3.1's gate stage re-runs the Phase 2 assertions** — they live in
-  `render/src/boardcheck.ts` as pure exported functions (`inkOnInkViolations`,
-  `offFrameViolations`, `overrunViolations`, `glyphFloorViolations`,
-  `realizedTextViolations`, `dwellWarnings`) precisely so a `check` stage can call
-  them without compiling a plan.
-- **3.4's "nothing degrades silently" already has its rail:** degrade-mode gate
-  messages flow `plan.problems` → `RenderResult.problems` → `pipeline.json`
-  `render.problems` (built in 2.6). qc.json can subsume or mirror that shape.
-- The realized-layout report (2.7) is fetched per render in `render()`; a `check`
-  stage that wants it without an encode can use `openCapture` +
-  `FrameCapturer.realizedLayout()` the way `page.test.ts`'s last test does.
+- **The gate stage is where new checks go.** `check()` in `render/src/check.ts`
+  assembles `QcCheck`s; adding one is a `qcCheck(id, findings, {severity})` in that
+  list plus, if it needs a number, a pure function beside the others in
+  `boardcheck.ts` or `tier2.ts`. `severity: 'warn'` for a judgement, the default
+  `fail` for a fact — the split is argued in `core/src/qc.ts`'s header and it is what
+  keeps the gate switched on.
+- **4.2 and 4.3 have their rails already.** A voice-stage problem reaches `qc.json`
+  through `StageOptions.onProblem` — `cast()` collects it into the `stages` check —
+  and `narrate` already takes `StageOpts`, so 4.3's drift numbers can travel the same
+  way without a new artefact. 4.1's unresolvable-index hard error should go through
+  `gate(...)` like everything else.
+- **Tier 2 is where a "does the sync look right" check would live**, if 4.x ever wants
+  one: the frames are already captured and the vision seam already takes them.
+- **3.3's vision pass is unexercised against a live model.** Every code path is
+  tested with a stub, and the one keyed attempt in this session got
+  `402 Payment Required` from both providers — which is itself the degradation path
+  working (the report records the real reason and the film still rendered). The first
+  session with credit should run one keyed cast and read `qc.json`'s `frame-vision`
+  findings against the frames by eye: that false-positive count is what decides
+  whether the check is promoted from advisory to blocking, per the plan.
+- **`MIN_INK_SHARE` and `MAX_REVEALS_PER_SCENE` are corpus numbers, not spec numbers**,
+  like `MIN_GLYPH_PX` and the fill floor before them. The Phase 8 re-audit must treat
+  all four as named recalibrations. The measurement scripts were throwaway; the tables
+  and the reasoning are in the constants' own comments.
 
 ## How to verify any phase as it lands
 
@@ -208,12 +243,34 @@ The last line is the strict end-to-end proof (strict is the default; no key need
 a voice-provider fallback in the output is a provider event, not a gate failure).
 Both shipped lessons are `examples/lessons/*.lesson.json`.
 
-## Traps (the plan's own list, plus one earned this session)
+## Traps (the plan's own list, plus the ones earned since)
 
 All five traps at the foot of `docs/PLAN-AUDIT-CLOSE.md` stand — pinned hashes moving
 is the change working; gameable metrics get gamed; no re-prompt loops at gates;
 strict surfaces latent corpus defects (budget triage time; `--degrade` exists);
-6.1 before 6.2/6.3. Earned this session: **verify coverage claims against the actual
-cmap before asserting them in tests** — Shantell Sans genuinely covers bra-ket
-brackets (U+27E8/9) and subscript digits but no Greek, the opposite of what you'd
-guess.
+6.1 before 6.2/6.3.
+
+Earned in the Phase 1–2 sessions: **verify coverage claims against the actual cmap
+before asserting them in tests** — Shantell Sans genuinely covers bra-ket brackets
+(U+27E8/9) and subscript digits but no Greek, the opposite of what you'd guess.
+
+Earned in the Phase 3 session, and the more expensive lesson of the two:
+
+- **"The corpus passes" is a claim about the projects you actually re-cast.** Phase 2
+  was recorded as complete with both shipped lessons verified strict-clean. They were
+  not: `projects/audit-2p3-longitude` was cast 32 minutes _before_ 2.7's realized-layout
+  check landed, so longitude had never met it — and when it did, it failed, on a defect
+  a viewer sees immediately (its recap chain lettered at 7.2 output pixels; the frame is
+  four boxes of grey mush). Gradient-descent had been re-cast after 2.7 and did pass,
+  which is exactly how the wrong conclusion got drawn from a half-run experiment. Before
+  writing "verified end to end", check the timestamps: `pipeline.json`'s `updatedAt`
+  against `git log` for the commit whose gate you are claiming it passed.
+- **A check that only measures intent will bless a board that fails in reality.** The
+  static glyph floor (2.4) passed that longitude recap, because the _asked_ size was
+  legible; only the browser knew it had shrunk the type to fit. Any future check with
+  an estimate on one side of it should ask what its realized equivalent would say.
+- **Where you sample decides what you measure.** Tier 2's first sampler took each frame
+  a quarter second before the beat's end, which on a wiping board is after the card has
+  gone: two reviewed films measured 0.00% ink. It reads the fade schedule now. The
+  general form — a measurement taken at the wrong instant is not a weak measurement, it
+  is a confident wrong one — is worth carrying into 4.3's drift numbers.
