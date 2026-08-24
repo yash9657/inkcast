@@ -5,6 +5,7 @@ export * from './lesson.js';
 export * from './terms.js';
 export * from './log.js';
 export * from './fontmetrics.js';
+export * from './speech.js';
 export * from './palette.js';
 export * from './gates.js';
 export * from './qc.js';

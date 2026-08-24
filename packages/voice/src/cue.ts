@@ -31,41 +31,16 @@
  * still matches narration spoken as "the rate is zero point one".
  */
 import type { Scene } from '@inkcast/core';
-import { normalizeNarration } from './text.js';
+import { cueTokens, findTokens, matchTokens } from '@inkcast/core';
 import type { PhraseTiming } from './phrase.js';
 import type { WordTiming } from './providers/types.js';
 
-/* ---------------------------------------------------------------- tokenising */
-
 /**
- * Words reduced to a comparable form: lower case, no punctuation, no runs of
- * whitespace. Digits survive because the text pipeline has already spoken them.
+ * The tokeniser is `@inkcast/core`'s (`speech.ts`), because the planner counts
+ * with it too — an `Enter.cueWord` is an index into its stream. Re-exported here
+ * so the voice package still answers "how is a cue tokenised".
  */
-export function matchTokens(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/['’]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean);
-}
-
-/**
- * Tokenise a cue the way the narration was tokenised.
- *
- * The cue goes through `normalizeNarration` first: it is authored against the
- * *source* text, so it may contain markdown, symbols or digits that the narration
- * no longer contains. Normalising both sides is what makes "α" match "alpha" and
- * "0.1" match "zero point one".
- */
-export function cueTokens(cue: string): string[] {
-  const direct = matchTokens(cue);
-  const normalised = matchTokens(normalizeNarration(cue));
-  // Prefer the normalised form, but keep the raw one when normalisation has
-  // eaten everything (a cue of pure symbols, say).
-  return normalised.length ? normalised : direct;
-}
+export { cueTokens, matchTokens } from '@inkcast/core';
 
 /* ------------------------------------------------------------------ matching */
 
@@ -80,18 +55,6 @@ export type TokenSpan = {
 
 /** Minimum fuzzy score accepted. Below this, a cue is treated as unmatched. */
 export const MIN_CUE_SCORE = 0.6;
-
-/** Exact contiguous match of `needle` inside `haystack`, or -1. */
-function findExact(haystack: readonly string[], needle: readonly string[]): number {
-  if (!needle.length || needle.length > haystack.length) return -1;
-  outer: for (let i = 0; i + needle.length <= haystack.length; i++) {
-    for (let j = 0; j < needle.length; j++) {
-      if (haystack[i + j] !== needle[j]) continue outer;
-    }
-    return i;
-  }
-  return -1;
-}
 
 /**
  * Best window of `haystack` for `needle`, scored on in-order token agreement.
@@ -131,13 +94,13 @@ export function findCueSpan(sceneTokens: readonly string[], cue: string): TokenS
   const needle = cueTokens(cue);
   if (!needle.length) return undefined;
 
-  const exact = findExact(sceneTokens, needle);
+  const exact = findTokens(sceneTokens, needle);
   if (exact >= 0) return { index: exact, length: needle.length, score: 1 };
 
   // A long cue that has drifted still usually matches on its opening words,
   // which is the part that determines *when* it starts.
   for (let take = needle.length - 1; take >= Math.max(2, Math.ceil(needle.length * 0.5)); take--) {
-    const prefix = findExact(sceneTokens, needle.slice(0, take));
+    const prefix = findTokens(sceneTokens, needle.slice(0, take));
     if (prefix >= 0) return { index: prefix, length: take, score: take / needle.length };
   }
 

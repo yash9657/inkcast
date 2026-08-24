@@ -41,6 +41,7 @@ import {
   isFresh,
   logger,
   markFresh,
+  normalizeNarration,
   report,
   totalDuration,
 } from '@inkcast/core';
@@ -53,7 +54,6 @@ import {
   concatWavs,
 } from './audio.js';
 import type { ClipPart } from './audio.js';
-import { normalizeNarration } from './text.js';
 import { gapAfter, sentenceSpanWarnings, splitPhrases } from './phrase.js';
 import type { Phrase, PhraseSplit, PhraseTiming } from './phrase.js';
 import { resolveSceneCues } from './cue.js';

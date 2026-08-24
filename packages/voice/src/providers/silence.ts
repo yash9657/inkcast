@@ -10,7 +10,7 @@
  * layout iteration a fast, deterministic, offline voice stage.
  */
 import { logger } from '@inkcast/core';
-import { estimateSpokenSeconds } from '../text.js';
+import { estimateSpokenSeconds } from '@inkcast/core';
 import { TEACHING_WPM_TARGET } from '../voices.js';
 import { writeSilenceWav } from '../audio.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';

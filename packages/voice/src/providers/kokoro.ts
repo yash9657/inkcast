@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { logger } from '@inkcast/core';
 import { clipWavFromFloat32 } from '../wav.js';
 import { voiceMood } from '../moods.js';
-import { splitSentences } from '../text.js';
+import { splitSentences } from '@inkcast/core';
 import { TEACHING_VOICE, voiceProfile } from '../voices.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
 

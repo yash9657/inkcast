@@ -175,6 +175,12 @@ export async function listVoices(provider: VoiceProviderId = 'kokoro'): Promise<
 
 /* ------------------------------------------------- text normalisation (pure) */
 
+/**
+ * Re-exported, not owned: the normaliser lives in `@inkcast/core`'s `speech.ts`
+ * since plan item 4.1, because the planner has to tokenise narration with the
+ * same function to write `Enter.cueWord`. The names stay here so a caller that
+ * asked the voice package how narration is spoken still gets an answer.
+ */
 export {
   normalizeNarration,
   normalizeNarrationDetailed,
@@ -192,8 +198,8 @@ export {
   estimateSpokenSeconds,
   ABBREVIATIONS,
   SYMBOLS,
-} from './text.js';
-export type { NormalizeResult } from './text.js';
+} from '@inkcast/core';
+export type { NormalizeResult } from '@inkcast/core';
 
 /* ----------------------------------------------------- audio utilities */
 

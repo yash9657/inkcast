@@ -19,7 +19,7 @@
  *    sides are substantial (`MIN_CLAUSE_WORDS`), so "w, the weight," never
  *    becomes three clips.
  */
-import { splitSentences } from './text.js';
+import { splitSentences } from '@inkcast/core';
 
 /** Below this, a comma is punctuation rather than a boundary worth cutting on. */
 export const MIN_CLAUSE_WORDS = 4;

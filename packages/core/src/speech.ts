@@ -1,5 +1,6 @@
 /**
- * Sentence-aware text normalisation for TTS.
+ * Narration as it will be spoken: normalisation, tokenisation, and locating a
+ * phrase in the words.
  *
  * Narration arrives from the planner as prose that may still carry markdown,
  * maths symbols, currency and bare digits. Every TTS engine we support reads
@@ -20,6 +21,22 @@
  *
  * Everything is pure and deterministic, which matters: the normalised string is
  * what gets hashed into the per-scene cache key.
+ *
+ * ## Why this lives in core
+ *
+ * It was the voice stage's `text.ts` until plan item 4.1, and moved for the same
+ * reason `fontmetrics.ts` and `palette.ts` did: two stages were about to measure
+ * one thing. `Enter.cueWord` is an index into *this* module's token stream, and
+ * the planner is what writes it — so the planner has to tokenise narration with
+ * the very function the voice stage will later count with. A second normaliser in
+ * the planner would be a second opinion about which word is word seven, which is
+ * exactly the ambiguity the index exists to remove.
+ *
+ * So the bottom half of this file is the tokeniser of record: `matchTokens`,
+ * `narrationTokens` (normalise, then tokenise — the stream indices are into), and
+ * `cueWordIndex`, which is how an authored phrase becomes a number. Placement —
+ * turning that number into a second of audio — stays in `voice/src/cue.ts`, where
+ * the measurements are.
  */
 
 /* ------------------------------------------------------------------ markdown */
@@ -852,4 +869,98 @@ export function estimateSpokenSeconds(text: string, wordsPerMinute = 150): numbe
   const words = text.split(/\s+/).filter(Boolean).length;
   if (!words) return 0;
   return (words / wordsPerMinute) * 60;
+}
+
+/* --------------------------------------------------------------- tokenising */
+
+/**
+ * Words reduced to a comparable form: lower case, no punctuation, no runs of
+ * whitespace. Digits survive because the text pipeline has already spoken them.
+ *
+ * The one tokeniser. Both ends of the cue contract count with it — the planner
+ * to write an index, the voice stage to read one — and the invariant that makes
+ * an index mean anything is that punctuation always *separates* tokens here. The
+ * voice stage builds its stream per measured phrase, and phrases are cut at
+ * commas, semicolons, colons and sentence ends, so a cut can never merge two
+ * tokens into one or split one into two. `narrationTokens` below is therefore
+ * the same list of words the clips are made of, in the same order.
+ */
+export function matchTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+}
+
+/**
+ * The token stream a scene's cue indices are indices into: normalise, then
+ * tokenise.
+ *
+ * Normalisation first is the whole point. A cue is authored against narration
+ * that still says "0.1" and "α", and what gets spoken is "zero point one" and
+ * "alpha" — three tokens where the source had one. An index into the *source*
+ * words would name a different word than the one the listener hears, which is
+ * the class of bug the index was introduced to end.
+ */
+export function narrationTokens(narration: string): string[] {
+  return matchTokens(normalizeNarration(narration));
+}
+
+/**
+ * Tokenise a cue the way the narration was tokenised.
+ *
+ * The cue goes through `normalizeNarration` first: it is authored against the
+ * *source* text, so it may contain markdown, symbols or digits that the narration
+ * no longer contains. Normalising both sides is what makes "α" match "alpha" and
+ * "0.1" match "zero point one".
+ */
+export function cueTokens(cue: string): string[] {
+  const direct = matchTokens(cue);
+  const normalised = matchTokens(normalizeNarration(cue));
+  // Prefer the normalised form, but keep the raw one when normalisation has
+  // eaten everything (a cue of pure symbols, say).
+  return normalised.length ? normalised : direct;
+}
+
+/** Exact contiguous match of `needle` inside `haystack` at or after `from`, or -1. */
+export function findTokens(
+  haystack: readonly string[],
+  needle: readonly string[],
+  from = 0,
+): number {
+  if (!needle.length || needle.length > haystack.length) return -1;
+  outer: for (let i = Math.max(0, from); i + needle.length <= haystack.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/**
+ * Which word of the narration a cue starts on, or `undefined` if it is not in it.
+ *
+ * This is the authoring half of `Enter.cueWord` (PIPELINE.md step 8's
+ * `entersAtWord`), and it is deliberately **exact only**: no prefix match, no
+ * fuzzy window. The voice stage's search has those tolerances because it is
+ * handed a phrase and has to make the best of it; the planner is handed the
+ * narration itself and can simply choose a cue that occurs in it. An index
+ * derived from a 60%-confident window would be a guess wearing the costume of a
+ * fact, and the record would no longer be able to tell the two apart.
+ *
+ * A phrase that occurs twice resolves to its **first** occurrence, which is what
+ * the search resolved it to as well. The difference is that the choice is now
+ * made once, in the open, by the stage that picked the words — rather than
+ * re-derived per render by a matcher that could pick the other one after an edit.
+ */
+export function cueWordIndex(narration: string, cue: string | undefined): number | undefined {
+  if (!cue?.trim()) return undefined;
+  const needle = cueTokens(cue);
+  if (!needle.length) return undefined;
+  const at = findTokens(narrationTokens(narration), needle);
+  return at < 0 ? undefined : at;
 }
