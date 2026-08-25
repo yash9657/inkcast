@@ -887,6 +887,39 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- S10-b (7.1): a segment is reusable, and says what it is made of ---- */
+{
+  const segs = read('packages/render/src/segments.ts');
+  const render = read('packages/render/src/render.ts');
+  check(
+    'S10-b: segments are cut on scene boundaries, not on worker slices',
+    /export function planSegments\(plan: RenderPlan/.test(segs) &&
+      /sceneStartFrame/.test(segs) &&
+      !/Math\.min\(workers/.test(segs) &&
+      !/Math\.min\(workers/.test(render),
+    'the cut is back to equal worker slices — a segment straddles two scenes again and nothing about it can be cached',
+  );
+  check(
+    'S10-b: a segment’s key carries the board it inherits, not just its own scene',
+    /export function itemsInSegment/.test(segs) &&
+      /item\.persist \? Infinity : item\.sceneEnd/.test(segs) &&
+      /itemsInSegment\(plan, seg\)/.test(segs.slice(segs.indexOf('export function segmentKey'))),
+    'the accumulated prior board state has dropped out of the key — a tail edit would reuse segments whose pixels moved',
+  );
+  check(
+    'S10-b: encoder settings are in the key, and a segment is named only once complete',
+    /enc,/.test(segs.slice(segs.indexOf('export function segmentKey'))) &&
+      /`\.part-/.test(render) &&
+      /await rename\(tmp, out\)/.test(render),
+    'either a differently-configured encoder can serve a cached segment (not byte-identical), or a killed render leaves a truncated mp4 where the next run reads a finished one',
+  );
+  check(
+    'S10-b: the segment directory survives a successful render',
+    /keepSegments/.test(render) && !/rm\(segDir, \{ recursive: true/.test(render),
+    'the cache is deleted on success again, so only a failed render leaves anything to reuse',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

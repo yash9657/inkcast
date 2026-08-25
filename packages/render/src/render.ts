@@ -1,17 +1,32 @@
 /**
  * `render(sb, dir, opts)` — the last stage of the pipeline.
  *
- * The frame range is split across several browser contexts working concurrently,
- * each piping its own segment into its own encoder; the segments are then joined
- * with a stream copy and the narration is muxed in. That is what keeps a
- * 60-second 30 fps film (1800 frames) in the tens of seconds rather than minutes.
+ * The film is cut into segments on scene boundaries (`segments.ts`), and the segments are
+ * encoded by a pool of browser contexts each piping into its own ffmpeg; they are then
+ * joined with a stream copy and the narration is muxed in. That is what keeps a 60-second
+ * 30 fps film (1800 frames) in the tens of seconds rather than minutes.
  *
  * Determinism makes the split safe: worker 3 rendering frame 1200 produces
  * exactly what a single sequential pass would, because the page state is a pure
  * function of `1200 / fps`.
+ *
+ * **The same determinism is what makes the segments reusable** (plan 7.1). Each is named
+ * by a hash of everything that can change its pixels, so `<dir>/frames` is a cache rather
+ * than scratch: a re-render encodes only the segments whose contents moved and streams the
+ * rest through untouched. Measured on a 2:14 longitude cast — adding a second of hold to
+ * the final beat re-encoded 5 of 32 segments, and the result was byte-identical to a full
+ * re-render of the same film in a different directory. A render with nothing to redo
+ * finishes in 1.4s against 57s.
+ *
+ * Two consequences worth knowing before editing this file. The directory is pruned on
+ * success rather than deleted, because deleting it would mean only a *failed* render ever
+ * left anything to reuse. And a segment is written under a `.part-` name and renamed once
+ * ffmpeg has closed it — without that, a render killed mid-segment leaves a truncated mp4
+ * at exactly the path the next run treats as finished, which is the one way a segment
+ * cache can corrupt a film without anybody noticing.
  */
 import { existsSync } from 'node:fs';
-import { mkdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { gate, hash, isFresh, logger, markFresh, report } from '@inkcast/core';
@@ -31,6 +46,7 @@ import {
 } from './ffmpeg.js';
 import type { SegmentEncoder } from './ffmpeg.js';
 import { buildPageHtml } from './html.js';
+import { planSegments, segmentKey, type EncoderSettings, type Segment } from './segments.js';
 import type { RenderOptions, RenderPlan, RenderResult } from './types.js';
 
 const log = logger('render');
@@ -45,8 +61,6 @@ const log = logger('render');
  * therefore touches every frame that has ever had text on it, which is all of them.
  */
 const RENDER_VERSION = 5;
-
-type Segment = { index: number; from: number; to: number; poster: number | null };
 
 function defaultConcurrency(): number {
   const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
@@ -92,17 +106,37 @@ async function resolveNarration(
   return null;
 }
 
-function planSegments(frames: number, workers: number, posterFrame: number): Segment[] {
-  const count = Math.max(1, Math.min(workers, Math.ceil(frames / 24)));
-  const per = Math.ceil(frames / count);
-  const segs: Segment[] = [];
-  for (let from = 0, i = 0; from < frames; from += per, i++) {
-    const to = Math.min(frames, from + per);
-    segs.push({ index: i, from, to, poster: null });
-  }
-  const owner = segs.find((s) => posterFrame >= s.from && posterFrame < s.to) ?? segs[0];
-  if (owner) owner.poster = posterFrame;
-  return segs;
+/**
+ * Run `jobs` with at most `limit` in flight.
+ *
+ * `Promise.all` over the segments was correct while there was one segment per worker; the
+ * scene-aligned cut (plan 7.1) makes the count a property of the *film* instead, so a
+ * two-minute lesson is thirty segments and thirty simultaneous Chromium contexts would
+ * take the machine down. The pool is the smallest thing that keeps the old behaviour when
+ * the counts happen to match.
+ *
+ * A rejection is not swallowed and the pool does not stop: the caller kills the encoders
+ * and rethrows, and a worker that abandoned its slot mid-flight would leave the others
+ * running into a browser that is about to close.
+ */
+async function pooled(jobs: (() => Promise<void>)[], limit: number): Promise<void> {
+  let next = 0;
+  const failures: unknown[] = [];
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      const job = jobs[i];
+      if (!job) return;
+      try {
+        await job();
+      } catch (err) {
+        failures.push(err);
+        return;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, jobs.length)) }, worker));
+  if (failures.length) throw failures[0];
 }
 
 export async function render(
@@ -171,12 +205,15 @@ export async function render(
 
   const posterAt = opts.posterAt ?? posterTime(plan);
   const posterFrame = Math.min(frames - 1, Math.max(0, Math.round(posterAt * plan.fps)));
-  const segments = planSegments(frames, opts.concurrency ?? defaultConcurrency(), posterFrame);
+  // Cut on scene boundaries, subdivided (plan 7.1). The worker count no longer decides
+  // where the cuts fall — see `segments.ts` — it decides how many run at once.
+  const segments = planSegments(plan, frames, posterFrame);
+  const workers = Math.max(1, opts.concurrency ?? defaultConcurrency());
   const segDir = path.resolve(dir, 'frames');
   await mkdir(segDir, { recursive: true });
 
   log.info(
-    `rendering ${frames} frames (${durationSec.toFixed(2)}s @ ${plan.fps}fps, ${plan.frame.w}x${plan.frame.h}) across ${segments.length} worker${segments.length === 1 ? '' : 's'}`,
+    `rendering ${frames} frames (${durationSec.toFixed(2)}s @ ${plan.fps}fps, ${plan.frame.w}x${plan.frame.h}) in ${segments.length} segment${segments.length === 1 ? '' : 's'} across ${workers} worker${workers === 1 ? '' : 's'}`,
   );
   report(opts, { stage: 'render', pct: 3, note: `${frames} frames` });
 
@@ -198,14 +235,31 @@ export async function render(
     }
   };
 
-  // Leave the cores for Chromium; the encoders are not the bottleneck.
+  // Leave the cores for Chromium; the encoders are not the bottleneck. Divided by the
+  // number running *at once* rather than by the number of segments: since 7.1 the segment
+  // count is a property of the film, so dividing by it would hand a long lesson one thread
+  // per encoder no matter how idle the machine was. It is also in every segment's cache
+  // key, so it has to be a function of the settings and not of the film.
   const cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
-  const threads = Math.max(1, Math.min(4, Math.floor(cores / segments.length)));
+  const threads = Math.max(1, Math.min(4, Math.floor(cores / workers)));
+  const encSettings: EncoderSettings = {
+    crf,
+    preset,
+    threads,
+    format: opts.frameFormat ?? 'png',
+  };
 
   const browser = await launchChromium();
   const encoders = new Set<SegmentEncoder>();
-  const segFiles: string[] = [];
+  // Named by content, not by position: `seg-003.mp4` would be a different film's third
+  // segment tomorrow, and the whole point is that a file's name is a claim about what is
+  // inside it. `RENDER_VERSION` is folded in here rather than in `segmentKey` for the
+  // reason that function's header gives.
+  const segFiles = segments.map((seg) =>
+    path.join(segDir, `seg-${segmentKey(plan, seg, encSettings, RENDER_VERSION)}.mp4`),
+  );
   const realizedProblems: string[] = [];
+  let reused = 0;
 
   try {
     // The realized-layout report (plan 2.7), before frame 0: the browser's
@@ -233,12 +287,25 @@ export async function render(
       }
     }
 
-    await Promise.all(
-      segments.map(async (seg) => {
-        const out = path.join(segDir, `seg-${String(seg.index).padStart(3, '0')}.mp4`);
-        segFiles[seg.index] = out;
+    await pooled(
+      segments.map((seg) => async () => {
+        const out = segFiles[seg.index]!;
+        // Already encoded, by this render's predecessor or by the attempt that failed
+        // half way. The file is only ever *named* after it is complete (see the rename
+        // below), so its existence is a real answer and not a maybe.
+        if (existsSync(out)) {
+          reused += 1;
+          for (let i = seg.from; i < seg.to; i++) tick();
+          return;
+        }
+        // Encoded under a name nothing looks for, and renamed when ffmpeg has closed the
+        // file. Without this a render killed mid-segment leaves a truncated mp4 sitting at
+        // the exact path the next run treats as a finished segment — which is the one way
+        // a segment cache can corrupt a film silently, and the retry is the case it exists
+        // to serve.
+        const tmp = path.join(segDir, `.part-${String(seg.index).padStart(3, '0')}.mp4`);
         const cap = await openCapture(browser, plan.frame, html, shot);
-        const enc = openSegmentEncoder({ out, fps: plan.fps, crf, preset, threads });
+        const enc = openSegmentEncoder({ out: tmp, fps: plan.fps, crf, preset, threads });
         encoders.add(enc);
         try {
           for (let i = seg.from; i < seg.to; i++) {
@@ -252,15 +319,31 @@ export async function render(
           }
           await enc.finish();
           encoders.delete(enc);
+          await rename(tmp, out);
         } catch (err) {
           enc.kill();
           encoders.delete(enc);
+          await rm(tmp, { force: true }).catch(() => undefined);
           throw err;
         } finally {
           await cap.close();
         }
       }),
+      workers,
     );
+
+    // The poster lives in one segment, so a run that reused that segment never captured
+    // it. Cheap to notice and cheap to fix — one seek — and the alternative is a project
+    // whose thumbnail silently stops existing the second time it is rendered.
+    if (!existsSync(thumbnailPath)) {
+      const cap = await openCapture(browser, plan.frame, html, shot);
+      try {
+        await cap.seek(posterFrame / plan.fps);
+        await cap.savePng(thumbnailPath);
+      } finally {
+        await cap.close();
+      }
+    }
   } catch (err) {
     for (const enc of encoders) enc.kill();
     throw err;
@@ -268,13 +351,31 @@ export async function render(
     await browser.close().catch(() => undefined);
   }
 
+  if (reused > 0) {
+    log.info(
+      `reused ${reused} of ${segments.length} segments — encoded ${segments.length - reused}`,
+    );
+  }
+
   report(opts, { stage: 'render', pct: 90, note: 'encoding' });
   const listPath = path.join(segDir, 'segments.txt');
   await writeConcatList(listPath, segFiles);
   await concatAndMux({ listPath, audio, out: videoPath, duration: durationSec });
 
+  // Pruned, not deleted — this directory *is* the segment cache (plan 7.1), and deleting
+  // it on success would mean only a failed render ever left anything to reuse. What goes
+  // is everything this film does not reference: the segments of the version before the
+  // edit, and any `.part-*` a killed run left behind. So the cache stays exactly one
+  // film's worth on disk and a re-render after a tail edit still finds its head.
+  //
+  // `keepSegments` keeps those too. It was a debugging flag for "let me look at the
+  // per-worker mp4s" and it still is; it now also means "do not garbage-collect".
   if (!opts.keepSegments) {
-    await rm(segDir, { recursive: true, force: true });
+    const keep = new Set(segFiles.map((f) => path.basename(f)));
+    keep.add(path.basename(listPath));
+    for (const name of await readdir(segDir).catch(() => [] as string[])) {
+      if (!keep.has(name)) await rm(path.join(segDir, name), { force: true });
+    }
   }
 
   await markFresh(dir, 'render', cacheKey);
