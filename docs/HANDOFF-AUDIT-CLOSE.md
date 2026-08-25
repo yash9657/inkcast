@@ -609,7 +609,7 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
 
 ## What remains to close the audit: 6.3 → 7 → 8
 
-**The seven remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+**The four remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
 carries, per item, the plan's bar, the verified file anchors to start from, the decisions
 already made that constrain it, and the traps — plus what still gates the work (no API
 credit, and one new defect: `hash-map` cannot render at the `short` preset at all). The
