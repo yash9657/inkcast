@@ -248,6 +248,8 @@ export {
   illustrationPaths,
   illustrationPrompt,
   illustrationRaster,
+  isDarkSurface,
+  keyFigureToSurface,
   rasterGate,
   resetIllustrationCache,
   resetImageProviderNotice,
@@ -260,10 +262,11 @@ export {
   type RasterGate,
   type RasterGenerator,
   type RasterVerdict,
+  type Surface,
 } from './image.js';
 
 /* ---- reading the pixels a provider sent back --------------------------- */
-export { groundWhiteness, pngSize, readPng, type PngPixels } from './png.js';
+export { groundWhiteness, pngSize, readPng, writePng, type PngPixels } from './png.js';
 
 /* ---- SVG helpers the renderer needs ------------------------------------ */
 export {

@@ -56,11 +56,18 @@ export type KeyStatus = {
   /** Set when `unreadable` is a missing passphrase rather than a damaged entry. */
   locked?: boolean;
   /**
-   * A key is stored *and* set in the environment. The environment wins, so the
-   * stored one is inert — worth saying out loud, because otherwise editing the
-   * stored entry appears to do nothing.
+   * A stored entry exists but the environment's key is in use — which, now that
+   * stored keys take priority, only happens when the stored entry is locked or
+   * unreadable. Worth saying out loud, because otherwise editing the stored
+   * entry appears to do nothing.
    */
   shadowedByEnv?: boolean;
+  /**
+   * The saved key is in use and an environment variable for the same provider is
+   * being ignored — so a user who exported one long ago can see why changing it
+   * no longer changes anything.
+   */
+  overridesEnv?: boolean;
 };
 
 /** Availabilities that mean "there is an entry, and it is no use to anyone". */
@@ -85,6 +92,7 @@ export function toWire(status: ProviderStatus): KeyStatus {
     ...(UNUSABLE.includes(status.availability) ? { unreadable: true as const } : {}),
     ...(status.availability === 'locked' ? { locked: true as const } : {}),
     ...(status.shadowedByEnv ? { shadowedByEnv: true as const } : {}),
+    ...(status.overridesEnv ? { overridesEnv: true as const } : {}),
   };
 }
 

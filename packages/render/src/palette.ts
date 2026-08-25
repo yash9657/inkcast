@@ -7,11 +7,28 @@
  * black. One table now serves every package that paints; the renderer re-exports it
  * so this module is still the one place the renderer asks about type and colour.
  */
-import { stylePackFor } from '@inkcast/core';
+import { paletteFor as corePaletteFor, stylePackFor, stylePalette } from '@inkcast/core';
+import type { Palette } from '@inkcast/core';
 import type { PenArt, StyleName } from './types.js';
 
 export { paletteFor, toneInk } from '@inkcast/core';
 export type { Palette } from '@inkcast/core';
+
+/**
+ * The board's colours: the pack's own, or the mode's table when the pack states none.
+ *
+ * This is `visuals/src/style.ts:137` exactly, and the fact that it had to be written twice
+ * is the finding. 7.3 moved palettes into `styles/*.json` and taught the *visuals* stage to
+ * read them; the renderer kept calling `paletteFor(meta.palette)` and painting the mode's
+ * default paper. For the four shipped packs — none of which declares a palette — the two
+ * agreed by accident, so nothing was visibly wrong until plan 9.2 shipped a pack that does:
+ * a slate board came out with slate-coloured geometry drawn on white paper.
+ *
+ * `meta.palette: 'mono'` still wins, inside `stylePalette`: mono is a mode, not a taste.
+ */
+export function boardPalette(style: StyleName, mode: 'mono' | 'color'): Palette {
+  return stylePalette(style, mode) ?? corePaletteFor(mode);
+}
 
 /**
  * How a pen behaves, minus how heavy it is: the stroke *width* multiplier now lives

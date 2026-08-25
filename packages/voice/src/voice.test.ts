@@ -58,6 +58,8 @@ import {
 import { parseSayVoices, pickSayVoice, sayRateForWpm } from './providers/system.js';
 import {
   alignmentToWords,
+  catalogueIndex,
+  classify,
   createElevenLabsProvider,
   elevenLabsCostUsd,
   elevenLabsCreditsPerChar,
@@ -243,6 +245,33 @@ test('character alignment folds into word timings', () => {
   assert.ok((words[1]?.end ?? 0) > (words[0]?.end ?? 0));
 });
 
+test('an HTTP failure is classified by what fixes it', () => {
+  // 402 is a plan gate, not an exhausted balance: a free account with thousands
+  // of characters left gets it for a library voice. It must not read as quota —
+  // the remedy is a different voice or plan, not a refill — and it must never
+  // again be recorded as "unknown", which is what buried the real cause of a
+  // silent kokoro fallback in a shipped pipeline.json.
+  assert.equal(classify(402, '{"detail":{"code":"paid_plan_required"}}'), 'payment_required');
+  assert.equal(classify(429, ''), 'rate_limited');
+  assert.equal(classify(401, '{"detail":{"status":"quota_exceeded"}}'), 'quota_exceeded');
+  assert.equal(classify(401, '{}'), 'unauthorized');
+  assert.equal(classify(500, ''), 'unknown');
+});
+
+test('the catalogue index matches renamed premade voices by their bare name', () => {
+  const byName = catalogueIndex([
+    { voice_id: 'v-roger', name: 'Roger - Laid-Back, Casual, Resonant' },
+    { voice_id: 'v-sarah', name: 'Sarah - Mature, Reassuring, Confident' },
+    { voice_id: 'v-plain', name: 'Matilda' },
+  ]);
+  // The renamed catalogue is what broke PREFERENCES: "sarah" must find the
+  // descriptive entry, or `af_heart` lands on whatever is listed first.
+  assert.equal(byName.get('sarah'), 'v-sarah');
+  assert.equal(byName.get('sarah - mature, reassuring, confident'), 'v-sarah');
+  assert.equal(byName.get('matilda'), 'v-plain');
+  assert.equal(byName.get('rachel'), undefined);
+});
+
 /* ------------------------------------------- the record of who actually spoke */
 
 /**
@@ -269,12 +298,47 @@ function stubProvider(
     onSpoke?: (id: VoiceProviderId, req: SynthesisRequest) => void;
     /** What the call cost, when that is not `text.length`. See `SynthesisResult`. */
     billedChars?: (text: string) => number;
+    /**
+     * Return word timings, the way a provider that has them does.
+     *
+     * The alternative source is the local aligner, which wants a model download, so
+     * this is how a test reaches the word tier at all — and the word tier is where
+     * audit N-1 lives.
+     */
+    words?: boolean;
+    /**
+     * Seconds of audio per character, so two stubs can speak the same words at
+     * different lengths.
+     *
+     * Two providers producing byte-identical clips is the one thing real ones never
+     * do, and audit N-2 is invisible without the difference: the defect is a clip
+     * *overwritten* by an attempt that was then abandoned, which only matters when the
+     * file that lands is not the file that was already there.
+     */
+    secPerChar?: number;
+    /**
+     * Refuse at `available()`, with this as the reason.
+     *
+     * The startup rejection, which is a different failure from `fail` and used to be
+     * the invisible one: nothing is thrown, nothing is spoken, the chain simply walks
+     * past and the run looks entirely normal. See `VoiceRejection`.
+     */
+    unavailable?: string;
+    /**
+     * Speak with a different voice than the one asked for, and say so.
+     *
+     * The plan-gate case: the provider works, the account works, and this one *voice*
+     * is refused. Nothing throws and nothing demotes, which is exactly why the swap
+     * used to leave no trace outside the adapter's own closure.
+     */
+    substitute?: { voice: string; name?: string; why: string };
   } = {},
 ): VoiceProvider {
   return {
     id,
     label: `stub ${id}`,
-    available: async () => true,
+    available: async () => opts.unavailable === undefined,
+    unavailableReason: () => opts.unavailable,
     voices: async () => ['stub'],
     resolveVoice: async () => `${id}-voice`,
     naturalWpm: () => 150,
@@ -282,8 +346,22 @@ function stubProvider(
     synthesize: async (req) => {
       if (opts.fail && (opts.failWhen?.(req) ?? true)) throw opts.fail;
       opts.onSpoke?.(id, req);
-      await writeSilenceWav(req.outPath, Math.max(0.4, req.text.length / 15));
-      return opts.billedChars ? { billedChars: opts.billedChars(req.text) } : {};
+      const dur = Math.max(0.4, req.text.length * (opts.secPerChar ?? 1 / 15));
+      await writeSilenceWav(req.outPath, dur);
+      const tokens = req.text.split(/\s+/).filter(Boolean);
+      return {
+        ...(opts.substitute ? { substitution: { ...opts.substitute, from: req.voice } } : {}),
+        ...(opts.billedChars ? { billedChars: opts.billedChars(req.text) } : {}),
+        ...(opts.words && tokens.length
+          ? {
+              words: tokens.map((word, w) => ({
+                word,
+                start: (dur * w) / tokens.length,
+                end: (dur * (w + 1)) / tokens.length,
+              })),
+            }
+          : {}),
+      };
     },
     dispose: async () => undefined,
   };
@@ -300,6 +378,11 @@ function stubProvider(
  */
 function sceneOfClip(req: SynthesisRequest): number {
   return Number(path.basename(req.outPath).split('-')[0]);
+}
+
+/** The other half of the same path: which clause of that scene is being spoken. */
+function phraseOfClip(req: SynthesisRequest): number {
+  return Number(path.basename(req.outPath, '.wav').split('-')[1]);
 }
 
 /** Characters the stage will hand a provider for one narration, split as it splits. */
@@ -361,6 +444,57 @@ test('the record names the provider that actually spoke, not the one that was as
       assert.equal(out.scenes[i]?.audioPath, sceneAudioPath(i));
       assert.ok((out.scenes[i]?.durationSec ?? 0) > 0.3);
     }
+  });
+});
+
+test('a preferred provider refused at startup is reported, not silently walked past', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(['The heart has its own pacemaker, and it fires without being told to.']);
+
+    const { voice } = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        id === 'elevenlabs'
+          ? stubProvider(id, { unavailable: 'ELEVENLABS_API_KEY is not set in this process' })
+          : stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+
+    // The film really is local — that part was never in doubt and never broken.
+    assert.equal(voice.provider, 'kokoro');
+    assert.equal(voice.spoke, true);
+    assert.equal(voice.costUsd, 0);
+
+    // The part that was broken: it *says so*, in the field the studio renders. There
+    // is no fallback here — nothing spoke and then stopped — so before this the whole
+    // event left one `log.debug` line and an empty `problems` array.
+    assert.deepEqual(voice.problems, [
+      'elevenlabs was skipped at startup: ELEVENLABS_API_KEY is not set in this process — ' +
+        'this film is narrated by kokoro',
+    ]);
+  });
+});
+
+test('rejecting a provider further down the chain is not reported — that is every local run', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(['The heart has its own pacemaker, and it fires without being told to.']);
+
+    // Kokoro is the head of the unkeyed chain and it answers, so ElevenLabs is never
+    // reached. That is the normal, correct state of a run with no key, and a line
+    // about it on every local render is a line that trains everyone to skip the field.
+    const { voice } = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) =>
+        id === 'elevenlabs'
+          ? stubProvider(id, { unavailable: 'ELEVENLABS_API_KEY is not set in this process' })
+          : stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+
+    assert.equal(voice.provider, 'kokoro');
+    assert.deepEqual(voice.problems, []);
   });
 });
 
@@ -635,6 +769,57 @@ test('the adapters resolve a mood to its own pinned voice, without asking the ne
   }
 });
 
+test('a voice the plan refused is recorded as the voice that actually spoke', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard([
+      'A free plan will not speak in a library voice, and the record has to say which one it used.',
+      'The film is still the paid provider — only the voice moved.',
+    ]);
+    const create = (id: VoiceProviderId) =>
+      stubProvider(id, {
+        model: ELEVENLABS_FLASH_MODEL,
+        substitute: {
+          voice: 'EXAVITQu4vr4xnSDxMaL',
+          name: 'Sarah',
+          why: 'this plan cannot use "Rachel" 21m00Tcm4TlvDq8ikWAM via the API (402 payment_required)',
+        },
+      });
+
+    const first = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: create,
+    });
+
+    // Nothing failed and nothing demoted: this is still the paid provider.
+    assert.equal(first.voice.provider, 'elevenlabs');
+    assert.equal(first.voice.spoke, true);
+
+    // The record names the voice that came out of the speaker, and keeps the one that
+    // was asked for beside it. Before this, `voice` was the refused id and the
+    // substitute appeared nowhere on disk at all.
+    assert.equal(first.voice.voice, 'EXAVITQu4vr4xnSDxMaL');
+    assert.equal(first.voice.substitutedFrom, 'elevenlabs-voice');
+    assert.deepEqual(first.voice.problems, [
+      'this plan cannot use "Rachel" 21m00Tcm4TlvDq8ikWAM via the API (402 payment_required) — ' +
+        'spoke with "Sarah" (EXAVITQu4vr4xnSDxMaL) instead',
+    ]);
+
+    // And the clip keys did *not* move with it. A substitution learned on phrase 0
+    // would otherwise re-key every scene after it and re-synthesise a film whose
+    // narration never changed — paying twice for the same audio, on a free plan.
+    const second = await narrate(sb, dir, {
+      provider: 'elevenlabs',
+      padSec: 0,
+      align: 'off',
+      createProvider: create,
+    });
+    assert.equal(second.voice.spoke, false);
+    assert.deepEqual(second.voice.charsByProvider, {});
+  });
+});
+
 test('a storyboard cast in a mood reports the mood it was cast in', async () => {
   await withTempProject(async (dir) => {
     const sb = storyboard(['A mood is what the person chose, and it has to survive the run.']);
@@ -892,6 +1077,185 @@ test(
     });
   },
 );
+
+/* ------------------------------------------- the clip/sidecar repair (plan 9.1) */
+
+/**
+ * Audit N-1: the repair pass that exists to prevent desync was causing it.
+ *
+ * A scene whose clip on disk disagrees with the sidecar describing it is repaired by
+ * trusting the file and rescaling the timing. That rescale rewrote `narrationSec` and
+ * `phrases` and passed `words` straight through, so cue resolution — eleven lines later
+ * — got a word stream on the old scale beside a duration on the new one, and computed
+ * `enter.at` as unrescaled-start ÷ rescaled-duration. Every reveal in the scene fired
+ * late by the ratio between the two: 0.57s and 1.06s on `qc81-longitude`, on a run that
+ * passed all 20 QC checks. Seven scenes on disk carried words timed past the end of
+ * their own audio.
+ *
+ * The assertion is the one the audit named, and it is a property rather than a number:
+ * **no word may end after the clip does.**
+ */
+test('a clip that disagrees with its sidecar is rescaled whole — words included', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard(['A sidecar that outlives its clip is how a reveal fires late.']);
+    const cast = () =>
+      narrate(sb, dir, {
+        provider: 'kokoro',
+        padSec: 0,
+        align: 'off',
+        createProvider: (id: VoiceProviderId) => stubProvider(id, { words: true }),
+      });
+
+    await cast();
+    const timingAbs = path.resolve(dir, sceneTimingPath(0));
+    const clip = path.resolve(dir, sceneAudioPath(0));
+    const before = JSON.parse(await readFile(timingAbs, 'utf8')) as {
+      narrationSec: number;
+      holdSec: number;
+      words?: Array<{ word: string; start: number; end: number }>;
+    };
+    assert.ok(before.words?.length, 'the stub must supply words or this proves nothing');
+
+    // What an abandoned attempt leaves behind (audit N-2): the clip is overwritten and
+    // the sidecar beside it still describes the one that used to be there. Shorter, so
+    // the stale word stream runs off the end of the audio — the real-world direction.
+    await writeSilenceWav(clip, (before.narrationSec + before.holdSec) * 0.7);
+
+    const problems: string[] = [];
+    const { storyboard: out } = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id: VoiceProviderId) => stubProvider(id, { words: true }),
+      onProblem: (p) => problems.push(p),
+    });
+
+    const scene = out.scenes[0]!;
+    const measured = await measureDuration(clip);
+    assert.ok(
+      Math.abs((scene.durationSec ?? 0) - (measured - before.holdSec)) < 0.02,
+      `the scene must take the clip's length, not the sidecar's: ${scene.durationSec}s`,
+    );
+
+    // The headline. Before the fix these ran to the *old* duration, ~43% past the end.
+    assert.ok(scene.words?.length, 'the rescale must not drop the word stream');
+    for (const w of scene.words ?? []) {
+      assert.ok(
+        w.end <= (scene.durationSec ?? 0) + 1e-6,
+        `word "${w.word}" ends at ${w.end}s, past the ${scene.durationSec}s of narration there is`,
+      );
+    }
+
+    // Repaired on disk, so the next render reads a sidecar that agrees with its clip
+    // rather than re-deriving this every time.
+    const after = JSON.parse(await readFile(timingAbs, 'utf8')) as typeof before;
+    assert.ok(Math.abs(after.narrationSec - (scene.durationSec ?? 0)) < 1e-9);
+    assert.ok((after.words ?? []).every((w) => w.end <= after.narrationSec + 1e-6));
+
+    // And recorded rather than only logged (plan 9.3, audit N-3): this warning was the
+    // one thing that ever said the repair happened, and it reached nothing but stderr.
+    assert.ok(
+      problems.some((p) => p.includes('trusting the file and rescaling')),
+      `the repair must reach onProblem, got: ${JSON.stringify(problems)}`,
+    );
+  });
+});
+
+/**
+ * Audit N-2, which is where N-1's mismatch came from in the first place.
+ *
+ * A cloud provider that dies part-way through a scene leaves that scene's clip already
+ * written — assembled from the clauses it managed plus the ones the chain demoted to a
+ * local voice — and then the whole film restarts so it speaks with one voice. The clip
+ * it wrote overwrote whatever was there, and on the second cast of a project that is a
+ * perfectly good clip cached under the *fallback* provider's own key, whose freshness
+ * marker and sidecar still describe it. The restart then finds that entry fresh, skips
+ * the scene, and hands N-1 a sidecar describing a file that is no longer on disk.
+ *
+ * This is why casting the same lesson twice re-rendered the whole film: the timeline
+ * moved, so 7.1's segment cache reused nothing — 176s where the first render took 67s.
+ *
+ * The condition is not exotic. It is this machine's standing state (a configured
+ * ElevenLabs key that answers 402) and it is how every recent project on disk was cast.
+ */
+test('an abandoned attempt does not leave the clip it clobbered marked fresh', async () => {
+  await withTempProject(async (dir) => {
+    // Two clauses in the first scene, so the cloud voice can die *part-way through it*
+    // and the stage assembles and writes a clip before abandoning the attempt. A
+    // provider that refuses its very first phrase never writes one, which is why the
+    // existing failover tests do not reach this.
+    const sb = storyboard([
+      'The cloud speaks the first clause, and then it stops paying.',
+      'The second beat is never reached by the provider that failed.',
+    ]);
+    const problems: string[] = [];
+    const cast = () =>
+      narrate(sb, dir, {
+        provider: 'elevenlabs',
+        padSec: 0,
+        align: 'off',
+        onProblem: (p) => problems.push(p),
+        createProvider: (id: VoiceProviderId) =>
+          id === 'elevenlabs'
+            ? stubProvider(id, {
+                words: true,
+                // A different length from the local voice, so the clip this attempt
+                // leaves behind is genuinely not the clip the cache describes.
+                secPerChar: 1 / 11,
+                fail: new VoiceProviderError('ElevenLabs /text-to-speech -> 402', {
+                  provider: 'elevenlabs',
+                  reason: 'quota_exceeded',
+                  status: 402,
+                }),
+                failWhen: (req) => phraseOfClip(req) > 0,
+              })
+            : stubProvider(id, { words: true }),
+      });
+
+    // First cast: the project is empty, so there is nothing to clobber and nothing to
+    // get wrong. This is the state every later cast starts from.
+    const first = await cast();
+    assert.equal(first.voice.provider, 'kokoro');
+    const clip = path.resolve(dir, sceneAudioPath(0));
+    const firstLength = await measureDuration(clip);
+
+    problems.length = 0;
+
+    // Second cast: ElevenLabs is tried again, fails again, and overwrites scene 1's
+    // cached clip on its way out.
+    const second = await cast();
+    assert.equal(second.voice.provider, 'kokoro');
+
+    // The headline. Before the fix the restart trusted a freshness marker for a file
+    // that had just been overwritten, and the repair pass papered over the difference.
+    assert.deepEqual(
+      problems.filter((p) => p.includes('trusting the file and rescaling')),
+      [],
+      'a re-cast must not have to repair a clip/sidecar mismatch it created itself',
+    );
+
+    // Same audio, so the same timeline, so the segment cache has something to reuse —
+    // which is the half of X-g the original audit measured on the easy case.
+    assert.ok(
+      Math.abs((await measureDuration(clip)) - firstLength) < 0.02,
+      'the same lesson cast twice must produce the same clip',
+    );
+    assert.equal(second.storyboard.scenes[0]?.durationSec, first.storyboard.scenes[0]?.durationSec);
+    assert.equal(second.storyboard.scenes[1]?.durationSec, first.storyboard.scenes[1]?.durationSec);
+
+    // And the sidecar on disk still describes the file beside it.
+    const timing = JSON.parse(await readFile(path.resolve(dir, sceneTimingPath(0)), 'utf8')) as {
+      narrationSec: number;
+      holdSec: number;
+      words?: Array<{ word: string; end: number }>;
+    };
+    assert.ok(
+      Math.abs((await measureDuration(clip)) - (timing.narrationSec + timing.holdSec)) < 0.02,
+      'the sidecar must describe the clip it sits next to',
+    );
+    assert.ok((timing.words ?? []).every((w) => w.end <= timing.narrationSec + 1e-6));
+  });
+});
 
 /* ------------------------------------------- end-to-end: never-crash fallback */
 

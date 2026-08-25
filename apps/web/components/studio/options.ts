@@ -4,11 +4,11 @@
  * Every list here mirrors something the pipeline genuinely accepts:
  *  - aspects and palettes are the enums in `StoryboardMeta`;
  *  - ink styles are the packs in `styles/` — a directory, not an enum, since plan item
- *    7.3. The four below are the ones this repo ships, and they are mirrored here for the
- *    same reason the voices are: the loader reads the filesystem and cannot be imported
- *    into a browser bundle. **A pack a user drops into `styles/` therefore works through
- *    the API and the CLI but does not appear in this picker** — closing that gap means
- *    serving `styleIds()` from a route, which nothing does yet;
+ *    7.3 — and since plan item 9.4 the picker asks the server for them rather than
+ *    keeping its own copy, so a pack a user drops into `styles/` appears here as well as
+ *    through the CLI and the API. `INK_STYLES` below is now only the fallback for a
+ *    server too old to send the list or unable to read the directory; `styleOptions()`
+ *    is what a picker should call;
  *  - voices are the 28 ids `kokoro-js` validates (`KOKORO_VOICES` in
  *    `@inkcast/voice`) — that package cannot be imported into a browser bundle,
  *    so the ids are mirrored, and the *shape* is derived rather than retyped;
@@ -38,12 +38,38 @@ export const ASPECTS: AspectOption[] = [
 
 export type StyleOption = { value: InkStyle; label: string; hint: string };
 
+/**
+ * The four packs this repo ships, as a floor rather than as the list.
+ *
+ * Kept because the picker has to render before `/api/providers` answers, and has to
+ * render at all against a server that predates the `styles` field. The hints are the
+ * studio's own one-liners, deliberately shorter than the packs' own `description` —
+ * which is written for someone editing the file, not for someone choosing in a form.
+ */
 export const INK_STYLES: StyleOption[] = [
   { value: 'marker', label: 'Marker', hint: 'Confident whiteboard strokes' },
   { value: 'pencil', label: 'Pencil', hint: 'Lighter, sketchier lines' },
-  { value: 'chalk', label: 'Chalk', hint: 'Dusty, softer edges' },
+  { value: 'chalk', label: 'Chalk', hint: 'Pale chalk on a dark slate board' },
   { value: 'ink', label: 'Ink', hint: 'Fine pen, technical' },
 ];
+
+/**
+ * What the picker should offer: what the server found in `styles/`, or the four above
+ * when it has not answered yet (plan 9.4, audit X-f).
+ *
+ * A pack the studio already has copy for keeps that copy — a user who replaces
+ * `styles/marker.json` with their own numbers has not renamed Marker, and the pack's
+ * `description` is a paragraph for a pack author rather than a hint for a form. Ids the
+ * studio has never heard of take the pack's own name and description, which is the whole
+ * point: the list is no longer something a release has to remember to update.
+ */
+export function styleOptions(served: readonly { id: string; label: string; hint: string }[]) {
+  if (served.length === 0) return INK_STYLES;
+  return served.map((pack) => {
+    const known = INK_STYLES.find((s) => s.value === pack.id);
+    return known ?? { value: pack.id, label: pack.label, hint: pack.hint };
+  });
+}
 
 export type PaletteOption = { value: Palette; label: string; hint: string };
 

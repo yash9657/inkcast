@@ -1,7 +1,7 @@
 {
   "id": "chalk",
   "name": "Chalk",
-  "description": "The classroom hand: broad, dusty, cross-hatched fills and the roughest line of the four. The surface is still the board's paper — a dark slate needs the alpha work the audit deferred (see stylepack.ts's MIN_PAPER_LUMA).",
+  "description": "The classroom board: pale chalk on dark slate, broad and dusty, with cross-hatched fills and the roughest line of the four. The first dark surface in the tree — a generated figure is keyed to real alpha and re-lit in the chalk rather than multiplied into the board (plan 9.2, audit S5.6).",
   "hand": {
     "fontFamily": "Gaegu",
     "fontFiles": ["gaegu"],
@@ -37,5 +37,14 @@
     "lineJoin": "round",
     "fill": { "style": "cross-hatch", "weight": 1.8, "hachureAngle": -35, "hachureGap": 12 }
   },
-  "sketch": { "roughness": 1.9, "bowing": 1.2, "passes": 2, "cap": "round", "opacity": 0.8 }
+  "sketch": { "roughness": 1.9, "bowing": 1.2, "passes": 2, "cap": "round", "opacity": 0.8 },
+  "palette": {
+    "paper": "#1b232e",
+    "ink": "#f2efe6",
+    "inkSoft": "#a8b2be",
+    "grid": "rgba(255,255,255,0.055)",
+    "accent": "#7fc4ff",
+    "contrast": "#ffb37f",
+    "highlight": "rgba(245,196,69,0.22)"
+  }
 }

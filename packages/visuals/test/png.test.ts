@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groundWhiteness, pngSize, readPng } from '../src/png.js';
+import { groundWhiteness, pngSize, readPng, writePng } from '../src/png.js';
 import { flatPng, makePng } from './pngfixture.js';
 
 const WHITE: [number, number, number, number] = [255, 255, 255, 255];
@@ -82,4 +82,24 @@ test('a transparent ground counts as white, because the board is what shows thro
 
 test('groundWhiteness abstains on bytes it cannot read', () => {
   assert.equal(groundWhiteness(Buffer.from('not a png')), undefined);
+});
+
+/* ------------------------------------------------- the encoder (plan 9.2) */
+
+test('writePng round-trips through readPng, pixel for pixel', () => {
+  const src = readPng(
+    makePng(9, 7, (x, y) => [(x * 29) % 256, (y * 53) % 256, (x * y * 7) % 256, (x * 31) % 256]),
+  );
+  assert.ok(src);
+  const back = readPng(writePng(src));
+  assert.ok(back, 'what the encoder writes must be a PNG the decoder reads');
+  assert.equal(back.width, src.width);
+  assert.equal(back.height, src.height);
+  assert.deepEqual(Array.from(back.rgba), Array.from(src.rgba));
+});
+
+test('writePng is deterministic, like every other artefact this repo writes', () => {
+  const img = readPng(makePng(16, 16, (x, y) => [x * 8, y * 8, 0, 255]));
+  assert.ok(img);
+  assert.ok(writePng(img).equals(writePng(img)));
 });

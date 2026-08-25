@@ -111,7 +111,14 @@ export const PackPalette = z
   .object({
     /** The board's own surface. Hex, because `MIN_PAPER_LUMA` has to measure it. */
     paper: HexColour,
-    ink: Colour,
+    /**
+     * The one ink that carries the structure. Hex since plan 9.2, for two reasons that
+     * both need to read the channels: `MIN_INK_CONTRAST` measures it against the paper,
+     * and on a dark board the figure lane re-lights a keyed raster's neutral marks *in
+     * this colour* (`keyFigureToSurface`). No shipped pack declares a palette, so nothing
+     * in the tree tightens under it.
+     */
+    ink: HexColour,
     /** Soft/muted ink — captions, secondary marks, "already explained". */
     inkSoft: Colour,
     grid: Colour,
@@ -138,41 +145,71 @@ export const PackPalette = z
         message: 'the accent and the second marker must be tellable apart — that is the pair',
       });
     }
-    const luma = relativeLuminance(pal.paper);
-    if (luma < MIN_PAPER_LUMA) {
+    // What used to be here: a refusal of any paper below `MIN_PAPER_LUMA`, because a
+    // generated figure composited with multiply disappeared into a dark board and no gate
+    // could see it. **That is plan 9.2 / audit S5.6, and it has landed** — a figure on a
+    // dark board is now keyed to real alpha and re-lit in the pack's own ink
+    // (`visuals/src/image.ts`, `keyFigureToSurface`), so a dark pack is a supported pack.
+    // The constant's own comment asked whoever closed that work to "raise the bar or
+    // delete it, and say which in writing": deleted as a refusal, kept as the switch that
+    // routes the two composites, at the same 0.5 and for the same reason.
+    //
+    // What replaces it is the thing the luma floor was a proxy for. A board is unreadable
+    // when its paper and its ink are too close together, and that is true of a white board
+    // with pale-grey ink exactly as it is of a slate board with charcoal — the old check
+    // caught one of those and shipped the other. WCAG contrast, at the 4.5:1 the body text
+    // this ink writes would have to meet anywhere else.
+    const paperLuma = relativeLuminance(pal.paper);
+    const inkLuma = relativeLuminance(pal.ink);
+    const ratio = (Math.max(paperLuma, inkLuma) + 0.05) / (Math.min(paperLuma, inkLuma) + 0.05);
+    if (ratio < MIN_INK_CONTRAST) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['paper'],
+        path: ['ink'],
         message:
-          `paper ${pal.paper} has relative luminance ${luma.toFixed(3)}, below the ` +
-          `${MIN_PAPER_LUMA} floor — a dark board needs the real-alpha work the audit ` +
-          'deferred (S5.6). Generated figures composite with `mix-blend-mode: multiply` ' +
-          '(visuals/src/image.ts), which can only darken: on a slate board a black-ink ' +
-          'raster multiplies into the slate and disappears, and no gate catches it because ' +
-          'the raster itself is fine. Scope the pack to a light surface, or write the ' +
-          'alpha lane first.',
+          `ink ${pal.ink} on paper ${pal.paper} contrasts ${ratio.toFixed(2)}:1, below the ` +
+          `${MIN_INK_CONTRAST}:1 floor — handwriting this close to its own board is not a ` +
+          'style, it is a board nobody can read. Darken the ink, or lighten the paper.',
       });
     }
   });
 
 /**
- * How light a pack's paper has to be, as WCAG relative luminance.
+ * The line between a light board and a dark one, as WCAG relative luminance.
  *
- * A guard rail, not a perceptual threshold, and deliberately loose: its job is to catch a
- * *slate* board (`#1b232e` measures 0.017) rather than to referee a cream one. Every one
- * of the 42 rasters in `~/.inkcast/cache/illustrations` is drawn in dark ink on a ground
- * measuring 0.954 white or better (6.4's `MIN_GROUND_WHITE` comment), and every one of
- * them is composited onto the board with `multiply`. Against paper this light the
- * multiply is near-identity and the picture sits on the board; below it the picture's own
- * ink is multiplying into a surface already darker than the ink, which is not a gradual
- * degradation but a disappearance.
+ * **No longer a floor.** It was one until plan 9.2: a pack whose paper measured below it
+ * was refused outright, because a generated figure composited with `mix-blend-mode:
+ * multiply` disappears into a dark surface and no gate in the repo could see it. That is
+ * audit S5.6, and it is closed — `keyFigureToSurface` in `visuals/src/image.ts` keys a
+ * figure's white ground to real alpha and re-lights its ink for the board, so a dark pack
+ * renders a figure legibly. What is left is the routing question: which of the two
+ * composites a board gets.
  *
- * 0.5 is the midpoint of the range, which is where "light surface" stops being arguable.
- * It is not measured against anything, because the thing it guards is not a threshold
- * effect — and a pack author who wants a cream, sand or pale-grey board is nowhere near
- * it. Raise the bar or delete it when the alpha lane lands, and say which in writing.
+ * The value does not move, and the argument for it does not either. 0.5 is the midpoint of
+ * the range, which is where "light surface" stops being arguable; a pack author who wants a
+ * cream, sand or pale-grey board is nowhere near it, and a slate board (`#1b232e` measures
+ * 0.017) is unambiguously the other side. It is a rail rather than a measurement — the same
+ * disclaimer it shipped with, and the reason `HANDOFF-AUDIT-CLOSE.md` counts nine
+ * corpus-derived constants and not ten.
+ *
+ * The floor it used to be is now `MIN_INK_CONTRAST`, which guards what the luma bound was
+ * really a proxy for: a board whose ink cannot be read against it.
  */
 export const MIN_PAPER_LUMA = 0.5;
+
+/**
+ * Least contrast between a pack's ink and its own paper, as a WCAG ratio.
+ *
+ * 4.5:1 is the AA bar for body text, and handwriting on a board is body text with worse
+ * edges — a hand-drawn stroke at `MIN_GLYPH_PX` has less contiguous ink per letter than a
+ * typeface does, not more. Every shipped pack clears it by a distance (marker's `#2b2b2b`
+ * on `#fcfbf9` is 13.5:1), so this is not a threshold anybody is near; it is the rail that
+ * keeps "the paper may now be dark" from meaning "the board may now be unreadable".
+ *
+ * Checked on the pack's own `ink`, not on the accent colours: an accent is allowed to be a
+ * highlight, and the pair rule above already stops the accents collapsing into each other.
+ */
+export const MIN_INK_CONTRAST = 4.5;
 
 /**
  * A style pack: one file, one personality.

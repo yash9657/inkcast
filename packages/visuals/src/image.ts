@@ -38,7 +38,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { cacheDir, hash, logger, type OnSpend } from '@inkcast/core';
-import { groundWhiteness, pngSize } from './png.js';
+import { groundWhiteness, pngSize, readPng, writePng } from './png.js';
 import type { DrawContext, InkPath } from './geometry.js';
 import { roughenPathData } from './geometry.js';
 import type { Box } from './svg.js';
@@ -1203,6 +1203,173 @@ export async function figureGround(png: Buffer): Promise<RasterVerdict> {
   };
 }
 
+/* ------------------------------------------------------ keying a dark surface */
+
+/**
+ * The board a figure is being drawn on, when that is not white paper.
+ *
+ * Two colours rather than the whole palette, because those are the only two the keying
+ * below can act on: what shows through where the raster's ground was, and what a neutral
+ * mark should be made of.
+ */
+export type Surface = { paper: string; ink: string };
+
+/** WCAG relative luminance of an `#rrggbb`, 0–1. Mirrors `core`'s, on 0–255 channels. */
+function luma255(r: number, g: number, b: number): number {
+  const lin = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function parseHex(hex: string): [number, number, number] | undefined {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return undefined;
+  const v = Number.parseInt(m[1] as string, 16);
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+}
+
+/**
+ * True when a board is too dark for `mix-blend-mode: multiply` to be the right composite.
+ *
+ * The same 0.5 midpoint `MIN_PAPER_LUMA` used to *refuse* a dark pack with (plan 7.3), now
+ * used to route one — which is the answer that constant's own comment asked for in writing:
+ * "raise the bar or delete it when the alpha lane lands, and say which". It is deleted as a
+ * refusal and kept as a switch, at the same value and for the same reason: below the
+ * midpoint "light surface" stops being arguable, and multiply — which can only darken — is
+ * multiplying a picture's ink into a board already darker than the ink.
+ */
+export function isDarkSurface(paper: string): boolean {
+  const rgb = parseHex(paper);
+  // An unparseable paper is treated as light, which is the behaviour every film on disk
+  // already has. A colour this cannot read must not silently change how figures composite.
+  return rgb ? luma255(...rgb) < 0.5 : false;
+}
+
+/**
+ * Re-light a figure for a dark board: key its ground to real alpha, and put its ink back.
+ *
+ * **This is audit S5.6, and the thing that made it S5.6 is that detection was not enough.**
+ * 6.4's `MIN_GROUND_WHITE` measures a raster's ground and refuses one that is not white;
+ * what it cannot do is *remove* a ground that is. Every figure the providers return is dark
+ * ink on white, composited with `mix-blend-mode: multiply` — the identity against white
+ * paper, which is exactly why the card disappears into the board. Multiply can only darken.
+ * On a slate board the white ground correctly becomes slate and the picture's own black ink
+ * also becomes slate-or-darker, so the picture does not degrade, it *vanishes*, and no gate
+ * in the repo can see it because the raster itself is fine.
+ *
+ * The transform, per pixel:
+ *
+ *  - **Alpha is ink density**, `1 − luminance`, taken after compositing the raster's own
+ *    alpha over white. A white ground keys to fully transparent, black ink to fully opaque,
+ *    and — the part a hard threshold would lose — an anti-aliased edge keys to exactly the
+ *    partial coverage it was drawn with. That is what makes this real alpha rather than a
+ *    chroma key: no halo, no stair-stepping, and the board's own texture reads through the
+ *    picture the way the paper used to.
+ *  - **Colour is the pixel's chroma, re-lit, mixed toward the board's ink by how neutral
+ *    the pixel is.** A black or grey mark (saturation 0) is drawn in the pack's own ink, so
+ *    line art — 34 of the 42 rasters in the cache — comes out as chalk on slate, which is
+ *    what a chalkboard drawing *is*. A saturated mark keeps its hue at full brightness, so
+ *    the orange conduction arrows that `figureRaster`'s header is named after stay orange
+ *    instead of turning into eight chalk lines. Between the two it mixes, which is how
+ *    coloured chalk actually reads.
+ *
+ * Inverting lightness outright was the other candidate and is wrong for the same reason
+ * binary tracing was wrong for colour: it is a transform on the *value* channel that a
+ * picture's meaning does not live in. A negative of a red apple is a cyan apple.
+ *
+ * Returns `undefined` when the PNG is a shape `readPng` does not read — the caller then
+ * composites the way it always has, which on a dark board is a picture that does not show.
+ * That is worse, and it is still better than a guess: see `png.ts`'s header on abstaining.
+ */
+export function keyFigureToSurface(png: Buffer, surface: Surface): Buffer | undefined {
+  const img = readPng(png);
+  if (!img) return undefined;
+  const ink = parseHex(surface.ink) ?? [255, 255, 255];
+  const { width, height, rgba } = img;
+  const out = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const o = i * 4;
+    const a = (rgba[o + 3] as number) / 255;
+    // Over white first: the ground this is keying out is the raster's *apparent* ground,
+    // and a provider that returns transparent corners has already said those are paper.
+    const r = (rgba[o] as number) * a + 255 * (1 - a);
+    const g = (rgba[o + 1] as number) * a + 255 * (1 - a);
+    const b = (rgba[o + 2] as number) * a + 255 * (1 - a);
+    const density = (1 - luma255(r, g, b) - GROUND_FLOOR) / (1 - GROUND_FLOOR);
+    if (density <= 0) continue; // ground: fully transparent, and nothing to colour
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    // How much of this pixel's own hue to keep, against the board's ink. See `CHROMA_FLOOR`.
+    const spread = max - min;
+    const chromatic =
+      spread <= CHROMA_FLOOR
+        ? 0
+        : Math.min(1, (spread - CHROMA_FLOOR) / (CHROMA_FULL - CHROMA_FLOOR));
+    // The hue at full brightness. `max === 0` is pure black, which has no hue to keep.
+    const gain = max > 0 ? 255 / max : 0;
+    for (let c = 0; c < 3; c++) {
+      const chroma = ([r, g, b][c] as number) * gain;
+      out[o + c] = Math.round((ink[c] as number) * (1 - chromatic) + chroma * chromatic);
+    }
+    out[o + 3] = Math.round(Math.min(1, density) * 255);
+  }
+  return writePng({ width, height, rgba: out });
+}
+
+/**
+ * Ink density at or below which a pixel is the raster's ground, not its drawing.
+ *
+ * Without it a figure keys onto a dark board with a **visible disc of haze around the
+ * drawing** — measured on `battery-cut-open-cross-section` against the slate pack, and
+ * obvious on sight. The cause is that these grounds are not mathematically white: a
+ * provider returns a faint vignette or paper texture at luminance 0.98–1.00, which keys to
+ * 0–2% alpha. On white paper `multiply` erased that completely, which is why nobody has
+ * ever had to think about it; over slate, 2% of a pale ink is a grey veil across a quarter
+ * of the frame.
+ *
+ * The corpus sets the number, as it set 6.4's three. All 42 rasters in
+ * `~/.inkcast/cache/illustrations` measure a ground of **0.954 white or better**
+ * (`MIN_GROUND_WHITE`'s comment records the sweep), which is a density of 0.046, and
+ * `MIN_GROUND_WHITE` refuses anything below 0.90 outright. **0.06** sits just above the
+ * dirtiest ground the providers have actually returned and far below anything that reads as
+ * a mark. The remaining range is rescaled rather than clipped, so full-strength ink still
+ * keys to fully opaque instead of losing 6% of its alpha.
+ */
+const GROUND_FLOOR = 0.06;
+
+/**
+ * How far apart a pixel's channels must be, in the eight bits they arrived in, before its
+ * own hue is kept instead of the board's ink.
+ *
+ * The second artefact measured on the same raster: **coloured speckle along every stroke**.
+ * A neutral pixel is never exactly neutral after a provider's compression — `(5,30,5)` is a
+ * black stroke with a rounding error in it — and `gain` normalises a hue to full
+ * brightness, so a 25-count error in a *dark* pixel becomes a saturated green dot.
+ *
+ * The first attempt floored relative saturation and did not work, for a reason worth
+ * keeping: `(max−min)/max` divides by the pixel's own level, so the same absolute error
+ * reads as 0.1 on a mid-tone and 0.83 on a near-black one. It is largest exactly where the
+ * hue is least trustworthy. Absolute spread does not have that inversion, because
+ * compression error is bounded in absolute terms and real colour is not.
+ *
+ * **Measured across all 42 rasters in `~/.inkcast/cache/illustrations`**, over the pixels
+ * that survive `GROUND_FLOOR` — the ones this will actually colour. The corpus separates
+ * into two populations with an empty band between them:
+ *
+ *   - **31 line-art rasters**: not one pixel above spread 46, p99.9 between 11 and 24.
+ *   - **11 rasters carrying real colour**: p99 between 183 and 252.
+ *
+ * Nothing in the cache lives between 46 and 183, so the ramp is placed inside that gap
+ * rather than at either edge of it: 64 is above the dirtiest line art by a comfortable
+ * margin and 128 is below the palest real colour by a larger one. A ramp rather than a
+ * switch so a wash that crosses the threshold does not grow a hard edge along the contour
+ * where it does.
+ */
+const CHROMA_FLOOR = 64;
+const CHROMA_FULL = 128;
+
 /**
  * A colour figure, kept as a raster and never traced.
  *
@@ -1229,6 +1396,14 @@ export async function figureRaster(args: {
   onProblem?: (note: string) => void;
   /** Where a real provider call is billed. See `illustrationRaster`'s `onSpend`. */
   onSpend?: OnSpend;
+  /**
+   * The board this figure will sit on (plan 9.2).
+   *
+   * Absent means white paper, which is every caller that predates the alpha lane and
+   * every film in the corpus. Only consulted when the paper is dark — see
+   * `keyFigureToSurface`.
+   */
+  surface?: Surface;
 }): Promise<{ svg: string; raster: string; cached: boolean } | undefined> {
   const raster = await illustrationRaster({
     id: args.id,
@@ -1261,20 +1436,50 @@ export async function figureRaster(args: {
   // The href is project-relative: the renderer resolves and inlines it against the project
   // directory, and keeping it relative is what lets a project stay self-describing.
   //
-  // `mix-blend-mode: multiply` is what makes the picture sit *on* the board rather than on
-  // a white card laid over it. Every one of these rasters is drawn on white, the board's
-  // paper is `#fcfbf9`, and multiplying by white is the identity — so the card disappears,
-  // the paper's warmth carries through the picture, and the grid dots read underneath it.
-  // The first render without it showed the card's edges plainly against the paper.
+  // **Two composites, chosen by the board** (plan 9.2, audit S5.6).
+  //
+  // On light paper: `mix-blend-mode: multiply`, unchanged and untouched. Every one of
+  // these rasters is drawn on white, the board's paper is `#fcfbf9`, and multiplying by
+  // white is the identity — so the card disappears, the paper's warmth carries through the
+  // picture, and the grid dots read underneath it. The first render without it showed the
+  // card's edges plainly against the paper. Every film in the corpus is on this path and
+  // not one pixel of it moves.
+  //
+  // On a dark board: the raster is keyed to real alpha and composited normally, because
+  // multiply can only darken and there is nothing below the slate to darken *to*. The
+  // keyed copy is a derived artefact written beside the raster it came from — the original
+  // stays exactly as the provider sent it, which is what keeps both cache tiers style-blind
+  // and re-keyable. It is named for the surface it was keyed against, so two packs in one
+  // project do not overwrite each other's copy, and so a pack whose colours were edited
+  // gets a new file rather than yesterday's ink.
+  const keyed = args.surface && isDarkSurface(args.surface.paper) ? args.surface : undefined;
+  let href = raster.rel;
+  let blend = 'mix-blend-mode:multiply';
+  if (keyed) {
+    const alpha = keyFigureToSurface(raster.png, keyed);
+    if (alpha) {
+      href = `${raster.rel.replace(/\.png$/, '')}-on-${hash(keyed.paper, keyed.ink).slice(0, 8)}.png`;
+      await writeFile(path.resolve(args.dir, href), alpha);
+      blend = 'mix-blend-mode:normal';
+    } else {
+      // `readPng` abstained. Say so where the run can read it: on a dark board this is
+      // not a cosmetic miss, it is a picture the viewer will not see at all.
+      args.onProblem?.(
+        `the figure "${args.id}" could not be keyed for a dark board — its PNG is a shape ` +
+          'the decoder does not read (interlaced, or a sub-byte palette), so it is ' +
+          'composited with multiply and will be close to invisible on this surface',
+      );
+    }
+  }
   const n = (v: number): string => String(Math.round(v * 100) / 100);
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${n(args.box.w)}" ` +
     `height="${n(args.box.h)}" viewBox="0 0 ${n(args.box.w)} ${n(args.box.h)}" ` +
     'data-ink-space="local" data-ink-mode="raster-reveal">' +
-    `<image href="${raster.rel}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" ` +
-    'preserveAspectRatio="none" style="mix-blend-mode:multiply"/>' +
+    `<image href="${href}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" ` +
+    `preserveAspectRatio="none" style="${blend}"/>` +
     '</svg>';
-  return { svg, raster: raster.rel, cached: raster.cached };
+  return { svg, raster: href, cached: raster.cached };
 }
 
 /**

@@ -119,6 +119,23 @@ export async function markFresh(dir: string, key: string, inputHash: string): Pr
   await writeFile(cachePath(dir), JSON.stringify(cache, null, 2));
 }
 
+/**
+ * Forget one key, for a stage that has just invalidated the artefact under it.
+ *
+ * The counterpart `isFresh` always needed and nobody had written: it checks that the
+ * artefact still *exists*, which cannot notice a file that was overwritten by work the
+ * cache entry does not describe. That is audit N-2 exactly — the voice stage abandons a
+ * failed attempt after writing its clip, and the scene it wrote over kept a freshness
+ * marker for the clip that used to be there. A stage that clobbers a file it is not
+ * about to re-key has to say so here.
+ */
+export async function clearFresh(dir: string, key: string): Promise<void> {
+  const cache = await readCache(dir);
+  if (!(key in cache)) return;
+  delete cache[key];
+  await writeFile(cachePath(dir), JSON.stringify(cache, null, 2));
+}
+
 /* -------------------------------------------------------------- storyboard */
 
 export async function saveStoryboard(dir: string, sb: Storyboard): Promise<string> {

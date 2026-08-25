@@ -359,6 +359,84 @@ test('a status write cannot orphan a project or un-publish it', async () => {
   assert.equal(truth?.record.status, 'ready');
 });
 
+test('a film cast from the terminal repairs the metadata a failed studio run left behind', async () => {
+  await reset();
+
+  /*
+   * The exact sequence behind `projects/deb81002b073`, which shipped with a
+   * `meta.json` reading `status: failed`, `scenes: 0`, `durationSec: 0` and eight
+   * ink-on-ink errors, sitting next to a 131-second film that plays fine.
+   *
+   * 20:58 — the studio starts a run and the strict quality gate refuses it, so
+   * `jobs.ts` writes the failure.
+   */
+  await upsertProject('healme', {
+    ownerSession: 'tag-a',
+    status: 'failed',
+    title: 'Why do heavy and light objects fall at the same time',
+    error: '8 quality problems in 3 checks (ink-on-ink, vacant, realized-layout)',
+  });
+
+  // 22:00 — the same project is cast again from a *terminal*. `@inkcast/pipeline`
+  // writes its own completion record and the video; it has never heard of
+  // `meta.json` and nothing on that path could have written one.
+  const dir = path.join(PROJECTS_ROOT, 'healme');
+  await writeFile(
+    path.join(dir, 'pipeline.json'),
+    `${JSON.stringify({
+      projectId: 'healme',
+      title: 'Why do heavy and light objects fall at the same time',
+      videoPath: 'out.mp4',
+      durationSec: 131.33,
+      createdAt: '2026-08-25T22:00:19.846Z',
+      updatedAt: '2026-08-25T22:00:19.846Z',
+      cost: { usd: 0.4453 },
+    })}\n`,
+  );
+  await writeFile(path.join(dir, 'out.mp4'), 'not really an mp4, but it is on disk');
+
+  // The listing was always right — `mergeDisk` reconciles in memory.
+  const dto = await getProject('healme');
+  assert.equal(dto?.status, 'ready');
+  assert.equal(dto?.durationSec, 131.33);
+
+  // The part that was not: the file itself. It is served by
+  // `/api/media/<id>/meta.json` and it is the first thing anyone opens when a
+  // project looks wrong, so a permanently stale copy is a permanently wrong
+  // answer.
+  const meta = await readProjectMeta('healme');
+  assert.equal(meta?.status, 'ready');
+  assert.equal(meta?.durationSec, 131.33);
+  assert.equal(meta?.videoPath, 'out.mp4');
+  assert.equal(meta?.costUsd, 0.4453);
+  assert.equal(meta?.error, undefined, 'a project with a video on disk has no failure to report');
+
+  // And the repair is a repair, not a reset: ownership and sharing are facts only
+  // this file holds, and losing them would take the project out of its owner's
+  // library to fix a status field.
+  assert.equal(meta?.ownerSession, 'tag-a');
+});
+
+test('the repair never overwrites a run that is in flight', async () => {
+  await reset();
+
+  const dir = path.join(PROJECTS_ROOT, 'inflight');
+  await upsertProject('inflight', { status: 'ready', title: 'Old cut' });
+  await writeFile(
+    path.join(dir, 'pipeline.json'),
+    `${JSON.stringify({ projectId: 'inflight', title: 'Old cut', durationSec: 12 })}\n`,
+  );
+
+  // A re-render starts. Disk still describes the *previous* film, and it will
+  // keep doing so for the several minutes the render takes — so a scan that
+  // wrote itself back would announce the old cut as finished while the new one
+  // is still being made.
+  await upsertProject('inflight', { status: 'running' });
+  await listProjects();
+
+  assert.equal((await readProjectMeta('inflight'))?.status, 'running');
+});
+
 test('the owner tag never reaches a DTO', async () => {
   await reset();
   await upsertProject('leak1', { ownerSession: 'tag-secret', status: 'ready' });

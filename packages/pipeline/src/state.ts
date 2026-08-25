@@ -92,8 +92,19 @@ export type VoiceRecord = {
   provider: string;
   /** The engine, when the provider names one. */
   model?: string;
-  /** The provider-native voice id in force. */
+  /** The provider-native voice id that actually spoke. */
   voiceId: string;
+  /**
+   * The voice id that was resolved and then refused, when `voiceId` is a substitute.
+   *
+   * Absent on every ordinary run, and it is the field that closes a real hole: the
+   * free ElevenLabs plan answers 402 for a pinned library voice, the adapter speaks
+   * with one the account *can* use, and until this existed the swap lived only in a
+   * `Map` inside the adapter — so the file named a voice the film does not contain
+   * and nothing on disk could tell you otherwise. `requested` below is a different
+   * fact again: what the *environment* asked for, before any provider saw it.
+   */
+  substitutedFrom?: string;
   /** What the environment asked for, kept so a fallback is legible from the file alone. */
   requested: string;
   /** False when every scene was cached — nobody spoke, so nobody may be billed. */

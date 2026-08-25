@@ -152,8 +152,25 @@ export function chainFor(
 export type ActiveProvider = {
   id: VoiceProviderId;
   label: string;
-  /** Provider-native voice id for this run. */
+  /**
+   * Provider-native voice id for this run, as `resolveVoice` decided it.
+   *
+   * This is a **cache-key input** — the voice stage hashes it into every clip key —
+   * so it is deliberately the *requested* resolution and never moves once the chain
+   * has resolved it. A substitution forced mid-run lands on `spokenVoice` instead;
+   * writing it here would re-key every scene after the one that learned it and
+   * re-synthesise a film that had not changed. See `spokenVoice`.
+   */
   voice: string;
+  /**
+   * The voice that actually came out of the speaker, when it is not `voice`.
+   *
+   * Absent on every ordinary run. Present when the provider was refused the voice it
+   * asked for and used another — see `SynthesisResult.substitution`. The *record* has
+   * to name this one: a `pipeline.json` that says Rachel for a film spoken by Sarah
+   * is a file that cannot be checked against the audio it describes.
+   */
+  spokenVoice?: string;
   /**
    * Measured natural rate of `voice` in words per minute, when the provider
    * characterises it. The voice stage turns this into the `speed` that lands the
@@ -180,6 +197,56 @@ export type VoiceFallback = {
   reason: VoiceFailureReason;
 };
 
+/**
+ * One link that never got to speak at all — refused or broken *before* the first
+ * character.
+ *
+ * A different event from `VoiceFallback`, and the difference is the whole reason
+ * this type exists. A fallback is a provider that started and stopped: it is loud,
+ * it lands in `problems`, and the user is told. A rejection is a provider that was
+ * never reached, and until now the only trace of one was a `log.debug` line —
+ * which is exactly how "ElevenLabs was never getting caught" happened. A key in
+ * the vault that had not been hydrated into `process.env`, or a provider that
+ * threw while resolving a voice, produced an ordinary-looking local film with
+ * nothing anywhere saying a paid provider had been skipped.
+ *
+ * `preferred` is what makes it reportable without becoming noise. The unkeyed
+ * chain rejects ElevenLabs on *every* local run by design, and saying so every
+ * time would train everyone to ignore the line. The head of the chain is
+ * different: it is the provider this environment — or an explicit
+ * `INKCAST_VOICE` — actually asked for, so its rejection is a request that was
+ * refused, and that is always worth a sentence.
+ */
+/**
+ * A voice the provider was refused, and the one it used instead.
+ *
+ * Distinct from a `VoiceFallback` in the way that matters to the person watching:
+ * the *provider* did not change, so the film is still the paid one they asked and
+ * paid for — it simply is not the voice named in the record. Reported so the
+ * record can name the right one and say what happened to the other.
+ */
+export type VoiceSubstitution = {
+  provider: VoiceProviderId;
+  /** The voice the chain resolved. Still what every cache key is computed from. */
+  from: string;
+  /** The voice that actually spoke. */
+  to: string;
+  /** Its display name, when the provider knows one. */
+  toName?: string;
+  /** One clause naming why the requested voice was refused. */
+  why: string;
+};
+
+export type VoiceRejection = {
+  id: VoiceProviderId;
+  /** `unavailable`: `available()` said no. `init-failed`: it threw while resolving. */
+  cause: 'unavailable' | 'init-failed';
+  /** One clause naming the fixable thing, from the provider itself where it can. */
+  reason: string;
+  /** True when this was the head of the chain — see the note above. */
+  preferred: boolean;
+};
+
 export type VoiceChain = {
   /** Currently selected provider, resolving the chain on first use. */
   active(): Promise<ActiveProvider>;
@@ -198,6 +265,16 @@ export type VoiceChain = {
    * the only trace was a `log.warn` nobody reads after the fact.
    */
   fallbacks(): VoiceFallback[];
+  /**
+   * Links that were refused before they spoke, in order. See `VoiceRejection`.
+   *
+   * A strict superset of `skipped()` in information — same providers, with the
+   * cause, the reason and whether the chain had preferred it. `skipped()` stays
+   * for the callers that only want the ids.
+   */
+  rejections(): VoiceRejection[];
+  /** Voices a provider was refused and spoke around, in order. See `VoiceSubstitution`. */
+  substitutions(): VoiceSubstitution[];
   dispose(): Promise<void>;
 };
 
@@ -228,8 +305,25 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
   const log = opts.log ?? logger('voice');
   const order = chainFor(opts.preferred);
   const rejected: VoiceProviderId[] = [];
+  const refusals: VoiceRejection[] = [];
+  const swaps: VoiceSubstitution[] = [];
   const demotions: VoiceFallback[] = [];
   const make = opts.create ?? createProvider;
+
+  /**
+   * Record a link that never spoke, and say so at a level someone will see.
+   *
+   * `warn` for the head of the chain, `debug` for the rest — the reasoning is on
+   * `VoiceRejection.preferred`: rejecting ElevenLabs is the normal state of every
+   * unkeyed run and warning about it would bury the one case that matters.
+   */
+  function reject(id: VoiceProviderId, entry: Omit<VoiceRejection, 'id'>): void {
+    rejected.push(id);
+    refusals.push({ id, ...entry });
+    const line = `voice provider ${id} was skipped at startup: ${entry.reason}`;
+    if (entry.preferred) log.warn(line);
+    else log.debug(line);
+  }
 
   let cursor = 0;
   let current: { provider: VoiceProvider; active: ActiveProvider } | undefined;
@@ -238,11 +332,18 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
   async function advance(): Promise<ActiveProvider> {
     while (cursor < order.length) {
       const id = order[cursor]!;
+      // Read before the increment: the head of the chain is the provider this
+      // environment asked for, and that is the only rejection worth a warning.
+      const preferred = cursor === 0;
       cursor++;
       const provider = make(id, { onDownload: opts.onDownload });
       try {
         if (!(await provider.available())) {
-          rejected.push(id);
+          reject(id, {
+            cause: 'unavailable',
+            reason: provider.unavailableReason?.() ?? 'the provider reported it is unavailable',
+            preferred,
+          });
           await provider.dispose();
           continue;
         }
@@ -258,7 +359,11 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
         log.info(`provider: ${provider.label} · voice ${voice}`);
         return current.active;
       } catch (err) {
-        rejected.push(id);
+        reject(id, {
+          cause: 'init-failed',
+          reason: err instanceof Error ? err.message : String(err),
+          preferred,
+        });
         log.warn(`provider ${id} could not be initialised — trying the next one`, err);
         await provider.dispose().catch(() => undefined);
       }
@@ -293,6 +398,8 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
     active,
     skipped: () => [...rejected],
     fallbacks: () => [...demotions],
+    rejections: () => [...refusals],
+    substitutions: () => [...swaps],
 
     async synthesize(req) {
       // Bounded by the chain length: each failure consumes one link.
@@ -302,6 +409,21 @@ export function openVoiceChain(opts: OpenChainOptions): VoiceChain {
         if (!provider) throw new Error('no voice provider is available');
         try {
           const result = await provider.synthesize({ ...req, voice: chosen.voice });
+          // Recorded on the *active* provider, in place, so every later reader —
+          // the record, the log line, the result UI — sees the voice that spoke
+          // without anybody having to thread it through. `chosen` is that same
+          // object, so the mutation is visible to this call's own return value too.
+          if (result.substitution && chosen.spokenVoice !== result.substitution.voice) {
+            const { voice, name, from, why } = result.substitution;
+            chosen.spokenVoice = voice;
+            swaps.push({
+              provider: chosen.id,
+              from,
+              to: voice,
+              ...(name ? { toName: name } : {}),
+              why,
+            });
+          }
           return { ...result, provider: chosen };
         } catch (err) {
           if (cursor >= order.length) throw err;

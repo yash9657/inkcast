@@ -841,6 +841,110 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   Chemistry's is the one with a real decision in it: the lane draws bonds in **`sketch`**
 >   ink, not `crisp` — a wobbled C–C bond is the same bond, unlike a wobbled integral sign
 >   — with double-bond spacing floored as geometry. Next: Phase 8.
+>
+> **Progress (2026-08-24): 8.1 is landed — the re-audit, in `docs/AUDIT-REAUDIT.md`.**
+> Re-run at `2abd28d` against the same spec by the same seven-pass method. Baseline
+> re-measured rather than quoted: 1163 tests green (3 keyvault skips), auditcheck 108/108,
+> lint and typecheck clean, and all three shipped lessons cast strict-clean end to end
+> (`projects/qc81-longitude`, `qc81-gd`, `qc81-hashmap` — 20 checks each, zero problems,
+> zero advisories, only the two keyed Tier-2 checks skipped with the real reason).
+>
+> - **The result: 58 PASS, 7 waived, 4 PARTIAL, 0 FAIL, 0 MISSING**, from 20/0/39/6/4.
+>   Every one of the eight waivers was re-checked against the evidence it rests on and all
+>   eight hold — including W2's fill pair, re-measured at exactly 20.3% / 13.8% on this run,
+>   and W8's demand column, re-run over a corpus that grew to 57 lessons and still reads 0.
+> - **The exit bar is not met, and by four rows rather than by a phase.** S5.6 (a raster's
+>   ground is detected, not keyed out), S9-b (Tier 2's keyed half has still never met a live
+>   model; Tier 3 waits on W7), X-d and X-g. They are Phase 9 below. **None has an owner** —
+>   which is the one thing 8.1 cannot decide for itself.
+> - **One row moved backwards, and it is the report's real output.** X-g (idempotency) was
+>   PASS on evidence that measured the easy case. Casting a shipped lesson three times into
+>   one project produces three runs that re-synthesise scene 0 and two different film
+>   lengths, so 7.1's segment cache reuses nothing: 176.0s of render where the first cast
+>   took 67.0s.
+> - **The finding under it (N-1) is the one to fix first.** The voice stage's clip/sidecar
+>   repair rescales `phrases` and leaves `words` on the old scale, so `enter.at` comes out as
+>   unrescaled-word-start ÷ rescaled-duration and every reveal in the scene fires late —
+>   0.57s and 1.06s on the longitude film this re-audit rendered, which passed all 20 checks.
+>   Seven scenes on disk carry word timings past the end of their own audio. **Pre-existing
+>   and verified, not a regression**: the rescale block is byte-identical at `5f83bc4`, and
+>   the original audit missed it because all seven passes examined the aligner and none
+>   examined the reconciliation between a clip and the sidecar describing it.
+> - **A correction to the numbers the worklist rested on.** `HANDOFF-AUDIT-REMAINDER.md` said
+>   "61-row table … 17 PASS, 34 PARTIAL". The table has **69** rows at **20 PASS, 39
+>   PARTIAL**; those figures were written into the handoff and never checked against the
+>   table. Eight rows would have been missing from a worklist built from that sentence.
+> - **No code changed.** A new PARTIAL is a Phase-9 item, not a fix slipped into the session
+>   that found it — this plan's own rule. Next: Phase 9, and 8.2 when there is credit.
+
+> **Progress (2026-08-25): ALL OF PHASE 9 is landed — 9.3, 9.1, 9.4 and 9.2.** 1172 tests
+> green (3 keyvault skips, 1175 total; 9 new), auditcheck **111/111** (three checks retired
+> and six written), lint and typecheck clean. The four rows the re-audit left open — S5.6,
+> X-d, X-g and X-f's picker gap — are closed on re-derived evidence; **S9-b is still blocked
+> on credit and is the only thing between this plan and its exit bar, along with 8.2.**
+>
+> Done in the order `HANDOFF-AUDIT-REMAINDER.md` recommended rather than the order they are
+> numbered: 9.3 first, so the next run could say whether 9.1 had worked.
+>
+> - **9.3 (X-d).** `reportFill` returns its findings instead of logging them, and takes the
+>   same `quiet` contract `CompileOptions` already had — it was printing twice per run, once
+>   from the gate stage's throwaway compile and once from the render's. The lines land in
+>   `BoardReport.thinFill` and the gate stage writes them into `qc.json` as a new `thin-fill`
+>   warn check: **a strict cast now runs 21 checks, not 20**, and the sentence 8.1 could only
+>   find in a terminal ("the deficit is the drawing, not the shot") is in the project. The
+>   clip/sidecar mismatch warning got its `noteProblem`.
+> - **9.1 (X-g), fixed as one change because it is one mechanism.** The rescale now rewrites
+>   `words` alongside `phrases` — against the _clamped_ narration length, so the two cannot
+>   disagree even for a clip shorter than its own hold — and writes the repaired sidecar back
+>   to disk instead of re-deriving the repair on every render forever. The abandoned-attempt
+>   restart calls a new `clearFresh()` on the scene whose clip it just overwrote, which is
+>   N-2's trigger and the counterpart `isFresh` always needed: it checks that an artefact
+>   still _exists_, which cannot notice one that was replaced. And the comparison whose
+>   absence let this ship — no word may end after its own clip does — is now a gate problem
+>   in the voice stage, between the repair and the cue resolution that consumes it.
+>
+>   _Measured, not asserted._ `projects/qc91-longitude` cast twice: **`render 100% cached`**
+>   on the second, where 8.1 measured 176.0s of re-encode; identical 133.17s both times; zero
+>   repairs needed; zero words past their own clip. The two reveals 8.1 timed at 0.57s and
+>   1.06s late land at **−0.007s and +0.005s**. And the fix _heals_ a project already in the
+>   bad state: `qc81-longitude` copied to `qc91-heal` had a 13.595s clip under a sidecar
+>   claiming 16.125s and five words past the end — one cast and the two agree, with none.
+>   (Seven late reveals remain on this film, identical element-for-element to the pre-fix
+>   control `qc73-longitude`. They are the monotonic-order pass holding an overlay behind the
+>   thing it annotates, not N-1, and they were not in scope.)
+>
+> - **9.4 (X-f's gap).** `/api/providers` serves the packs from `stylePacks()` and the create
+>   form asks it, so a pack dropped into `styles/` is now selectable in the studio. The
+>   literal stays as the offline fallback and says so. The tripwire tests both ends, because
+>   either alone leaves the gap open.
+> - **9.2 (S5.6), the two-day item, and the one that changed a shipped look.**
+>   `keyFigureToSurface` keys a figure's white ground to real alpha — `1 − luminance`, so an
+>   anti-aliased edge keys to the coverage it was drawn with — and re-lights neutral marks in
+>   the pack's own ink while keeping real colour. Two artefacts were found by _looking at the
+>   output_ and both were fixed against the cache rather than by taste: a haze disc from
+>   grounds that are not mathematically white (`GROUND_FLOOR`), and coloured speckle from
+>   compression noise in dark pixels (`CHROMA_FLOOR`). The corpus sweep behind the second is
+>   the cleanest number in this plan: over all 42 cached rasters, 31 line-art files have no
+>   pixel above channel spread 46 and 11 colour files sit at 183–252, so the ramp is placed
+>   in an empty band.
+>
+>   Three things had to move with it. `MIN_PAPER_LUMA` stops being a refusal and becomes the
+>   switch that routes the two composites, at the same 0.5 — the decision its own comment
+>   asked for in writing. What it was a proxy for is now `MIN_INK_CONTRAST` (4.5:1 WCAG),
+>   which catches the fault the luma floor could not: a _light_ board with ink too pale to
+>   read. And the renderer had been calling `paletteFor(meta.palette)` since 7.3 while the
+>   visuals stage read the pack — an accidental agreement that held only because no shipped
+>   pack declared a palette, and that would have drawn a slate board's geometry on white
+>   paper. `boardPalette()` is the seam.
+>
+>   **`chalk` is the dark pack**, rather than a fifth file: its own description already
+>   promised a slate board and blamed the missing alpha work, and the four vendored
+>   handwriting faces are all spoken for. Verified by watching it — `projects/qc92-chalk`
+>   renders the cardiac lesson's three anatomical figures in full colour on slate, where the
+>   same rasters under multiply are a muddy near-invisible smear.
+>
+>   **Nothing on a light board moved.** A third cast of `qc91-longitude` after all four items
+>   reports `visuals cached` and `render 100% cached`.
 
 **Two rules that shape everything here:**
 
@@ -1250,6 +1354,46 @@ point). Publish the scorecard into `docs/STATUS.md`. _Done when:_ our films hit 
 and the scorecard shows Golpo's files failing the defects the audit measured them
 shipping. Watch both ours end to end first — no number replaces that, per this repo's
 own law that the biggest wins came from opening a PNG.
+
+---
+
+## Phase 9 — what the re-audit left open (~3 days, $0, plus one keyed session)
+
+Written 2026-08-24 from `docs/AUDIT-REAUDIT.md`, which carries the evidence for every line
+here. **All four landed 2026-08-25** — see the progress block above for what each bought and
+what it cost; the done-bars below are kept as written so the claim can be checked against the
+bar rather than against the summary. What is left of this plan is **8.2** and the one row
+that needs a funded key (**S9-b**).
+
+**9.1 The voice stage's two timing defects (N-1 + N-2; closes X-g). ~half a day. LANDED.** The
+clip/sidecar rescale in `voice/src/narrate.ts:849-868` rewrites `narrationSec` and `phrases`
+and leaves `words` untouched, so cue resolution divides an unrescaled word start by a
+rescaled duration and every reveal in the scene lands late. Separately, an abandoned voice
+attempt (`narrate.ts:768-816`) overwrites a clip whose cache entry is still valid under the
+fallback provider's key, leaving the sidecar and the freshness marker describing a file that
+is no longer there — which is what creates the mismatch the rescale then mis-repairs. Fix
+them together: apart, one is the symptom and the other is the trigger. _Done when:_ no scene
+on disk has a word timed past its own clip, and casting a shipped lesson twice into one
+project re-encodes zero segments.
+
+**9.2 Raster alpha (closes S5.6). ~2 days. LANDED.** 6.4's `MIN_GROUND_WHITE` detects a non-white
+ground and cannot key one out; a figure composites with `mix-blend-mode: multiply`, so on a
+dark board its ink multiplies into a surface already darker than itself and vanishes. 7.3's
+`MIN_PAPER_LUMA` refuses a dark pack for exactly this and says so in the error. _Done when:_
+a chalk-surface pack renders a figure legibly.
+
+**9.3 Two diagnostics that reach only the terminal (closes X-d; N-3). ~an hour. LANDED.**
+`reportFill` (`core/src/camera.ts:641`) returns `void` and logs — and it fires on films that
+_pass_ the fill gate, which is when it is the only signal there is. The clip/sidecar mismatch
+warning (`narrate.ts:853`) is the only thing that ever says 9.1's defect happened. Both onto
+`onProblem`, the rail 3.4 built. By this repo's own rubric they are absent until then.
+
+**9.4 The studio style picker (X-f's one gap). ~an hour. LANDED.** Serve `styleIds()` from a route;
+`apps/web/components/studio/options.ts` says where the literal is and why.
+
+**Blocked rather than backlogged: S9-b.** Tier 2's keyed half has never run against a live
+model and Tier 3 cannot exist before a source does (W7). Both are gating item 1 in
+`HANDOFF-AUDIT-REMAINDER.md`; the first session with credit closes the first.
 
 ---
 

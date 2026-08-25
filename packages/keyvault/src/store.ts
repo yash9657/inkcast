@@ -3,12 +3,16 @@
  *
  * ## Precedence
  *
- * `getKey()` reads `process.env` first, then storage. That order is deliberate
- * and it is the one power users and CI both depend on: an exported
- * `ANTHROPIC_API_KEY` must win, so a runner can inject a key with no vault and no
- * passphrase, and a developer can shadow a stored key for one command without
- * mutating storage. `listProviders()` reports which one would win, so the
- * shadowing is never invisible.
+ * `getKey()` reads storage first, then `process.env`. A stored key is the one the
+ * user deliberately pasted — into the studio's settings page or `inkcast keys set`
+ * — and it must be the one that runs, even when the environment carries a value
+ * for the same provider. The original rule was the reverse, and it failed exactly
+ * where it matters: a stale exported `ANTHROPIC_API_KEY` kept an unfunded account
+ * in play while the freshly pasted, working key sat sealed in the vault, ignored,
+ * with every surface reporting "configured". CI and keyless runners still work —
+ * with nothing stored, the environment is used exactly as before — and
+ * `listProviders()` reports which source would win, so an overridden environment
+ * variable is never invisible.
  *
  * ## Backend
  *
@@ -76,9 +80,9 @@ export type Backend = 'keychain' | 'vault';
  * right instruction. Every value here names a distinct remedy.
  */
 export type KeyAvailability =
-  /** The environment supplies it, which beats anything stored. */
+  /** Nothing usable is stored, and the environment supplies it. */
   | 'env'
-  /** Stored and proven readable: `getKey()` will return it. */
+  /** Stored and proven readable: `getKey()` will return it, beating any env var. */
   | 'stored'
   /** Stored, but no passphrase is available to open the vault. Set one. */
   | 'locked'
@@ -117,11 +121,20 @@ export type ProviderStatus = {
   /** Where the key would come from, or null when not configured. */
   source: KeySource | null;
   /**
-   * A key is stored *and* set in the environment. The environment wins, so the
-   * stored one is inert — worth saying out loud, because otherwise editing the
-   * stored entry appears to do nothing at all.
+   * A stored entry exists but the environment's key is the one in use. Since
+   * stored keys took priority this only happens when the stored entry is locked
+   * or unreadable — `getKey()` degrades past it to the environment — and it is
+   * still worth saying out loud, because otherwise editing the stored entry
+   * appears to do nothing at all.
    */
   shadowedByEnv: boolean;
+  /**
+   * The stored key is in use *and* the environment also carries a value for this
+   * provider, which is therefore being ignored. The flip side of
+   * `shadowedByEnv`: named so a user who exported a variable long ago can see why
+   * changing it no longer changes anything.
+   */
+  overridesEnv: boolean;
 };
 
 export type KeyvaultOptions = {
@@ -150,6 +163,13 @@ export type Keyvault = {
   readonly backend: Backend;
   setKey(provider: Provider | string, key: string): Promise<void>;
   getKey(provider: Provider | string): Promise<string | undefined>;
+  /**
+   * The key from storage only, never the environment. `hydrateEnv()` decides
+   * injection with this — resolving through `getKey()` would let an environment
+   * value masquerade as stored. Throws `passphrase-required` when the vault is
+   * sealed; callers deciding a fallback catch that, callers reporting it do not.
+   */
+  storedKey(provider: Provider | string): Promise<string | undefined>;
   listProviders(): Promise<ProviderStatus[]>;
   deleteKey(provider: Provider | string): Promise<boolean>;
   validateKey(provider: Provider | string): Promise<ValidationResult>;
@@ -372,11 +392,11 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
         lastValidatedOk: undefined,
       });
 
-      const shadow = envKey(provider, env);
-      if (shadow) {
-        log.warn(
-          `${provider} key stored, but ${shadow.name} is set in the environment and takes precedence — ` +
-            `unset it to use the stored key`,
+      const overridden = envKey(provider, env);
+      if (overridden) {
+        log.info(
+          `${provider} key stored in the ${backend} — it takes priority over ${overridden.name} ` +
+            `from the environment, which is now ignored`,
         );
       } else {
         log.info(`${provider} key stored in the ${backend}`);
@@ -386,25 +406,26 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
     async getKey(providerLike) {
       const provider = assertProvider(providerLike);
 
-      // 1. Environment wins, always.
-      const fromEnv = envKey(provider, env);
-      if (fromEnv) return remember(fromEnv.value);
-
-      // 2. Storage. A missing passphrase must degrade, not crash: a pipeline
-      // stage asking for an optional upgrade key should fall back to its local
-      // provider exactly as it would with no key at all.
+      // 1. Storage wins: the pasted key is the deliberate one. A missing
+      // passphrase must degrade, not crash: fall through to the environment
+      // exactly as if nothing were stored.
       try {
-        return remember(await readStored(provider));
+        const stored = await readStored(provider);
+        if (stored) return remember(stored);
       } catch (err) {
-        if (err instanceof KeyvaultError && err.code === 'passphrase-required') {
-          log.warn(
-            `a ${provider} key is stored in the vault but no passphrase is available — ` +
-              `continuing without it${err.hint ? `. ${err.hint}` : ''}`,
-          );
-          return undefined;
-        }
-        throw err;
+        if (!(err instanceof KeyvaultError && err.code === 'passphrase-required')) throw err;
+        log.warn(
+          `a ${provider} key is stored in the vault but no passphrase is available — ` +
+            `falling back to the environment${err.hint ? `. ${err.hint}` : ''}`,
+        );
       }
+
+      // 2. The environment, for runners and shells with nothing stored.
+      return remember(envKey(provider, env)?.value);
+    },
+
+    async storedKey(providerLike) {
+      return remember(await readStored(assertProvider(providerLike)));
     },
 
     async listProviders() {
@@ -419,12 +440,33 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
         const lastValidated = meta.lastValidated ?? null;
         const lastValidatedOk = meta.lastValidatedOk ?? null;
         const fromEnv = envKey(provider, env);
-
-        // Storage is inspected even when the environment wins, because "you have
-        // saved a key that is being ignored" is exactly the state a user cannot
-        // otherwise explain — see `shadowedByEnv`.
         const stored = await storedState(provider, vaultEntries, meta);
 
+        // A readable stored key is the one in use, whatever the environment says
+        // — see the precedence note in the header. `overridesEnv` is how a user
+        // learns their exported variable is now inert.
+        if (stored.availability === 'stored') {
+          out.push({
+            provider,
+            configured: true,
+            availability: 'stored',
+            masked: stored.masked,
+            length: stored.length,
+            envVar: PROVIDER_SPECS[provider].envVars[0]!,
+            updatedAt: meta.updatedAt ?? stored.createdAt,
+            lastValidated,
+            lastValidatedOk,
+            source: backend,
+            shadowedByEnv: false,
+            overridesEnv: fromEnv !== undefined,
+          });
+          continue;
+        }
+
+        // Nothing usable stored, but the environment supplies one: that is the
+        // key in use. A locked or tampered entry sitting behind it is reported
+        // through `shadowedByEnv`, because editing that entry changes nothing
+        // until it can be read again.
         if (fromEnv) {
           out.push({
             provider,
@@ -440,14 +482,14 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
             lastValidatedOk,
             source: 'env',
             shadowedByEnv: stored.availability !== 'absent',
+            overridesEnv: false,
           });
           continue;
         }
 
-        const configured = stored.availability === 'stored';
         out.push({
           provider,
-          configured,
+          configured: false,
           availability: stored.availability,
           masked: stored.masked,
           length: stored.length,
@@ -455,8 +497,9 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
           updatedAt: meta.updatedAt ?? stored.createdAt,
           lastValidated,
           lastValidatedOk,
-          source: configured ? backend : null,
+          source: null,
           shadowedByEnv: false,
+          overridesEnv: false,
         });
       }
       return out;
@@ -478,7 +521,7 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
       if (shadow) {
         log.warn(
           `${provider} removed from the ${backend}, but ${shadow.name} is still set in the environment — ` +
-            `unset it to fully revoke local access`,
+            `that stage now falls back to it. Unset it to fully revoke local access`,
         );
       } else if (removed) {
         log.info(`${provider} key removed from the ${backend}`);
@@ -489,18 +532,25 @@ export function createKeyvault(opts: KeyvaultOptions = {}): Keyvault {
     async validateKey(providerLike) {
       const provider = assertProvider(providerLike);
 
-      const fromEnv = envKey(provider, env);
-      let source: KeySource | undefined = fromEnv ? 'env' : undefined;
-      let key = fromEnv?.value;
+      // Mirror `getKey()` exactly: the key checked must be the key a render uses.
+      // A sealed vault degrades to the environment there, so it does here too —
+      // its hint is only the answer when the environment has nothing either.
+      let source: KeySource | undefined;
+      let key: string | undefined;
+      let sealed: KeyvaultError | undefined;
+      try {
+        key = await readStored(provider);
+        if (key) source = backend;
+      } catch (err) {
+        if (!(err instanceof KeyvaultError && err.code === 'passphrase-required')) throw err;
+        sealed = err;
+      }
       if (!key) {
-        try {
-          key = await readStored(provider);
-          if (key) source = backend;
-        } catch (err) {
-          if (err instanceof KeyvaultError && err.code === 'passphrase-required') {
-            return { provider, ok: false, reason: 'not-configured', message: err.hint };
-          }
-          throw err;
+        const fromEnv = envKey(provider, env);
+        key = fromEnv?.value;
+        if (key) source = 'env';
+        else if (sealed) {
+          return { provider, ok: false, reason: 'not-configured', message: sealed.hint };
         }
       }
       if (!key) return { provider, ok: false, reason: 'not-configured' };
@@ -536,7 +586,7 @@ export function setKey(
   return createKeyvault(opts).setKey(provider, key);
 }
 
-/** The key for `provider`: environment first, then storage. */
+/** The key for `provider`: storage first, then the environment. */
 export function getKey(
   provider: Provider | string,
   opts?: KeyvaultOptions,

@@ -1007,15 +1007,52 @@ function check(name: string, ok: boolean, why: string): void {
       !/accents:\s*z\./.test(packLoader),
     'a pack can declare a list of accents again — which is the rainbow board core/src/palette.ts exists to prevent',
   );
+  // Plan 9.2 replaced the check that used to be here. It asserted that a dark pack was
+  // *refused* — the honest guard while a figure on a slate board would have vanished into
+  // it. Now that the alpha lane exists the guard is its inverse, and it has to test all
+  // three legs, because any one of them alone puts a dark board back on the screen with an
+  // invisible picture on it: the keying, the composite that consumes it, and the renderer
+  // painting the pack's own paper rather than the mode's.
+  const imageLane = read('packages/visuals/src/image.ts');
   check(
-    'X-f: a dark-surface pack is refused until the alpha work exists (S5.6)',
-    /MIN_PAPER_LUMA/.test(packLoader) && /multiply/.test(packLoader),
-    'a pack may now paint a slate board, where every generated figure multiplies into the surface and disappears — 6.4 detects that ground, it does not remove it',
+    'S5.6: a figure on a dark board is keyed to alpha, not multiplied into it',
+    /keyFigureToSurface/.test(imageLane) &&
+      /isDarkSurface/.test(imageLane) &&
+      /mix-blend-mode:normal/.test(imageLane) &&
+      /writePng/.test(read('packages/visuals/src/png.ts')),
+    'the figure lane composites with multiply again — on a dark pack every generated picture multiplies into a surface darker than its own ink and disappears, and no gate can see it because the raster itself is fine',
+  );
+  check(
+    'S5.6: the renderer paints the pack’s paper, not the palette mode’s',
+    /boardPalette\(/.test(read('packages/render/src/compile.ts')) &&
+      /stylePalette\(/.test(read('packages/render/src/palette.ts')),
+    'the renderer is back to paletteFor(meta.palette), so a pack that declares a dark board gets its geometry drawn in chalk on white paper — the two stages disagreeing about what colour the board is',
+  );
+  check(
+    'S5.6: the dark board is a pack somebody can pick, not a capability nobody uses',
+    (() => {
+      const packs = read('styles/chalk.json');
+      return /"paper":\s*"#1b232e"/.test(packs) && /S5\.6|9\.2/.test(packs);
+    })(),
+    'no shipped pack has a dark surface any more — the alpha lane is then a feature with no film behind it, which is the shape 6.3 called a tripwire nobody can trip',
   );
   check(
     'X-f: an edited pack invalidates what it drew',
     /styleKey\(/.test(read('packages/pipeline/src/keys.ts')) && /styleKey\(/.test(visualsStyle),
     'a cache key carries the style *name* again — editing styles/marker.json would serve yesterday’s ink from the cache',
+  );
+  // Plan 9.4. The gap the re-audit left open under X-f: the pipeline accepted any pack
+  // in `styles/` while the one surface most people use offered a literal four. The
+  // tripwire is on both ends, because either alone can be true while the gap is open —
+  // a route that serves the list nothing reads, or a picker that reads a field no route
+  // sends. (6.3's lesson: test the guard against the case it is actually for.)
+  const providersRoute = read('apps/web/app/api/providers/route.ts');
+  check(
+    'X-f: the studio is told which packs this tree has, and asks',
+    /stylePacks\(\)/.test(providersRoute) &&
+      /styles:/.test(providersRoute) &&
+      /caps\?\.styles/.test(read('apps/web/components/studio/create-form.tsx')),
+    'the studio’s ink picker is back to a hard-coded list — a pack a user drops into styles/ works through the CLI and the API and cannot be chosen in the studio',
   );
 }
 

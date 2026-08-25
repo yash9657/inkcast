@@ -11,7 +11,7 @@
  *
  * installRedaction();                              // once, at process start
  * await setKey('anthropic', key);                  // keychain on macOS, else encrypted vault
- * const key = await getKey('anthropic');           // env first, then storage
+ * const key = await getKey('anthropic');           // storage first, then env
  * await listProviders();                           // masked previews only, never a raw key
  * await validateKey('anthropic');                  // one free metadata call
  * ```
@@ -48,7 +48,13 @@ export {
   type StorageInfo,
 } from './store.js';
 
-export { dehydrate, hydrateEnv, hydratedProviders, type HydrateResult } from './hydrate.js';
+export {
+  dehydrate,
+  hydrateEnv,
+  hydratedProviders,
+  realEnv,
+  type HydrateResult,
+} from './hydrate.js';
 
 export {
   describeValidation,

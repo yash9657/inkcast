@@ -1,11 +1,17 @@
 /**
- * Just enough of the PNG format to look at the pixels a provider sent back.
+ * Just enough of the PNG format to look at — and now to rewrite — the pixels a provider
+ * sent back.
  *
- * This exists for one question — **is this raster's ground white?** — and that question
- * cannot be answered from the header. A figure is composited onto the board with
- * `mix-blend-mode: multiply`, which is the identity against white and a visible grey card
- * against anything else, so a raster on an off-white ground shows its own edges on the
- * paper. Nothing else in the repo could see that.
+ * It began with one question: **is this raster's ground white?** That cannot be answered
+ * from the header. A figure is composited onto the board with `mix-blend-mode: multiply`,
+ * which is the identity against white and a visible grey card against anything else, so a
+ * raster on an off-white ground shows its own edges on the paper. Nothing else in the repo
+ * could see that.
+ *
+ * Plan 9.2 added the other direction. Detecting a bad ground was never enough for a *dark*
+ * board, where a good ground is the problem: multiply can only darken, so a picture drawn
+ * in black ink on white paper vanishes into slate. Removing the ground means writing
+ * pixels, so `writePng` is the encoder that answers `readPng`.
  *
  * **Written here rather than installed**, for the same reason `FontMetrics` grew a `glyf`
  * reader instead of taking `opentype.js`: a decoder is ~150 lines of a well-specified
@@ -18,7 +24,7 @@
  * run*, never *this raster is bad*. A checker that guesses when it cannot see is worse than
  * one that abstains.
  */
-import { inflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { logger } from '@inkcast/core';
 
 const log = logger('visuals:png');
@@ -218,4 +224,71 @@ export function groundWhiteness(png: Buffer, bandFraction = 0.04): number | unde
   if (lum.length === 0) return undefined;
   lum.sort((a, b) => a - b);
   return lum[Math.floor(lum.length / 2)] as number;
+}
+
+/* --------------------------------------------------------------- the encoder */
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (const byte of buf) c = (CRC_TABLE[(c ^ byte) & 0xff] as number) ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function chunk(type: string, body: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(body.length, 0);
+  head.write(type, 4, 'latin1');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
+  return Buffer.concat([head, body, crc]);
+}
+
+/**
+ * RGBA pixels back out as a PNG: 8-bit colour type 6, no interlace, filter 0 on every row.
+ *
+ * The counterpart to `readPng`, and written here for the same reason it was (see the
+ * header): a well-specified format against a native dependency on the one lane that has to
+ * degrade gracefully when its optional tracer is missing. Plan 9.2 is what needed it — a
+ * figure on a dark board has to be keyed to real alpha, and keying means writing pixels,
+ * not just reading them.
+ *
+ * **Filter 0 on every row, deliberately.** An adaptive filter would compress a photograph
+ * better; what goes through here is keyed line art, which is mostly runs of identical
+ * transparent pixels that deflate to nearly nothing either way. The cost of choosing is a
+ * heuristic nobody in this repo can defend at the next audit, and the benefit is bytes on a
+ * file that lives inside one project directory. Deterministic for the same reason every
+ * other artefact here is: `deflateSync` at a fixed level, so two runs produce one file.
+ */
+export function writePng(img: PngPixels): Buffer {
+  const { width, height, rgba } = img;
+  const stride = width * 4;
+  const raw = Buffer.alloc(height * (stride + 1));
+  for (let y = 0; y < height; y++) {
+    raw[y * (stride + 1)] = 0;
+    Buffer.from(rgba.buffer, rgba.byteOffset + y * stride, stride).copy(raw, y * (stride + 1) + 1);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // colour type: truecolour with alpha
+  ihdr[10] = 0; // deflate
+  ihdr[11] = 0; // adaptive filtering
+  ihdr[12] = 0; // no interlace
+  return Buffer.concat([
+    Buffer.from(MAGIC, 'hex'),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
 }

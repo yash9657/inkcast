@@ -183,7 +183,17 @@ test('the schema keeps the film to one accent', () => {
   });
 });
 
-test('a dark board is refused, and the message names the work it needs', () => {
+/**
+ * The inverse of the test that used to be here (plan 9.2, audit S5.6).
+ *
+ * A dark board was refused outright, because a generated figure composited with multiply
+ * disappeared into it. Now that a figure is keyed to real alpha for a dark surface
+ * (`keyFigureToSurface` in `@inkcast/visuals`), a slate pack is a supported pack — and the
+ * constant that refused it is kept, at the same value, as the switch that routes the two
+ * composites. This asserts both halves: it loads, and it is still on the dark side of the
+ * line the renderer will ask about.
+ */
+test('a dark board loads, and is still recognised as the dark side of the line', () => {
   const slate = {
     paper: '#1b232e',
     ink: '#fcfbf9',
@@ -193,11 +203,42 @@ test('a dark board is refused, and the message names the work it needs', () => {
     contrast: '#ffb27f',
     highlight: '#f5c445',
   };
-  assert.ok(relativeLuminance('#1b232e') < MIN_PAPER_LUMA, 'slate is the case this guards');
-  assert.ok(relativeLuminance('#fcfbf9') > MIN_PAPER_LUMA, 'the board`s own paper must pass');
+  assert.ok(relativeLuminance('#1b232e') < MIN_PAPER_LUMA, 'slate is the dark case');
+  assert.ok(
+    relativeLuminance('#fcfbf9') > MIN_PAPER_LUMA,
+    'the board`s own paper is the light one',
+  );
+  const ids = withPacks({ 'slate.json': packBody('slate', { palette: slate }) }, () => styleIds());
+  assert.ok(ids.includes('slate'), 'a dark pack must load now that figures can be keyed');
+});
+
+/**
+ * What replaced the luma floor: the thing it was a proxy for.
+ *
+ * A board is unreadable when its ink is too close to its own paper, and that is as true of
+ * a white board with pale-grey ink — which the old floor happily accepted — as of a slate
+ * board with charcoal on it.
+ */
+test('a board whose ink cannot be read against it is refused, light or dark', () => {
+  const pale = {
+    paper: '#fcfbf9',
+    ink: '#d8d5d0',
+    inkSoft: '#e4e2de',
+    grid: 'rgba(0,0,0,0.05)',
+    accent: '#7fb3ff',
+    contrast: '#ffb27f',
+    highlight: '#f5c445',
+  };
   assert.throws(
-    () => withPacks({ 'slate.json': packBody('slate', { palette: slate }) }, () => styleIds()),
-    /multiply|real-alpha|S5\.6/,
+    () => withPacks({ 'pale.json': packBody('pale', { palette: pale }) }, () => styleIds()),
+    /contrasts .*below the 4\.5:1 floor/,
+  );
+  // And the dark twin of the same fault, which the luma floor could never have caught
+  // because it only ever looked at the paper.
+  const murk = { ...pale, paper: '#1b232e', ink: '#2f3a49', inkSoft: '#3d4a5c' };
+  assert.throws(
+    () => withPacks({ 'murk.json': packBody('murk', { palette: murk }) }, () => styleIds()),
+    /contrasts .*below the 4\.5:1 floor/,
   );
 });
 

@@ -109,7 +109,9 @@ function parseKey(raw: unknown): KeyState | undefined {
     ...(length === undefined ? {} : { length }),
     ...(updatedAt === undefined ? {} : { updatedAt }),
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
+    ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
+    ...(rec.overridesEnv === true ? { overridesEnv: true as const } : {}),
   };
 }
 

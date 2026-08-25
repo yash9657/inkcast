@@ -180,7 +180,31 @@ function looksLikeVoiceId(value: string): boolean {
   return /^[A-Za-z0-9]{20}$/.test(value);
 }
 
-type VoiceRecord = { voice_id: string; name: string };
+export type VoiceRecord = { voice_id: string; name: string };
+
+/**
+ * Index a voice catalogue by name, for the preference matching in `resolveVoice`.
+ *
+ * ElevenLabs renamed its premade voices from bare names to descriptive ones —
+ * "Sarah" became "Sarah - Mature, Reassuring, Confident" — which silently broke
+ * every entry in `PREFERENCES`: an exact match on "sarah" found nothing, and the
+ * fallthrough handed `af_heart` to whatever voice happened to be listed first,
+ * gender and accent unregarded. So each voice is indexed under its full name *and*
+ * under the part before the " - ", with the full name winning a collision because
+ * it is the more deliberate ask.
+ */
+export function catalogueIndex(list: readonly VoiceRecord[]): Map<string, string> {
+  const byName = new Map<string, string>();
+  for (const v of list) {
+    const full = v.name.toLowerCase();
+    if (!byName.has(full)) byName.set(full, v.voice_id);
+  }
+  for (const v of list) {
+    const short = v.name.toLowerCase().split(' - ')[0]!.trim();
+    if (short && !byName.has(short)) byName.set(short, v.voice_id);
+  }
+  return byName;
+}
 
 type AlignmentPayload = {
   characters?: unknown;
@@ -236,8 +260,13 @@ export function alignmentToWords(alignment: AlignmentPayload | undefined): WordT
  * is safe to match on. Anything unrecognised stays `unknown` rather than being
  * guessed at, because a wrong reason in the record is worse than no reason.
  */
-function classify(status: number, body: string): VoiceFailureReason {
+export function classify(status: number, body: string): VoiceFailureReason {
   if (status === 429) return 'rate_limited';
+  // Seen in the wild as `detail.code: "paid_plan_required"` when a free-plan
+  // account asks for a library voice via the API. Not a quota problem — the
+  // account had thousands of characters left — so it must not share a name with
+  // one: the remedy is a different voice or a different plan, not a refill.
+  if (status === 402) return 'payment_required';
   if (status === 401 || status === 403) {
     let detail: unknown;
     try {
@@ -308,6 +337,37 @@ export function createElevenLabsProvider(): VoiceProvider {
     return catalogue;
   };
 
+  /**
+   * Voice substitutions forced by the account's plan: blocked id → usable id.
+   *
+   * The free plan returns 402 `paid_plan_required` for library voices via the API
+   * — measured, not assumed: Rachel, the calm mood's pin, 402s on a free account
+   * with 8 000 characters of quota left, while every voice in that account's own
+   * `/voices` list synthesises fine. Populated only by a real 402, so a paid
+   * account never pays a probing round trip and a pinned mood still resolves
+   * offline; once a substitution is learned, every later phrase uses it directly
+   * so the film speaks with one voice.
+   */
+  const planSwap = new Map<string, SynthesisResult['substitution']>();
+
+  /**
+   * The closest voice this account can use to the one its plan just refused:
+   * the refused pin's own mood names a Kokoro twin (`af_heart`, `bm_george`, …)
+   * whose accent+gender family picks the preference list, matched against the
+   * account's catalogue — which is exactly the set its API calls may use.
+   */
+  const planSubstitute = async (blocked: string): Promise<VoiceRecord | undefined> => {
+    const list = await loadCatalogue();
+    if (!list.length) return undefined;
+    const byName = catalogueIndex(list);
+    const family = /^([ab][fm])_/.exec(voiceMood(blocked)?.kokoro ?? '')?.[1] ?? 'af';
+    for (const candidate of PREFERENCES[family] ?? []) {
+      const hit = byName.get(candidate.toLowerCase());
+      if (hit && hit !== blocked) return list.find((v) => v.voice_id === hit);
+    }
+    return list.find((v) => v.voice_id !== blocked);
+  };
+
   const body = (req: SynthesisRequest): string => {
     const settings: Record<string, unknown> = { ...VOICE_SETTINGS };
     if (req.speed !== 1) settings.speed = Math.max(0.7, Math.min(1.2, req.speed));
@@ -339,6 +399,15 @@ export function createElevenLabsProvider(): VoiceProvider {
       return true;
     },
 
+    // Named rather than described, because this exact sentence is what a user gets
+    // when they asked for this provider and did not get it: the variable, and the
+    // fact that the vault populates it. A film narrated locally with a key in the
+    // vault is the failure this string exists to make impossible to miss.
+    unavailableReason() {
+      if (apiKey()) return undefined;
+      return 'ELEVENLABS_API_KEY is not set in this process (a key stored in the vault only counts once it has been hydrated into the environment)';
+    },
+
     async voices() {
       return (await loadCatalogue()).map((v) => v.name);
     },
@@ -365,7 +434,9 @@ export function createElevenLabsProvider(): VoiceProvider {
       // happens to have in its library. That last part is the substantive fix — the
       // path below resolves `af_heart` by *name preference* against whatever the key
       // can see, so two accounts could cast the same lesson with two different voices
-      // and the record would look identical. See `moods.ts`.
+      // and the record would look identical. See `moods.ts`. A pin the account's
+      // *plan* cannot use is handled where the refusal actually happens — the 402
+      // substitution in `synthesize` — so this stays free of round trips.
       const mood = voiceMood(requested);
       if (mood) {
         log.info(
@@ -378,7 +449,7 @@ export function createElevenLabsProvider(): VoiceProvider {
       const list = await loadCatalogue();
       if (!list.length) return FALLBACK_VOICE_ID;
 
-      const byName = new Map(list.map((v) => [v.name.toLowerCase(), v.voice_id]));
+      const byName = catalogueIndex(list);
       const exact = byName.get(requested.toLowerCase());
       if (exact) return exact;
 
@@ -400,74 +471,114 @@ export function createElevenLabsProvider(): VoiceProvider {
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
-      await mkdir(path.dirname(req.outPath), { recursive: true });
-      const payload = body(req);
-      /**
-       * Whether the timestamped attempt has already cost a generation.
-       *
-       * The fall-through below is a *second* full TTS request for the same phrase, and
-       * the first one is not necessarily free: `/with-timestamps` can answer 200 with
-       * no `audio_base64` at all, which is audio that was generated and billed and
-       * that we cannot use. Only the failures that never reached the engine are free —
-       * no response at all (`network`), and a request the rate limiter refused before
-       * it ran (`rate_limited`). Everything else is counted, because over-stating a
-       * bill by one phrase is the safe direction and under-stating it is the one
-       * nobody notices until the invoice arrives.
-       */
-      let firstAttemptBilled = false;
-
-      // Preferred: the timestamped endpoint, which also gives us word timings.
-      try {
-        const res = await request(
-          `/text-to-speech/${encodeURIComponent(req.voice)}/with-timestamps${query}`,
-          {
-            method: 'POST',
-            headers,
-            body: payload,
-          },
-        );
-        const json = (await res.json()) as {
-          audio_base64?: unknown;
-          alignment?: AlignmentPayload;
-          normalized_alignment?: AlignmentPayload;
-        };
-        if (typeof json.audio_base64 !== 'string' || !json.audio_base64) {
-          throw new Error('ElevenLabs returned no audio_base64');
-        }
-        await writeFile(req.outPath, encodeWav(Buffer.from(json.audio_base64, 'base64')));
-        const words = alignmentToWords(json.alignment ?? json.normalized_alignment);
-        return words.length ? { words } : {};
-      } catch (err) {
-        // An exhausted balance or a rejected key is not fixed by asking for less: the
-        // retry would spend another round trip to fail identically, and its warning
-        // ("retrying without word timings") describes a problem this is not. Let the
-        // classified failure through so the chain can demote on the real reason.
-        if (
-          err instanceof VoiceProviderError &&
-          (err.reason === 'quota_exceeded' || err.reason === 'unauthorized')
-        ) {
-          throw err;
-        }
-        const reason = err instanceof VoiceProviderError ? err.reason : 'unknown';
-        firstAttemptBilled = reason !== 'network' && reason !== 'rate_limited';
-        log.warn('timestamped synthesis failed — retrying without word timings', err);
+      // Every return path carries the substitution, not just the one that learned it.
+      // The learning happens on phrase 0 and the film has hundreds; a result shape
+      // that only described the first would leave the record dependent on which clip
+      // the cache happened to miss.
+      const swapped = planSwap.get(req.voice);
+      if (swapped) {
+        return { ...(await speak({ ...req, voice: swapped.voice })), substitution: swapped };
       }
-
-      const res = await request(`/text-to-speech/${encodeURIComponent(req.voice)}${query}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'audio/basic' },
-        body: payload,
-      });
-      const pcm = Buffer.from(await res.arrayBuffer());
-      if (!pcm.length) throw new Error('ElevenLabs returned an empty audio body');
-      await writeFile(req.outPath, encodeWav(pcm));
-      // Two generations of the same phrase when the first one was reached — see
-      // `firstAttemptBilled`. The stage's tally is the only record of what was spent.
-      return firstAttemptBilled ? { billedChars: req.text.length * 2 } : {};
+      try {
+        return await speak(req);
+      } catch (err) {
+        // A 402 is the plan refusing this *voice*, not this account being out of
+        // anything — the same request with a voice from the account's own list
+        // succeeds. Demoting to the local engine here would throw away a working
+        // paid provider over a fixable voice choice, so substitute and continue;
+        // every failure that is actually about the account still propagates.
+        if (!(err instanceof VoiceProviderError && err.reason === 'payment_required')) throw err;
+        const substitute = await planSubstitute(req.voice);
+        if (!substitute) throw err;
+        const blocked = voiceMood(req.voice)?.elevenlabs.name;
+        const substitution = {
+          voice: substitute.voice_id,
+          name: substitute.name,
+          from: req.voice,
+          why: `this plan cannot use ${blocked ? `"${blocked}" ` : ''}${req.voice} via the API (402 payment_required)`,
+        };
+        log.warn(
+          `${substitution.why} — substituting "${substitute.name}" (${substitute.voice_id}), ` +
+            'which this account can use',
+        );
+        planSwap.set(req.voice, substitution);
+        return { ...(await speak({ ...req, voice: substitute.voice_id })), substitution };
+      }
     },
 
     async dispose() {
       catalogue = undefined;
+      planSwap.clear();
     },
   };
+
+  async function speak(req: SynthesisRequest): Promise<SynthesisResult> {
+    await mkdir(path.dirname(req.outPath), { recursive: true });
+    const payload = body(req);
+    /**
+     * Whether the timestamped attempt has already cost a generation.
+     *
+     * The fall-through below is a *second* full TTS request for the same phrase, and
+     * the first one is not necessarily free: `/with-timestamps` can answer 200 with
+     * no `audio_base64` at all, which is audio that was generated and billed and
+     * that we cannot use. Only the failures that never reached the engine are free —
+     * no response at all (`network`), and a request the rate limiter refused before
+     * it ran (`rate_limited`). Everything else is counted, because over-stating a
+     * bill by one phrase is the safe direction and under-stating it is the one
+     * nobody notices until the invoice arrives.
+     */
+    let firstAttemptBilled = false;
+
+    // Preferred: the timestamped endpoint, which also gives us word timings.
+    try {
+      const res = await request(
+        `/text-to-speech/${encodeURIComponent(req.voice)}/with-timestamps${query}`,
+        {
+          method: 'POST',
+          headers,
+          body: payload,
+        },
+      );
+      const json = (await res.json()) as {
+        audio_base64?: unknown;
+        alignment?: AlignmentPayload;
+        normalized_alignment?: AlignmentPayload;
+      };
+      if (typeof json.audio_base64 !== 'string' || !json.audio_base64) {
+        throw new Error('ElevenLabs returned no audio_base64');
+      }
+      await writeFile(req.outPath, encodeWav(Buffer.from(json.audio_base64, 'base64')));
+      const words = alignmentToWords(json.alignment ?? json.normalized_alignment);
+      return words.length ? { words } : {};
+    } catch (err) {
+      // An exhausted balance, a rejected key or a plan-gated voice is not fixed by
+      // asking for less: the retry would spend another round trip to fail
+      // identically, and its warning ("retrying without word timings") describes a
+      // problem this is not. Let the classified failure through — the chain demotes
+      // on the account failures, and `synthesize` substitutes on the plan gate.
+      if (
+        err instanceof VoiceProviderError &&
+        (err.reason === 'quota_exceeded' ||
+          err.reason === 'unauthorized' ||
+          err.reason === 'payment_required')
+      ) {
+        throw err;
+      }
+      const reason = err instanceof VoiceProviderError ? err.reason : 'unknown';
+      firstAttemptBilled = reason !== 'network' && reason !== 'rate_limited';
+      log.warn('timestamped synthesis failed — retrying without word timings', err);
+    }
+
+    const res = await request(`/text-to-speech/${encodeURIComponent(req.voice)}${query}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'audio/basic' },
+      body: payload,
+    });
+    const pcm = Buffer.from(await res.arrayBuffer());
+    if (!pcm.length) throw new Error('ElevenLabs returned an empty audio body');
+    await writeFile(req.outPath, encodeWav(pcm));
+    // Two generations of the same phrase when the first one was reached — see
+    // `firstAttemptBilled`. The stage's tally is the only record of what was spent.
+    return firstAttemptBilled ? { billedChars: req.text.length * 2 } : {};
+  }
 }

@@ -31,6 +31,7 @@ function status(over: Partial<ProviderStatus> = {}): ProviderStatus {
     lastValidatedOk: null,
     source: null,
     shadowedByEnv: false,
+    overridesEnv: false,
     ...over,
   };
 }
@@ -103,6 +104,20 @@ test('an environment key reports the variable that actually supplied it', () => 
   );
   assert.equal(wire.envVar, 'FAL_API_KEY');
   assert.equal(wire.shadowedByEnv, true);
+});
+
+test('a stored key overriding an environment variable says so', () => {
+  const wire = toWire(
+    status({
+      configured: true,
+      availability: 'stored',
+      masked: 'sk-ant-api03-Aa…CdEf',
+      source: 'keychain',
+      overridesEnv: true,
+    }),
+  );
+  assert.equal(wire.overridesEnv, true);
+  assert.equal(wire.shadowedByEnv, undefined, 'omitted when false, like every optional field');
 });
 
 /* ------------------------------------------------------------------ redaction */

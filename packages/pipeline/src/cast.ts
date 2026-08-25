@@ -1671,6 +1671,7 @@ export function voiceRecordOf(
       provider: resolved.provider,
       ...(resolved.model ? { model: resolved.model } : {}),
       voiceId: resolved.voice,
+      ...(resolved.substitutedFrom ? { substitutedFrom: resolved.substitutedFrom } : {}),
       requested,
       observed: resolved.spoke,
       chars: charsSpoken(resolved.charsByProvider),
@@ -1711,6 +1712,10 @@ function cachedVoice(record: VoiceRecord): ResolvedVoice {
     provider: record.provider,
     label: record.provider,
     voice: record.voiceId,
+    // Carried forward, unlike `problems`: a substitution is a durable property of the
+    // audio on disk, not an event of this run. The clips were spoken by the
+    // substitute and still are, however many cached runs happen afterwards.
+    ...(record.substitutedFrom ? { substitutedFrom: record.substitutedFrom } : {}),
     ...(record.model ? { model: record.model } : {}),
     charsByProvider: {},
     modelByProvider: {},

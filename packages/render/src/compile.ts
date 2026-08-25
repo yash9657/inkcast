@@ -65,7 +65,7 @@ import {
   type BoardViolation,
 } from './boardcheck.js';
 import { layoutDiagram } from './layout.js';
-import { TYPE_SCALE, inkStyle, paletteFor, penArt, toneInk } from './palette.js';
+import { TYPE_SCALE, boardPalette, inkStyle, penArt, toneInk } from './palette.js';
 import type { Palette, TextRole } from './palette.js';
 import { curveTrace, plotArea, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
@@ -440,6 +440,43 @@ function withMeasuredDurations(sb: Storyboard): Storyboard {
 }
 
 /**
+ * The mean bbox fill a board has to reach across its scenes.
+ *
+ * Corpus-measured 2026-08-23 and unmoved since; the argument for it is at the gate
+ * below. It is the half of the vacancy check that actually separates the two classes:
+ * the boards this repo agrees are vacant run 7.0–7.9% mean, and every board anyone has
+ * shipped or reviewed runs 19.6% and up. Nothing sits between.
+ */
+const MIN_MEAN_FILL = 0.18;
+
+/**
+ * The bbox fill one scene has to reach before the board is called vacant on its account.
+ *
+ * Re-measured 2026-08-25 across all 60 boards in `projects/` (535 scenes), because the
+ * 11% it had been was the one number in this gate the corpus had never been asked about.
+ * What the measurement says:
+ *
+ * - This floor only ever decides a board that already passed `MIN_MEAN_FILL` — a board
+ *   under the mean floor is blocked whatever its scenes do. In that population, 58 boards
+ *   and 487 scenes, the *lowest scene fill in the whole corpus is 10.0%*, and the next
+ *   four are 10.7%, 10.8%, 10.9% and 11.6%. So the 11% floor was failing four scenes, all
+ *   four of them in composed boards (means 21.2–30.5%), and catching nothing else at all.
+ *   `projects/cardiac` is the cleanest case: it rendered and its s8 at 10.0% is the *only*
+ *   entry in its whole `qc.json`.
+ * - Pooling the vacant boards back in shows why no floor near 11% can work: their scenes
+ *   run 2.0% to 14.1% and interleave with the composed ones right through the 10–12% band
+ *   (`5b5566b87593` alone has scenes at 10.6%, 11.6%, 12.3%). Per scene, bbox fill cannot
+ *   tell the two classes apart there — the same thing the mean floor's comment below says
+ *   about board means at 13%.
+ * - So the floor is pinned to the one independent measurement of a blank beat we have:
+ *   the Tier-2 ink share (`MIN_INK_SHARE`, `tier2.ts`), which counts ink *pixels*. The
+ *   three frames it has ever confirmed blank — `5b5566b87593` s3, s10, s20, at 0.78–0.90%
+ *   of frame pixels — measure 6.4%, 4.7% and 2.8% here. 8% sits above all three and two
+ *   points below the lowest scene of any board that passes the mean floor.
+ */
+const MIN_SCENE_FILL = 0.08;
+
+/**
  * What the board assertions found, as data rather than as a log line.
  *
  * `compilePlan` gates on this itself — a strict render still stops here, at the last
@@ -459,6 +496,12 @@ export type BoardReport = {
   fill: number[];
   /** The fill-floor breach, when the board is below it. Blocks separately. */
   vacancy?: BoardViolation;
+  /**
+   * What `reportFill` found: thin fill and *which of its two factors* is thin, and
+   * the un-grouped-scenes warning. Never blocking — a film that passes the vacancy
+   * floor can still be here, and that is the case this exists for (plan 9.3).
+   */
+  thinFill: string[];
 };
 
 export function compilePlan(sb: Storyboard, dir: string, opts: CompileOptions = {}): RenderPlan {
@@ -491,7 +534,7 @@ export function compileBoard(
   const framing: SceneFraming[] = board.framing;
   const gain = board.gain;
   const scale = board.scale;
-  const pal = paletteFor(sb.meta.palette);
+  const pal = boardPalette(sb.meta.style, sb.meta.palette);
   const ink = inkStyle(sb.meta.style);
   const st: SketchStyle = {
     roughness: ink.roughness,
@@ -657,7 +700,7 @@ export function compileBoard(
   }
 
   const fill = contentFill(framing, canvas, frame).map(round3);
-  reportFill(fill, timed);
+  const thinFill = reportFill(fill, timed, framing, { quiet: opts.quiet });
 
   // The fill gate (plan 2.6, audit S4-e/D3, waiver W2): no mostly-empty board ships
   // without an explicit override. The floor blocks the *truly empty* class — the
@@ -674,13 +717,13 @@ export function compileBoard(
     const fillMean = fill.reduce((a, b) => a + b, 0) / fill.length;
     const vacant = fill
       .map((v, i) => ({ v, id: timed.scenes[i]?.id ?? String(i) }))
-      .filter((s) => s.v < 0.11);
-    if (fillMean < 0.18 || vacant.length > 0) {
+      .filter((s) => s.v < MIN_SCENE_FILL);
+    if (fillMean < MIN_MEAN_FILL || vacant.length > 0) {
       vacancy = {
         kind: 'vacant',
         message:
           `the board is mostly whitespace: mean content fill ${(fillMean * 100).toFixed(1)}% ` +
-          `(floor 18%)${vacant.length ? `, scenes below the 11% floor: ${vacant.map((s) => `${s.id} at ${(s.v * 100).toFixed(1)}%`).join(', ')}` : ''} — ` +
+          `(floor ${(MIN_MEAN_FILL * 100).toFixed(0)}%)${vacant.length ? `, scenes below the ${(MIN_SCENE_FILL * 100).toFixed(0)}% floor: ${vacant.map((s) => `${s.id} at ${(s.v * 100).toFixed(1)}%`).join(', ')}` : ''} — ` +
           `per-scene: ${fill.map((v, i) => `${timed.scenes[i]?.id ?? i}:${(v * 100).toFixed(0)}%`).join(' ')}`,
       };
       if (!opts.quiet) gate(opts.gates, vacancy.message, spoke);
@@ -710,7 +753,7 @@ export function compileBoard(
       items,
       pen: penArt(sb.meta.style, pal.accent),
     },
-    report: { blocking, advisories, fill, ...(vacancy === undefined ? {} : { vacancy }) },
+    report: { blocking, advisories, fill, thinFill, ...(vacancy === undefined ? {} : { vacancy }) },
   };
 }
 

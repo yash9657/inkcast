@@ -186,7 +186,8 @@ export function ProviderCard({
               <span className="text-xs text-muted-foreground">
                 {fromEnv ? (
                   <>
-                    from the environment, as <span className="font-mono">{state?.envVar}</span>
+                    from the environment, as <span className="font-mono">{state?.envVar}</span> —
+                    paste a key below to override it
                   </>
                 ) : (
                   <>
@@ -225,9 +226,19 @@ export function ProviderCard({
             {state?.shadowedByEnv ? (
               <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
                 <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />A key is also
-                saved here, but <span className="font-mono">{state.envVar}</span> in the environment
-                wins. Remove it from your <span className="font-mono">.env</span> for the saved one
-                to take effect.
+                saved here but cannot be read right now, so{' '}
+                <span className="font-mono">{state.envVar}</span> from the environment is in use.
+                Once the saved key is readable again it takes priority.
+              </p>
+            ) : null}
+
+            {state?.overridesEnv ? (
+              <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+                <CircleCheckIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  <span className="font-mono">{state.envVar}</span> is also set in the environment,
+                  but the key you saved here takes priority — that variable is ignored.
+                </span>
               </p>
             ) : null}
           </div>
@@ -237,7 +248,7 @@ export function ProviderCard({
 
         <form onSubmit={submit} className="flex flex-col gap-2">
           <Label htmlFor={fieldId}>
-            {configured && !fromEnv ? `Replace the ${provider.label} key` : `${provider.label} key`}
+            {configured ? `Replace the ${provider.label} key` : `${provider.label} key`}
           </Label>
 
           <div className="flex flex-col gap-2 sm:flex-row">

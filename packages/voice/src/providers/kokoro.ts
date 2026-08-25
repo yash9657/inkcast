@@ -245,6 +245,8 @@ export function chunkForKokoro(text: string, maxChars = MAX_CHUNK_CHARS): string
 
 export function createKokoroProvider(onDownload?: (note: string) => void): VoiceProvider {
   let availability: Promise<boolean> | undefined;
+  /** Set by `available()` on the way to `false`; read by `unavailableReason()`. */
+  let refusal: string | undefined;
 
   return {
     id: 'kokoro',
@@ -257,17 +259,23 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
           await import('kokoro-js');
         } catch (err) {
           log.warn('kokoro-js is not installed — skipping the local TTS provider', err);
+          refusal = 'kokoro-js is not installed — run `pnpm install` at the repo root';
           return false;
         }
         if (isOffline() && !weightsCached()) {
           log.warn(
             `INKCAST_OFFLINE is set and no Kokoro weights are cached in ${modelCacheDir()} — skipping`,
           );
+          refusal = `INKCAST_OFFLINE is set and no Kokoro weights are cached in ${modelCacheDir()}`;
           return false;
         }
         return true;
       })();
       return availability;
+    },
+
+    unavailableReason() {
+      return refusal;
     },
 
     async voices() {

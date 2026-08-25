@@ -722,6 +722,7 @@ async function collectTruth(): Promise<Map<string, ProjectTruth>> {
     // else's folder, not a project we should invent a row for.
     if (!summary && !base) continue;
     const record = summary ? mergeDisk(summary, base) : base!;
+    if (meta) await healMeta(id, dir, meta, record);
     out.set(id, {
       record,
       ...(meta?.ownerSession === undefined ? {} : { ownerSession: meta.ownerSession }),
@@ -737,6 +738,85 @@ async function collectTruth(): Promise<Map<string, ProjectTruth>> {
   }
 
   return out;
+}
+
+/**
+ * The fields `mergeDisk` lets disk decide. A `meta.json` that disagrees with
+ * disk on any of them is a stale file, not a second opinion.
+ */
+const DISK_OWNED = [
+  'status',
+  'title',
+  'scenes',
+  'durationSec',
+  'videoPath',
+  'costUsd',
+  'error',
+] as const;
+
+/**
+ * Write the disk truth back into `meta.json` when the file has gone stale.
+ *
+ * `mergeDisk` has always reconciled the two *in memory*, which is why the
+ * library page looked right — but nothing ever wrote the reconciliation down,
+ * and the file is not an implementation detail: `/api/media/<id>/…` serves it,
+ * the CLI's users read it, and it is the first thing anybody opens when a
+ * project looks wrong.
+ *
+ * `projects/deb81002b073` is the case, and it is the ordinary one rather than a
+ * corner. The studio started a run at 20:58, the strict quality gate refused it,
+ * and `jobs.ts` wrote `status: failed` with eight ink-on-ink errors. The film
+ * that exists was then cast from the **terminal** at 22:00 — a different
+ * process, in a package that has never heard of `meta.json` and should not have
+ * to. So the success path did not "fail to overwrite" the failure; there was no
+ * writer on that path at all, and there is no sensible place to add one that
+ * does not put the studio's schema inside `@inkcast/pipeline`.
+ *
+ * The rule instead: the pipeline's own completion — `pipeline.json`, the video,
+ * the storyboard, all of which `summarise` reads — wins, and the first read
+ * after it makes the metadata agree. Self-healing rather than transactional,
+ * which is the right trade for a derived file that two independent programs
+ * write into one directory.
+ *
+ * Best-effort by construction: a listing must never fail because a repair could
+ * not be written. Deadlock-free because `upsertProject` releases the meta lock
+ * *before* it takes the index lock, so nothing ever holds one while waiting for
+ * the other.
+ */
+async function healMeta(
+  id: string,
+  dir: string,
+  meta: ProjectMeta,
+  record: ProjectRecord,
+): Promise<void> {
+  const current = publicRecord(meta);
+  if (DISK_OWNED.every((key) => current[key] === record[key])) return;
+
+  try {
+    await withMetaLock(id, async () => {
+      // Re-read under the lock: a run that started between the scan and here has
+      // written `status: running`, and clobbering that with a scan taken before
+      // it would make an in-flight film look finished.
+      const fresh = await readMetaFile(dir);
+      if (!fresh) return;
+      if (fresh.status === 'running' || fresh.status === 'queued') return;
+      if (!DISK_OWNED.some((key) => publicRecord(fresh)[key] !== record[key])) return;
+      const merged: ProjectMeta = {
+        ...fresh,
+        ...record,
+        // `error` is the one field `mergeMeta` never inherits, and the same rule
+        // applies here: a project with a video on disk has no failure to report,
+        // and carrying the old sentence forward is exactly the lie being fixed.
+        ...(record.error === undefined ? {} : { error: record.error }),
+      };
+      if (record.error === undefined) delete (merged as { error?: string }).error;
+      await writeAtomic(metaPathFor(dir), `${JSON.stringify(merged, null, 2)}\n`);
+    });
+  } catch {
+    // A read-only projects directory, a permissions problem, a race with a
+    // delete. The in-memory reconciliation above is still correct, so the
+    // listing is still right — the file just stays stale until next time.
+  }
 }
 
 /**
@@ -805,7 +885,13 @@ export async function readProjectTruth(id: string): Promise<ProjectTruth | undef
 
   const summary = await summarise(id, dir);
   if (!summary) return base ? { record: base, ...owner } : undefined;
-  return { record: mergeDisk(summary, base), ...owner };
+  const record = mergeDisk(summary, base);
+  // Repaired here as well as in `collectTruth`, because this is the single-project
+  // read — `getProject`, and every ownership check — and a project reached by its
+  // own URL must not have to wait for somebody to open the library before its
+  // metadata stops saying it failed. No-op unless disk and the file disagree.
+  if (meta) await healMeta(id, dir, meta, record);
+  return { record, ...owner };
 }
 
 /** A project's storyboard, or `undefined` when it has not been planned yet. */

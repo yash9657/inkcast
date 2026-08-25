@@ -17,6 +17,14 @@
  *    read from its schema. The create form sends only fields that appear here, so
  *    a client that has learned about a new option cannot 400 against a server
  *    that has not. See `lib/api.ts`.
+ *  - `styles` — the ink packs in `styles/`, read from the loader rather than
+ *    mirrored (plan 9.4, audit X-f). A style stopped being an enum in 7.3 and
+ *    became a JSON file, but the studio's picker kept a four-name literal because
+ *    the loader reads the filesystem and cannot be bundled for a browser — so a
+ *    pack a user dropped into `styles/` worked through the CLI and the API and
+ *    was invisible in the one surface most people use. This is the same shape as
+ *    the three fields above and for the same reason: the browser cannot answer a
+ *    question about the box, so the box answers it.
  *
  * Hydrating the vault here is load-bearing, not incidental: this is the endpoint
  * the create form calls before any render, so it is the point at which a key
@@ -58,7 +66,7 @@
 
 import { isHosted, json, unexpected } from '../_lib/http';
 import { META_KEYS } from '../_lib/schemas';
-import { loadPipeline } from '@/lib/store';
+import { loadCore, loadPipeline } from '@/lib/store';
 import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
 import type { KeyStatus } from '../keys/_store.js';
 
@@ -120,9 +128,41 @@ export async function GET(request: Request) {
       warnings: warningsFor(chosen, keys, hosted),
       /** `meta` fields this build's generate endpoint validates. */
       accepts: META_KEYS,
+      /**
+       * The ink packs this tree can actually draw with, each with the name and
+       * description the pack itself carries.
+       *
+       * Read from the loader, so it cannot drift from what `parseStoryboard` will
+       * accept: the picker's old literal was a fifth copy of a list that stopped
+       * being a list in 7.3. Nothing sensitive — a pack is a JSON file of stroke
+       * numbers, and its id is already in every `storyboard.json` this box serves.
+       */
+      styles: await inkStyles(),
     });
   } catch (err) {
     return unexpected('providers', err);
+  }
+}
+
+/**
+ * The packs in `styles/`, sorted by id the way `styleIds()` sorts them.
+ *
+ * `stylePacks()` memoises and reads the filesystem once, so this costs nothing after
+ * the first call — and `loadCore()` is the same lazy import the rest of this app uses
+ * to keep workspace modules out of the module graph until the environment is set.
+ *
+ * A failure here must not take the route down: everything else it returns is about
+ * whether a render will work, and a picker falling back to its built-in four is a much
+ * smaller problem than a create form that cannot load at all.
+ */
+async function inkStyles(): Promise<Array<{ id: string; label: string; hint: string }>> {
+  try {
+    const { stylePacks } = await loadCore();
+    return [...stylePacks().values()]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((pack) => ({ id: pack.id, label: pack.name, hint: pack.description }));
+  } catch {
+    return [];
   }
 }
 
@@ -243,7 +283,12 @@ function warningsFor(
     }
     if (key.shadowedByEnv) {
       out.push(
-        `${key.envVar} is set in the environment, so the ${STAGE_LABEL[stageOf(key.id)].toLowerCase()} key saved in the vault is being ignored.`,
+        `The stored ${STAGE_LABEL[stageOf(key.id)].toLowerCase()} key cannot be read right now, so ${key.envVar} from the environment is in use.`,
+      );
+    }
+    if (key.overridesEnv) {
+      out.push(
+        `${key.envVar} is also set in the environment, but the ${STAGE_LABEL[stageOf(key.id)].toLowerCase()} key you saved takes priority.`,
       );
     }
   }

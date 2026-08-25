@@ -29,6 +29,7 @@ import { admit } from '../../../_lib/ratelimit';
 import { RerenderBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
 import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
+import { hydrateEnv, withKeys } from '@/lib/keys';
 import { isRunning, startJob } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
@@ -85,21 +86,35 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       aspect: storyboard.meta.aspect,
     });
 
-    const { started } = startJob(id, 'rerender', async (onProgress) => {
-      const { rerender } = await loadPipeline();
-      const result = await rerender(id, {
-        // `rerender` already defaults this to true; passing it through lets a
-        // caller ask for the cheap path (`force: false`) explicitly.
-        force: parsed.data.force ?? true,
-        onProgress,
-      });
-      return {
-        videoPath: result.videoPath,
-        storyboard: result.storyboard,
-        costUsd: result.cost.usd,
-        title: result.storyboard.title,
-      };
-    });
+    /*
+     * Stored keys into the environment before anything reads them — see the long
+     * note in `/api/generate`. A re-render usually spends nothing, but "usually"
+     * is not "never": the voice stage re-synthesises scenes whose narration
+     * changed, and without this a re-render after an edit would speak those
+     * scenes in Kokoro and splice them into a film the rest of which is
+     * ElevenLabs. A half-recast film is worse than a wholly local one.
+     */
+    await hydrateEnv();
+
+    const { started } = startJob(
+      id,
+      'rerender',
+      withKeys(async (onProgress) => {
+        const { rerender } = await loadPipeline();
+        const result = await rerender(id, {
+          // `rerender` already defaults this to true; passing it through lets a
+          // caller ask for the cheap path (`force: false`) explicitly.
+          force: parsed.data.force ?? true,
+          onProgress,
+        });
+        return {
+          videoPath: result.videoPath,
+          storyboard: result.storyboard,
+          costUsd: result.cost.usd,
+          title: result.storyboard.title,
+        };
+      }),
+    );
 
     return setSessionCookie(
       json(

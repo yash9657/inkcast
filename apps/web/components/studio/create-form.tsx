@@ -65,13 +65,13 @@ import {
   MAX_SOURCE_CHARS,
   MIN_SOURCE_CHARS,
   EXAMPLES,
-  INK_STYLES,
   LANGUAGES,
   LOCAL_LANGUAGES,
   PALETTES,
   VOICE_GROUPS,
   findExample,
   isTextualFile,
+  styleOptions,
   voiceLabel,
 } from './options';
 import { AspectGlyph, TileGroup } from './tile-group';
@@ -249,6 +249,9 @@ export function CreateForm() {
   const estimate = estimateSpokenSeconds(text);
   const chosenDepth = depthOption(depth);
   const lengthHonoured = acceptsTargetLength(caps?.accepts);
+  // The packs this box can actually draw with, which is a question only the box can
+  // answer (plan 9.4). Falls back to the shipped four until `/api/providers` replies.
+  const inkStyles = React.useMemo(() => styleOptions(caps?.styles ?? []), [caps?.styles]);
 
   const validate = React.useCallback((): string | undefined => {
     if (mode === 'text') {
@@ -552,7 +555,7 @@ export function CreateForm() {
           {showOptions ? null : (
             <p className="tabular min-w-0 text-xs text-muted-foreground">
               {languageLabel} · {voiceLabel(voice)} ·{' '}
-              {INK_STYLES.find((s) => s.value === style)?.label} ·{' '}
+              {inkStyles.find((s) => s.value === style)?.label} ·{' '}
               {PALETTES.find((p) => p.value === palette)?.label}
             </p>
           )}
@@ -569,7 +572,7 @@ export function CreateForm() {
                 hint="How the hand draws: stroke weight, texture, wobble."
                 value={style}
                 onValueChange={setStyle}
-                options={INK_STYLES.map((option) => ({
+                options={inkStyles.map((option) => ({
                   value: option.value,
                   label: option.label,
                   hint: option.hint,

@@ -47,6 +47,7 @@ import {
   uploadExtension,
 } from '../_lib/schemas';
 import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
+import { hydrateEnv, withKeys } from '@/lib/keys';
 import { hostedFormat, isRunning, startJob } from '@/lib/jobs';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
@@ -310,20 +311,49 @@ export async function POST(request: Request) {
       ...(meta?.aspect === undefined ? {} : { aspect: meta.aspect }),
     });
 
-    const { snapshot, started } = startJob(id, 'cast', async (onProgress) => {
-      const { cast } = await loadPipeline();
-      const result = await cast(castInput, {
-        projectId: id,
-        force: fields.force ?? false,
-        onProgress,
-      });
-      return {
-        videoPath: result.videoPath,
-        storyboard: result.storyboard,
-        costUsd: result.cost.usd,
-        title: result.storyboard.title,
-      };
-    });
+    /*
+     * ------------------------------------------------------ the keys, in the env
+     *
+     * This is the route that spends, and until this line existed it was the route
+     * that could not see a key. Every stage adapter picks its provider by reading
+     * `process.env` (`pipeline/src/providers.ts`); a key stored in the vault
+     * reaches `process.env` only via `hydrateEnv()`; and the only handlers that
+     * called it were `/api/keys` and `/api/providers`. So a generation was keyed
+     * if — and only if — the browser had already loaded the settings page or the
+     * studio's provider strip in the *same server process*.
+     *
+     * On a warm dev server that always looks fine, which is why it survived. On a
+     * freshly restarted `next dev`, or a `curl` straight at this endpoint, the
+     * lesson fell to the heuristic author, the narration fell to Kokoro and the
+     * figure lane never ran — with the keys sitting readable in the vault the
+     * whole time and nothing anywhere saying so.
+     *
+     * Hydrated twice, deliberately, and the second one is the one that matters:
+     * `withKeys` wraps the runner, and the runner can start minutes after this
+     * request when both render slots were busy. Here answers "what keys existed
+     * when the button was pressed"; there answers "what keys exist now" — which
+     * is the right question when someone pastes a key while their film waits.
+     */
+    await hydrateEnv();
+
+    const { snapshot, started } = startJob(
+      id,
+      'cast',
+      withKeys(async (onProgress) => {
+        const { cast } = await loadPipeline();
+        const result = await cast(castInput, {
+          projectId: id,
+          force: fields.force ?? false,
+          onProgress,
+        });
+        return {
+          videoPath: result.videoPath,
+          storyboard: result.storyboard,
+          costUsd: result.cost.usd,
+          title: result.storyboard.title,
+        };
+      }),
+    );
 
     return setSessionCookie(
       json(

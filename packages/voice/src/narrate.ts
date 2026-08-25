@@ -36,12 +36,14 @@ import path from 'node:path';
 import type { GateMode, Scene, StageOptions, Storyboard } from '@inkcast/core';
 import {
   CADENCE,
+  clearFresh,
   gate,
   hash,
   isFresh,
   logger,
   markFresh,
   normalizeNarration,
+  noteProblem,
   report,
   totalDuration,
 } from '@inkcast/core';
@@ -148,8 +150,19 @@ export type ResolvedVoice = {
   /** The provider that spoke last, or the one that resolved when nothing was spoken. */
   provider: VoiceProviderId;
   label: string;
-  /** Provider-native voice id in force. */
+  /** Provider-native voice id that actually spoke. */
   voice: string;
+  /**
+   * The voice that was asked for, when the provider could not use it.
+   *
+   * Absent on every ordinary run. Present when `voice` above is a substitute — the
+   * measured case is a free ElevenLabs plan refusing a pinned library voice with a
+   * 402 while every voice in the account's own list works. Both halves are kept
+   * because both are true and neither implies the other: the film speaks with one
+   * voice and the user asked for another, and a record that carried only one of
+   * those cannot be reconciled against either the audio or the settings page.
+   */
+  substitutedFrom?: string;
   /** The engine, when the provider names one. */
   model?: string;
   /**
@@ -762,9 +775,17 @@ export async function narrate(
         /* ------------------------------------------------ whole-film failover */
 
         // Nothing below this point has been written to the cache yet, which is what
-        // makes the restart clean: the clip for this scene exists on disk but is not
+        // makes the restart clean *for the clip this attempt just wrote* — it is not
         // marked fresh, so the next attempt re-synthesises it rather than trusting a
         // file that may be half one voice and half another.
+        //
+        // That was only ever half the story, and the other half is audit N-2: the clip
+        // this attempt wrote **overwrote** whatever was there, and what was there may
+        // have been a perfectly good cached clip under the fallback provider's own key,
+        // whose freshness marker and sidecar still describe it. The restart then finds
+        // that entry fresh, skips the scene, and reads a sidecar that describes a file
+        // that no longer exists — which is the mismatch the rescale above then has to
+        // repair, on every render, forever. See `clearFresh` below.
         if (
           abandonedAttempts + 1 < MAX_VOICE_ATTEMPTS &&
           chain.fallbacks().length > fallbacksBefore
@@ -792,6 +813,14 @@ export async function narrate(
             pct: 0,
             note: `${fell.from} failed — re-narrating all ${total} scene${total === 1 ? '' : 's'} with ${fell.to}`,
           });
+
+          // The clip this attempt wrote is not the clip any cache entry describes, so
+          // the entry goes (audit N-2). Only this scene's: every earlier scene in the
+          // abandoned attempt was written *and* re-keyed together at the bottom of this
+          // block, so its marker, sidecar and file already agree with each other — and
+          // they will miss on the restart anyway, under a provider that is no longer
+          // the one that spoke. This is the one scene whose three could disagree.
+          await clearFresh(dir, cacheKey);
 
           // Everything measured under the old provider is void, including the pace and
           // cue statistics: they describe audio that will not be in the film.
@@ -850,21 +879,77 @@ export async function narrate(
       if (!(measured > 0)) throw new Error(`scene ${i + 1}: synthesised clip has no duration`);
       const expected = timing.narrationSec + timing.holdSec;
       if (Math.abs(measured - expected) > 0.02) {
-        log.warn(
-          `scene ${i + 1}: clip measures ${measured.toFixed(3)}s but its timing says ${expected.toFixed(3)}s — ` +
-            'trusting the file and rescaling',
-        );
-        const scale =
-          timing.narrationSec > 0 ? (measured - timing.holdSec) / timing.narrationSec : 1;
+        const mismatch =
+          `scene ${i + 1} (${scene.id}): clip measures ${measured.toFixed(3)}s but its timing says ` +
+          `${expected.toFixed(3)}s — trusting the file and rescaling the sidecar to match`;
+        log.warn(mismatch);
+        // Recorded, not just said (plan 9.3, audit X-d). This warning is the only
+        // thing that ever announces the repair below, and for two days it was a
+        // `log.warn` with no `onProblem` beside it while the repair was silently
+        // getting the word stream wrong — see the note on `words` below.
+        noteProblem(opts, mismatch);
+
+        // **Every** field measured against the old duration is rescaled, `words`
+        // included (plan 9.1, audit N-1). This block used to rewrite `narrationSec`
+        // and `phrases` and pass `words` through untouched, which left the two on
+        // different scales eleven lines before `resolveSceneCues` is handed both:
+        // `enter.at` came out as unrescaled-word-start ÷ rescaled-duration, so every
+        // reveal in the scene fired late by exactly the ratio between them. Measured
+        // on `qc81-longitude` scene `s0` at 0.57s and 1.06s late, on a run that
+        // passed all 20 QC checks — the D5 defect, produced by the repair pass that
+        // exists to prevent it. Nothing caught it because `overrunViolations` checks
+        // plan items derived from the very fractions this corrupts.
+        //
+        // The scale is taken against the *clamped* narration length rather than the
+        // raw difference, so words and `narrationSec` cannot disagree even when a
+        // clip is shorter than its own hold.
+        const narrationSec = Math.max(0.01, measured - timing.holdSec);
+        const scale = timing.narrationSec > 0 ? narrationSec / timing.narrationSec : 1;
+        const rescale = <T extends { start: number; end: number }>(t: T): T => ({
+          ...t,
+          start: t.start * scale,
+          end: t.end * scale,
+        });
         timing = {
           ...timing,
-          narrationSec: Math.max(0.01, measured - timing.holdSec),
-          phrases: timing.phrases.map((p) => ({
-            ...p,
-            start: p.start * scale,
-            end: p.end * scale,
-          })),
+          narrationSec,
+          phrases: timing.phrases.map(rescale),
+          ...(timing.words ? { words: timing.words.map(rescale) } : {}),
         };
+
+        // Repaired on disk, not just in memory. The sidecar is what the next run
+        // reads on a cache hit, so leaving it describing a clip that is no longer
+        // there means re-deriving this repair on every render for the life of the
+        // project — and it means the mismatch that produced it stays invisible to
+        // anything that reads the project rather than watching the render.
+        await writeFile(timingAbs, JSON.stringify(timing, null, 2));
+      }
+
+      // The check that would have caught N-1, standing between the repair and the
+      // cue resolution that consumes it.
+      //
+      // The audit's question about its own miss was "why did nothing catch this", and the
+      // answer was that nothing in the repo compared a scene's word stream to the length
+      // of the clip it describes. `overrunViolations` checks plan items, which are derived
+      // from the very `enter.at` fractions the defect corrupts, so the fraction is in range
+      // and the item is in range; `MIN_ALIGN_FRACTION` guards the aligner's honesty about a
+      // transcript, not a sidecar's honesty about a file. This is that missing comparison,
+      // and it is one subtraction.
+      //
+      // It is not dead code behind the rescale above. A provider's own timings arrive on
+      // the provider's clock (`SynthesisResult.words`), and a clip assembled from parts is
+      // measured after the fact — so "the words are inside the audio" is a property worth
+      // asserting whatever produced them, not only after a repair.
+      const overrunWords = (timing.words ?? []).filter((w) => w.end > timing.narrationSec + 1e-6);
+      if (overrunWords.length > 0) {
+        const last = overrunWords[overrunWords.length - 1] as WordTiming;
+        gateProblems.push(
+          `scene ${i + 1} (${scene.id}): ${overrunWords.length} of ${timing.words?.length} word ` +
+            `timings end after the narration does — "${last.word}" at ${last.end.toFixed(2)}s ` +
+            `against ${timing.narrationSec.toFixed(2)}s of audio. Every reveal cued on a word ` +
+            'past the end fires late, and the fractions stay in range so no board assertion ' +
+            'can see it (audit N-1)',
+        );
       }
 
       scene.durationSec = timing.narrationSec;
@@ -985,6 +1070,42 @@ export async function narrate(
   const problems = chain
     .fallbacks()
     .map((f) => `voice fell back to ${f.to} (${f.from}: ${f.reason})`);
+
+  /*
+   * The provider that was asked for and never reached — the missing signal.
+   *
+   * A demotion (above) is loud because it is an event: something spoke, then
+   * stopped. A *rejection* is a non-event, and non-events do not report
+   * themselves: the chain simply walked past its own head and the run went on
+   * looking completely ordinary. That is how "ElevenLabs was never getting
+   * caught" was true and invisible at the same time — the key was in the vault,
+   * the vault had not been hydrated into `process.env` on this code path
+   * (`apps/web/lib/keys.ts` is the other half of that fix), `available()`
+   * returned false, and one `log.debug` line was the entire record.
+   *
+   * Only the head of the chain, and only when something else actually spoke:
+   * every unkeyed run in the project's history rejects ElevenLabs on the way
+   * past, and a line that appears on every local render is a line nobody reads.
+   */
+  for (const r of chain.rejections()) {
+    if (!r.preferred || r.id === resolved.id) continue;
+    problems.push(
+      `${r.id} was skipped at startup: ${r.reason} — this film is narrated by ${resolved.id}`,
+    );
+  }
+
+  /*
+   * The voice that was asked for and refused.
+   *
+   * The provider did not change and nothing failed, so none of the machinery above
+   * fires — which is precisely why this was invisible. The `calm` mood pins Rachel,
+   * a free ElevenLabs plan 402s that library voice, the adapter substituted one the
+   * account can use, the film came out fine, and `pipeline.json` went on recording
+   * Rachel from a `Map` that lived and died inside the adapter's closure.
+   */
+  for (const s of chain.substitutions()) {
+    problems.push(`${s.why} — spoke with ${s.toName ? `"${s.toName}" (${s.to})` : s.to} instead`);
+  }
   // Quality defects the run degraded through — dominant-visual cue misses,
   // discarded low-match alignments. Under strict none of these are reachable
   // (the gate threw); under degrade they are exactly what makes it honest.
@@ -1076,7 +1197,11 @@ export async function narrate(
   const voice: ResolvedVoice = {
     provider: resolved.id,
     label: resolved.label,
-    voice: resolved.voice,
+    // The voice that *spoke*, which is not always the one that resolved. The cache
+    // keys upstream deliberately still use `resolved.voice` — see `ActiveProvider` —
+    // and this is the one place the two are allowed to differ.
+    voice: resolved.spokenVoice ?? resolved.voice,
+    ...(resolved.spokenVoice ? { substitutedFrom: resolved.voice } : {}),
     ...(resolved.model ? { model: resolved.model } : {}),
     charsByProvider,
     modelByProvider,

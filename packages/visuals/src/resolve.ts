@@ -566,6 +566,10 @@ async function resolveAsset(args: {
         dir,
         box,
         seed,
+        // The board it is going onto, which decides how it composites (plan 9.2). A
+        // figure is the one thing on the board that is not drawn in the pack's own ink,
+        // so it is the one thing that has to be told what the pack's ink *is*.
+        surface: { paper: style.paper, ink: style.ink },
         // The trust gate's rejections are the run's business, not the log's: a retry that
         // was paid for and a cached raster that will no longer be drawn both belong in
         // `qc.json` beside every other thing this stage degraded.

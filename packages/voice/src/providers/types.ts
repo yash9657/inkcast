@@ -83,6 +83,31 @@ export type SynthesisResult = {
    * Omitted by every provider whose call maps one-to-one onto one generation.
    */
   billedChars?: number;
+  /**
+   * The voice that actually spoke, when it is not the one the adapter was handed.
+   *
+   * A provider can be unable to use a voice it resolved perfectly well. The measured
+   * case is ElevenLabs' free plan: `resolveVoice` maps the `calm` mood to Rachel by
+   * pinned id — correctly, offline, with no round trip — and then the plan answers
+   * 402 `paid_plan_required` for that library voice while every voice in the
+   * account's own list works. The adapter substitutes and the film is fine; the
+   * *record* was not, because the substitution lived in a `Map` in the adapter's
+   * closure and `pipeline.json` went on naming Rachel. Somebody reading that file
+   * later has no way to learn which voice they are listening to.
+   *
+   * Reported per call and folded up by the chain, rather than returned once, because
+   * the adapter only learns it from a refusal — there is no earlier moment to ask.
+   */
+  substitution?: {
+    /** The voice that spoke. */
+    voice: string;
+    /** Its display name, when the provider knows one. */
+    name?: string;
+    /** The voice that was asked for and refused. */
+    from: string;
+    /** One clause naming why, for the line the user reads. */
+    why: string;
+  };
 };
 
 /**
@@ -93,7 +118,13 @@ export type SynthesisResult = {
  * was rejected" are different problems with different fixes, and both arrive as a 401.
  */
 export type VoiceFailureReason =
-  'quota_exceeded' | 'unauthorized' | 'rate_limited' | 'network' | 'unknown';
+  | 'quota_exceeded'
+  /** The plan, not the balance: this account's tier cannot make this request at all. */
+  | 'payment_required'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'network'
+  | 'unknown';
 
 /**
  * A provider failure that names itself.
@@ -138,6 +169,22 @@ export type VoiceProvider = {
   readonly label: string;
   /** Cheap check with no side effects and no model download. */
   available(): Promise<boolean>;
+  /**
+   * Why `available()` would say no, in one clause a person can act on.
+   *
+   * A boolean is enough for the chain — it just walks to the next link — but it is
+   * not enough for the *record*, and the record is where this was costing real
+   * money. A user who pasted an ElevenLabs key and got a Kokoro film had exactly
+   * one trace of the decision: a `log.debug` line, in a stage whose output nobody
+   * reads at debug level, saying the key was not set. The film, the summary and
+   * `pipeline.json` all said nothing at all.
+   *
+   * So the head of the chain has to be able to explain itself, and the sentence
+   * has to name the fixable thing — an environment variable, not "unavailable".
+   * Only consulted when a link is actually rejected; a provider that never
+   * refuses need not implement it.
+   */
+  unavailableReason?(): string | undefined;
   /** Voice ids this provider accepts. */
   voices(): Promise<string[]>;
   /** Best provider-native match for a requested storyboard voice. */

@@ -20,10 +20,11 @@
  * `packages/pipeline/src/providers.ts`), which is the one mechanism the CLI, the
  * studio and a CI run all share. So the vault does not introduce a second
  * mechanism; it *populates the first one*. `hydrateEnv()` copies stored keys into
- * `process.env` for any provider the real environment did not already supply, and
- * every route that can precede a render calls it. The two rules that keep this
- * honest — the real environment always wins, and what we injected we can retract —
- * live in `packages/keyvault/src/hydrate.ts`.
+ * `process.env` — overriding any value the environment already carried, because
+ * the key the user pasted is the one that must run — and every route that can
+ * precede a render calls it. The two rules that keep this honest — a stored key
+ * wins, and what we injected (or overrode) we can restore — live in
+ * `packages/keyvault/src/hydrate.ts`.
  *
  * ## Secrecy
  *
@@ -38,16 +39,15 @@ import path from 'node:path';
 
 import {
   createKeyvault,
-  hydratedProviders,
   installRedaction,
   probeKey,
+  realEnv,
   storageInfo,
-  PROVIDER_SPECS,
-  hydrateEnv as hydrateFromVault,
   type Provider,
   type StorageInfo,
 } from '@inkcast/keyvault';
 
+import { hydrateEnv, invalidateVault } from '@/lib/keys';
 import { REPO_ROOT } from '@/lib/store';
 import { providerInfo, type ProviderId } from '@/components/settings/catalog';
 import {
@@ -80,61 +80,29 @@ function vault() {
 
 /* ------------------------------------------------------------------ hydration */
 
-type HydrationState = { hydrated: boolean };
-
 /**
- * Pinned to `globalThis` because `next dev` re-evaluates modules on edit, and a
- * fresh module-level `false` would re-run hydration on every hot reload.
- */
-const scope = globalThis as typeof globalThis & { __inkcastKeyState?: HydrationState };
-
-function state(): HydrationState {
-  return (scope.__inkcastKeyState ??= { hydrated: false });
-}
-
-/**
- * Force the next `hydrateEnv()` to do real work.
+ * Hydration itself lives in `@/lib/keys`, and these are re-exports so that the
+ * settings routes can keep importing it from here.
  *
- * Hydration is memoised because on the vault backend it costs a scrypt derivation,
- * and `GET /api/keys` is polled by an open settings tab. Every mutation calls
- * this, so the memo can never be stale.
+ * It moved because it was needed somewhere this module has no business being
+ * imported: the routes that spend money. `POST /api/generate` must put stored
+ * keys in `process.env` before the pipeline reads them, and a render route
+ * reaching into `app/api/keys/` for that would be a route depending on another
+ * route's private helper. The memo is `globalThis`-pinned in one place, so the
+ * settings page and a render still share exactly one hydration.
  */
-export function invalidateVault(): void {
-  state().hydrated = false;
-}
-
-/** Copy stored keys into `process.env`. Idempotent, and cheap after the first call. */
-export async function hydrateEnv(): Promise<void> {
-  const s = state();
-  if (s.hydrated) return;
-  await hydrateFromVault({ interactive: false });
-  s.hydrated = true;
-}
+export { hydrateEnv, invalidateVault };
 
 /* -------------------------------------------------------------------- status */
 
-/**
- * `process.env` with this process's own hydration injections removed.
- *
- * Without this, status is read back through the very variables hydration just
- * wrote, so every stored key reports `source: 'env'` and `shadowedByEnv: true` —
- * telling the user their saved key is being ignored by an environment variable
- * they never set. That is precisely the confusion `shadowedByEnv` exists to
- * prevent, so it must be resolved against the *real* environment.
- *
- * `hydrateEnv()` injects under the canonical name only, which is what makes
- * reversing it exact rather than a guess.
- */
-function realEnv(): NodeJS.ProcessEnv {
-  const injected = hydratedProviders();
-  if (injected.length === 0) return process.env;
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const provider of injected) delete env[PROVIDER_SPECS[provider].envVars[0]!];
-  return env;
-}
-
 export async function keyStatuses(): Promise<KeyStatus[]> {
   await hydrateEnv();
+  // Provenance is resolved against the *real* environment — `realEnv()` reverses
+  // this process's own hydration injections, restoring any value they overrode.
+  // Without it, status is read back through the very variables hydration just
+  // wrote, and every stored key reports as coming from an environment variable
+  // the user never set. The bookkeeping behind it survives `next dev`'s module
+  // re-evaluation — see the `globalThis` note in `packages/keyvault/src/hydrate.ts`.
   return (await createKeyvault({ interactive: false, env: realEnv() }).listProviders()).map(toWire);
 }
 

@@ -30,6 +30,7 @@ import { admit } from '../../../_lib/ratelimit';
 import { EditBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
 import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
+import { hydrateEnv } from '@/lib/keys';
 import { isRunning } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
@@ -99,6 +100,20 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // real work. Charged once, on the same headers the probe read.
     const admission = admit(request.headers, 'operation');
     if (!admission.allowed) return tooManyRequests(admission);
+
+    /*
+     * Stored keys into the environment before the pipeline reads them — the same
+     * defect as `/api/generate`, and here it has a name the response prints.
+     * `editProject` asks Claude when `ANTHROPIC_API_KEY` is set and falls back to
+     * the pattern parser when it is not, and reports which happened as `via`. On a
+     * server process that had not served the settings page, the key never reached
+     * `process.env`, so every edit took the local path and the response said
+     * `via: 'local'` — truthfully, about a choice nobody made.
+     *
+     * No `withKeys` here: this route does its work inline rather than as a job, so
+     * there is no later moment to hydrate for.
+     */
+    await hydrateEnv();
 
     const pipeline = await loadPipeline();
     let result: Awaited<ReturnType<typeof pipeline.editProject>>;

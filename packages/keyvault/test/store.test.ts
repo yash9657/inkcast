@@ -69,30 +69,32 @@ test('masking keeps the public prefix so keys stay recognisable', () => {
 
 /* --------------------------------------------------------------- precedence */
 
-test('getKey resolves the environment before the vault', async () => {
+test('getKey resolves the vault before the environment', async () => {
   const box = sandbox();
   try {
     const stored = FAKE.anthropic;
-    const injected = 'sk-ant-api03-InJeCtEd0000111122223333444455556666777788889999';
+    const exported = 'sk-ant-api03-InJeCtEd0000111122223333444455556666777788889999';
 
     await createKeyvault(box.opts()).setKey('anthropic', stored);
     assert.equal(await createKeyvault(box.opts()).getKey('anthropic'), stored);
 
-    // Same vault, but the variable is exported: CI and power users must win.
-    const withEnv = createKeyvault(box.opts({ env: { ANTHROPIC_API_KEY: injected } }));
-    assert.equal(await withEnv.getKey('anthropic'), injected, 'env must take precedence');
+    // Same vault, and the variable is exported too: the pasted key still wins —
+    // a stale shell export must not keep running renders on the wrong account.
+    const withEnv = createKeyvault(box.opts({ env: { ANTHROPIC_API_KEY: exported } }));
+    assert.equal(await withEnv.getKey('anthropic'), stored, 'the stored key must take precedence');
 
-    // And the listing says so, so the shadowing is never invisible.
+    // And the listing says so, so the overridden variable is never invisible.
     const status = (await withEnv.listProviders()).find((p) => p.provider === 'anthropic');
-    assert.equal(status?.source, 'env');
-    assert.equal(status?.masked, mask(injected));
+    assert.equal(status?.source, 'vault');
+    assert.equal(status?.masked, mask(stored));
+    assert.equal(status?.overridesEnv, true);
   } finally {
     lock();
     box.cleanup();
   }
 });
 
-test('env precedence works with no vault at all', async () => {
+test('the environment supplies a key when nothing is stored', async () => {
   const box = sandbox();
   try {
     const kv = createKeyvault(box.opts({ env: { REPLICATE_API_TOKEN: FAKE.replicate } }));
@@ -223,24 +225,56 @@ test('listProviders reports a readable key as configured, with its provenance', 
   }
 });
 
-test('a stored key the environment overrides is reported as shadowed', async () => {
+test('a stored key overriding the environment is reported as doing so', async () => {
   const box = sandbox();
   try {
     await createKeyvault(box.opts()).setKey('anthropic', FAKE.anthropic);
-    // The same provider supplied by the environment as well. The environment
-    // wins, so the stored entry is inert — and a user who cannot see that has no
-    // way to explain why editing it changes nothing.
-    const ambient = 'sk-ant-api03-EnvWinsEnvWinsEnvWinsEnvWinsEnvWins012345';
+    // The same provider supplied by the environment as well. The stored key
+    // wins, so the exported variable is inert — and a user who cannot see that
+    // has no way to explain why changing it changes nothing.
+    const ambient = 'sk-ant-api03-EnvLosesEnvLosesEnvLosesEnvLoses012345';
     const anthropic = (await listProviders(box.opts({ env: { ANTHROPIC_API_KEY: ambient } }))).find(
       (p) => p.provider === 'anthropic',
     );
+
+    assert.equal(anthropic?.availability, 'stored');
+    assert.equal(anthropic?.source, 'vault');
+    assert.equal(anthropic?.configured, true);
+    assert.equal(anthropic?.overridesEnv, true);
+    assert.equal(anthropic?.shadowedByEnv, false);
+    assert.equal(anthropic?.masked, mask(FAKE.anthropic), 'the preview is of the key in use');
+    assert.equal(anthropic?.length, FAKE.anthropic.length);
+  } finally {
+    lock();
+    box.cleanup();
+  }
+});
+
+test('an unusable stored entry is shadowed by an environment key', async () => {
+  const box = sandbox();
+  try {
+    await createKeyvault(box.opts()).setKey('anthropic', FAKE.anthropic);
+    lock();
+    // No passphrase available: the stored key cannot be read, so the environment
+    // supplies the key in use — and the listing must say a stored entry is
+    // sitting behind it, because editing that entry changes nothing.
+    const ambient = 'sk-ant-api03-EnvActsAsFallback000011112222333344445555';
+    const anthropic = (
+      await listProviders({
+        backend: 'vault',
+        vaultPath: box.vaultPath,
+        metaPath: box.metaPath,
+        env: { ANTHROPIC_API_KEY: ambient },
+        track: false,
+      })
+    ).find((p) => p.provider === 'anthropic');
 
     assert.equal(anthropic?.availability, 'env');
     assert.equal(anthropic?.source, 'env');
     assert.equal(anthropic?.configured, true);
     assert.equal(anthropic?.shadowedByEnv, true);
+    assert.equal(anthropic?.overridesEnv, false);
     assert.equal(anthropic?.masked, mask(ambient), 'the preview is of the key in use');
-    assert.equal(anthropic?.length, ambient.length);
   } finally {
     lock();
     box.cleanup();

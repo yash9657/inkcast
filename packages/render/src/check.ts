@@ -164,6 +164,12 @@ export async function check(
     // camera that misses is somebody's mistake.
     qcCheck('off-frame-derived', of(report.advisories, 'off-frame'), { severity: 'warn' }),
     qcCheck('dwell', of(report.advisories, 'dwell'), { severity: 'warn' }),
+    // Thin fill on a board that cleared the vacancy floor, and which of fill's two
+    // factors is the thin one (plan 9.3). A judgement, so `warn`: `vacant` above is
+    // the fact, and the two disagree by design — 8.1's longitude cast passed the
+    // floor at 20.3% while this said the deficit was the drawing, and only the
+    // terminal ever heard it.
+    qcCheck('thin-fill', report.thinFill, { severity: 'warn' }),
     qcCheck(
       'crowded',
       densityWarnings(sb.scenes).map((v) => v.message),

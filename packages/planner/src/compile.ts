@@ -112,6 +112,18 @@ const log = logger('planner:compile');
  * voice stage would spend a release reporting the phrase-search fallback on every project
  * on disk while the fix sat here in the compiler.
  *
+ * 5: version 3 above shipped the *decision* half of `./refer.js` and none of the build
+ * half. `buildBeat` never read `recalls` or `refers` — `BeatContext` did not declare
+ * either, and TypeScript is silent about an excess property that arrives by spread — so a
+ * recap that had been given an earlier beat's cell built its picture into that cell
+ * anyway, on top of the picture already there. `projects/deb81002b073` is what that looks
+ * like from the gate: six ink-on-ink overlaps and a label shrunk to 9.8px, in a recap
+ * whose whole point was to draw nothing. A recall recap now emits one emphasis circle per
+ * recalled name, around the element that already carries it, and a picture-referring beat
+ * keeps its own cell until the drawing lane can compose its added marks over the host's
+ * picture. Every cached storyboard whose recap triggered recall has the overlap baked in
+ * and only a recompile removes it.
+ *
  * The constant is a cache key and nothing else — it is never written into the storyboard —
  * so bumping it may not itself move a pinned hash. What moves a hash is the change the
  * bump exists to ship, and version 4 is the first that did:
@@ -144,7 +156,7 @@ const log = logger('planner:compile');
  * shortened exactly one caption. The reasoning and the frame evidence for every re-pin
  * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
-export const COMPILER_VERSION = 4;
+export const COMPILER_VERSION = 5;
 
 /* ------------------------------------------------------------------ assets */
 
@@ -304,9 +316,13 @@ export function compileLesson(
   const referrals = findReferrals(beats, preset.board);
   for (const [beat, r] of referrals.pictures) {
     log.info(
-      `beat ${beat} refers to the picture beat ${r.host} drew instead of drawing it again`,
-      `both ask for "${r.subject.split('/')[1]}" in the same box — one image, one cell, ` +
-        `and this beat's ink is spent on what it has to add`,
+      `beat ${beat} draws the same subject beat ${r.host} drew, in a cell of its own`,
+      `both ask for "${r.subject.split('/')[1]}" in the same box. The cell is deliberately ` +
+        `not shared: sharing it would have this beat redraw its whole picture on top of ` +
+        `the host's, because reusing the host's picture and drawing only what this beat ` +
+        `adds is the drawing lane's work and is not built yet — see \`BeatContext.refers\`. ` +
+        `Only two beats asking in the *same words* share one generated image; the registry ` +
+        `keys on the prompt, not on the subject`,
     );
   }
   if (referrals.recall) {
@@ -320,8 +336,19 @@ export function compileLesson(
   // Every beat that builds on an earlier drawing shares that drawing's cell — words
   // included. A caption in a cell of its own, describing a picture in a different
   // cell, is what pulled the camera wide over an almost-empty panel.
+  //
+  // `referrals.pictures` is deliberately **not** in here. Putting a picture-referring beat
+  // in its host's cell is only half of referring: the other half is that it then draws
+  // only what it adds, and `buildBeat` has no way to do that — it would build its whole
+  // picture again, in the host's cell, on top of the host's. That is ink on ink, and the
+  // strict gate is right to refuse it. Until the drawing lane can compose a beat's added
+  // marks over an existing picture, such a beat draws in its own cell exactly as it did
+  // before `refer.ts` landed. The saving that never depended on the cell is untouched:
+  // `registry.mint` keys on the prompt, so two beats asking in the same words still share
+  // one image. Two beats asking for the same *subject* in different words are two images
+  // and always were — that gap is what `subjectOf` exists to name, and closing it is the
+  // same drawing-lane work.
   const shares = new Map<number, number>(reuse.annotates);
-  for (const [beat, r] of referrals.pictures) shares.set(beat, r.host);
   if (referrals.recall) shares.set(referrals.recall.beat, referrals.recall.host);
   const board = referTo(
     planBoard(
@@ -375,8 +402,11 @@ export function compileLesson(
   // mode, where there is no shared cell to lean on. `referTo` above supplies the other
   // half, the shared cell. Adding two members nothing consults would have been the
   // written-and-never-read pattern this repo has now paid for three times (sketch.ts's
-  // brand mark, the visuals stage's unread roughjs SVGs, defect 9).
-  const memory: BoardMemory = {};
+  // brand mark, the visuals stage's unread roughjs SVGs, defect 9). `written` below is
+  // the one member that earns its place: it is filled after each beat builds and read
+  // by the recall recap in the same pass, and without it the recap has names but no
+  // elements to circle.
+  const memory: BoardMemory = { written: [] };
 
   const scenes: Scene[] = beats.map(({ step, role }, i) => {
     const cell = inset(board.cellOf(i), 10);
@@ -401,6 +431,16 @@ export function compileLesson(
       termRows: strip?.rows ?? 0,
       termRow: strip?.row ?? 0,
     });
+    // What this beat just wrote down, for a later beat to point at. Recorded here rather
+    // than inside `buildBeat` so that the beat doing the pointing cannot find its own
+    // labels: by the time the recap builds, this holds every earlier beat's names and
+    // none of its own. Only persistent text — a label that leaves the board with the card
+    // that drew it is not there to be circled.
+    for (const el of built) {
+      if (el.type !== 'text' || el.persist === false) continue;
+      const name = nameOf(el.text);
+      if (name.length >= 3) memory.written?.push({ id: el.id, name });
+    }
     // Pacing is one decision. `cadence` sets this scene's speech rate (read later by
     // the voice stage) and bounds its trailing silence, so the two are settled here
     // together rather than by two stages that never meet.
@@ -727,6 +767,17 @@ type BoardMemory = {
    * and the walker stands in mid-air where the slope used to be.
    */
   anchor?: { id: string; box: Box; ink: string[] };
+  /**
+   * Every name the board has written down, in write order: the element carrying it, and
+   * the name normalised the way `refer.ts` compares names.
+   *
+   * Read by the recall recap and by nothing else. `findRecall` decides from the lesson's
+   * *marks* that the recap is re-writing names the board already carries; this is the
+   * other half of that sentence — which element on the board is carrying each one — and
+   * it can only be known after the beats are built, because the id belongs to the built
+   * element. Recorded after each beat returns, so the recap never finds itself.
+   */
+  written?: Array<{ id: string; name: string }>;
 };
 
 /** Seconds of silence after a beat: a breath, and longer after a question. */
@@ -832,6 +883,18 @@ type BeatContext = {
   annotatesEarlier: boolean;
   /** This beat's plot grows out of the remembered drawing, replacing it. */
   morphsAnchor: boolean;
+  /**
+   * This recap re-reads the board instead of drawing its picture again: it circles the
+   * names where the earlier beats wrote them. See `findRecall` in `./refer.ts`.
+   */
+  recalls?: Recall;
+  /**
+   * This beat's picture is an earlier beat's picture. **Decided but not consumed** — the
+   * build half needs the drawing lane to compose only this beat's *added* marks over the
+   * host's picture, which does not exist yet. Until it does, `compileLesson` deliberately
+   * keeps such a beat in its own cell (see the referral log there), so nothing reads this.
+   */
+  refers?: Referral;
   /** How many beats divide this cell's text zone between them. 1 when it is ours. */
   cellBands: number;
   /** Which of those bands this beat's words go in, from the top. */
@@ -1004,46 +1067,105 @@ function buildBeat(ctx: BeatContext): Element[] {
   let cursor = 0;
   let lastPlotId: string | undefined;
 
-  figures.forEach((intent, k) => {
-    const merged = ridesAPlot(intent) && lastPlotId !== undefined;
-    // The plot recipes already put a ball on the curve where the beat is about
-    // descent, so an explicit `motion` intent alongside one must not draw a
-    // second ball. It re-cues the existing one instead: the thing that was
-    // already moving now starts on the words that announce the movement.
-    if (merged) {
-      const moving = elements.find((el) => el.motion !== undefined);
-      if (moving) {
-        if (intent.cue) cueOf.set(moving.id, intent.cue);
+  // A recall recap draws no picture at all: `findRecall` established that its marks
+  // re-label parts the board is already carrying, and it has been given the cell of the
+  // beat that carries most of them. Building its figures here would put a second picture
+  // on top of the host's — six overlaps and one 9.8px label, in the render that made this
+  // branch necessary. What it does instead is below: one circle per recalled name, around
+  // the element that already holds it, under the recap's own pull-back over the board.
+  if (!ctx.recalls) {
+    figures.forEach((intent, k) => {
+      const merged = ridesAPlot(intent) && lastPlotId !== undefined;
+      // The plot recipes already put a ball on the curve where the beat is about
+      // descent, so an explicit `motion` intent alongside one must not draw a
+      // second ball. It re-cues the existing one instead: the thing that was
+      // already moving now starts on the words that announce the movement.
+      if (merged) {
+        const moving = elements.find((el) => el.motion !== undefined);
+        if (moving) {
+          if (intent.cue) cueOf.set(moving.id, intent.cue);
+          return;
+        }
+      }
+      const box = merged ? figureArea : (boxes[Math.min(cursor, boxes.length - 1)] ?? figureArea);
+      if (!merged) cursor += 1;
+      const made = buildIntent(intent, {
+        ...ctx,
+        id: eid(`v${k}`),
+        box,
+        hostPlotId: lastPlotId,
+        existing: elements,
+        cues: cueOf,
+      });
+      for (const el of made) {
+        if (el.type === 'plot') lastPlotId = el.id;
+        elements.push(el);
+      }
+      // One picture, one moment. Every stroke of this intent that did not claim a word of
+      // its own is drawn on the intent's cue, so the parts of a drawing arrive together as
+      // a gesture instead of being scattered across the beat by a guess.
+      //
+      // This is the join the shipped render got wrong. The lesson asked for one picture —
+      // "a hillside, a figure, thick fog" — on one cue, and the compiler exploded it into
+      // nine strokes and invented a cue for each: the fog landed on a sentence about a
+      // valley, two strokes landed in the silence between sentences, and the figure's legs
+      // arrived on the word "down". The author's single cue was thrown away.
+      if (intent.cue) {
+        for (const el of made) if (!cueOf.has(el.id)) cueOf.set(el.id, intent.cue);
+      }
+    });
+  }
+
+  /* --- the recall recap: circle the names, where the board already wrote them --- */
+  //
+  // One circle per repeated name, in the recap's own order, so the summary is delivered
+  // as a tour of the board rather than as a fresh panel. `makeEmphasis`'s placeholder box
+  // is left as it is: both stages that need the ring's geometry take it from the target
+  // instead — the visuals stage draws around `targetBox` (`visuals/src/resolve.ts`) and
+  // `elementBounds` measures the target (`core/src/camera.ts`) — so the ring is wherever
+  // the ink it circles is.
+  //
+  // Transient by default, and rightly: the ring is an annotation on someone else's ink,
+  // and the thing it circled stays. `needs(el.targetId, i)` below keeps each target alive
+  // to the moment it is circled.
+  if (ctx.recalls) {
+    /** Elements already circled, so three names do not all ring the same label. */
+    const circled = new Set<string>();
+    ctx.recalls.names.forEach((name, k) => {
+      // Whole-token containment means one label can answer to two names: this lesson's
+      // "more stuff, more inertia" is matched by both `more stuff` and `more inertia`,
+      // and circling it twice would show the learner two of the three places they were
+      // promised. So an element nobody has circled yet wins, and the first match is only
+      // taken when the board really has written that name in one place.
+      const written = ctx.memory.written ?? [];
+      const hit =
+        written.find((w) => sameName(w.name, name) && !circled.has(w.id)) ??
+        written.find((w) => sameName(w.name, name));
+      if (!hit) {
+        // `findRecall` matched this name against an earlier beat's *marks*, and a mark
+        // that writes a name becomes a text element, so the two passes disagreeing means
+        // one of them changed. Loud, because the recap silently circling fewer parts than
+        // it names is exactly the amnesia this whole feature exists to remove.
+        log.warn(
+          `beat ${index} recalls "${name}" but no element on the board carries it — ` +
+            "no circle drawn (the lesson's marks and the built board have drifted)",
+        );
         return;
       }
-    }
-    const box = merged ? figureArea : (boxes[Math.min(cursor, boxes.length - 1)] ?? figureArea);
-    if (!merged) cursor += 1;
-    const made = buildIntent(intent, {
-      ...ctx,
-      id: eid(`v${k}`),
-      box,
-      hostPlotId: lastPlotId,
-      existing: elements,
-      cues: cueOf,
+      const circle = makeEmphasis(eid(`recall${k}`), hit.id, 'circle', {
+        enter: { at: Math.min(0.85, 0.2 + k * 0.12) },
+      });
+      // The name is a thing the narrator says, so the ring lands on it being said. It is
+      // the *normalised* name, so a name that lost a word to normalisation ("law of
+      // inertia" -> "law inertia") will not be found in the narration — and that is
+      // handled where every authored cue is: `preferredCue` drops a cue the narration
+      // does not carry and the ring takes its derived phrase instead, in the order the
+      // `at` above puts it. A guess would be worse than the fallback.
+      circle.enter = { ...circle.enter, cue: name };
+      circled.add(hit.id);
+      elements.push(circle);
     });
-    for (const el of made) {
-      if (el.type === 'plot') lastPlotId = el.id;
-      elements.push(el);
-    }
-    // One picture, one moment. Every stroke of this intent that did not claim a word of
-    // its own is drawn on the intent's cue, so the parts of a drawing arrive together as
-    // a gesture instead of being scattered across the beat by a guess.
-    //
-    // This is the join the shipped render got wrong. The lesson asked for one picture —
-    // "a hillside, a figure, thick fog" — on one cue, and the compiler exploded it into
-    // nine strokes and invented a cue for each: the fog landed on a sentence about a
-    // valley, two strokes landed in the silence between sentences, and the figure's legs
-    // arrived on the word "down". The author's single cue was thrown away.
-    if (intent.cue) {
-      for (const el of made) if (!cueOf.has(el.id)) cueOf.set(el.id, intent.cue);
-    }
-  });
+  }
 
   /* --- a recap with no visuals still gets the chain drawn --- */
   //
@@ -1058,13 +1180,17 @@ function buildBeat(ctx: BeatContext): Element[] {
   // that picture as its card. Both shipped lessons take this branch in both modes;
   // what changes under `wipe` is on the camera side, where there is no board to pull
   // back over.
-  if (role === 'recap' && !figures.length) {
+  if (role === 'recap' && !figures.length && !ctx.recalls) {
     const chain = recapChain(ctx.lesson, eid('chain'), figureArea, ctx.preset);
     if (chain) elements.push(chain);
   }
 
   /* --- nothing to look at at all: draw the idea big rather than small --- */
-  if (elements.length === 1 && !figures.length && !noteEls.length) {
+  // Both fallbacks are unreachable for a recall recap by arithmetic — it has figures, and
+  // it has just pushed a circle for each of them — but they are gated on it explicitly
+  // rather than on that arithmetic, so a recall whose lesson carries no figures at all
+  // cannot fall through into drawing the panel this branch exists to avoid.
+  if (elements.length === 1 && !figures.length && !noteEls.length && !ctx.recalls) {
     const big = makeText(eid('point'), captionText, 'title', {
       maxWidth: figureArea.w,
       align: 'center',

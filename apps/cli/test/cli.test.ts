@@ -202,17 +202,25 @@ test('keys set stores a key, list masks it, delete removes it', async () => {
   assert.equal(gone.configured, false);
 });
 
-test('an environment key is reported as winning over a stored one', async () => {
+test('a stored key is reported as winning over an environment one', async () => {
   await cli(['keys', 'set', 'elevenlabs', 'el-stored-key-abcdef', '--json']);
   try {
     const res = await cli(['keys', 'list', '--json'], { ELEVENLABS_API_KEY: 'el-env-key-123456' });
     const el = (
       JSON.parse(res.out) as {
-        providers: Array<{ provider: string; source: string | null; masked: string | null }>;
+        providers: Array<{
+          provider: string;
+          source: string | null;
+          masked: string | null;
+          overridesEnv: boolean;
+        }>;
       }
     ).providers.find((p) => p.provider === 'elevenlabs')!;
-    // Silent shadowing is the worst outcome, so the listing must name the winner.
-    assert.equal(el.source, 'env');
+    // The pasted key is the deliberate one and must be the one in use — and
+    // silent shadowing is the worst outcome, so the listing must name both the
+    // winner and the fact that the exported variable is being ignored.
+    assert.notEqual(el.source, 'env');
+    assert.equal(el.overridesEnv, true);
     assert.ok(el.masked !== null, 'a preview of the winning key is shown');
   } finally {
     // Leave no key behind: a later `validate` would try to use it.

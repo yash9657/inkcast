@@ -139,6 +139,8 @@ export function pickSayVoice(requested: string, installed: SayVoice[]): string |
 
 export function createSystemProvider(): VoiceProvider {
   let availability: Promise<boolean> | undefined;
+  /** Set by `available()` on the way to `false`; read by `unavailableReason()`. */
+  let refusal: string | undefined;
 
   return {
     id: 'system',
@@ -148,16 +150,22 @@ export function createSystemProvider(): VoiceProvider {
       availability ??= (async () => {
         if (process.platform !== 'darwin') {
           log.debug('system voice provider is macOS-only');
+          refusal = `\`say\` is macOS-only and this is ${process.platform}`;
           return false;
         }
         const voices = await listVoices();
         if (!voices.length) {
           log.warn('`say` produced no voices — skipping the system provider');
+          refusal = '`say -v ?` produced no voices';
           return false;
         }
         return true;
       })();
       return availability;
+    },
+
+    unavailableReason() {
+      return refusal;
     },
 
     async voices() {

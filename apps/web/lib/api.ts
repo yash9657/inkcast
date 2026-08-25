@@ -343,7 +343,10 @@ export type KeyState = {
   unreadable?: boolean;
   /** Unusable because no passphrase is available, not because it is damaged. */
   locked?: boolean;
+  /** A stored-but-unusable entry sits behind the environment key in use. */
   shadowedByEnv?: boolean;
+  /** The saved key is in use; an env var for the same provider is ignored. */
+  overridesEnv?: boolean;
 };
 
 export type Capabilities = {
@@ -357,7 +360,18 @@ export type Capabilities = {
   warnings: string[];
   /** `meta` fields `POST /api/generate` will accept on this build. */
   accepts: string[];
+  /**
+   * The ink packs in this tree's `styles/`, as the server read them.
+   *
+   * Empty when the server is older than this field or could not read the directory,
+   * which is why the picker keeps a built-in list to fall back to — see
+   * `components/studio/options.ts`.
+   */
+  styles: StylePack[];
 };
+
+/** One ink pack, named by the file it came from. See `styles/README.md`. */
+export type StylePack = { id: InkStyle; label: string; hint: string };
 
 function parseStageProvider(raw: unknown): StageProvider {
   const rec = asRecord(raw);
@@ -394,6 +408,7 @@ function parseKeyState(raw: unknown): KeyState | undefined {
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
     ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
+    ...(rec.overridesEnv === true ? { overridesEnv: true as const } : {}),
   };
 }
 
@@ -425,6 +440,13 @@ export async function getCapabilities(signal?: AbortSignal): Promise<Capabilitie
     accepts: (Array.isArray(out.accepts) ? out.accepts : []).filter(
       (field): field is string => typeof field === 'string',
     ),
+    styles: (Array.isArray(out.styles) ? out.styles : []).flatMap((raw) => {
+      const rec = asRecord(raw);
+      const id = str(rec.id);
+      // A pack with no id is not a pack. The hint is genuinely optional — the
+      // schema defaults `description` to an empty string — so it is not a filter.
+      return id ? [{ id, label: str(rec.label) ?? id, hint: str(rec.hint) ?? '' }] : [];
+    }),
   };
 }
 

@@ -27,12 +27,10 @@ import { SignInWall } from '../sign-in-gate';
  *
  * The panel would be *wrong*. It reads and writes the keyvault on the machine
  * serving the page, which on a shared deployment is the operator's server, not
- * the visitor's laptop. `hydrateEnv()` refuses to overwrite a key the real
- * environment already supplied (`packages/keyvault/src/hydrate.ts:78`), and the
- * hosted deployment supplies all of them as environment variables — so a visitor
- * who pasted a key would see it accepted, stored, and then silently ignored by
- * every stage. A control that reports success and changes nothing is worse than
- * no control.
+ * the visitor's laptop. Stored keys take priority over the environment
+ * (`packages/keyvault/src/hydrate.ts`), so a visitor who pasted a key here would
+ * be replacing the credential every *other* visitor's renders run on — a shared
+ * mutable server credential, dressed as a personal setting.
  *
  * It would be *misleading*. The copy below explains that each key upgrades one
  * stage, which is true of the local studio, where the person pasting the key is

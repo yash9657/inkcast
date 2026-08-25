@@ -8,7 +8,9 @@ trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan),
 after gating findings 3 and 4 (the run reports what it did, not what it intended), after
 gating finding 2 (the length estimate counts spoken letters), after 7.1 (the partial
 re-encode), after 7.3 (style packs go declarative — which closes Phase 7), and after 6.3
-(the lane decision, which closes Phase 6).
+(the lane decision, which closes Phase 6) — and once more on 2026-08-25, after **all of
+Phase 9** (9.3, 9.1, 9.4, 9.2), which closes every row the re-audit left open except the one
+that needs a funded API key.
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -18,9 +20,11 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 7 are landed and tested — all of Phase 6 (6.1–6.5) and all of Phase 7
-(7.1, 7.2, 7.3), plus the three findings the remainder handoff carried (2, 3 and 4). Only
-Phase 8 is open:**
+**Phases 0 through 9 are landed and tested** — all of Phase 6 (6.1–6.5), all of Phase 7
+(7.1, 7.2, 7.3), the three findings the remainder handoff carried (2, 3 and 4), 8.1 the
+re-audit (`docs/AUDIT-REAUDIT.md`), and all four of the Phase 9 items that re-audit produced.
+**What is left is 8.2, and S9-b — the one row no unfunded session can close.** The standing
+verdict is 61 PASS, 7 waived, 1 PARTIAL, 0 FAIL, 0 MISSING:
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -696,9 +700,13 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
 3. Drawing-lane problems (the critic's skip, audit defect lists) reach persisted
    `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
    `log.warn`.
-4. **The fill floor is mean < 18% / any scene < 11%**, not the plan's 25%/14% — after
+4. **The fill floor is mean < 18% / any scene < 8%**, not the plan's 25%/14% — after
    2.1's honest boxes, bbox fill cannot separate shipped longitude (20.3%/13.8%) from
    the named must-fail photosynthesis board (21.8%/13.2%). Measured and argued in W2.
+   The per-scene half moved 11% → 8% on 2026-08-25, re-measured across all 60 boards in
+   `projects/`: it was failing four scenes, every one of them in a composed board, and
+   catching nothing the mean floor did not already block. `MIN_SCENE_FILL` in
+   `render/src/compile.ts` carries the measurement.
 5. **The legibility floor is 10 output px**, not the plan's provisional 14 or the
    spec's 18 — the corpus's shipped minimum is 10.9px on reviewed recap reveals, and
    14 would fail three of them. Measured and argued in `boardcheck.ts`'s
@@ -732,11 +740,37 @@ maps every non-PASS audit finding to exactly one item or waiver.
   did _not_ do is the dark-surface pack: the loader refuses a paper below mid-grey, on
   the argument in the entry above, so a chalkboard style is the first thing the deferred
   alpha work (S5.6) buys.
-- **Phase 8 — the exit** (~2 days + ~$3). 8.1 re-run the audit: every check PASS
-  or named-waiver (W1–W7 plus the two Phase-2 recalibrations argued in W2 and the
-  plan's progress block). 8.2 the bake-off: render Golpo's two reference topics,
-  score both films and Golpo's with the same instruments, publish the scorecard in
-  `docs/STATUS.md` — and watch both films end to end first.
+- **Phase 8 — the exit.** **8.1 is done**: the re-audit is `docs/AUDIT-REAUDIT.md`, run at
+  `2abd28d`. **58 PASS, 7 waived, 4 PARTIAL, 0 FAIL, 0 MISSING**, from 20/0/39/6/4, with all
+  eight waivers re-checked against the evidence they rest on and all eight holding. The bar
+  ("every check PASS or named waiver") is missed by four rows, which are now **Phase 9** in
+  the plan, and by the fact that none of the four has an owner. 8.2 the bake-off is still
+  open and still blocked on credit.
+
+**What 8.1 bought, beyond a verdict table.** One row moved backwards and one new defect came
+out from under it, and both are worth knowing before touching the voice stage:
+
+- **X-g (idempotency) is no longer PASS.** Casting a shipped lesson three times into the same
+  project produced three runs that re-synthesised scene 0 and two different film lengths, so
+  7.1's segment cache reused nothing — 176.0s of render against the first cast's 67.0s. The
+  original PASS was not wrong about what it measured; it measured a re-run whose voice cache
+  hits, which is not what happens when a configured cloud provider is present and failing.
+  That is this machine's standing condition and the condition every recent project on disk
+  was cast under.
+- **N-1, the finding under it.** The clip/sidecar repair in `voice/src/narrate.ts:849-868`
+  rescales `narrationSec` and `phrases` and leaves `words` alone, so cue resolution divides
+  an unrescaled word start by a rescaled duration and every reveal in the scene fires late —
+  0.57s and 1.06s on the longitude film the re-audit rendered, which passed all 20 checks.
+  Seven scenes on disk carry word timings past the end of their own audio. **Pre-existing and
+  verified against `5f83bc4`**, where the block is byte-identical: the original audit's seven
+  passes all examined the aligner and none examined the reconciliation between a clip and
+  the sidecar describing it.
+- **Both were invisible because two diagnostics still evaporate.** `reportFill` and the
+  clip-mismatch warning are `log.warn` with no `onProblem` beside them, which by this repo's
+  own rubric makes them absent. That is Phase 9.3, and it is an hour.
+- **A number the worklist rested on was wrong.** The remainder handoff called the table
+  "61-row … 17 PASS, 34 PARTIAL". It is 69 rows at 20 PASS / 39 PARTIAL. Eight rows would
+  have been missing from a worklist built from that sentence.
 
 Ordering per the plan: **6.1, 6.2, 6.4, 6.5 and 7.2 are in, and nothing among 6.3, 7.1 and
 7.3 blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
@@ -826,6 +860,44 @@ Session-found context for Phase 6 and after (so the next session does not re-der
   deletes `enter.cue` — the plan's 4.1 says the phrase search "then dies" — delete the
   _search_, not the phrase: the phrase is the only thing that can detect a stale index,
   and without it a wrong number is undetectable by construction.
+
+## What Phase 9 bought (2026-08-25)
+
+The plan's progress block has the detail. What a future session needs from here:
+
+**A re-cast is a no-op again, and it is worth checking that it stays one.** 9.1's two
+defects were one mechanism: an abandoned voice attempt overwrote a clip whose freshness
+marker still described the file it replaced, and the repair pass that noticed the mismatch
+rescaled `phrases` without `words`. `clearFresh()` in `core/src/project.ts` is the new
+primitive — `isFresh` checks that an artefact still _exists_, which cannot notice one that
+was replaced, so a stage that clobbers a file it is not about to re-key has to say so. The
+cheapest regression check in the repo is casting a shipped lesson twice and looking for
+`render 100% cached`.
+
+**`qc81-longitude` is preserved evidence — do not re-cast it.** Its scene 0 still carries the
+13.595s clip under a 16.125s sidecar that 8.1 measured. `qc91-heal` is the copy that proves
+the fix heals it, and it healed by _re-synthesising_ rather than by rescaling, because 9.1
+removes the stale marker before the restart ever consults it.
+
+**A strict cast is 21 checks now, not 20.** 9.3 added `thin-fill` (warn). It fires on films
+that pass the vacancy floor, which is exactly when it is the only signal there is, and
+longitude trips it — that advisory is the check working, not a regression. If you are
+comparing a `qc.json` against a pre-9.3 one, that is the difference.
+
+**The renderer and the visuals stage now agree about what colour the board is.** They did
+not, from 7.3 until 9.2: `compile.ts` called `paletteFor(meta.palette)` while
+`visuals/src/style.ts` read the pack. Nothing was visibly wrong because no shipped pack
+declared a palette — an accidental agreement, and the kind that only surfaces when somebody
+uses the feature. `boardPalette()` is the one seam; if you find a third place asking about
+paper or ink, that is the bug.
+
+**`chalk` is a dark board.** A figure on it is keyed to real alpha and re-lit in the pack's
+ink rather than composited with multiply. Two constants came out of a sweep of all 42 rasters
+in `~/.inkcast/cache/illustrations` and both are in the code with their numbers:
+`GROUND_FLOOR` kills the haze disc that near-white grounds leave over slate, `CHROMA_FLOOR`
+kills the coloured speckle that compression noise in dark pixels turns into. **Both were
+found by rendering the thing and opening it**, not by any check — which is the same lesson
+6.4 recorded about its own three thresholds, learned again.
 
 ## How to verify any phase as it lands
 
@@ -1083,3 +1155,38 @@ Earned in the 6.3 session:
   looking: a beat asking for a hydroxyl group put **B₄H₂** on the board in ink. Two lines
   of a table cannot carry that, and no session that skipped the render would have ranked
   chemistry above circuits with any confidence.
+
+Earned in the Phase 9 session:
+
+- **A "freshness" record that only checks existence cannot see a file that was replaced.**
+  `isFresh` verified that a key's hash matched and that its artefacts were still on disk;
+  both were true of a clip an abandoned attempt had just overwritten. The general form: a
+  cache validity check has to cover every way the artefact can stop being what the key
+  describes, and _deleted_ is the easy one. Any stage that writes a file it is not about to
+  re-key owes the cache a `clearFresh()`.
+- **A repair pass is code, and rescaling four fields out of five is a bug the repair
+  invented.** N-1 was inside the block that exists to _prevent_ desync. Nothing about
+  "trusting the file and rescaling" is wrong; leaving one measured-against-the-old-duration
+  field out of the rescale is. When you normalise a record against a new scale, enumerate
+  what is on the old one rather than fixing the fields you happen to be thinking about.
+- **Write the missing comparison, not just the fix.** The audit's own question about its
+  miss was "why did nothing catch this". Nothing compared a scene's word stream to the
+  length of the clip it described — `overrunViolations` checks plan items derived from the
+  very fractions the defect corrupts, so they were always in range. The fix without that
+  comparison is a fix that can silently come back.
+- **A constant argued from the corpus beats a constant argued from taste, and the corpus
+  will often hand you a gap to put it in.** 9.2's first attempt floored _relative_
+  saturation, which is largest exactly where a pixel's hue is least trustworthy, and it did
+  not work. Measuring absolute channel spread across all 42 cached rasters separated them
+  into 31 files topping out at 46 and 11 starting at 183 — an empty band 137 counts wide, so
+  the threshold is not a judgement call at all. Half an hour of measuring replaced an
+  argument nobody could have defended at the next audit.
+- **Two stages agreeing by accident is a bug with a delay fuse.** From 7.3 to 9.2 the
+  renderer read `paletteFor(meta.palette)` and the visuals stage read the pack. They agreed
+  for a year of commits because no shipped pack declared a palette. The first one that did
+  would have rendered chalk geometry on white paper. When a fact moves into data, grep for
+  everyone who still computes it.
+- **Look at the output.** Both of 9.2's real defects — a haze disc across a quarter of the
+  frame, and coloured speckle on every stroke — passed every check in the repo and were
+  obvious in the first rendered image. This is the third session to record this and it keeps
+  being the finding.

@@ -28,6 +28,8 @@ import {
   illustrationPaths,
   illustrationPrompt,
   illustrationRaster,
+  isDarkSurface,
+  keyFigureToSurface,
   resetIllustrationCache,
   resetImageProviderNotice,
   vectoriseToInk,
@@ -35,6 +37,7 @@ import {
   type RasterGate,
   type RasterVerdict,
 } from '../src/image.js';
+import { readPng } from '../src/png.js';
 import { inkStyleFor } from '../src/style.js';
 import { flatPng, makePng, type Rgba } from './pngfixture.js';
 
@@ -610,4 +613,67 @@ test('provider selection prefers replicate, then fal, then none', () => {
     else process.env.FAL_KEY = before.f;
     resetImageProviderNotice();
   }
+});
+
+/* ------------------------------ keying a figure for a dark board (plan 9.2) */
+
+const SLATE = { paper: '#1b232e', ink: '#f2efe6' };
+
+test('a board is light or dark, and an unreadable colour is treated as light', () => {
+  assert.equal(isDarkSurface('#1b232e'), true, 'slate');
+  assert.equal(isDarkSurface('#fcfbf9'), false, 'the board`s own paper');
+  // The line is drawn on *relative luminance*, which is not the byte value: `#808080` is
+  // the midpoint of the range as a number and 0.216 as a luminance, so it keys. That is
+  // the right way round — every colour a pack author would call cream, sand or pale grey
+  // is well above the line (`#bcbcbc` is roughly where it falls), and everything below it
+  // is dark enough that multiplying a picture's ink into it costs more than it buys.
+  assert.equal(isDarkSurface('#808080'), true, 'half-value grey is 0.216 luminance');
+  assert.equal(isDarkSurface('#d9d4c8'), false, 'sand is nowhere near the line');
+  // Never silently change how a figure composites on a colour this cannot read: every
+  // film in the corpus is on the multiply path and must stay there.
+  assert.equal(isDarkSurface('rgb(20,20,20)'), false);
+  assert.equal(isDarkSurface('not a colour'), false);
+});
+
+test('keying a figure turns its white ground transparent and its ink into chalk', () => {
+  // Black line art on white, which is what every provider in this repo returns.
+  const png = makePng(32, 32, (x, y) => (x > 8 && x < 24 && y > 8 && y < 24 ? BLACK : WHITE));
+  const keyed = readPng(keyFigureToSurface(png, SLATE)!);
+  assert.ok(keyed);
+
+  const at = (x: number, y: number): number[] =>
+    Array.from(keyed.rgba.subarray((y * 32 + x) * 4, (y * 32 + x) * 4 + 4));
+
+  // The ground: gone. This is the whole defect — under multiply it stayed opaque and
+  // dragged the board's own colour down with it.
+  assert.deepEqual(at(2, 2).slice(3), [0], 'the white ground must key to fully transparent');
+  // The ink: fully opaque, and drawn in the board's own ink rather than left black.
+  const mark = at(16, 16);
+  assert.equal(mark[3], 255, 'black ink must key to fully opaque');
+  assert.deepEqual(mark.slice(0, 3), [0xf2, 0xef, 0xe6], 'a neutral mark is made of chalk');
+});
+
+test('a keyed figure keeps real colour and rejects compression noise', () => {
+  // Two marks: a saturated one (a real coloured figure) and a near-black one carrying the
+  // channel noise every provider's compression leaves behind. Before the corpus sweep that
+  // set `CHROMA_FLOOR`, the second came out as a bright speckle.
+  const ORANGE: Rgba = [240, 140, 40, 255];
+  const NOISY_BLACK: Rgba = [5, 30, 5, 255];
+  const png = makePng(32, 32, (x) => (x < 8 ? ORANGE : x < 16 ? NOISY_BLACK : WHITE));
+  const keyed = readPng(keyFigureToSurface(png, SLATE)!);
+  assert.ok(keyed);
+  const at = (x: number): number[] =>
+    Array.from(keyed.rgba.subarray((16 * 32 + x) * 4, (16 * 32 + x) * 4 + 4));
+
+  // Real colour survives, and reads as orange rather than as chalk.
+  const orange = at(4);
+  assert.ok(orange[0]! > 200 && orange[2]! < 80, `the orange must stay orange, got ${orange}`);
+  assert.ok(orange[0]! - orange[2]! > 100, 'and stay saturated');
+
+  // Noise does not. A 25-count channel error is a black stroke, not a green one.
+  assert.deepEqual(at(12).slice(0, 3), [0xf2, 0xef, 0xe6], 'noise must key as neutral chalk');
+});
+
+test('keying abstains on bytes it cannot read, rather than guessing', () => {
+  assert.equal(keyFigureToSurface(Buffer.from('not a png'), SLATE), undefined);
 });

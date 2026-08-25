@@ -234,7 +234,16 @@ export type ResolvedVoice = {
   /** The provider that actually spoke, or the one that resolved when nothing did. */
   provider: string;
   label: string;
+  /** The provider-native voice that actually spoke. */
   voice: string;
+  /**
+   * The voice that was resolved and then refused, when `voice` is a substitute.
+   *
+   * Mirrors `ResolvedVoice.substitutedFrom` in `@inkcast/voice`. Absent on ordinary
+   * runs; present when a plan gate forced the adapter to speak with a different
+   * voice than the one the record would otherwise have named.
+   */
+  substitutedFrom?: string;
   /** The engine, when the provider names one. */
   model?: string;
   /** Characters synthesised per provider this run. Empty when everything was cached. */

@@ -1,5 +1,12 @@
 # Audit findings — inkcast vs the explainer-pipeline reference spec
 
+> **This file is the 2026-08-22 run and stays that way.** It is the evidence base, and its
+> §5 remains the authority on the waivers. The **re-audit (plan item 8.1) is
+> `docs/AUDIT-REAUDIT.md`**, run 2026-08-24 at `2abd28d`: 58 PASS, 7 waived, 4 PARTIAL, and
+> three new findings. Where the two disagree about a verdict, the re-audit is current. Do
+> not edit the verdicts below to match it — a report rewritten to agree with its successor
+> stops being evidence of anything.
+
 Run 2026-08-22 at `5f83bc4` (branch `visuals-morph-density`, clean tree), against the
 "Explainer Video Pipeline — Architecture Audit Spec" (reference measurements from four
 Golpo AI videos). Seven parallel audit passes, every verdict backed by file:line evidence;
@@ -1422,6 +1429,12 @@ vs "sparse and empty" to the ink-pixel Tier-2 check (plan 3.3), where frames exi
 anyway. The plan's original 25%/14% would have blocked a shipped lesson to fail a
 board it cannot distinguish from it; the per-scene numbers are in the gate message,
 and an override under `--degrade` is recorded in `pipeline.json` (`render.problems`).
+**Amended 2026-08-25: the per-scene half is now 8%, not 11%** — measured across all 60
+boards in `projects/`, where the 11% floor failed four scenes, every one of them in a
+composed board, and caught nothing the mean floor did not already block. The argument
+is the same one this paragraph makes, applied per scene instead of per board; it is
+written up under W2 in `docs/HANDOFF-WAIVERS.md` and beside `MIN_SCENE_FILL` in
+`render/src/compile.ts`.
 
 **W3 — S3-b, "no x/y anywhere in the IR".** Waived for the storyboard. The
 two-altitude split — a semantic lesson IR the model authors, a geometric storyboard IR

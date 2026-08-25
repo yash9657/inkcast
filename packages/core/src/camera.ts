@@ -177,8 +177,16 @@ export function elementBounds(el: Element, boxes?: Map<string, Rect>): Rect {
   } else if (el.type === 'path') {
     box = pathBounds(el) ?? box;
   } else if (el.type === 'emphasis') {
+    // The ring is drawn around the target and nowhere else, so once the target is known
+    // its box *replaces* `at` rather than being unioned with it. `at` on an emphasis is a
+    // placeholder — `makeEmphasis` hands out a nominal 120×120 at the origin — and
+    // unioning that with a target 3,500 units away claims a diagonal band across the
+    // whole board as ink: it moved one recap's measured fill from 15% to 39%, and it is
+    // the camera that would have framed that band. `at` stays as the fallback for a
+    // target that cannot be found, which is exactly what the visuals stage draws around
+    // in the same case (`targetBox ?? el.at`, `visuals/src/resolve.ts`).
     const target = boxes?.get(el.targetId);
-    if (target) box = unionRects(box, inflateRect(target, target.w * 0.08, target.h * 0.18));
+    if (target) box = inflateRect(target, target.w * 0.08, target.h * 0.18);
   }
   const base = box ?? { ...el.at };
   if (el.motion) {
@@ -637,28 +645,44 @@ function whyThin(sb: Storyboard, framing: readonly SceneFraming[]): string {
  * every call site: it is pure arithmetic over the IR, the renderer has already computed
  * it, and a diagnostic that only works when someone remembers to pass an argument is a
  * diagnostic that stops working.
+ *
+ * **It returns what it found** (plan 9.3, audit X-d/N-3). This used to return `void` and
+ * log, which by the audit's own rubric — an assertion that logs-and-continues counts as
+ * absent — made it absent. It fires on films that *pass* the fill gate, which is exactly
+ * when it is the only signal there is, and it carries the one thing the gate's message
+ * does not: which of the two factors is low. On `qc81-longitude` it said the deficit was
+ * the drawing rather than the shot and nothing recorded that anywhere. The caller folds
+ * the returned lines into `BoardReport`, and the gate stage writes them into `qc.json`.
+ *
+ * `quiet` is the same contract as `CompileOptions.quiet`: compute and return, but let
+ * the caller own the saying. Without it the lines print twice per run, once from the
+ * gate stage's throwaway compile and once from the render's.
  */
 export function reportFill(
   fills: readonly number[],
   sb: Storyboard,
   framing: readonly SceneFraming[] = resolveFraming(sb, frameSize(sb.meta.aspect)),
-): void {
-  if (fills.length === 0) return;
+  opts: { quiet?: boolean } = {},
+): string[] {
+  if (fills.length === 0) return [];
+  const found: string[] = [];
   const mean = fills.reduce((a, b) => a + b, 0) / fills.length;
   const empty = fills.filter((v) => v < 0.14).length;
   const detail = `mean content fill ${(mean * 100).toFixed(0)}% of frame across ${fills.length} scenes`;
   if (mean < 0.25 || empty > fills.length / 3) {
-    log.warn(`${detail} — the board is mostly whitespace. ${whyThin(sb, framing)}`);
+    found.push(`${detail} — the board is mostly whitespace. ${whyThin(sb, framing)}`);
   } else {
-    log.debug(detail);
+    if (!opts.quiet) log.debug(detail);
   }
   const named = sb.scenes.filter((s) => s.region).length;
   if (named === 0 && sb.scenes.length > 3) {
-    log.warn(
+    found.push(
       `no scene sets \`region\` — every beat gets its own shot, which reads as a slideshow. ` +
         `The lesson stage should group consecutive steps onto one board.`,
     );
   }
+  if (!opts.quiet) for (const line of found) log.warn(line);
+  return found;
 }
 
 /* ------------------------------------------------------- the board's scale */

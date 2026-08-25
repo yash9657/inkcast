@@ -76,12 +76,17 @@ a film that renders in the wrong hand and never says so.
   and a single `contrast`, and refuses an accent equal to either the ink or the contrast.
   One ink carries the structure and one accent marks things up; no rainbow boards. This
   is a deliberate departure from `docs/STYLES.md` §2, which models the field as a list.
-- **A dark board.** A pack's `paper` has to be light (relative luminance ≥ 0.5). Generated
-  figures composite with `mix-blend-mode: multiply`, which can only darken: on a slate
-  board a black-ink raster multiplies into the slate and vanishes, and no gate catches it
-  because the raster itself is fine. A chalkboard pack needs the real-alpha work the
-  audit deferred (S5.6) — the guard is there so that lands before the look does, and its
-  message says so.
+- **Ink you cannot read against your own paper.** `ink` and `paper` have to clear 4.5:1
+  WCAG contrast — the AA bar for body text, and handwriting is body text with worse edges.
+  Every shipped pack clears it by a distance, so this is a rail rather than a threshold you
+  will be near.
+
+  This replaced a floor on the paper's own lightness, which refused a dark board outright.
+  A dark board is now supported: a generated figure is keyed to real alpha and re-lit in
+  the pack's own ink instead of being composited with `mix-blend-mode: multiply`, which can
+  only darken and used to make a picture vanish into a slate surface (plan 9.2, audit
+  S5.6). `chalk` is the worked example — the same relative luminance of 0.5 now decides
+  _which_ composite a board gets rather than whether it may exist.
 
 ## What a pack cannot say yet
 
