@@ -14,7 +14,9 @@ import {
   inkOnInkViolations,
   offFrameViolations,
   overrunViolations,
+  penOverlapViolations,
   realizedTextViolations,
+  sceneDwellViolations,
 } from './boardcheck.js';
 import { compilePlan } from './compile.js';
 
@@ -158,6 +160,58 @@ test('dwell: thin residence warns for board text, never for a drawing mark', () 
   const v = dwellWarnings([thin, roomy, mark]);
   assert.equal(v.length, 1);
   assert.match(v[0]!.message, /"idea"/);
+});
+
+test('pen: two marks being drawn at once is a violation, a hand lifting off is not', () => {
+  const scene = 0;
+  // 0.15 of the earlier mark's own length is the lift-off allowance `serializePen`
+  // grants — measured against that mark rather than a constant, so a three-second
+  // figure and a half-second arrowhead each get an overlap proportional to
+  // themselves.
+  const a = { id: 'box', scene, start: 1, dur: 1, sceneEnd: 9, persist: true };
+  const lifting = { id: 'label', scene, start: 1.9, dur: 0.5, sceneEnd: 9, persist: true };
+  const colliding = { id: 'arrow', scene, start: 1.4, dur: 0.5, sceneEnd: 9, persist: true };
+
+  assert.deepEqual(penOverlapViolations([a, lifting]), []);
+  const v = penOverlapViolations([a, colliding]);
+  assert.equal(v.length, 1);
+  assert.match(v[0]!.message, /"arrow" starts being drawn .* while "box" is still being drawn/);
+
+  // Two beats' marks never collide with each other, however their times interleave:
+  // a scene is the unit that has one hand.
+  assert.deepEqual(penOverlapViolations([a, { ...colliding, scene: 1 }]), []);
+});
+
+test('dwell: a board assembled on the last frame of its beat blocks', () => {
+  const long = [{ id: 's0', start: 0, end: 12 }];
+  const assembled = [{ id: 'last', scene: 0, start: 10.9, dur: 1, sceneEnd: 12, persist: true }];
+  const still = [{ id: 'last', scene: 0, start: 8, dur: 1, sceneEnd: 12, persist: true }];
+
+  assert.equal(sceneDwellViolations(assembled, long).length, 1);
+  assert.match(sceneDwellViolations(assembled, long)[0]!.message, /only ever assembled/);
+  assert.deepEqual(sceneDwellViolations(still, long), []);
+});
+
+test('dwell: a beat is never failed for stillness it could not have given', () => {
+  // Two seconds long, so a full second of stillness is nearly half of it. The gate
+  // asks for `MAX_READ_SHARE` of the beat instead — what `readingTail` could
+  // actually reserve — rather than for a defect nothing could fix.
+  const short = [{ id: 's0', start: 0, end: 2 }];
+  const items = [{ id: 'only', scene: 0, start: 0.9, dur: 0.2, sceneEnd: 2, persist: true }];
+  assert.deepEqual(sceneDwellViolations(items, short), []);
+
+  // And a beat carrying more marks than it has seconds is over-full, not thin: it
+  // cannot buy stillness by drawing faster, and failing it here would name the wrong
+  // defect. `crowded` and the element ceiling are what report that one.
+  const packed = Array.from({ length: 30 }, (_, i) => ({
+    id: `m${i}`,
+    scene: 0,
+    start: i * 0.15,
+    dur: 0.18,
+    sceneEnd: 5,
+    persist: true,
+  }));
+  assert.deepEqual(sceneDwellViolations(packed, [{ id: 's0', start: 0, end: 5 }]), []);
 });
 
 test('compilePlan blocks a bad board under strict and only warns under degrade', () => {

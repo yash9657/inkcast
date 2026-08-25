@@ -464,7 +464,9 @@ export function compileLesson(
       cadence: paced.cadence,
       emphasis: emphasis.found,
     };
-    assignTiming(scene, built);
+    assignTiming(scene, built, {
+      ...(preset.maxGestures ? { maxGestures: preset.maxGestures } : {}),
+    });
     return scene;
   });
 
@@ -864,7 +866,24 @@ function holdFor(
   const asks = /[?]\s*$/.test(step.narration.trim());
   const bonus = preset.holdBonus + (asks ? 1 : role === 'misconception' ? 0.4 : 0);
   const paced = holdForCadence(step, role, bonus);
-  return { cadence: paced.cadence, hold: round(paced.hold, 2) };
+  /*
+   * The other half of `Preset.maxHold`, which that field's own comment has been
+   * asking for by name.
+   *
+   * `trimStep` caps what the *author* asks for, which makes the ceiling binding on
+   * the length estimate and on nothing else: `holdForCadence` then takes
+   * `max(CADENCE[c].hold, step.hold)` and adds `bonus`, so a `slow_deliberate` beat
+   * floored at 0.9s and a beat ending in a question adding its full second both
+   * walked straight past a 0.8s ceiling. A 75-second film cannot afford a
+   * three-second pause and a two-and-a-half-minute one can — that is the whole
+   * reason the number is a property of the format — and a cap applied to the
+   * estimate but not to the film is a cap that only makes the estimate wrong.
+   *
+   * A preset with no ceiling is unchanged, byte for byte: `standard` has none, and
+   * the two shipped lessons pin compiles against it.
+   */
+  const hold = Math.min(paced.hold, preset.maxHold ?? Infinity);
+  return { cadence: paced.cadence, hold: round(hold, 2) };
 }
 
 /* --------------------------------------------------------------- one beat */
@@ -2064,38 +2083,106 @@ function buildMotion(describe: string, ctx: IntentContext): Element[] {
  * falls to the phrase search, which is the honest outcome rather than a guessed
  * number.
  */
-export function assignTiming(scene: Scene, elements: Element[]): void {
+export function assignTiming(
+  scene: Scene,
+  elements: Element[],
+  opts: { maxGestures?: number } = {},
+): void {
   const n = elements.length;
   if (!n) return;
   const ordered = elements
     .map((el, i) => ({ el, i, at: el.enter.at }))
     .sort((a, b) => a.at - b.at || a.i - b.i);
   const cues = deriveCues(scene.narration, n);
-  let previous = -1;
-  ordered.forEach((entry, k) => {
+
+  const timed = ordered.map((entry, k) => {
     const derived = cues[k];
     const cue = preferredCue(scene.narration, entry.el.enter.cue, derived);
-    const cueWord = cue === undefined ? undefined : cueWordIndex(scene.narration, cue);
-    let at = entry.at > 0 ? entry.at : k === 0 ? 0 : 0.06 + (k * 0.72) / Math.max(1, n - 1);
-    if (at <= previous) at = previous + 0.04;
+    const at = entry.at > 0 ? entry.at : k === 0 ? 0 : 0.06 + (k * 0.72) / Math.max(1, n - 1);
+    return { entry, cue, at };
+  });
+
+  // Coalesce the beat's reveals into gestures, when its format asks for that. Absent
+  // `maxGestures` this is the identity, so `standard` — which every pinned hash is
+  // taken against — compiles byte for byte as it did.
+  const starts = gestureStarts(timed, opts.maxGestures);
+
+  let previous = -1;
+  let head = timed[0];
+  timed.forEach((slot, k) => {
+    if (starts.has(k)) head = slot;
+    // Every mark of one gesture leaves on the same word, and `serializePen` draws
+    // them back to back from there. The `+0.04` below only separates *gestures*: it
+    // is what stops two consecutive starts collapsing onto one fraction, and inside
+    // a gesture it would be reintroducing the stagger the ceiling exists to remove.
+    const source = head ?? slot;
+    let at = source.at;
+    if (starts.has(k) && at <= previous) at = previous + 0.04;
     at = Math.min(0.92, Math.max(0, at));
-    previous = at;
-    entry.el.enter = {
+    if (starts.has(k)) {
+      previous = at;
+      source.at = at;
+    }
+    const cue = source.cue;
+    const cueWord = cue === undefined ? undefined : cueWordIndex(scene.narration, cue);
+    slot.entry.el.enter = {
       at: round(at, 3),
-      duration: entry.el.enter.duration,
-      style: entry.el.enter.style,
+      duration: slot.entry.el.enter.duration,
+      style: slot.entry.el.enter.style,
       ...(cue ? { cue } : {}),
       ...(cueWord === undefined ? {} : { cueWord }),
     };
-    if (entry.el.motion) {
-      const start = Math.min(0.9, Math.max(entry.el.motion.from, at + 0.06));
-      entry.el.motion = {
-        ...entry.el.motion,
+    if (slot.entry.el.motion) {
+      const start = Math.min(0.9, Math.max(slot.entry.el.motion.from, at + 0.06));
+      slot.entry.el.motion = {
+        ...slot.entry.el.motion,
         from: round(start, 3),
-        to: round(Math.max(start + 0.05, entry.el.motion.to), 3),
+        to: round(Math.max(start + 0.05, slot.entry.el.motion.to), 3),
       };
     }
   });
+}
+
+/**
+ * Which reveals of a beat are the *start of a gesture*, and which join the one before.
+ *
+ * Every reveal starts its own gesture until the ceiling bites, which is what makes
+ * the absent-ceiling case exactly today's behaviour. Past the ceiling, gestures are
+ * merged into their predecessor smallest-first — the plan's "merge the smallest
+ * labels into the drawing's own gesture" — so what disappears is a lone leader
+ * arrow's separate moment, never a picture's.
+ *
+ * Ties go to the later index, which keeps the *opening* of the beat granular: the
+ * first thing a beat does is establish what it is about, and collapsing the title and
+ * the first stroke into one moment is the merge with the worst reading of the two.
+ */
+function gestureStarts(slots: readonly { at: number }[], ceiling: number | undefined): Set<number> {
+  const starts = new Set(slots.map((_, k) => k));
+  if (!ceiling || ceiling < 1 || slots.length <= ceiling) return starts;
+
+  /** Reveals currently in each gesture, by the index that starts it. */
+  const size = new Map<number, number>([...starts].map((k) => [k, 1]));
+  while (size.size > ceiling) {
+    // The smallest gesture that has something in front of it to join. Index 0 is
+    // never a candidate: there is nothing before it, and a beat has to start.
+    let victim = -1;
+    let smallest = Infinity;
+    for (const [k, count] of size) {
+      if (k === 0) continue;
+      if (count <= smallest) {
+        victim = k;
+        smallest = count;
+      }
+    }
+    if (victim < 0) break;
+    // Its predecessor absorbs it.
+    const keys = [...size.keys()].sort((a, b) => a - b);
+    const before = keys[keys.indexOf(victim) - 1] as number;
+    size.set(before, (size.get(before) as number) + (size.get(victim) as number));
+    size.delete(victim);
+    starts.delete(victim);
+  }
+  return starts;
 }
 
 /* ------------------------------------------------------------------- helpers */

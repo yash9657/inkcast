@@ -256,6 +256,20 @@ export const StylePack = z
         width: z.number().finite().positive().max(40),
         /** Multiplier on the renderer's 6-output-px base (`boardMetrics.strokeWidth`). */
         weight: z.number().finite().positive().max(6),
+        /**
+         * How fast this hand lays ink down, in **output pixels per second**.
+         *
+         * The number that replaced `Enter.duration`'s flat 0.8 s as the authority on
+         * how long a mark takes to draw (`core/src/inktime.ts`). It belongs to the
+         * pack because it is a property of the instrument: a broad chalk stick covers
+         * a board faster than a fine liner, and pretending otherwise makes one style's
+         * films feel hurried and another's slow.
+         *
+         * In output pixels rather than canvas units so it means the same thing at
+         * every camera zoom — see the header of `inktime.ts`. Defaulted so a pack
+         * written before this existed still loads.
+         */
+        inkSpeed: z.number().finite().positive().min(200).max(20000).default(1800),
         /** The sprite that rides the stroke tip. */
         art: PenArtSpec,
       })

@@ -21,8 +21,18 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { gate, handFontFor, handMetricsFor, logger } from '@inkcast/core';
-import type { FontMetrics } from '@inkcast/core';
+import {
+  durationFor,
+  gate,
+  handFontFor,
+  handMetricsFor,
+  inkCost,
+  inkPaceFor,
+  logger,
+  readingTail,
+  serializePen,
+} from '@inkcast/core';
+import type { FontMetrics, InkPace } from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -62,6 +72,8 @@ import {
   inkOnInkViolations,
   offFrameViolations,
   overrunViolations,
+  penOverlapViolations,
+  sceneDwellViolations,
   type BoardViolation,
 } from './boardcheck.js';
 import { layoutDiagram } from './layout.js';
@@ -421,6 +433,14 @@ type SceneTiming = {
    * whose entrance the viewer structurally cannot watch.
    */
   settle?: number;
+  /**
+   * How fast the hand draws in *this* scene, ready to hand to `durationFor`.
+   *
+   * Per scene rather than per board because `pxPerUnit` folds in the camera zoom,
+   * and the zoom is a scene's own: the same box is a thumbnail on a wide recap and
+   * half the screen on a card. See the header of `core/src/inktime.ts`.
+   */
+  pace: InkPace;
 };
 
 /** Fill in estimated durations so core's timing helpers can own the arithmetic. */
@@ -599,6 +619,7 @@ export function compileBoard(
   const wipes = sb.meta.board === 'wipe';
   const sceneIndexById = new Map(timed.scenes.map((s, i) => [s.id, i]));
   let seq = 0;
+  const handPace = inkPaceFor(sb.meta.style, scale, canvas, frame);
   for (let si = 0; si < timed.scenes.length; si++) {
     const scene = timed.scenes[si] as Scene;
     const ps = scenes[si] as PlanScene;
@@ -609,19 +630,29 @@ export function compileBoard(
       length: ps.dur,
       end: ps.start + ps.dur,
       settle: ps.camera.transition,
+      pace: { ...handPace, pxPerUnit: handPace.basePxPerUnit * ps.camera.zoom },
     };
     const hosts = scene.elements.filter((e) => e.type === 'plot');
+    const sceneItems: PlanItem[] = [];
     for (const raw of scene.elements) {
       const el = rebaseOntoPlot(raw, hosts, ctx);
       const fraction = enterFraction(el, scene, unresolvedCues);
       for (const item of itemsFor(el, fraction, timing, ctx, sb.meta.fps)) {
         item.order = [el.z ?? 0, seq++];
-        if (wipes) {
-          const at = wipeFadeAt(item, el, scenes, sceneIndexById);
-          if (at !== undefined) item.fadeAt = at;
-        }
-        items.push(item);
+        sceneItems.push(item);
       }
+    }
+    // One pen, one mark at a time (plan 1.2). After every item of the beat exists,
+    // because the schedule is a property of the beat rather than of any one mark —
+    // and before the wipe pass, which reads `start` to decide when ink may leave.
+    serializeScene(sceneItems, timing, ctx);
+    for (const item of sceneItems) {
+      if (wipes) {
+        const el = ctx.elements.get(baseIdOf(item.id));
+        const at = el ? wipeFadeAt(item, el, scenes, sceneIndexById) : undefined;
+        if (at !== undefined) item.fadeAt = at;
+      }
+      items.push(item);
     }
   }
   if (unresolvedCues.length > 0) {
@@ -651,6 +682,7 @@ export function compileBoard(
       const words = el?.type === 'text' ? el.text.split(/\s+/).filter(Boolean).length : undefined;
       return {
         id: it.id,
+        scene: it.scene,
         start: it.start,
         dur: it.dur,
         sceneEnd: it.sceneEnd,
@@ -658,10 +690,19 @@ export function compileBoard(
         ...(words !== undefined ? { words } : {}),
       };
     });
+    const penTimings = timedItems.filter((_, i) => isPenItem(items[i] as PlanItem, ctx));
     blocking = [
       ...inkOnInkViolations(timed.scenes, wipes),
       ...frameCheck.errors,
       ...overrunViolations(timedItems),
+      // The single-writer invariant, and the dwell floor, over exactly the items
+      // `serializeScene` scheduled — asserting either over the fades and trails it
+      // deliberately leaves alone would fail every film for things nobody draws.
+      ...penOverlapViolations(penTimings),
+      ...sceneDwellViolations(
+        penTimings,
+        scenes.map((ps) => ({ id: ps.id, start: ps.start, end: ps.start + ps.dur })),
+      ),
       ...glyphFloorViolations(timed.scenes, framing, canvas, frame, ctx.type),
     ];
     if (blocking.length > 0 && !opts.quiet) {
@@ -831,6 +872,101 @@ function wipeFadeAt(
     return anchor === scenes[item.scene] ? undefined : anchor.start + anchor.dur;
   }
   return anchor.start + anchor.speech + span;
+}
+
+/* ------------------------------------------------------------- one pen, in turn */
+
+/**
+ * The element an item belongs to, for items that split into phases.
+ *
+ * `plotItems` names its pieces `<id>~axes`, `<id>~curve-<n>` and so on, and the
+ * element map is keyed by the element's own id. Everything else is already the id.
+ */
+function baseIdOf(itemId: string): string {
+  const at = itemId.indexOf('~');
+  return at > 0 ? itemId.slice(0, at) : itemId;
+}
+
+/** Words a reader has to take in from this element. Only text carries any. */
+function wordsOf(el: Element | undefined): number {
+  return el?.type === 'text' ? el.text.split(/\s+/).filter(Boolean).length : 0;
+}
+
+/**
+ * Items the pen actually draws, and therefore the ones that have to take turns.
+ *
+ * The exclusions are all "this is not a hand drawing something":
+ *
+ *  - `noPen` is set on trails, whose beads appear as a moving element passes them.
+ *  - `fade`, `pop` and `grow` are not dash reveals; nothing is half-drawn during one.
+ *  - a morph *is* its item's entrance — the shape is already on the board, bending —
+ *    and the handoff after it is a 0.15 s crossfade, not a stroke.
+ *  - `trailAt` items are keyed to motion progress rather than to a time slice.
+ *  - a plot is cue-pinned across the whole narration by `plotItems`, which is a
+ *    schedule of its own and a considered one; serialising it would collapse a build
+ *    the beat's words are walking through. Excluded by *element type* rather than by
+ *    the `~` in its phase ids, because a plot with no recorded geometry degrades to a
+ *    single labelled frame that carries the element's own id.
+ */
+function isPenItem(item: PlanItem, ctx: Ctx): boolean {
+  if (item.noPen || item.morph || item.trailAt) return false;
+  if (item.style !== 'draw' && item.style !== 'write') return false;
+  return ctx.elements.get(baseIdOf(item.id))?.type !== 'plot';
+}
+
+/**
+ * Give one beat's marks to one hand, in turn.
+ *
+ * Mutates `start` and `dur` in place: everything downstream — the wipe pass, the
+ * board assertions, the segment planner — reads those two fields, and rebuilding the
+ * items would mean rebuilding their baked motion and morph tracks for a change that
+ * is purely a schedule.
+ *
+ * The ink each mark carries is measured from the prims that are already built, which
+ * is what lets `serializePen` tell the beat's subject from its decorations without
+ * being told. See `core/src/inktime.ts`.
+ */
+function serializeScene(items: PlanItem[], timing: SceneTiming, ctx: Ctx): void {
+  // Even one mark is scheduled: a single reveal cued at 95% of the narration has to
+  // be pulled back inside the reading tail exactly as a queue of them does.
+  const pen = items.filter((it) => isPenItem(it, ctx));
+  if (pen.length === 0) return;
+
+  /*
+   * Reading time, reserved rather than hoped for (plan items 1.3 and 1.4).
+   *
+   * The two marks that finish last are the two the reader has had least time with,
+   * and they are the last two by cue because the schedule only ever *delays* a mark
+   * — it never reorders. So the tail can be computed before the schedule exists.
+   *
+   * The voice stage has already lengthened the beat so that this reserve comes out
+   * of silence rather than out of the drawing (`readingTail` is the same function
+   * there). Reserving it again here is not belt-and-braces: the voice stage works
+   * from an estimate of the ink, and this is the pass that has the real thing.
+   */
+  const ordered = [...pen].sort((a, b) => a.start - b.start);
+  const tail = readingTail(
+    ordered.slice(-2).reduce((n, it) => n + wordsOf(ctx.elements.get(baseIdOf(it.id))), 0),
+    timing.length,
+  );
+
+  const schedule = serializePen(
+    pen.map((it) => ({
+      id: it.id,
+      at: it.start - timing.start,
+      dur: it.dur,
+      ink: inkCost(it.prims, timing.pace),
+    })),
+    { length: timing.length, speech: timing.speech, tail },
+  );
+
+  const by = new Map(schedule.slots.map((s) => [s.id, s]));
+  for (const item of pen) {
+    const slot = by.get(item.id);
+    if (!slot) continue;
+    item.start = timing.start + slot.at;
+    item.dur = slot.dur;
+  }
 }
 
 /* -------------------------------------------------------------- brand plate */
@@ -1026,6 +1162,33 @@ function brandPlateItem(
  * and every overlay get their own start time, so a tangent can arrive eight
  * seconds after the curve it measures, and a descent can step one move at a time.
  */
+/**
+ * The default `Enter.duration`, and the reason this comparison is allowed to be one.
+ *
+ * `Enter.duration` is `z.number().positive().default(0.8)`, so by the time a
+ * storyboard reaches here an authored 0.8 and an unwritten one are the same value —
+ * the schema has already erased the difference. That is fine, and deliberately so:
+ * the two readings agree on what should happen. An author who wrote 0.8 wanted the
+ * old default, which *was* this constant, and an author who wrote nothing gets the
+ * measured duration, which is the point of plan item 1.1. Anything else in the field
+ * is a real instruction — a deliberately slow reveal, a deliberately fast one — and
+ * is obeyed.
+ */
+const DEFAULT_ENTER_SEC = 0.8;
+
+/**
+ * How long this element's entrance should take: measured from its ink, unless the
+ * author asked for something specific.
+ *
+ * A plot has no single duration to measure — `plotItems` builds it as a sequence of
+ * cue-pinned phases with their own arithmetic — so it keeps the authored number.
+ */
+function drawSeconds(el: Element, prims: PlanPrim[], pace: InkPace): number {
+  if (el.enter.duration !== DEFAULT_ENTER_SEC) return el.enter.duration;
+  if (el.type === 'plot' || prims.length === 0) return el.enter.duration;
+  return durationFor(prims, pace);
+}
+
 function itemsFor(
   el: Element,
   fraction: number,
@@ -1046,24 +1209,22 @@ function itemsFor(
   // ink. And the wait may never push the reveal past the narration's end — on a
   // wiping board the fade starts the instant the narration stops, and an entrance
   // that collides with its own exit is worse than one the camera briefly misses.
+  const prims = el.type === 'plot' ? [] : primsFor(el, ctx);
+  const asks = drawSeconds(el, prims, timing.pace);
   const settle = timing.settle ?? 0;
   const startLocal =
     asked === 0 && settle > 0 && el.persist && el.type !== 'plot'
-      ? Math.min(
-          settle,
-          Math.max(0, timing.speech - el.enter.duration),
-          Math.max(0, timing.length - 0.5),
-        )
+      ? Math.min(settle, Math.max(0, timing.speech - asks), Math.max(0, timing.length - 0.5))
       : asked;
   const start = timing.start + startLocal;
   const room = Math.max(0.14, timing.length - startLocal);
-  const dur = Math.max(0.08, Math.min(el.enter.duration, room));
+  const dur = Math.max(0.08, Math.min(asks, room));
   const motion = bakeMotion(el, timing, fps);
 
   const items: PlanItem[] =
     el.type === 'plot'
       ? plotItems(el, start, timing, ctx)
-      : [baseItem(el.id, el, start, dur, timing, primsFor(el, ctx), center(el.at))];
+      : [baseItem(el.id, el, start, dur, timing, prims, center(el.at))];
 
   if (el.type === 'emphasis') {
     const first = items[0];

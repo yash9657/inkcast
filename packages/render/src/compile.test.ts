@@ -74,14 +74,20 @@ test('enter.at is a fraction of its own scene, clamped inside it', () => {
   const title = byId.get('title');
   assert.ok(title);
   assert.equal(title.start, 0);
-  assert.equal(title.dur, 0.45);
+  // An authored `duration` is what the mark *asks* for, and a ceiling rather than a
+  // promise since `serializePen` landed (plan 1.2). This fixture is a 0.8-second
+  // scene carrying five marks — five marks cannot be drawn one at a time in 0.8
+  // seconds at the lengths they asked for, so the whole beat is compressed together.
+  // Real beats are ten to twenty seconds and never reach this branch.
+  assert.ok(title.dur > 0 && title.dur <= 0.45);
 
-  // at: 0.55 of an 0.8s scene.
+  // at: 0.55 of an 0.8s scene. Delayed from 0.44 by the marks in front of it, which
+  // is the schedule doing its job: at 0.44 it was being drawn while `flow` still was.
   const link = byId.get('link');
   assert.ok(link);
-  assert.ok(Math.abs(link.start - 0.44) < 1e-9);
-  // 0.3s would run 0.06s past the end of the scene, so it is clamped to fit.
-  assert.ok(link.dur <= 0.8 - link.start + 1e-9);
+  assert.ok(link.start >= 0.44 - 1e-9, 'the schedule may delay a mark, never advance it');
+  // Nothing may finish after the scene does — the reason the beat was compressed.
+  assert.ok(link.start + link.dur <= 0.8 + 1e-6);
 
   // Scene 2 elements are offset by scene 1's measured duration.
   const note = byId.get('note');

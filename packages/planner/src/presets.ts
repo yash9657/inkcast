@@ -72,18 +72,38 @@ export type Preset = {
    * fact: the cadence table says what a *delivery* means and this says what a *format*
    * can afford, and they are different facts that happen to meet in one `Math.min`.
    *
-   * Applied in `trimStep`, which is the boundary this package owns — it caps the
-   * author's request before the compiler's cadence floor is added to it. That makes it
-   * binding on the length estimate (`lessonSeconds` reads `step.hold`) and on every
-   * hold the cadence does not raise a floor under. It is **not yet** binding on the
-   * finished scene: `holdFor` in `compile.ts` takes `max(CADENCE[c].hold, step.hold)`
-   * and clamps to `CADENCE[c].maxHold`, so a `slow_deliberate` beat still floors at
-   * 0.9s and a trailing question still adds its full second. Closing that needs one
-   * line in `holdFor` — `Math.min(paced.hold, preset.maxHold ?? Infinity)` — and it is
-   * named here rather than left implicit because a cap that is silently half-applied is
-   * exactly the kind of quiet degradation this repo keeps paying for.
+   * Applied in **two** places, and it took both. `trimStep` caps the author's request,
+   * which makes the ceiling binding on the length estimate (`lessonSeconds` reads
+   * `step.hold`). `holdFor` in `compile.ts` caps the finished scene, which is what
+   * makes it binding on the film — before that line existed the cadence floor
+   * (`slow_deliberate` floors at 0.9s) and the trailing-question bonus (a full second)
+   * both walked straight past a 0.8s ceiling, so the cap made the estimate wrong
+   * rather than the film short. It is written down here because a cap that is silently
+   * half-applied is exactly the kind of quiet degradation this repo keeps paying for.
    */
   maxHold?: number;
+  /**
+   * The most separate *moments* a beat may introduce ink at (plan item 1.5).
+   *
+   * Not a cap on elements — a cap on **starts**. The distinction is the whole of it:
+   * scene s7 of `projects/deb81002b073` carries 26 marks and 26 distinct enter
+   * fractions, so something new appears every 0.46 s for the entire beat with no rest
+   * anywhere in it. Over the film that is 158 objects in 131 s, one every 0.83 s, and
+   * it is the "attention firehose" the dissection measured.
+   *
+   * Twenty-six marks is not the defect; a *person* drawing that diagram would make
+   * twenty-six marks. Twenty-six separate decisions to start is. A hand draws the left
+   * stack while saying *the left stack* — several strokes, one movement, one moment —
+   * then stops, then draws the gap. So the marks are coalesced onto shared cues until
+   * the beat has at most this many starts, and `serializePen` draws each run back to
+   * back. What the ceiling buys is the *gaps between the runs*.
+   *
+   * Absent means no ceiling, which is what `standard` has: both shipped lessons pin
+   * byte-identical compiles to it (`test/pinned-hashes.test.ts`), and this arrives the
+   * way `explainer` itself did — as a new behaviour a *format* opts into, never as an
+   * edit to the one everything is pinned against.
+   */
+  maxGestures?: number;
   /**
    * Narration pace used for *estimating*, in words a second.
    *
@@ -270,6 +290,7 @@ export const PRESETS: Record<PresetName, Preset> = {
     vertical: false,
     holdBonus: 0,
     maxHold: 0.8,
+    maxGestures: 10,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1,
     board: 'wipe',

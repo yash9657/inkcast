@@ -240,7 +240,15 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // presets. `render` below is deliberately not bumped: every renderer-side change is
   // gated on `meta.board`, and `renderFingerprint` hashes the whole storyboard, so a
   // wiping board invalidates its own renders and no other project's.
-  storyboard: 15,
+  // 16: the gesture ceiling (`Preset.maxGestures`, plan item 1.5). A beat's reveals
+  // are coalesced onto shared cues until it has at most ten *starts*, so a
+  // twenty-six-mark diagram arrives as ten movements of the hand instead of
+  // twenty-six separate decisions to begin. Only `explainer` sets a ceiling, so a
+  // lesson compiled at `accumulate` is byte-identical and both shipped lessons still
+  // pin (`planner/test/pinned-hashes.test.ts` runs on every `pnpm -r test`). Bumped
+  // anyway, because the field is read at compile time and a cached storyboard
+  // compiled before it existed carries the old fractions with nothing to say so.
+  storyboard: 16,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never
@@ -263,7 +271,13 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // The delivery signature is also taken from the active provider rather than imported
   // from ElevenLabs, so a local clip is no longer keyed on a cloud adapter's constant;
   // that invalidates the cached kokoro clips too, exactly once.
-  voice: 8,
+  // 9: the voice stage lengthens a beat so its finished board can be read before it
+  // is wiped (plan item 1.3). Every clip whose scene draws anything is longer by real
+  // silence, `Scene.hold` comes back changed, and the sidecar carries a new
+  // `authoredHold` — which is what keeps a *second* run from re-synthesising the film
+  // it just paid for, and is therefore the field this bump exists to introduce rather
+  // than merely to invalidate.
+  voice: 9,
   // 8: a traced illustration's paths are placed where the vectoriser said they go, and an
   // asset may ask for its box to be met exactly. See the note above.
   // 9: the figure lane. An asset of kind `figure` resolves to an `<image>` wrapper rather
@@ -280,8 +294,17 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // corpus projects to add a file none of them depend on. The rigs note at the foot of
   // the comment above is the same reasoning: a global bump is for when you cannot tell
   // which artefacts moved, and here nothing did.
-  check: 1,
-  render: 5,
+  // 2: two board assertions became gates — `pen` (one mark drawn at a time, plan 1.2)
+  // and `dwell` (a second of stillness before the wipe, plan 1.4) — and the per-text
+  // dwell advisory moved to its own id, `dwell-text`. `qc.json` from an older run
+  // describes a different set of checks under the same names.
+  check: 2,
+  // 6: the schedule. Entrance length follows the ink (`core/src/inktime.ts`) instead
+  // of a flat 0.8s, and a beat's marks are given to one hand in turn
+  // (`serializePen`), with reading time reserved at the end of every beat. Every item
+  // in every plan has a different `start` and `dur`; nothing about *what* is drawn
+  // moved. `renderFingerprint` hashes the plan, so this bump and that hash agree.
+  render: 6,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */

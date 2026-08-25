@@ -820,6 +820,111 @@ test('a voice the plan refused is recorded as the voice that actually spoke', as
   });
 });
 
+/* ------------------------------------------------ reading time (plan item 1.3) */
+
+/** A drawn mark of a given size, cued at `at` — enough ink for the estimator to see. */
+function mark(id: string, at: number, w = 500, h = 400): Element {
+  return {
+    type: 'shape',
+    shape: 'rect',
+    fill: false,
+    id,
+    at: { x: 100, y: 100, w, h },
+    enter: { at, duration: 0.8, style: 'draw' },
+    persist: true,
+  };
+}
+
+test('a beat is lengthened so its finished board can be read before it is wiped', async () => {
+  await withTempProject(async (dir) => {
+    // Eight marks, the last cued at 94% of the narration. On the old schedule this
+    // beat finished drawing a third of a second before it was wiped — scene s7 of
+    // `projects/deb81002b073`, whose last element *entered* at 97%.
+    const sb = storyboard([
+      {
+        narration:
+          'A bowling ball and an apple, side by side, and the question is which of them wins.',
+        hold: 0.65,
+        elements: Array.from({ length: 8 }, (_, i) => mark(`m${i}`, 0.1 + i * 0.12)),
+      },
+    ]);
+    const before = sb.scenes[0]!.hold;
+
+    const { storyboard: out } = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) => stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+
+    const scene = out.scenes[0]!;
+    assert.ok(scene.hold > before, `the hold did not grow (${before} -> ${scene.hold})`);
+
+    // And the silence is real, not bookkeeping: the clip on disk is exactly as long
+    // as the timeline the renderer builds from `durationSec + hold`, which is what
+    // keeps the audio in sync with the board.
+    const measured = await measureDuration(path.join(dir, sceneAudioPath(0)));
+    const timeline = (scene.durationSec ?? 0) + scene.hold;
+    assert.ok(
+      Math.abs(measured - timeline) < 0.05,
+      `clip ${measured.toFixed(3)}s vs timeline ${timeline.toFixed(3)}s`,
+    );
+  });
+});
+
+test('a beat with nothing to draw is left exactly as the compiler paced it', async () => {
+  await withTempProject(async (dir) => {
+    const sb = storyboard([{ narration: 'Nothing is drawn here at all.', hold: 0.65 }]);
+    const { storyboard: out } = await narrate(sb, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: (id) => stubProvider(id, { model: KOKORO_MODEL_ID }),
+    });
+    assert.equal(out.scenes[0]?.hold, 0.65, 'silence is the compiler decision, not a default');
+  });
+});
+
+test('reading time is added once, not once per run', async () => {
+  await withTempProject(async (dir) => {
+    const build = () =>
+      storyboard([
+        {
+          narration: 'A bowling ball and an apple, side by side, and one of them wins.',
+          hold: 0.65,
+          elements: Array.from({ length: 8 }, (_, i) => mark(`m${i}`, 0.1 + i * 0.12)),
+        },
+      ]);
+    const create = (id: VoiceProviderId) => stubProvider(id, { model: KOKORO_MODEL_ID });
+
+    const first = await narrate(build(), dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: create,
+    });
+    const grown = first.storyboard.scenes[0]!.hold;
+    assert.ok(grown > 0.65);
+
+    // The second run receives this stage own output as its input — the pipeline
+    // saves the narrated storyboard. Two things must hold, and neither did before
+    // `SceneTiming.authoredHold` existed: the hold must not grow again, and nothing
+    // may be re-synthesised, because on a paid provider that is a second bill for
+    // words that never moved.
+    const again = build();
+    again.scenes[0]!.hold = grown;
+    const second = await narrate(again, dir, {
+      provider: 'kokoro',
+      padSec: 0,
+      align: 'off',
+      createProvider: create,
+    });
+
+    assert.equal(second.storyboard.scenes[0]!.hold, grown, 'the hold grew a second time');
+    assert.equal(second.voice.spoke, false, 'the beat was re-synthesised for an unchanged film');
+  });
+});
+
 test('a storyboard cast in a mood reports the mood it was cast in', async () => {
   await withTempProject(async (dir) => {
     const sb = storyboard(['A mood is what the person chose, and it has to survive the run.']);

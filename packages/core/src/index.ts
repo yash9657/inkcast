@@ -11,6 +11,7 @@ export * from './speech.js';
 export * from './drift.js';
 export * from './palette.js';
 export * from './stylepack.js';
+export * from './inktime.js';
 export * from './gates.js';
 export * from './qc.js';
 export * from './project.js';

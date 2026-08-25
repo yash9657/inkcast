@@ -32,6 +32,12 @@ every field is documented there, next to the code that reads it. This file is th
   "pen": {
     "width": 8.0, // the visuals stage's base stroke, in canvas units
     "weight": 1.8, // the renderer's multiplier on its 6-output-px base
+    // How fast this hand lays ink down, in OUTPUT PIXELS per second — the number
+    // that decides how long each mark takes to draw (`core/src/inktime.ts`). In
+    // pixels rather than canvas units so it means the same thing at every camera
+    // zoom. Broad tools cover a board faster: chalk 2000, marker 1800, ink 1500,
+    // pencil 1400. Optional; 1800 if omitted.
+    "inkSpeed": 1800,
     "art": {
       // The sprite that rides the stroke tip: tip at the origin, body up the −y axis,
       // in its own units. `fill`/`stroke` take any CSS colour, plus the one token

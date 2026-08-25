@@ -155,6 +155,16 @@ export async function check(
     qcCheck('off-frame', of(report.blocking, 'off-frame')),
     qcCheck('overrun', of(report.blocking, 'overrun')),
     qcCheck('illegible', of(report.blocking, 'illegible')),
+    // One hand on the board (plan 1.2). Blocking rather than advisory because,
+    // unlike every other timing check here, no authoring decision can reach it:
+    // `serializePen` schedules a legal beat out of any input it is given, so this
+    // message means the scheduler was bypassed or has regressed.
+    qcCheck('pen', of(report.blocking, 'pen')),
+    // Time to look at the finished board (plan 1.4). An advisory until this
+    // release, and only because it was unfixable: with a flat 0.8s entrance nearly
+    // every scene failed it, and a gate that fails every film is a gate everybody
+    // turns off. See `sceneDwellViolations`.
+    qcCheck('dwell', of(report.blocking, 'dwell')),
     qcCheck('vacant', report.vacancy ? [report.vacancy.message] : [], {
       note: fillNote(report.fill),
     }),
@@ -163,7 +173,12 @@ export async function check(
     // for a legible close-up is the framing solver doing its job, and an authored
     // camera that misses is somebody's mistake.
     qcCheck('off-frame-derived', of(report.advisories, 'off-frame'), { severity: 'warn' }),
-    qcCheck('dwell', of(report.advisories, 'dwell'), { severity: 'warn' }),
+    // The per-text half of the same question, kept separate from the gate above
+    // because it asks something narrower: not "was the board ever still" but "did
+    // *this* caption get read". A drawing's labels are exempt (they are read as
+    // parts of the picture), so it can be quiet on a scene the gate fails and loud
+    // on one it passes.
+    qcCheck('dwell-text', of(report.advisories, 'dwell'), { severity: 'warn' }),
     // Thin fill on a board that cleared the vacancy floor, and which of fill's two
     // factors is the thin one (plan 9.3). A judgement, so `warn`: `vacant` above is
     // the fact, and the two disagree by design — 8.1's longitude cast passed the

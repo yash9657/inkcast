@@ -25,12 +25,21 @@
  * All three surface through `gate(...)` so `--degrade` stays the escape and the
  * message format stays uniform.
  */
-import { TYPE_SCALE, basePxPerUnit, elementBounds, viewRect } from '@inkcast/core';
+import {
+  MAX_READ_SHARE,
+  PEN_OVERLAP,
+  minPenSpan,
+  TYPE_SCALE,
+  basePxPerUnit,
+  elementBounds,
+  viewRect,
+} from '@inkcast/core';
 import type { Element, FrameSize, Rect, Scene, SceneFraming } from '@inkcast/core';
 import { rectContains } from './geom.js';
 
 export type BoardViolation = {
-  kind: 'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible' | 'vacant' | 'crowded' | 'dwell';
+  kind:
+    'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible' | 'vacant' | 'crowded' | 'dwell' | 'pen';
   message: string;
 };
 
@@ -351,6 +360,133 @@ export function overrunViolations(items: readonly TimedItem[]): BoardViolation[]
       });
     }
   }
+  return out;
+}
+
+/**
+ * (d) Two marks being drawn at once — the board having more than one hand.
+ *
+ * The invariant `serializePen` establishes, asserted rather than assumed. It blocks,
+ * and it blocks because unlike every other timing check here it cannot be tripped by
+ * an authoring decision: a beat with too many marks, too little narration, or cues
+ * stacked on one word all come out of `serializePen` legally scheduled. The only way
+ * to reach this message is for the scheduler to have been bypassed or to have
+ * regressed — the same argument `overrunViolations` makes for blocking.
+ *
+ * The tolerance is `PEN_OVERLAP` of the *earlier* mark's own length, which is what
+ * the scheduler grants: a hand lifting off one stroke and setting down on the next.
+ * Measured against the earlier mark rather than a constant so a three-second figure
+ * and a half-second arrowhead each get an overlap proportional to themselves.
+ */
+export function penOverlapViolations(
+  items: readonly (TimedItem & { scene: number })[],
+): BoardViolation[] {
+  const out: BoardViolation[] = [];
+  const byScene = new Map<number, (TimedItem & { scene: number })[]>();
+  for (const item of items) {
+    const list = byScene.get(item.scene);
+    if (list) list.push(item);
+    else byScene.set(item.scene, [item]);
+  }
+
+  for (const list of byScene.values()) {
+    const ordered = [...list].sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
+    for (let i = 1; i < ordered.length; i++) {
+      const a = ordered[i - 1] as TimedItem;
+      const b = ordered[i] as TimedItem;
+      const earliest = a.start + a.dur * (1 - PEN_OVERLAP);
+      if (b.start + 1e-6 < earliest) {
+        out.push({
+          kind: 'pen',
+          message:
+            `"${b.id}" starts being drawn at ${b.start.toFixed(2)}s while "${a.id}" is still ` +
+            `being drawn (until ${(a.start + a.dur).toFixed(2)}s) — one board, one hand, ` +
+            'one mark at a time',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The least time a finished board gets before its beat ends, in seconds.
+ *
+ * Below `MIN_READ_SEC` because it is a *gate* rather than the target: 1.5 s is what
+ * `readingTail` reserves and what a board should get, and this is the line under
+ * which the board was assembled but never actually shown. The gap between them is
+ * deliberate slack for a beat too short to reserve the full tail.
+ */
+export const MIN_SCENE_DWELL = 1.0;
+
+/**
+ * (e) A beat that finishes drawing with no time left to look at what it drew.
+ *
+ * Blocking, and it is worth saying why this one changed sides. It was an advisory
+ * for as long as it was unfixable: with a flat 0.8 s entrance and cues placed
+ * independently, *nearly every scene* had thin dwell — the dissection measured six
+ * of ten under 2.8 s and one at 0.35 s — and a gate that fails every film is a gate
+ * everybody passes `--degrade` to. `docs/PLAN-WATCHABILITY.md` §1.4 states the order
+ * this landed in for exactly that reason: "gates that cannot fire before the fix
+ * exists are noise".
+ *
+ * The fix exists now, in two halves that meet here. The voice stage lengthens a beat
+ * so the reserve comes out of silence (`allowReadingTime`), and `serializePen`
+ * reserves `readingTail` at the end of every beat it schedules. So a board with
+ * under a second of dwell is no longer "the schedule is like that"; it is a beat
+ * that something bypassed, or one carrying so much that even the even-pack fallback
+ * could not fit it — which is a real defect and the element ceiling's business.
+ *
+ * Measured over the marks the pen draws, not every item: a caption that fades out on
+ * the last frame is a decision, and a trail bead's timing belongs to the motion it
+ * follows.
+ */
+export function sceneDwellViolations(
+  items: readonly (TimedItem & { scene: number })[],
+  scenes: readonly { id: string; start: number; end: number }[],
+): BoardViolation[] {
+  const lastEnd = new Map<number, { at: number; id: string; marks: number }>();
+  for (const item of items) {
+    const end = item.start + item.dur;
+    const seen = lastEnd.get(item.scene);
+    if (!seen) lastEnd.set(item.scene, { at: end, id: item.id, marks: 1 });
+    else if (end > seen.at)
+      lastEnd.set(item.scene, { at: end, id: item.id, marks: seen.marks + 1 });
+    else seen.marks += 1;
+  }
+
+  const out: BoardViolation[] = [];
+  scenes.forEach((scene, i) => {
+    const last = lastEnd.get(i);
+    if (!last) return;
+    const dwell = scene.end - last.at;
+    /*
+     * What this beat could actually have given, which is the only thing worth
+     * failing it for. Three terms, each of them a rule stated somewhere else:
+     *
+     *  - a second of stillness, because that is what a board needs;
+     *  - `MAX_READ_SHARE` of the beat, the ceiling `readingTail` reserves under, so
+     *    a beat under two seconds long is not failed for a second it never had;
+     *  - whatever is left after its marks are drawn at the floor (`minPenSpan`),
+     *    because reading time comes out of slack and a beat with more marks in it
+     *    than seconds has none. That beat is over-full, which `crowded` and the
+     *    element ceiling report — failing it here would name the wrong defect.
+     */
+    const length = scene.end - scene.start;
+    const required = Math.min(
+      MIN_SCENE_DWELL,
+      length * MAX_READ_SHARE,
+      Math.max(0, length - minPenSpan(last.marks)),
+    );
+    if (dwell + 0.02 >= required) return;
+    out.push({
+      kind: 'dwell',
+      message:
+        `scene ${scene.id} finishes drawing "${last.id}" with ${dwell.toFixed(2)}s left before ` +
+        `it ends — it needs ${required.toFixed(2)}s of stillness to be looked at, or it was ` +
+        'only ever assembled',
+    });
+  });
   return out;
 }
 

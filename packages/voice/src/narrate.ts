@@ -36,17 +36,24 @@ import path from 'node:path';
 import type { GateMode, Scene, StageOptions, Storyboard } from '@inkcast/core';
 import {
   CADENCE,
+  boardMetrics,
   clearFresh,
+  estimateDurationFor,
+  estimateInkCost,
   gate,
   hash,
+  inkPaceFor,
   isFresh,
   logger,
   markFresh,
   normalizeNarration,
   noteProblem,
+  readingTail,
   report,
+  serializePen,
   totalDuration,
 } from '@inkcast/core';
+import type { InkPace } from '@inkcast/core';
 import {
   appendSilence,
   measureDuration,
@@ -265,6 +272,25 @@ type SceneTiming = {
   narrationSec: number;
   /** Silence appended for `Scene.hold`, in seconds. */
   holdSec: number;
+  /**
+   * The hold this stage was **given**, before it added any reading time.
+   *
+   * The one field here that is an *input* rather than a measurement, and it is
+   * recorded because `Scene.hold` is both. The compiler writes a hold; this stage
+   * lengthens it so the finished board can be read (plan item 1.3) and writes the
+   * longer number back onto the scene; the storyboard is saved. On the next run the
+   * scene arrives carrying this stage's own output, and a clip cache key computed
+   * from it would miss — re-synthesising, and re-charging for, a film whose
+   * narration never moved.
+   *
+   * So the key is computed from this instead, and the test for "is `scene.hold`
+   * mine or the compiler's" is whether it equals the `holdSec` above: our own
+   * output, coming back. A recompiled storyboard brings a different number and is
+   * correctly treated as new input.
+   *
+   * Absent on sidecars written before this existed, where `holdSec` is the answer.
+   */
+  authoredHold?: number;
   phrases: PhraseTiming[];
   words?: WordTiming[];
   /**
@@ -412,6 +438,8 @@ async function synthesizeScene(
   index: number,
   phrases: readonly Phrase[],
   ctx: SynthContext,
+  /** The compiler's hold, not `scene.hold` — see `SceneTiming.authoredHold`. */
+  holdSec: number,
 ): Promise<SceneTiming> {
   const rel = sceneAudioPath(index);
   const abs = path.resolve(ctx.dir, rel);
@@ -476,7 +504,7 @@ async function synthesizeScene(
 
   const assembled = await writeClipFromParts(abs, parts, {
     padSec: ctx.padSec,
-    holdSec: scene.hold,
+    holdSec,
     sampleRate: CLIP_SAMPLE_RATE,
   });
 
@@ -525,23 +553,124 @@ async function synthesizeScene(
     version: 1,
     narrationSec: assembled.narrationSec,
     holdSec: assembled.holdSec,
+    authoredHold: holdSec,
     phrases: timings,
     ...(words ? { words } : {}),
     ...(alignFraction !== undefined ? { alignFraction } : {}),
   };
 }
 
-/** A scene with nothing to say still needs a clip, a duration, and its hold. */
-async function synthesizeEmptyScene(
+/* ------------------------------------------------------------- reading time */
+
+/**
+ * Most silence this stage will add to one beat, in seconds.
+ *
+ * A ceiling because the arithmetic below is an *estimate* of the ink, and an
+ * estimate with no bound can turn one over-full beat into a ten-second stare. A
+ * beat that wants more than this is a beat with too much in it, which is the
+ * element ceiling's problem (plan 1.5) — the renderer will compress the drawing
+ * rather than the film growing without limit, and the dwell gate will say so.
+ */
+const MAX_READING_EXTRA = 5;
+
+/**
+ * Lengthen a beat's hold so its finished board can be read before it is wiped.
+ *
+ * ## Why the voice stage owns this
+ *
+ * Because it owns clip length. `Scene.hold` is rendered as real silence *inside*
+ * the scene's clip, and the narration track is those clips concatenated — so the
+ * only stage that can make a beat longer is the one that writes the audio. The
+ * renderer, which knows exactly how long the drawing takes, cannot add a second to
+ * a beat; it can only decide where inside the beat the marks go.
+ *
+ * So the two stages split the job. This one buys the time; `serializeScene` in the
+ * renderer spends it, reserving the same `readingTail` at the end of every beat.
+ * When this estimate is good the reserve comes out of silence and nothing is
+ * compressed. When it is low the renderer compresses the drawing a little, which is
+ * a graceful degradation rather than a failed gate — the dwell is still there.
+ *
+ * ## Why it is an estimate
+ *
+ * The voice stage runs fourth and visuals runs fifth, so there are no prims here to
+ * measure; the ink is estimated from the authored boxes (`estimateInkCost`). That
+ * ordering is deliberate and cannot be swapped — the renderer needs measured scene
+ * durations, which only exist after this stage. See `pipeline/src/progress.ts`.
+ *
+ * ## Idempotence
+ *
+ * The extension is appended to a clip that may already carry one. A second run
+ * recomputes the same `need`, finds the beat already that long, and appends
+ * nothing — which is what makes this safe to do after the freshness marker has been
+ * written. `authoredHold` keeps the *cache key* stable across the same two runs.
+ */
+async function allowReadingTime(
   scene: Scene,
   index: number,
+  timing: SceneTiming,
+  ctx: {
+    dir: string;
+    abs: string;
+    timingAbs: string;
+    pace: InkPace;
+    authoredHold: number;
+  },
+): Promise<SceneTiming> {
+  const slots = scene.elements
+    .map((el) => ({
+      id: el.id,
+      at: (el.enter.at ?? 0) * timing.narrationSec,
+      dur: estimateDurationFor(el, ctx.pace),
+      ink: estimateInkCost(el, ctx.pace),
+    }))
+    .filter((slot) => slot.ink > 0);
+  if (slots.length === 0) return timing;
+
+  const length = timing.narrationSec + timing.holdSec;
+  // The last two marks by cue are the last two to finish — the schedule only ever
+  // delays, never reorders — so the reader's floor can be computed before it exists.
+  const last = [...slots].sort((a, b) => a.at - b.at).slice(-2);
+  const words = last.reduce((n, slot) => n + wordsOfElement(scene, slot.id), 0);
+  const tail = readingTail(words, length);
+
+  // `wanted`, not `lastFinish`: the beat is already bounded by its own length, so
+  // the schedule inside it always *looks* comfortable. What this needs is the time
+  // the marks would take if nothing were compressed. See `PenSchedule.wanted`.
+  const need = serializePen(slots, { length, speech: timing.narrationSec }).wanted + tail;
+  const extra = Math.min(MAX_READING_EXTRA, need - length);
+  if (!(extra > 0.02)) return timing;
+
+  await appendSilence(ctx.abs, extra);
+  const next: SceneTiming = {
+    ...timing,
+    holdSec: round3(timing.holdSec + extra),
+    authoredHold: ctx.authoredHold,
+  };
+  await writeFile(ctx.timingAbs, JSON.stringify(next, null, 2));
+  log.debug(
+    `scene ${index + 1} (${scene.id}): +${extra.toFixed(2)}s so the finished board has ` +
+      `${tail.toFixed(2)}s to be read`,
+  );
+  return next;
+}
+
+/** Words a reader has to take in from one element of this scene. */
+function wordsOfElement(scene: Scene, id: string): number {
+  const el = scene.elements.find((e) => e.id === id);
+  return el?.type === 'text' ? el.text.split(/\s+/).filter(Boolean).length : 0;
+}
+
+/** A scene with nothing to say still needs a clip, a duration, and its hold. */
+async function synthesizeEmptyScene(
+  index: number,
   ctx: SynthContext,
+  authoredHold: number,
 ): Promise<SceneTiming> {
   const abs = path.resolve(ctx.dir, sceneAudioPath(index));
   const narrationSec = Math.max(ctx.padSec, 0.6);
   await writeSilenceWav(abs, narrationSec);
-  const holdSec = await appendSilence(abs, scene.hold);
-  return { version: 1, narrationSec, holdSec, phrases: [] };
+  const holdSec = await appendSilence(abs, authoredHold);
+  return { version: 1, narrationSec, holdSec, authoredHold, phrases: [] };
 }
 
 /* ------------------------------------------------------------------ stage */
@@ -622,12 +751,27 @@ export async function narrate(
 
   report(opts, { stage: 'voice', pct: 0, note: `${total} scene${total === 1 ? '' : 's'}` });
 
+  /*
+   * How fast the hand draws, per scene — the input to the reading-time arithmetic
+   * below (plan 1.3). `boardMetrics` is the same function the renderer derives its
+   * own numbers from, so the estimate this stage makes and the schedule the renderer
+   * builds are answers to one question rather than two.
+   */
+  const metrics = boardMetrics(out);
+  const boardPace = inkPaceFor(out.meta.style, metrics.scale, out.canvas, metrics.frame);
+  const paceFor = (index: number): InkPace => ({
+    ...boardPace,
+    pxPerUnit: boardPace.basePxPerUnit * (metrics.framing[index]?.camera.zoom ?? 1),
+  });
+
   // A sentence split across two beats is a planner bug that no amount of audio
   // alignment can repair, so it is reported before a single sample is generated.
   for (const warning of sentenceSpanWarnings(out.scenes.map((s) => s.narration))) log.warn(warning);
 
   /** Per-scene input hashes, folded into the narration-track cache key. */
   const sceneHashes: string[] = [];
+  /** The hold each clip actually carries, after reading time. See `narrationHash`. */
+  const sceneHolds: number[] = [];
   const cueLog: CueResolution[] = [];
   /** Gated quality defects this run degraded through — carried into `problems`. */
   const gateProblems: string[] = [];
@@ -680,6 +824,21 @@ export async function narrate(
       const timingAbs = path.resolve(dir, timingRel);
       const cacheKey = `voice:scene:${i}:${scene.id}`;
 
+      /*
+       * The hold the *compiler* asked for.
+       *
+       * `scene.hold` is this stage's own output on any run after the first — it
+       * appends reading silence to it (plan 1.3) and the storyboard is saved with
+       * the longer number. Keying the clip on that would mean a cache miss on every
+       * second run, which on a paid provider is a second bill for identical words.
+       * See `SceneTiming.authoredHold`.
+       */
+      const prior = await readTiming(timingAbs);
+      const authoredHold =
+        prior?.authoredHold !== undefined && Math.abs(prior.holdSec - scene.hold) < 1e-3
+          ? prior.authoredHold
+          : scene.hold;
+
       const active = await chain.active();
       lastActive = active;
       // The engine decides how much text it needs to sound like a person, because only it
@@ -710,7 +869,8 @@ export async function narrate(
           rate,
           sceneWpm,
           padSec,
-          scene.hold,
+          // The compiler's hold, never this stage's extension of it — see above.
+          authoredHold,
           // The *effective* mode, not the requested one: a clip synthesised as clauses is
           // different audio from the same words synthesised as sentences, and keying on the
           // request would serve the choppy one forever after the provider changed its mind.
@@ -756,7 +916,7 @@ export async function narrate(
       let timing: SceneTiming | undefined;
 
       if (!opts.force && (await isFresh(dir, cacheKey, inputHash, [rel, timingRel]))) {
-        timing = await readTiming(timingAbs);
+        timing = prior;
         if (timing) {
           log.debug(`scene ${i + 1}: cached (${timing.narrationSec.toFixed(2)}s)`);
         }
@@ -767,9 +927,9 @@ export async function narrate(
           log.warn(
             `scene ${i + 1} (${scene.id}) has no speakable narration — writing a short pause`,
           );
-          timing = await synthesizeEmptyScene(scene, i, ctx);
+          timing = await synthesizeEmptyScene(i, ctx, authoredHold);
         } else {
-          timing = await synthesizeScene(scene, i, phrases, ctx);
+          timing = await synthesizeScene(scene, i, phrases, ctx, authoredHold);
         }
 
         /* ------------------------------------------------ whole-film failover */
@@ -940,7 +1100,10 @@ export async function narrate(
       // the provider's clock (`SynthesisResult.words`), and a clip assembled from parts is
       // measured after the fact — so "the words are inside the audio" is a property worth
       // asserting whatever produced them, not only after a repair.
-      const overrunWords = (timing.words ?? []).filter((w) => w.end > timing.narrationSec + 1e-6);
+      // Bound to a local because `timing` is reassigned further down (the reading-time
+      // extension), which stops the compiler narrowing it inside a closure.
+      const narrationSec = timing.narrationSec;
+      const overrunWords = (timing.words ?? []).filter((w) => w.end > narrationSec + 1e-6);
       if (overrunWords.length > 0) {
         const last = overrunWords[overrunWords.length - 1] as WordTiming;
         gateProblems.push(
@@ -1018,6 +1181,18 @@ export async function narrate(
         );
       }
 
+      /* ------------------------------------------------- reading time */
+
+      timing = await allowReadingTime(scene, i, timing as SceneTiming, {
+        dir,
+        abs,
+        timingAbs,
+        pace: paceFor(i),
+        authoredHold,
+      });
+      scene.hold = round3(timing.holdSec);
+      sceneHolds.push(scene.hold);
+
       spokenWords += text.split(/\s+/).filter(Boolean).length;
       spokenSeconds += timing.narrationSec;
     }
@@ -1037,7 +1212,17 @@ export async function narrate(
   const clips = out.scenes.map((scene, i) =>
     path.resolve(dir, scene.audioPath ?? sceneAudioPath(i)),
   );
-  const narrationHash = hash(sceneHashes, out.meta.outroSec, CLIP_SIGNATURE);
+  /*
+   * The clips' own keys, plus the holds they ended up with.
+   *
+   * The holds are folded in separately because they are not in a clip's key: the
+   * reading-time extension (`allowReadingTime`) is a function of the *elements* on
+   * the board, and a clip is keyed on the narration. So a storyboard edit that adds
+   * a mark to a beat without touching a word lengthens every clip in it and leaves
+   * `sceneHashes` untouched — and the assembled track would stay fresh while every
+   * file under it had grown.
+   */
+  const narrationHash = hash(sceneHashes, sceneHolds, out.meta.outroSec, CLIP_SIGNATURE);
 
   if (opts.force || !(await isFresh(dir, 'voice:narration', narrationHash, [NARRATION_FILE]))) {
     const duration = await concatWavs(clips, path.resolve(dir, NARRATION_FILE), out.meta.outroSec);

@@ -11,6 +11,7 @@
   "pen": {
     "width": 2.9,
     "weight": 0.75,
+    "inkSpeed": 1500,
     "art": {
       "unit": 130,
       "baseAngle": 148,
