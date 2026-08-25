@@ -792,7 +792,55 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   bundle — the same constraint that already makes the voice list a mirror. So a
 >   user-added pack works through the CLI and the API and does not appear in the web
 >   picker. Closing it means serving `styleIds()` from a route; the file now says so where
->   the list is. Next: 6.3, then Phase 8.
+>   the list is.
+>
+> **Progress (2026-08-24): 6.3 is landed — and it ships no lane, on purpose.** 1163 tests
+> green (3 pre-existing keyvault skips, 1166 total), auditcheck 108/108, lint and typecheck
+> clean.
+>
+> - **The demand rule became runnable.** This item's rule is that lanes get built in the
+>   order real lessons ask for them, measured by the frequency of 6.1's findings — and
+>   nothing computed that. The findings land in `qc.json` one film at a time, so "the
+>   frequency" was a thing somebody had to reconstruct by hand from fifty directories,
+>   which is how a demand-driven plan quietly becomes a taste-driven one.
+>   `pipeline/src/lanedemand.mts` runs the guard over every lesson on disk instead, and
+>   counts fixtures in a **separate column**: a lesson written to prove the guard fires is
+>   not a lesson that wants a lane, and counting it is a vote for building something nobody
+>   asked for.
+> - **The answer is zero.** Over 54 lessons and 13 distinct topics, no lesson anybody
+>   wanted a film of asks for chemistry, circuits or geography. The only findings on record
+>   are the three in `qc61-aspirin`, 6.1's own fixture. So the honest output of this item is
+>   the one the remainder handoff predicted: a written decision plus the lane docs, and
+>   **W8** in `AUDIT-FINDINGS.md` §5 carries the argument to the re-audit with the trigger
+>   written as a number — two lessons in the `demand` column.
+> - **The plan's own ordering is overturned, in writing.** "Circuits first; closest, curated
+>   `symbols/circuit/*` already exist" rests on symbols that have never existed here (the
+>   library holds seven assets, none a circuit) and on `schemdraw`, which is a **Python**
+>   library. Chemistry ranks first instead, on the only evidence anyone has: frames from
+>   `qc61-aspirin` in which a beat asking for a hydroxyl group put the formula **B₄H₂** on
+>   the board, captioned, in ink, and a beat asking for a skeletal formula got the lettered
+>   words "Salicylic acid". The audit called this class "plausible and chemically false";
+>   the frames are worse — it is a wrong _formula in letters_, read as a fact the way a
+>   mangled equation is (D1).
+> - **All three expiry tripwires were dead, and that is the session's real find.** 6.1's
+>   table names, per lane, the library whose installation means the lane exists and the row
+>   must come out — `auditcheck` matches it against every `package.json` so that deleting
+>   the row is "not left to anyone's memory". None of the three names could ever have
+>   matched: the package is `@rdkit/rdkit` not `rdkit`, `schemdraw` is Python, and a map
+>   lane installs `topojson-client` not `topojson`. Nobody noticed because the one lane that
+>   ever shipped named its library exactly (`shiki`). `ends` is a list of real, registry-
+>   checked names now, matched with the scoped-package case handled; circuits names none,
+>   because no library supplies it, and its tripwire is `symbols/circuit/` in the asset
+>   library instead. A unit test asserts the shape of every name.
+> - **Three lane docs, each a real dependency argument.** `docs/LANE-CHEMISTRY.md` (start
+>   with `openchemlib`, BSD-3, 6.1 MB, because the lane wants _coordinates_ rather than a
+>   picture — a library handing back finished SVG would be the second renderer 2.2 spent a
+>   phase deleting), `docs/LANE-GEOGRAPHY.md` (`d3-geo` + `topojson-client` are 295 KB of
+>   ISC code and the cost is the 8.2 MB of Natural Earth data), `docs/LANE-CIRCUITS.md`
+>   (no library exists; the cost is ~15 curated symbols drawn to this board's hand).
+>   Chemistry's is the one with a real decision in it: the lane draws bonds in **`sketch`**
+>   ink, not `crisp` — a wobbled C–C bond is the same bond, unlike a wobbled integral sign
+>   — with double-bond spacing floored as geometry. Next: Phase 8.
 
 **Two rules that shape everything here:**
 

@@ -7,7 +7,8 @@ six times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase
 trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan), and
 after gating findings 3 and 4 (the run reports what it did, not what it intended), after
 gating finding 2 (the length estimate counts spoken letters), after 7.1 (the partial
-re-encode), and after 7.3 (style packs go declarative — which closes Phase 7).
+re-encode), after 7.3 (style packs go declarative — which closes Phase 7), and after 6.3
+(the lane decision, which closes Phase 6).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -17,8 +18,9 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, all of Phase 7
-(7.1, 7.2, 7.3) and the three findings the remainder handoff carried (2, 3 and 4):**
+**Phases 0 through 7 are landed and tested — all of Phase 6 (6.1–6.5) and all of Phase 7
+(7.1, 7.2, 7.3), plus the three findings the remainder handoff carried (2, 3 and 4). Only
+Phase 8 is open:**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -525,6 +527,52 @@ string[]` is a single `accent` (a list is the rainbow board `palette.ts` exists 
   canonical JSON, because the name identified the ink only while the numbers behind it were
   compiled in; every project on disk re-resolves once as a result.
 
+- 2026-08-24 — **6.3, the lane decision — Phase 6 closed, and no lane built.** Four things
+  a re-audit will ask about, and the fourth is the one that mattered.
+  1. **The demand rule was unrunnable.** 6.3's rule is that lanes get built in the order
+     real lessons ask for them, measured by the frequency of 6.1's findings. Those findings
+     are written per project into `qc.json`, one film at a time, so "the frequency" meant
+     reconstructing it by hand from fifty directories — which nobody would do twice, and a
+     demand-driven plan whose demand is never computed is a taste-driven plan.
+     `pipeline/src/lanedemand.mts` runs the guard over every lesson on disk. It re-derives
+     from `lesson.json` rather than reading `qc.json`, so it covers projects cast before
+     6.1 landed and stays correct when the signals are tuned.
+  2. **Fixtures are a separate column, and that is the subtlety.** A lesson authored into a
+     scratch directory to prove the guard fires is not a lesson that wants a lane, and
+     counting it is a vote for building something nobody asked for — the failure 6.1's own
+     precision-over-recall note warns about. `pipeline.json`'s `source.ref` is the witness.
+     Over 54 lessons and 13 topics the demand column reads **0, 0, 0**; the only findings
+     on record are `qc61-aspirin`'s three, and it is the fixture.
+  3. **The plan's ordering is overturned in writing, not quietly.** "Circuits first;
+     closest, curated `symbols/circuit/*` already exist" is wrong on both legs: the library
+     holds seven assets and none is a circuit, and `schemdraw` is a **Python** library.
+     Chemistry ranks first on the only evidence there is — frames from `qc61-aspirin` where
+     a beat asking for a hydroxyl group put **B₄H₂** on the board, captioned, and a beat
+     asking for a skeletal formula got the lettered words "Salicylic acid". The audit calls
+     this class "plausible and chemically false"; what it actually produces is a wrong
+     _formula in letters_, which a viewer reads as a fact exactly as they read D1's mangled
+     equation. Worth opening the frames before arguing with the ranking.
+  4. **All three expiry tripwires were dead strings.** 6.1's table names, per lane, the
+     library whose installation means the lane exists and the row must come out, and
+     `auditcheck` greps every `package.json` for it — the mechanism whose stated purpose is
+     that deleting the row is "not left to anyone's memory". `rdkit` could never match
+     (`@rdkit/rdkit`), `schemdraw` could never match (Python), `topojson` could never match
+     (a map lane installs `topojson-client`). Three of three, on a tripwire, undetected —
+     because the only lane that ever shipped named its library exactly (`shiki`), so the
+     mechanism had been demonstrated exactly once and by its easiest case. `ends` is a list
+     of registry-checked names now, matched with scoped packages handled; circuits names
+     none, because no library supplies it, and its tripwire is `symbols/circuit/` in the
+     asset library. A unit test asserts every name is shaped like a package.
+
+  **What shipped instead of a lane**: `docs/LANE-CHEMISTRY.md`, `docs/LANE-GEOGRAPHY.md`
+  and `docs/LANE-CIRCUITS.md`, one page each with the dependency argued against real
+  package data, and **W8** in `AUDIT-FINDINGS.md` §5 carrying the whole argument to 8.1
+  with a numeric trigger: two lessons in the `demand` column. Chemistry's doc contains the
+  one real design decision of the three — the lane draws bonds in **`sketch`** ink rather
+  than `crisp`, because a wobbled C–C bond is the same bond where a wobbled integral sign
+  is a different one, with double-bond spacing floored as geometry rather than left to
+  roughness.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -617,7 +665,7 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
   so degrade stays an escape and the message format stays uniform.
 - **The harness.** `packages/pipeline/src/auditcheck.mts`
   (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
-  re-checkable facts, currently **103**, all green. **The plan (item 0.3) says each item
+  re-checkable facts, currently **108**, all green. **The plan (item 0.3) says each item
   adds its line here as it closes.** Every Phase 1–5 item's lines are in.
 - **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
   (real cmap) in `packages/core/src/fontmetrics.ts` (moved there in 2.1); wired at the top of
@@ -657,9 +705,9 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: 6.3 → 8
+## What remains to close the audit: Phase 8
 
-**The three remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+**The two remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
 carries, per item, the plan's bar, the verified file anchors to start from, the decisions
 already made that constrain it, and the traps — plus what still gates the work (no API
 credit, and one new defect: `hash-map` cannot render at the `short` preset at all). The
@@ -669,17 +717,15 @@ what they bought is recorded below. Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
-**The audit is not closed.** Phases 0–5, items 6.1, 6.2, 6.4 and 6.5, and all of Phase 7
-are landed; 6.3 and Phase 8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
-scope, done-bars, and the coverage table that maps every non-PASS audit finding to exactly
-one item or waiver.
+**The audit is not closed.** Phases 0–7 are landed; Phase 8 of `docs/PLAN-AUDIT-CLOSE.md`
+is open, and that plan stays the authority on scope, done-bars, and the coverage table that
+maps every non-PASS audit finding to exactly one item or waiver.
 
-- **Phase 6 — topic coverage and asset trust** (~2 weeks, staged). 6.1, 6.2, 6.4 and 6.5
-  are done. Left: 6.3 circuits/chemistry/geography by demand, lane docs first — the last
-  item in the phase.
-  **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
-  auditcheck line will say so, but the studio would otherwise go on apologising for a
-  lane that exists.
+- **Phase 6 — topic coverage and asset trust.** Done, all five items. 6.3 closed with
+  three lane docs and **no lane**, because the demand it is supposed to be chosen by
+  measures zero (waiver W8). **When a lane does land, delete its entry from `UNSERVED` in
+  `core/src/lanes.ts`** — the auditcheck line will say so, and since 6.3 it can actually
+  fire, which it could not before.
 - **Phase 7 — scale and cost.** Done: 7.1 (the segment cache — a tail edit re-encodes the
   tail, byte-identical to a full render), 7.2 (`--emit-plan` + `planhash --timing`) and
   7.3 (style packs are JSON in `styles/`). Nothing left in the phase. The one thing 7.3
@@ -1015,3 +1061,25 @@ Earned in the 7.3 session:
   what `core/test/stylepack.test.ts` does in unit form and what was done once by hand and
   looked at. Both were necessary: the test cannot see that the frame is legible, and the
   hand-run cannot run in CI.
+
+Earned in the 6.3 session:
+
+- **A tripwire nobody can trip is worse than no tripwire.** Three lanes each named the
+  library whose installation would force its row out of `UNSERVED`, `auditcheck` grepped
+  the manifests for it, and the mechanism was written up — twice — as the reason deleting
+  the row could not be forgotten. None of the three strings could ever have matched. The
+  general form: a guard demonstrated once, by its easiest case, has been tested for that
+  case only. `shiki` matched exactly, so nobody asked whether `@rdkit/rdkit` would.
+- **Ask where a "signal" is computed before planning around it.** 6.3's rule reads like a
+  measurement — build the lane the corpus asks for most — and the measurement did not
+  exist: the findings were per-project, and nothing aggregated them. A plan can name a
+  metric it has no instrument for and read exactly like a plan that has one.
+- **Count fixtures separately or your demand signal votes for itself.** The corpus's only
+  lane findings come from the lesson written to make the guard fire. Counted naively, 6.1's
+  own test fixture is a mandate to build a chemistry lane — the precision-over-recall
+  argument in `lanes.ts` applies to the _lessons_ as much as to the signals.
+- **The strongest argument for a lane is a frame, not a count.** The ranking here did not
+  come from the demand table, which is all zeros. It came from rendering `qc61-aspirin` and
+  looking: a beat asking for a hydroxyl group put **B₄H₂** on the board in ink. Two lines
+  of a table cannot carry that, and no session that skipped the render would have ranked
+  chemistry above circuits with any confidence.

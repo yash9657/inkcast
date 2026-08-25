@@ -8,8 +8,8 @@ its bar rather than restating it, and where this file disagrees with the plan it
 loud.
 
 Written 2026-08-24 on branch `visuals-morph-density`, just after 6.1 landed, and rewritten
-the same day as each of 6.2, 6.4, 6.5, 7.2, the three gating findings (2, 3 and 4), 7.1 and
-7.3 landed and their sections came out. **A section is deleted from this file the moment its
+the same day as each of 6.2, 6.4, 6.5, 7.2, the three gating findings (2, 3 and 4), 7.1,
+7.3 and 6.3 landed and their sections came out. **A section is deleted from this file the moment its
 work lands** — see the closing note; what a landed item bought is in
 `HANDOFF-AUDIT-CLOSE.md`, not here.
 
@@ -21,22 +21,23 @@ the model that drew it), **all of Phase 7** — 7.1 (the partial re-encode), 7.2
 inspectable on demand) and 7.3 (a style is a JSON file in `styles/`) — and the three
 findings this file used to carry: a run now reports the lesson author it really used and the
 images it really paid for, and the length estimate counts spoken letters rather than words.
-**The audit's table has no `FAIL` left in it** — 7.1 was the last one (S10-b) and every open
-item is a PARTIAL. At that point: **1162 tests green** (3 pre-existing keyvault skips, 1165
-total), **auditcheck 103/103**, lint and typecheck clean, and all three shipped lessons
-casting strict-clean end to end at `standard`. Three items remain — **6.3, 8.1, 8.2** — and
-Phase 8 needs 6.3 landed or waived, plus a funded API key.
+6.3 closed too, with three lane docs and **no lane** — the corpus asks for none, measured
+rather than assumed (waiver W8). **Phases 0 through 7 are done, and the audit's table has no
+`FAIL` left in it** — 7.1 was the last one (S10-b) and every open item is a PARTIAL. At that
+point: **1163 tests green** (3 pre-existing keyvault skips, 1166 total), **auditcheck
+108/108**, lint and typecheck clean, and all three shipped lessons casting strict-clean end
+to end at `standard`. **Only Phase 8 remains — 8.1 and 8.2.** 8.1 is startable today; 8.2
+is not, on this machine, for want of ~$3 of credit on a key that returns 402 and a harness
+nobody has written.
 
 ## The order to knock these out
 
-**1. 6.3 — circuits, chemistry, geography.** The only startable item, and it may not be code
-at all. Its own rule is that the next lane is chosen from 6.1's findings, and the guard has
-still fired on nothing, so the honest output of this item today is a **written decision plus
-the two lane docs**, not a lane.
+**1. 8.1 — re-run the audit.** Startable now: every dependency of it has landed or is
+waived in writing. Read its section below for the eleven things it must be handed so it
+does not re-litigate settled decisions.
 
-**2. 8.1, then 8.2.** 8.1 needs 6.3 landed or waived in writing, and re-reads everything
-below. 8.2 additionally needs ~$3 of credit and a small harness that does not exist yet (see
-its section). Neither is startable today.
+**2. 8.2 — the bake-off.** Needs credit _and_ a small harness nobody has written (see its
+section). It is the only item in the plan that cannot be started on this machine today.
 
 ## How to verify anything you land
 
@@ -81,6 +82,10 @@ Four more instruments, all cheap:
   (written for reading; nothing reads it back).
 - `npx tsx packages/render/src/planhash.mts --timing <project>` turns a _schedule_ change
   into a diff the way the default mode does for geometry.
+- `npx tsx packages/pipeline/src/lanedemand.mts` runs 6.1's guard over every lesson on
+  disk and counts, per unserved lane, how many films asked — fixtures in a column of their
+  own. It is what 6.3's "build lanes in the order lessons ask for them" is measured with,
+  and what voids waiver W8 when the `demand` column reaches two.
 
 **If you touch the illustration lane, measure against the cache before choosing a number.**
 6.4's three thresholds were each set by tracing all 42 rasters in
@@ -163,56 +168,14 @@ done-bar the plan's wording did not have.
 
 ---
 
-# Phase 6 — what is left of topic coverage (6.3, and only 6.3)
-
-## 6.3 Circuits, chemistry, geography — by demand, not speculatively
-
-**The bar (plan):** circuits first; chemistry (SMILES via a pure-JS renderer) and geography
-(topojson + d3-geo) each get a one-page lane doc before any code, and only start when a real
-lesson wants them. The demand signal is 6.1's `problems[]` frequency.
-
-**Where the code is, and one correction to the plan** (re-verified 2026-08-24). The plan
-says circuits are "closest: curated `symbols/circuit/*` already exist". **They do not.**
-`assets/library/library.json` holds exactly seven entries: two symbols
-(`symbols/physics/force-vector`, `symbols/physics/mass`), four figures
-(`figures/standing|walking|pointing|sitting`) and one character rig
-(`characters/explorer`). Circuits may still be the right lane to build first —
-`@dagrejs/dagre` is already a dependency, so wiring a netlist is graph layout that exists —
-but the symbol set is work, not inventory. The library's `match` alias arrays are how a
-symbol gets found.
-
-**Traps.**
-
-- **6.1 is the demand signal, so read it before choosing.** The whole point of shipping the
-  guard first is that the next lane is chosen from findings rather than from taste. Two
-  films asking for circuits beats one engineer's intuition about chemistry. As of today the
-  guard has fired on nothing in the corpus, which is why this item's honest output may be a
-  written decision rather than a lane.
-- **A lane doc before code, for chemistry and geography.** That is the plan's rule and it
-  exists because both lanes are a dependency choice as much as a feature.
-- **Deleting the `UNSERVED` entry is part of shipping the lane**, not a follow-up. It is
-  also not left to memory: `auditcheck` fails once the library named in a lane's `renderer`
-  field appears in any `package.json`, which is exactly how `code` came out when 6.2
-  installed `shiki`. Expect that failure and treat it as the reminder it is.
-- **6.2 is the worked example for a new lane** and is worth reading before starting one:
-  `visuals/src/code.ts` (the lane), `render/src/compile.ts`'s `codePrims` (ten lines,
-  because the geometry is read from the sidecar rather than recomputed),
-  `core/src/codegrid.ts` (the one measurement both stages share), and the `code` cases in
-  `visuals/src/resolve.ts` and `planner/src/compile.ts`. The shape it followed is
-  `equation.ts`'s contract, stated in that file's header.
-- **The code lane also shipped the defect in the gating list above.** A new lane owes the
-  vertical preset a thought: `short` gives a visual a 567×117 cell, and a lane that cannot
-  say something legible in that box will fail strict there and nowhere else.
-
----
-
 # Phase 8 — the exit
 
 ## 8.1 Re-run the audit
 
 **The bar (plan):** same spec, same seven-pass method, against the tree with Phases 1–7
-landed. **Exit: every check PASS or named waiver** (W1–W7 in `AUDIT-FINDINGS.md` §5, plus
-any new waiver argued in writing). A new PARTIAL is a Phase-9 backlog item with an owner,
+landed. **Exit: every check PASS or named waiver** (W1–**W8** in `AUDIT-FINDINGS.md` §5 —
+W8 is 6.3's and is new since the plan was written — plus any further waiver argued in
+writing). A new PARTIAL is a Phase-9 backlog item with an owner,
 not a silent regression.
 
 **What the re-audit must be handed so it does not re-litigate settled decisions:**
@@ -245,10 +208,17 @@ not a silent regression.
   between-film spread;
 - **7.1's one**: `<dir>/frames` survives a successful render, because a cache only a failed
   render populates is not a cache;
+- **6.3's whole output, which is waiver W8**: the three unserved lanes are still unserved,
+  and that is a measurement rather than a shrug. `npx tsx
+packages/pipeline/src/lanedemand.mts` is the instrument — run it, and expect
+  `0 / 0 / 0` in the `demand` column across 54 lessons and 13 topics. The plan's "circuits
+  first" ordering is overturned there too, on two factual errors it rested on, and the
+  lane docs (`docs/LANE-{CHEMISTRY,CIRCUITS,GEOGRAPHY}.md`) carry the dependency arguments.
+  **Do not read "no lane shipped" as 6.3 being unfinished**; read the demand table;
 - and **5.1(b)'s** written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in under a
-second and should be run first — **103 checks as of 7.3**, each one a fact some pass of the
+second and should be run first — **108 checks as of 6.3**, each one a fact some pass of the
 original audit established.
 
 **And hand it the one thing still open for want of credit:** the lesson author is observed

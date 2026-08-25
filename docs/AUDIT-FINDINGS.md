@@ -1474,3 +1474,40 @@ classes is a larger class of visible defect on the same week. The trigger for bu
 is written down: one film whose facts are wrong in a way retrieval would have caught, now
 findable because every film on disk says which kind it is. If that arrives, the waiver is
 void and `docs/PLAN-RETRIEVAL.md` §2 is the implementation.
+
+**W8 — S5-a, the three unserved lanes.** Added 2026-08-24, with plan item 6.3. **The
+honesty ships and the lanes do not, and unlike W7 the deferral is a measurement rather
+than a judgement.** 6.1's guard names every picture a lesson asks for that no renderer
+here can draw, reports it into `qc.json` as a warning, and says what will be drawn
+instead — which converts the audit's finding, "the fallback is a confidently wrong
+picture and nothing says so", into an honest limit.
+
+6.3's rule for what to build next is that lessons choose it: "the lanes get built in the
+order real lessons ask for them, and the frequency of these findings is how that is
+measured". That rule was unrunnable until 6.3 shipped `pipeline/src/lanedemand.mts`, which
+runs the guard over every lesson on disk. Its answer today, over **54 lessons and 13
+distinct topics**, is that **no lesson anybody wanted a film of asks for any of the three
+lanes**. The only findings on record are the three in `projects/qc61-aspirin`, which was
+authored into a scratch directory to prove the guard fires — counting a fixture as demand
+is a vote for building something nobody asked for, which is the failure 6.1's own
+precision-over-recall note warns about, so the instrument reports fixtures in a separate
+column.
+
+Building on a zero signal would be the taste-driven decision the plan wrote the rule to
+prevent. So what 6.3 ships instead is everything a lane needs except the lane: a one-page
+doc apiece with the dependency argued against real package data
+(`docs/LANE-CHEMISTRY.md`, `docs/LANE-GEOGRAPHY.md`, `docs/LANE-CIRCUITS.md`), a corrected
+ranking, and a repaired tripwire. **The plan's own ordering is overturned in writing**:
+"circuits first; closest, curated `symbols/circuit/*` already exist" rests on symbols that
+have never existed in this repo — the library holds seven assets and none is a circuit —
+and on `schemdraw`, which is a Python library and can never be a dependency here.
+Chemistry ranks first instead, on the only evidence anyone has: a rendered film in which a
+beat asking for a hydroxyl group put the formula **B₄H₂** on the board, captioned, in ink.
+
+The trigger is written down and is a number rather than an opinion: **two lessons somebody
+wanted, in the `demand` column of `lanedemand.mts`.** If that arrives, this waiver is void
+and the lane doc for whichever lane it is becomes the implementation. Two other things
+void it, both of which `auditcheck` now enforces rather than trusting to memory: any of
+`openchemlib` / `smiles-drawer` / `@rdkit/rdkit` / `topojson-client` / `d3-geo` /
+`world-atlas` appearing in a manifest, or `symbols/circuit/` appearing in the asset
+library.
