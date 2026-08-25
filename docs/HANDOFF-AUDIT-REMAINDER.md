@@ -24,38 +24,34 @@ raster trust gate), 6.5 (the figure cache key names the model that drew it), 7.2
 plan is inspectable on demand), the two cost-honesty findings this file used to carry as 3
 and 4 (a run now reports the lesson author it used and the images it really paid for), and
 finding 2 (the length estimate counts spoken letters, because words a second turned out to
-be a property of a film's vocabulary rather than of this pipeline). At that point: **1140
-tests green** (3 pre-existing keyvault skips, 1143 total), **auditcheck 93/93**, lint and
+be a property of a film's vocabulary rather than of this pipeline) and 7.1 (the partial
+re-encode — the last FAIL in the audit's table). At that point: **1151
+tests green** (3 pre-existing keyvault skips, 1154 total), **auditcheck 97/97**, lint and
 typecheck clean, and three shipped lessons casting strict-clean end to end at `standard`
 (`hash-map` is the newest, and the corpus's only board with a listing on it — it does
-_not_ cast clean at `short`, which is finding 2 in the gating list below). Five items
-remain — 6.3, 7.1, 7.3, 8.1, 8.2 — and none of 6.3, 7.1 and 7.3 blocks another, so they can
-be reordered freely by whoever picks them up. Phase 8 needs all of them plus a funded API
+_not_ cast clean at `short`, which is finding 2 in the gating list below). Four items
+remain — 6.3, 7.3, 8.1, 8.2 — and neither 6.3 nor 7.3 blocks the other, so they can be
+reordered freely by whoever picks them up. Phase 8 needs all of them plus a funded API
 key.
 
 ## The order to knock these out
 
-Five plan items remain and no loose findings block them. This is the order they are best
-done in and the reason for each; none of them is a hard dependency any more — the one that
-was (settle the pacing constant before 7.1, so the pinned hashes are not argued in the same
-diff as a byte-identical splice) is done.
+Four plan items remain and no loose findings block them. This is the order they are best
+done in and the reason for each; none is a hard dependency any more. **The audit's table
+has no `FAIL` left in it** — 7.1 was the last one (S10-b), and every open item is a
+PARTIAL.
 
-**1. 7.1 — partial re-encode.** The only **FAIL** left in the audit's table (S10-b); every
-other open item is a PARTIAL. It is the biggest item in the plan and wants a session of its
-own, and its first piece is a design decision (segments are worker slices today, not
-scenes) rather than typing. 7.2 handed it two instruments — see that section.
-
-**2. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
+**1. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
 believing 6.4 unblocked it. The honest reading is that a dark pack needs the real-alpha
 work S5.6 deferred, so budget for that or scope the pack to light surfaces and say which
 in writing — either is defensible, silence is not.
 
-**3. 6.3 — circuits, chemistry, geography.** Last on purpose. Its own rule is that the next
+**2. 6.3 — circuits, chemistry, geography.** Last on purpose. Its own rule is that the next
 lane is chosen from 6.1's findings, and the guard has still fired on nothing, so the honest
 output of this item today is a **written decision plus the two lane docs**, not a lane. Do
-it once the corpus has had a few more films through it — which items 1–2 will produce.
+it once the corpus has had a few more films through it — which item 1 will produce.
 
-**4. 8.1, then 8.2.** 8.1 needs 6.3–7.3 landed or waived in writing and re-reads everything
+**3. 8.1, then 8.2.** 8.1 needs 6.3–7.3 landed or waived in writing and re-reads everything
 below. 8.2 additionally needs ~$3 of credit and a small harness that does not exist yet
 (see its section). Neither is startable today.
 
@@ -195,48 +191,6 @@ The library's `match` alias arrays in `library.json` are how a symbol gets found
 
 ## Phase 7 — scale and cost
 
-## 7.1 Partial re-encode (the big one)
-
-**The bar (plan):** a per-scene segment cache keyed on (scene's plan slice + hash of
-accumulated prior board state), so a tail edit re-encodes the tail — the honest mapping
-under accumulate — and a wipe-mode edit re-encodes one scene. Keep `seg-*.mp4` on failure;
-skip complete segments on retry. _Done when_ a last-beat narration edit re-encodes only
-the final segment and the output is **byte-identical** to a full re-render.
-
-**What you need to know before starting, and it is not in the plan.** **Segments today are
-worker slices, not scenes.** `planSegments(frames, workers, posterFrame)` at
-`render/src/render.ts:95` divides the whole frame range into `min(workers, ceil(frames/24))`
-equal spans; the scene boundaries are nowhere in it. So the first piece of 7.1 is
-re-cutting segments on scene boundaries (or on a boundary set that is a superset of them)
-while keeping the parallelism that makes a render take one minute instead of four —
-those two goals pull against each other on a film with eight uneven scenes, and that
-trade is the actual design work of this item.
-
-The rest of the machinery is in place: `openSegmentEncoder`, `writeConcatList` and
-`concatAndMux` in `render/src/ffmpeg.ts`, the segment loop at `render.ts:237`, and
-`keepSegments` (`types.ts:253`) already exists as a debugging flag — the plan wants that
-behaviour on failure, which is `render.ts:276`, where `segDir` is currently removed
-unconditionally unless the flag is set.
-
-**Traps.**
-
-- **Byte-identical is the test, and it is only reachable because A-5 holds** (frame =
-  f(inputs, frame_index), pinned in `auditcheck`). Anything that breaks determinism breaks
-  this item's done-bar, not just its performance.
-- **Under `accumulate` a scene's pixels depend on every scene before it**, which is why
-  the key includes the prior board state and not just the scene. Under `wipe` it does not.
-  Getting this backwards produces a cache that is correct in testing and wrong on the
-  first real edit.
-- **Encoder settings are part of the key** (crf, preset, threads, fps, frame size). A
-  segment encoded by a differently-configured worker will concat without complaint and
-  will not be byte-identical.
-- **7.2 left two instruments pointed at exactly this item.** `--emit-plan` writes the
-  compiled timeline without rendering anything, and `planhash --timing` turns a schedule
-  into a diff — between them, "which scenes does this edit actually move?" is answerable
-  before a single frame is encoded, which is the question the segment key exists to answer.
-  Note the caution in `emitplan.ts`: the file is written for reading and nothing reads it
-  back, so a segment cache must key off the plan it compiled, never off `plan.json`.
-
 ## 7.3 Style packs go declarative
 
 **The bar (plan):** implement `docs/STYLES.md`'s StylePack loader (the shape is at
@@ -292,7 +246,7 @@ corpus evidence for that is in the constant's comment and the refutation of the
 per-cadence alternative is that every corpus beat is `building_energy`); and 5.1(b)'s
 written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
-under a second and should be run first — 93 checks as of gating finding 2, and each one is a fact some
+under a second and should be run first — 97 checks as of 7.1, and each one is a fact some
 pass of the original audit established.
 
 **And hand it one thing item 0 left open rather than closed:** the lesson author is now
@@ -332,7 +286,7 @@ returns 402.
 ## If you are picking this up cold
 
 Read in this order: `docs/PLAN-AUDIT-CLOSE.md` (the authority — its progress block is
-current through gating finding 2, and the coverage table plus 8.1 are the exit), then
+current through 7.1, and the coverage table plus 8.1 are the exit), then
 `docs/HANDOFF-AUDIT-CLOSE.md` (what landed, the argued deviations, and the traps earned
 per phase — its trap list is worth reading even for items it does not cover), then this
 file for the item you are about to start. `docs/AUDIT-FINDINGS.md` is the evidence base

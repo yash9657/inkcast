@@ -706,6 +706,40 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 > render and is written up rather than fixed: `hash-map` at `short` cannot pass the strict
 > gate at all, because its Python listing wants 25.82 canvas units in a 567×117 cell against
 > the 32.78 floor — pre-existing since 6.2 and verified against `HEAD`. Next: 7.1, 7.3, 6.3.
+>
+> **Progress (2026-08-24): 7.1 is landed — the partial re-encode, and the last FAIL in the
+> audit's table (S10-b).** 1151 tests green (3 pre-existing keyvault skips), auditcheck
+> 97/97, lint and typecheck clean.
+>
+> - **Segments are cut on scene boundaries and long scenes subdivided**, so the boundary set
+>   is a _superset_ of the scene boundaries and every segment lies inside exactly one scene.
+>   That dissolves the tension this item looked like it had — cutting only on scene
+>   boundaries would let a ninety-second scene own the wall clock — and the subdivision is
+>   deterministic (`MAX_SEGMENT_SEC`) rather than a function of the worker count, because
+>   boundaries that depend on the machine miss the whole cache when somebody passes
+>   `--concurrency 4`. `Promise.all` became a bounded pool: the segment count is now a
+>   property of the film, and thirty simultaneous Chromium contexts would take a laptop down.
+> - **The key is the interval test, and the plan's "accumulated prior board state" falls out
+>   of it** rather than needing a `meta.board` branch. Under `accumulate` a persistent item
+>   has no end, so it intersects every later segment and a scene-1 edit re-encodes the tail —
+>   the honest mapping the plan asks for. Under `wipe` it has faded by `fadeAt` and
+>   intersects nothing after its own scene. Encoder settings are in the key because x264 at a
+>   different thread count makes different bytes from identical frames.
+> - **`<dir>/frames` is the cache now**: pruned on success rather than deleted (deleting it
+>   would mean only a _failed_ render ever left anything to reuse), and each segment is
+>   written under a `.part-` name and renamed once ffmpeg has closed it. Without that rename
+>   a killed render leaves a truncated mp4 at exactly the path the next run reads as
+>   finished — the one way a segment cache corrupts a film silently. The plan's other two
+>   asks are then automatic: nothing is deleted on failure, and complete segments are
+>   skipped on retry.
+> - **The done-bar, measured on a 2:14 longitude cast of 32 segments.** Adding a second of
+>   hold to the final beat re-encoded **5 and reused 27** — the edited scene's segments and
+>   nothing before them — and that partially-reused film is **byte-identical** to a full
+>   re-render of the same storyboard in a different directory (6,287,426 bytes, `cmp`
+>   clean). A fully-cached re-render takes **1.4s against 57s**. Segment names match across
+>   the two projects, so the key is content and not path. Eleven unit tests in
+>   `segments.test.ts` carry the claims a hand-run film cannot, including the done-bar as
+>   arithmetic; four `auditcheck` lines pin the mechanism. Next: 7.3, 6.3.
 
 **Two rules that shape everything here:**
 

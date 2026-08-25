@@ -5,7 +5,9 @@ after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`),
 six times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
 (`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
 trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan), and
-after gating findings 3 and 4 (the run reports what it did, not what it intended).
+after gating findings 3 and 4 (the run reports what it did, not what it intended), after
+gating finding 2 (the length estimate counts spoken letters), and after 7.1 (the partial
+re-encode).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -15,8 +17,8 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, 7.2 and the two
-cost-honesty findings the remainder handoff carried (3 and 4):**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, 7.1, 7.2 and the
+three findings the remainder handoff carried (2, 3 and 4):**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -430,6 +432,48 @@ anthropic/claude-opus-5` and billed for it. The observation is `onAuthor` (a cal
   `b3_v0`'s box is byte-identical before and after, and a cast from `HEAD` fails with the
   same message. The pin is a _compile_ hash, so nothing had ever tried to render it. It is
   a finding in `HANDOFF-AUDIT-REMAINDER.md`.
+
+- 2026-08-24 — **7.1, the partial re-encode — and with it the last `FAIL` in the audit's
+  table (S10-b).** Four things a re-audit will ask about.
+  1. **The cut is a superset of the scene boundaries, not a set of worker slices.** Segments
+     used to be `min(workers, frames/24)` equal spans, so a boundary fell wherever the
+     arithmetic put it and a segment straddled two scenes — the right shape for parallelism
+     and the wrong one for reuse, because no segment was _about_ anything. Now every scene
+     boundary is a segment boundary and long scenes are subdivided, so each segment lies
+     inside exactly one scene. That dissolves the tension the item looked like it had:
+     cutting only on scene boundaries would let a ninety-second scene own the wall clock.
+  2. **The subdivision is deterministic, and that is a decision.** Splitting until there are
+     exactly `concurrency` segments would make the boundaries a property of the machine, so
+     the same project re-rendered with `--concurrency 4` instead of 8 would miss every
+     cached segment for a reason no user could see. `MAX_SEGMENT_SEC` fixes them instead,
+     and `Promise.all` became a bounded pool because the segment count is now a property of
+     the film rather than of the box.
+  3. **The plan's "hash of accumulated prior board state" falls out of an interval test.**
+     A segment's key is every `PlanItem` whose visible interval intersects it — under
+     `accumulate` a persistent item has no end, so it intersects every later segment and a
+     scene-1 edit re-encodes the tail; under `wipe` it has faded by `fadeAt` and intersects
+     nothing after its own scene. One rule, both behaviours, and **no `meta.board` branch in
+     `segments.ts` at all** — which matters, because the plan names getting that backwards
+     as the trap that produces a cache correct in testing and wrong on the first real edit.
+  4. **`<dir>/frames` is the cache, and two details keep it honest.** It is pruned on
+     success rather than deleted, because deleting it would mean only a _failed_ render
+     ever left anything to reuse. And a segment is encoded under a `.part-` name and renamed
+     once ffmpeg has closed it: without that, a render killed mid-segment leaves a truncated
+     mp4 at exactly the path the next run reads as a finished one, which is the single way a
+     segment cache can corrupt a film with nobody noticing. The plan's other two asks are
+     then automatic — nothing is deleted on failure, and complete segments are skipped on
+     retry. Encoder settings are in the key because x264 at a different thread count makes
+     different bytes from identical frames.
+
+  **The done-bar, measured on a 2:14 longitude cast of 32 segments.** A second of extra hold
+  on the final beat re-encoded **5 segments and reused 27** — the edited scene's and nothing
+  before them — and that partially-reused film is **byte-identical** to a full re-render of
+  the same storyboard in a different directory (6,287,426 bytes, `cmp` clean). A fully
+  cached re-render is **1.4s against 57s**. The segment file names match across the two
+  projects, so the key is content and not path. Eleven unit tests in `segments.test.ts`
+  carry what a hand-run film cannot — the tiling, the scene-boundary invariant, both
+  directions of the accumulate/wipe rule, and the done-bar as arithmetic — and four
+  `auditcheck` lines pin the mechanism.
 
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
