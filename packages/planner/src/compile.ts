@@ -119,7 +119,12 @@ const log = logger('planner:compile');
  * d3f35564b27b / e3a1f7338b26 / 417495edcde8 / 01b682decdbd.
  *
  * A third lesson joined the pins on 2026-08-24 rather than moving them:
- * `sbhash.mts hash-map` reads 6534c50131fa / 5a5362c4fd0a. It is the corpus's only film
+ * `sbhash.mts hash-map` reads 6534c50131fa / 66cb5a33474b. Its `short` pin was re-pinned
+ * later the same day from 5a5362c4fd0a, alone among the six, when `lessonSeconds` began
+ * counting spoken letters instead of words (`DELIVERED_LPS` in `presets.ts`): hash-map is
+ * the shortest-worded lesson we ship, the old estimate over-charged it by 8%, and the
+ * vertical preset had been dropping its collision beat to fit a budget it was not really
+ * over. It is the corpus's only film
  * with a listing on the board, so it is the only one whose bytes move if `codeBox`'s
  * reservation or `FONT.label` does (plan item 6.2). The four above did not move for it and
  * could not have — the code lane adds a member to the element union and a ninth

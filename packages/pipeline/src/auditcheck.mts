@@ -458,11 +458,25 @@ function check(name: string, ok: boolean, why: string): void {
     'the gate and the lesson critique no longer agree about what "over budget" means',
   );
   check(
-    'S6-d: DELIVERED_WPS is compared against what the run delivered, not remembered',
+    'S6-d: DELIVERED_LPS is compared against what the run delivered, not remembered',
     /measureDrift\(sb, \{/.test(cast) &&
       /expectedWps: design\.presetShape\.wordsPerSecond/.test(cast) &&
-      /WPS_TOLERANCE = 0\.1/.test(drift),
+      /expectedLps: design\.presetShape\.wordsPerSecond \* LETTERS_PER_WORD/.test(cast) &&
+      /PACE_TOLERANCE = 0\.1/.test(drift),
     'the calibration behind every length decision is back to being a comment that says re-measure me',
+  );
+  // The rule `drift.ts`'s own header states — a comparison between two conventions is not
+  // a measurement — turned into something that fails. The estimate and the check must count
+  // with the *same function*, not with two that happen to agree today: they live in
+  // different packages, and the last time this repo let two of those drift apart it cost
+  // the `text.ts`/`speech.ts` split a re-pin. Pinned because `spokenLetters` is one line
+  // and re-implementing it locally would be the obvious shortcut.
+  check(
+    'S6-d: the estimate and the drift check count in the same unit, from one function',
+    /spokenLetters\(b\.step\.narration\)/.test(read('packages/planner/src/presets.ts')) &&
+      /spokenLetters\(s\.narration\)/.test(drift) &&
+      /export function spokenLetters/.test(read('packages/core/src/speech.ts')),
+    'the length estimate and the check on it count differently — the advisory now measures nothing',
   );
   check(
     'S0-c: both numbers reach the record, not just the log',

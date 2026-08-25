@@ -386,6 +386,51 @@ anthropic/claude-opus-5` and billed for it. The observation is `onAuthor` (a cal
   (`projects/qc0-hashmap`) has **no cost line at all**, draws the same film, and leaves
   `~/.inkcast/cache/illustrations` at 42 files.
 
+- 2026-08-24 — **gating finding 2 — the length estimate had the wrong unit.** Also not a
+  numbered item. `DELIVERED_WPS = 2.2` fitted longitude and not gradient-descent, every run
+  said so through the `pace-calibration` advisory, and the three candidate fixes on the
+  table were re-measure it, make it per-cadence, or accept the spread. Four things a
+  re-audit will ask about.
+  1. **Two of the three candidates are refuted by the corpus, not by taste.** Per-cadence:
+     `CADENCE` would let a mix move pace by ±7%, but every beat of every corpus film is
+     `building_energy` — a rate that varies by cadence cannot explain a spread between films
+     whose cadence is identical. Re-measuring: the spread is _between films_ (1.98 / 2.28 /
+     2.39 / 2.50 w/s), so any single number is wrong by ±11% somewhere.
+  2. **Words a second is a property of the film's vocabulary, not of this pipeline.** Over
+     the same four films spoken letters a second spans 9.50–9.90, **±2.1%** — a fifth of
+     the spread — and across 106 timed phrases its coefficient of variation is 9.6% against
+     words' 16.6%. Photosynthesis runs 4.86 letters a word and gradient descent 3.79, which
+     is the whole of the 21% gap between them. So `DELIVERED_LPS = 9.65` is the calibration
+     and `DELIVERED_WPS = 2.28` is derived. `--wps` still means what it says, for a film of
+     average word length.
+  3. **Counted on the normalised text, and by one function in `@inkcast/core`.** `1707` is
+     four characters and thirty-one spoken letters; an estimator that could not tell them
+     apart would under-predict a beat with a date in it by twenty seconds, and the shipped
+     corpus has only 8 digits in 4,048 characters — which is exactly why that hazard would
+     have gone unnoticed. `drift.ts`'s header already said a comparison between two
+     conventions is not a measurement, so `spokenLetters` and `LETTERS_PER_WORD` live in
+     core and `auditcheck` pins that the estimate and the check call the same function.
+  4. **One pinned hash of six moved, and the five that did not are the argument.** The
+     estimate moves by how far a lesson sits from 4.23 letters a word: longitude (4.35)
+     went 133.2s → 132.4s and crossed nothing, `hash-map` (3.99, our shortest-worded
+     lesson) went 139.0s → 127.4s and did. `5a5362c4fd0a` → `66cb5a33474b`, and the extra
+     scene is **the collision beat** — the consequence a hash-map lesson exists to deliver,
+     dropped by the vertical preset because the estimator over-charged it by 8%. Frames
+     rendered and looked at: the recap chain now reads four links ending "Two keys can be
+     sent" where it read three.
+
+  **Measured end to end.** The advisory fired on 2 of 5 corpus films and now fires on none —
+  gradient-descent **+13.8% → −1.5%**, hash-map/short **+19.4% → +6.7%**, longitude +1.2% →
+  +0.5% — and all three `pace-calibration` checks are `pass` with zero findings.
+
+  **And one new defect, found by that render and deliberately not fixed here:** `hash-map`
+  at the `short` preset cannot pass the strict gate, because its Python listing wants 25.82
+  canvas units to fit the 567×117 cell the vertical preset gives it against the 32.78 floor.
+  Pre-existing since the code lane landed in 6.2 and verified rather than assumed —
+  `b3_v0`'s box is byte-identical before and after, and a cast from `HEAD` fails with the
+  same message. The pin is a _compile_ hash, so nothing had ever tried to render it. It is
+  a finding in `HANDOFF-AUDIT-REMAINDER.md`.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -522,9 +567,11 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
 
 **The seven remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
 carries, per item, the plan's bar, the verified file anchors to start from, the decisions
-already made that constrain it, and the traps — plus the four things that gate the work
-(no API credit, the `DELIVERED_WPS` disagreement, the `deriveLesson` author bug, and the
-image cost line billed from intent). Open it
+already made that constrain it, and the traps — plus what still gates the work (no API
+credit, and one new defect: `hash-map` cannot render at the `short` preset at all). The
+three findings that used to sit beside those — the `DELIVERED_WPS` disagreement, the
+`deriveLesson` author bug and the image cost line billed from intent — are closed, and
+what they bought is recorded below. Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
@@ -618,14 +665,16 @@ Session-found context for Phase 6 and after (so the next session does not re-der
   like `MIN_GLYPH_PX` and the fill floor before them. The Phase 8 re-audit must treat
   all four as named recalibrations. The measurement scripts were throwaway; the tables
   and the reasoning are in the constants' own comments.
-- **`DELIVERED_WPS = 2.2` is now known not to fit both shipped films** (4.3, measured):
-  longitude delivers 2.23 w/s, gradient-descent 2.50. Every run says so — the
-  `pace-calibration` advisory in `qc.json` — and nothing was changed, because a new
-  number moves `adaptLesson`'s trimming and therefore the pinned hashes. Whoever picks
-  this up should decide between a re-measured constant, a per-cadence rate (the two
-  films differ in how many beats are `punchy`), and accepting the spread, and should
-  argue it in `presets.ts` beside the constant. It is a Phase 8 conversation at the
-  latest: the re-audit will read the advisory.
+- **The length calibration is `DELIVERED_LPS`, in spoken letters, and `DELIVERED_WPS` is
+  derived from it** (4.3; the finding this closed was "2.2 fits one shipped film and not
+  the other"). Words a second is not a property of this pipeline — it is a property of a
+  film's vocabulary. Across four cast films it spans 1.98–2.50 (±11%) while spoken letters
+  a second spans 9.50–9.90 (**±2.1%**), and at beat level across 106 timed phrases the
+  coefficient of variation is 9.6% against words' 16.6%. The per-cadence hypothesis this
+  handoff used to offer is refuted outright: every beat of every corpus film is
+  `building_energy`, so cadence cannot explain a between-film spread. The re-audit should
+  treat `DELIVERED_LPS = 9.65` and `LETTERS_PER_WORD = 4.23` as measured recalibrations
+  like the seven above, argued in their own comments.
 - **The normaliser is `core/src/speech.ts` now, not `voice/src/text.ts`** (4.1), and it
   is the tokeniser of record: `narrationTokens` is what `enter.cueWord` indexes into.
   Anything that changes what the normaliser _says_ therefore changes what the indices

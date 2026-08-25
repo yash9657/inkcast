@@ -42,6 +42,7 @@ import { existsSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  LETTERS_PER_WORD,
   critiqueLesson,
   laneGapLines,
   lessonOrderAdvisories,
@@ -1051,6 +1052,12 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     // also what an explicit `--wps` would have overridden it to, so this compares
     // the film against the number that actually budgeted it.
     expectedWps: design.presetShape.wordsPerSecond,
+    // And the same number in the unit the estimate is really made in. Derived from the
+    // preset's own `wordsPerSecond` rather than imported for the reason above — a run
+    // with `--wps 2.6` must be judged against 2.6, not against the shipped default —
+    // and `lessonSeconds` converts with exactly this multiplication, so the estimate
+    // and the check cannot drift apart.
+    expectedLps: design.presetShape.wordsPerSecond * LETTERS_PER_WORD,
   });
   for (const line of [...drift.problems, ...drift.advisories]) log.warn(line);
 
@@ -1108,7 +1115,11 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
           note:
             `${drift.measuredSec.toFixed(1)}s measured` +
             (drift.budgetSec ? ` against a ${drift.budgetSec}s target` : '') +
-            `, ${drift.wps.toFixed(2)} words a second delivered (plans with ${drift.expectedWps})`,
+            // Both units, because they answer different questions and the note is read by
+            // a person: the words are how fast this film sounds, the letters are whether
+            // the calibration still holds. See `DELIVERED_LPS`.
+            `, ${drift.wps.toFixed(2)} words a second delivered` +
+            ` (${drift.lps.toFixed(2)} spoken letters, plans with ${drift.expectedLps})`,
         },
         // The calibration behind every length decision upstream, checked against this
         // run's own delivery. Advisory forever: the film is fine, and the thing that
@@ -1237,15 +1248,20 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     qc: { ok: qc.ok, problems: qc.problems },
     // Length as measured, beside the budget it was planned to (plan 4.3). On the
     // record rather than only in `qc.json` because this is the pair of numbers that
-    // says whether `DELIVERED_WPS` still describes this pipeline, and answering that
-    // means comparing runs — which needs the numbers where every run keeps them.
+    // says whether `DELIVERED_LPS` still describes this pipeline, and answering that
+    // means comparing runs — which needs the numbers where every run keeps them. It
+    // worked: four of these blocks read side by side are what showed the calibration
+    // had the wrong unit, and they are the measurement `DELIVERED_LPS` now cites.
     drift: {
       measuredSec: drift.measuredSec,
       spokenSec: drift.spokenSec,
       words: drift.words,
       wps: drift.wps,
-      wpsDrift: drift.wpsDrift,
+      letters: drift.letters,
+      lps: drift.lps,
+      paceDrift: drift.paceDrift,
       expectedWps: drift.expectedWps,
+      expectedLps: drift.expectedLps,
       ...(drift.budgetSec === undefined ? {} : { budgetSec: drift.budgetSec }),
       ...(drift.budgetRatio === undefined ? {} : { budgetRatio: drift.budgetRatio }),
     },

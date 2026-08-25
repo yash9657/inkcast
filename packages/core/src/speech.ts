@@ -1072,6 +1072,53 @@ export function normalizeNarration(input: string): string {
 }
 
 /**
+ * Letters a voice will actually pronounce in this text.
+ *
+ * **The unit the length estimate is measured in, and the reason it stopped being words.**
+ * Words a second is not a property of this pipeline — it is a property of the film's
+ * vocabulary. Measured across four cast films (`qc0-doc`, `qc0-hashmap`, `qc65-longitude`,
+ * `qc64-gd`, 1,010 words of narration and 106 timed phrases): delivered **words** a second
+ * spans 1.98–2.50, a ±11% spread, while spoken **letters** a second spans 9.50–9.90 —
+ * **±2.1%**. The engine speaks at a near-constant rate and long words simply take longer,
+ * so a photosynthesis lesson (4.86 letters a word) delivers 21% fewer words a second than
+ * a gradient-descent one (3.79) while both speak at the same speed. See `DELIVERED_LPS`.
+ *
+ * Counted on the *normalised* text because that is the text the engine is handed:
+ * `1707` is four characters and thirty-one spoken letters, and an estimator that could not
+ * tell them apart would under-predict a beat with a number in it by twenty seconds. The
+ * shipped corpus has only 8 digits in 4,048 characters, which is exactly why this hazard
+ * would have gone unnoticed until the first lesson that quoted a date.
+ *
+ * In `@inkcast/core` because two packages must agree about it to the letter: the planner
+ * estimates with it (`lessonSeconds`) and `measureDrift` checks the estimate against the
+ * audio. `drift.ts`'s header states that rule — a comparison between two conventions is not
+ * a measurement — and this is the second counter it names.
+ */
+export function spokenLetters(input: string): number {
+  return normalizeNarration(input).replace(/[^\p{L}]/gu, '').length;
+}
+
+/**
+ * Spoken letters per word, pooled over the corpus (4,272 letters, 1,010 words).
+ *
+ * The bridge between the two units, and it exists because one caller genuinely cannot
+ * count letters: `teachingBrief` states a word budget to an author that has not written
+ * anything yet. Everything downstream of a written lesson counts letters instead.
+ *
+ * Beside `spokenLetters` rather than in `presets.ts` with the pace constant, because three
+ * packages have to agree on it to the digit — the planner converts the budget with it,
+ * `measureDrift` converts a preset's `wordsPerSecond` into the rate it judges against, and
+ * the pipeline hands the second to the first. It was briefly duplicated in two of them,
+ * which is the same two-catalogues-of-one-fact mistake `CADENCE` and `Preset.maxHold`
+ * already have a comment about.
+ *
+ * The per-film band is 3.79–4.86, so a *word* budget is inherently ±15% where a letter
+ * budget is ±2%. That is the cost of asking for words up front, not an error in the
+ * number, and it is why `adaptLesson` re-checks the finished lesson in letters.
+ */
+export const LETTERS_PER_WORD = 4.23;
+
+/**
  * Rough spoken length, used only when no TTS engine is reachable at all.
  *
  * Defaults to the teaching pace so a keyless, engineless render has the same

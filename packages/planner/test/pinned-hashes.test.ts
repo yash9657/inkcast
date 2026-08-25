@@ -176,6 +176,46 @@ import { compileLesson } from '../src/compile.js';
  * `visuals/test/code.test.ts` (byte-identical across two resolves) and by
  * `geomhash.mts`, which reports `s3/b3_v0` and `s5/b5_v0` identically across two runs of
  * the visuals stage.
+ *
+ * ## The re-pin, 2026-08-24: `hash-map`/short only, for the length estimate's unit
+ *
+ * From `5a5362c4fd0a` (5 scenes) to `66cb5a33474b` (6). **One of the six moved**, and
+ * which five did not is the argument: `lessonSeconds` stopped counting words and started
+ * counting spoken letters (`DELIVERED_LPS`, and the finding behind it is argued there).
+ * That changes an estimate by exactly how far a lesson's word length sits from the corpus
+ * mean of 4.23 letters — so longitude (4.35) moved 133.2s → 132.4s and did not cross a
+ * boundary, and hash-map (3.99, the shortest-worded lesson we ship) moved 139.0s → 127.4s
+ * and did. Gradient-descent (3.79) moved furthest of all in seconds and still did not
+ * change, because at `short` its chain rule had already run out of legal cuts under both
+ * numbers. Six pins, one boundary crossed, and every non-move explained.
+ *
+ * **What the extra scene is: the collision beat.** `step3` — "But there are more keys
+ * than slots, so sooner or later two keys are sent to the same one" — which the vertical
+ * preset had been dropping. That is the consequence a hash-map lesson exists to deliver,
+ * and it was being cut because the estimator over-charged a short-worded film by 8%. The
+ * whole storyboard delta is that scene inserted at `s4`, the recap moving to `s5` with its
+ * narration byte-identical, one asset added, the canvas growing 11,958 → 15,878 units, and
+ * every scene's camera zoom rising 5.7989 → 7.6996 as the region packing changed from 3
+ * regions to 4. Established by compiling the board under `git stash` and under the working
+ * tree and diffing the two pretty-printed storyboards.
+ *
+ * **Frames were rendered and looked at**, which this header requires and which the zoom
+ * change makes non-negotiable — every scene is framed differently, so a diff cannot answer
+ * it. `projects/qcf2-hashmap-short`, at t=8s (scene 0 at the new zoom: the pigeonhole wall
+ * is framed with the headline legible above it, no overflow), t=40s (the new beat, its
+ * headline "Two keys can be sent" legible) and t=49s. The recap frame is the one that
+ * settles it: the chain now reads as **four** boxes — "Unless the name tells" → "The rule
+ * is a hash function" → "Fold the number down" → "Two keys can be sent" — where it used to
+ * read as three and end before the collision.
+ *
+ * That render needed `--degrade`, for a defect this change did not cause and does not fix:
+ * `hash-map` at `short` cannot pass the strict gate, because its Python listing wants
+ * 25.82 canvas units to fit the 567×117 cell the vertical preset gives it, against the
+ * 32.78 floor. Verified pre-existing rather than assumed — `b3_v0`'s box is byte-identical
+ * in the before and after storyboards, and a cast from `HEAD` fails with the same message.
+ * The lesson has never been renderable at this preset since the code lane landed in 6.2;
+ * the pin is a *compile* hash, so nothing had ever tried. It is written up as a finding in
+ * `docs/HANDOFF-AUDIT-REMAINDER.md` rather than fixed here.
  */
 const PINNED = [
   { lesson: 'gradient-descent', preset: 'standard', hash: 'd3f35564b27b', scenes: 9 },
@@ -183,7 +223,8 @@ const PINNED = [
   { lesson: 'longitude', preset: 'standard', hash: '417495edcde8', scenes: 8 },
   { lesson: 'longitude', preset: 'short', hash: '01b682decdbd', scenes: 6 },
   { lesson: 'hash-map', preset: 'standard', hash: '6534c50131fa', scenes: 9 },
-  { lesson: 'hash-map', preset: 'short', hash: '5a5362c4fd0a', scenes: 5 },
+  // Re-pinned 2026-08-24 from `5a5362c4fd0a` / 5 scenes — see the section above.
+  { lesson: 'hash-map', preset: 'short', hash: '66cb5a33474b', scenes: 6 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

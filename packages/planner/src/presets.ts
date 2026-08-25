@@ -20,7 +20,14 @@
  */
 import type { BoardMode, StageOptions, StoryboardMeta, TextElement } from '@inkcast/core';
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { critiqueLesson, lessonBeats, logger, noteProblem } from '@inkcast/core';
+import {
+  LETTERS_PER_WORD,
+  critiqueLesson,
+  lessonBeats,
+  logger,
+  noteProblem,
+  spokenLetters,
+} from '@inkcast/core';
 import { keywords, sentences, wordCount } from './text.js';
 
 const log = logger('planner:presets');
@@ -106,16 +113,60 @@ export type Preset = {
 };
 
 /**
- * Words a second a finished render actually delivers.
+ * Spoken letters a second a finished render actually delivers.
  *
- * Measured, not chosen: 272 words across 122.5s of narration audio in
- * `projects/f70a4904eb30`, at the standard preset with the default local voice. The
- * teaching *rate* is 140–160 wpm (see `CADENCE`), and this is lower than all of it because
- * it also carries the gap the voice stage puts after every sentence. Re-measure it with
- * `vocabcheck`-style arithmetic over any project's `audio/*.timing.json` if the phrase
- * gaps or the cadence rates change.
+ * **This is the calibration now, and `DELIVERED_WPS` below is derived from it.** The
+ * change is the answer to a finding that sat open through Phases 6 and 7: `DELIVERED_WPS
+ * = 2.2` fitted one shipped film and not the other, every run said so through the
+ * `pace-calibration` advisory, and the three candidate fixes on the table were "re-measure
+ * the constant", "make it per-cadence" and "accept the spread". The corpus refutes the
+ * first two and makes the third unnecessary.
+ *
+ *  - **Per-cadence is refuted outright.** `CADENCE` scales the speaking rate by
+ *    0.933/1.0/1.067, so a cadence mix *could* move delivered pace by ±7% — but every
+ *    beat of every film in the corpus is `building_energy`. A rate that varies by cadence
+ *    cannot explain a spread between films whose cadence is identical.
+ *  - **Re-measuring the constant does not fix it either**, because the spread is not an
+ *    offset. It is between films: 1.98 w/s (`qc0-doc`), 2.28 (`qc65-longitude`), 2.39
+ *    (`qc0-hashmap`), 2.50 (`qc64-gd`). Any single number is wrong by ±11% somewhere.
+ *  - **The unit was wrong.** Over those same four films, spoken letters a second spans
+ *    **9.50–9.90, ±2.1%** — a fifth of the spread — and the residual is flat rather than
+ *    ordered. The engine speaks at a near-constant rate; words a second is a property of
+ *    the film's *vocabulary*, not of this pipeline. Photosynthesis averages 4.86 letters a
+ *    word and gradient descent 3.79, which is the whole of the 21% gap between them.
+ *    Confirmed at beat level too: across 106 timed phrases, words a second has a
+ *    coefficient of variation of 16.6% and letters a second 9.6%.
+ *
+ * Measured over the normalised text the engine is actually handed — see `spokenLetters`,
+ * which is in `@inkcast/core` because `measureDrift` has to count the identical way.
+ * Pooled over `qc0-doc`, `qc0-hashmap`, `qc65-longitude` and `qc64-gd`: 4,272 spoken
+ * letters over 442.6s of narration audio, at the standard preset with the default local
+ * voice. It carries the gap the voice stage puts after every sentence, which is why it is
+ * below the in-phrase rate (10.29) that the same corpus measures.
+ *
+ * **Re-measure it when the engine, the language or the phrase gaps change** — those are
+ * the things it is a property of. A lesson full of long words is no longer one of them,
+ * which is the point. `measureDrift`'s advisory is the standing check.
  */
-export const DELIVERED_WPS = 2.2;
+export const DELIVERED_LPS = 9.65;
+
+/**
+ * Words a second a finished render delivers, for a film of average word length.
+ *
+ * Derived, not measured — the measurement is `DELIVERED_LPS` above. Kept as a named
+ * constant because two things still speak words: the preset field `wordsPerSecond` (and
+ * the `--wps` flag that overrides it), and the brief's word budget. Both are interfaces to
+ * a person or a model, and neither can count letters in advance.
+ *
+ * 9.65 / 4.23 = 2.28, against the 2.2 that was here before. The corpus mean moved by 4%;
+ * what actually changed is that the estimate no longer has to be wrong by ±11% on films at
+ * the ends of the vocabulary range.
+ */
+export const DELIVERED_WPS = round2(DELIVERED_LPS / LETTERS_PER_WORD);
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
 
 export const PRESETS: Record<PresetName, Preset> = {
   standard: {
@@ -299,9 +350,16 @@ export function resolvePreset(opts: PresetInput = {}): Preset {
 export function lessonSeconds(lesson: Lesson, pace: Preset | number = DELIVERED_WPS): number {
   const wps = typeof pace === 'number' ? pace : pace.wordsPerSecond;
   const outro = typeof pace === 'number' ? 0 : pace.outroSec;
+  // Words in, letters out. The caller's knob stays `wordsPerSecond` — it is what the preset
+  // carries and what `--wps` overrides — but the estimate is per spoken letter, because
+  // that is the rate that holds still across films (see `DELIVERED_LPS`). Scaling by
+  // `LETTERS_PER_WORD` keeps the knob meaning exactly what it says: words a second *for a
+  // film of average word length*, which is the only reading under which the number was ever
+  // true. `--wps 2.6` is still 18% faster than the default, on any lesson.
+  const lps = wps * LETTERS_PER_WORD;
   return (
     outro +
-    lessonBeats(lesson).reduce((t, b) => t + wordCount(b.step.narration) / wps + b.step.hold, 0)
+    lessonBeats(lesson).reduce((t, b) => t + spokenLetters(b.step.narration) / lps + b.step.hold, 0)
   );
 }
 

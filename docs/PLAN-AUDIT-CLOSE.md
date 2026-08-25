@@ -667,6 +667,45 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   by a local server standing in for the Messages API (the client's base URL is an
 >   environment variable), which is a real client against a real 200 — not a real model.
 >   Next: 6.3, 7.1, 7.3.
+>
+> **Progress (2026-08-24): gating finding 2 is closed — the length estimate had the wrong
+> unit.** 1140 tests green (3 pre-existing keyvault skips), auditcheck 93/93, lint and
+> typecheck clean. The finding was "`DELIVERED_WPS = 2.2` fits one shipped film and not the
+> other", and the three fixes on the table were re-measure it, make it per-cadence, or
+> accept the spread. The corpus refutes the first two:
+>
+> - **Per-cadence is refuted outright.** `CADENCE` would let a mix move pace by ±7%, but
+>   **every beat of every film in the corpus is `building_energy`** — a rate that varies by
+>   cadence cannot explain a spread between films whose cadence is identical.
+> - **Re-measuring cannot fix it, because the spread is between films, not an offset**:
+>   1.98 w/s (`qc0-doc`), 2.28 (`qc65-longitude`), 2.39 (`qc0-hashmap`), 2.50 (`qc64-gd`).
+>   Any single number is wrong by ±11% somewhere.
+> - **The unit was wrong.** Spoken letters a second over those same films spans
+>   **9.50–9.90, ±2.1%** — a fifth of the spread — and at beat level across 106 timed
+>   phrases the coefficient of variation is 9.6% against words' 16.6%. The engine speaks at
+>   a near-constant rate; words a second is a property of a film's _vocabulary_.
+>   Photosynthesis runs 4.86 letters a word and gradient descent 3.79, which is the whole of
+>   the 21% gap between them.
+>
+> So `DELIVERED_LPS = 9.65` is the calibration, `DELIVERED_WPS = 2.28` is derived from it,
+> `lessonSeconds` counts `spokenLetters` (over the _normalised_ text — `1707` is four
+> characters and thirty-one spoken letters), and `measureDrift` judges in the same unit
+> through the same function, which `auditcheck` now pins. `--wps` still works and still
+> means words a second for a film of average word length.
+>
+> **Measured end to end.** The advisory fired on 2 of 5 corpus films and now fires on none:
+> gradient-descent **+13.8% → −1.5%**, hash-map/short **+19.4% → +6.7%**, longitude +1.2% →
+> +0.5%, all three `pace-calibration` checks `pass` with zero findings. **One pinned hash of
+> six moved** — `hash-map`/short, `5a5362c4fd0a` → `66cb5a33474b` — and which five did not is
+> the argument: the estimate moves by how far a lesson sits from 4.23 letters a word, so
+> longitude (4.35) did not cross a boundary and hash-map (3.99, our shortest-worded lesson)
+> did. The extra scene is **the collision beat**, which the vertical preset had been dropping
+> because the estimator over-charged a short-worded film by 8%; the rendered recap chain now
+> reads four links ending "Two keys can be sent" where it read three. Frames were rendered
+> and looked at, as `pinned-hashes.test.ts` requires. One new finding came out of that
+> render and is written up rather than fixed: `hash-map` at `short` cannot pass the strict
+> gate at all, because its Python listing wants 25.82 canvas units in a 567×117 cell against
+> the 32.78 floor — pre-existing since 6.2 and verified against `HEAD`. Next: 7.1, 7.3, 6.3.
 
 **Two rules that shape everything here:**
 

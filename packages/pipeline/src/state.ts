@@ -186,21 +186,32 @@ export type PipelineState = {
    *
    * `durationSec` above already says how long the film is; this says whether that
    * was what the pipeline *intended*, and — the half the audit (S6-d) actually asked
-   * for — whether `DELIVERED_WPS`, the constant every length decision upstream is
+   * for — whether `DELIVERED_LPS`, the constant every length decision upstream is
    * made with, still describes the voice this film was spoken in. It was measured
    * once, from one film, and re-measuring it was a comment rather than a mechanism.
    *
    * Kept per run because that is the only way the question can be answered: one
-   * film's rate is a data point, and the calibration is the trend across them.
-   * Absent on files written before 4.3.
+   * film's rate is a data point, and the calibration is the trend across them — and
+   * this record is what four films' worth of it turned into. Reading these blocks
+   * across the corpus is what showed that `wps` varies with vocabulary and `lps` does
+   * not, which is why both pairs are here: `words`/`wps` for a person, `letters`/`lps`
+   * for the calibration.
+   *
+   * Absent on files written before 4.3. `letters`, `lps`, `expectedLps` and `paceDrift`
+   * are absent on files written before the unit changed, and the `wpsDrift` those files
+   * carry is not `paceDrift` under another name — it is a fraction of a different
+   * quantity, so a reader comparing the two across that boundary is comparing nothing.
    */
   drift?: {
     measuredSec: number;
     spokenSec: number;
     words: number;
     wps: number;
-    wpsDrift: number;
+    letters?: number;
+    lps?: number;
+    paceDrift?: number;
     expectedWps: number;
+    expectedLps?: number;
     budgetSec?: number;
     budgetRatio?: number;
   };

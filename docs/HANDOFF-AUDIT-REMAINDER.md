@@ -5,9 +5,10 @@ updated the same day when 6.2 (the code lane, committed with 6.1 as `dcd0394`), 
 (the raster trust gate, `e9487e7`), then 6.5 (the figure cache key, `b9cec6d`) and then
 7.2 (the inspectable plan) landed and their sections were deleted from this file.
 Updated again the same day, after 7.2, with **an ordered plan** ("The order to knock these
-out", below) and with gating findings 3 and 4 promoted into item 0. **Item 0 has since
-landed**, so it and those two findings are gone from this file and the order is re-cut
-below — what they bought is recorded in `HANDOFF-AUDIT-CLOSE.md`.
+out", below) and with gating findings 3 and 4 promoted into item 0. **Item 0 and gating
+finding 2 have since landed**, so those three findings are gone from this file and the
+order is re-cut below — what they bought is recorded in `HANDOFF-AUDIT-CLOSE.md`. One new
+finding replaced them in the gating list, discovered by finding 2's own frame check.
 **Forward-looking only.** Its sibling `docs/HANDOFF-AUDIT-CLOSE.md` records
 what has already landed and why, and stays the authority on that; this file is the one to
 open when the question is "what do I do next, and where do I start it". The plan itself —
@@ -20,43 +21,41 @@ disagrees with the plan it says so out loud.
 Phases 0–5 are landed and tested, and so are 6.1 (the honest guard for the three remaining
 unserved topic classes), 6.2 (the code lane — the fourth class is served now), 6.4 (the
 raster trust gate), 6.5 (the figure cache key names the model that drew it), 7.2 (the
-plan is inspectable on demand) and the two cost-honesty findings this file used to carry as
-3 and 4 (a run now reports the lesson author it used and the images it really paid for).
-At that point: **1138 tests green** (3 pre-existing keyvault skips, 1141 total),
-**auditcheck 92/92**, lint and typecheck clean, and three shipped lessons casting
-strict-clean end to end (`hash-map` is the newest, and the corpus's only board with a
-listing on it). Five items remain — 6.3, 7.1, 7.3, 8.1, 8.2 — and none of 6.3, 7.1 and 7.3
-blocks another, so they can be reordered freely by whoever picks them up. Phase 8 needs all
-of them plus a funded API key.
+plan is inspectable on demand), the two cost-honesty findings this file used to carry as 3
+and 4 (a run now reports the lesson author it used and the images it really paid for), and
+finding 2 (the length estimate counts spoken letters, because words a second turned out to
+be a property of a film's vocabulary rather than of this pipeline). At that point: **1140
+tests green** (3 pre-existing keyvault skips, 1143 total), **auditcheck 93/93**, lint and
+typecheck clean, and three shipped lessons casting strict-clean end to end at `standard`
+(`hash-map` is the newest, and the corpus's only board with a listing on it — it does
+_not_ cast clean at `short`, which is finding 2 in the gating list below). Five items
+remain — 6.3, 7.1, 7.3, 8.1, 8.2 — and none of 6.3, 7.1 and 7.3 blocks another, so they can
+be reordered freely by whoever picks them up. Phase 8 needs all of them plus a funded API
+key.
 
 ## The order to knock these out
 
-Five plan items and one loose finding remain. This is the order they are best done in and
-the reason for each; only one of the reasons is a real dependency, and it says so.
+Five plan items remain and no loose findings block them. This is the order they are best
+done in and the reason for each; none of them is a hard dependency any more — the one that
+was (settle the pacing constant before 7.1, so the pinned hashes are not argued in the same
+diff as a byte-identical splice) is done.
 
-**1. Gating finding 2 — decide `DELIVERED_WPS`.** A measurement and an argument, not a
-feature. The one real dependency left: **do it before 7.1**. A new pacing constant moves
-`adaptLesson`'s trimming and therefore the four pinned hashes, and 7.1's done-bar is a
-_byte-identical_ comparison — settling the hashes first keeps "the splice is exact" and
-"the film got shorter" from being argued in the same diff. It is also the smallest thing
-left, so it doubles as the warm-up item 0 used to be.
-
-**2. 7.1 — partial re-encode.** The only **FAIL** left in the audit's table (S10-b); every
+**1. 7.1 — partial re-encode.** The only **FAIL** left in the audit's table (S10-b); every
 other open item is a PARTIAL. It is the biggest item in the plan and wants a session of its
 own, and its first piece is a design decision (segments are worker slices today, not
 scenes) rather than typing. 7.2 handed it two instruments — see that section.
 
-**3. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
+**2. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
 believing 6.4 unblocked it. The honest reading is that a dark pack needs the real-alpha
 work S5.6 deferred, so budget for that or scope the pack to light surfaces and say which
 in writing — either is defensible, silence is not.
 
-**4. 6.3 — circuits, chemistry, geography.** Last on purpose. Its own rule is that the next
+**3. 6.3 — circuits, chemistry, geography.** Last on purpose. Its own rule is that the next
 lane is chosen from 6.1's findings, and the guard has still fired on nothing, so the honest
 output of this item today is a **written decision plus the two lane docs**, not a lane. Do
-it once the corpus has had a few more films through it — which items 1–3 will produce.
+it once the corpus has had a few more films through it — which items 1–2 will produce.
 
-**5. 8.1, then 8.2.** 8.1 needs 6.3–7.3 landed or waived in writing and re-reads everything
+**4. 8.1, then 8.2.** 8.1 needs 6.3–7.3 landed or waived in writing and re-reads everything
 below. 8.2 additionally needs ~$3 of credit and a small harness that does not exist yet
 (see its section). Neither is startable today.
 
@@ -111,15 +110,18 @@ done-bar the plan's wording did not have.
    credit should spend one keyed cast reading `qc.json`'s `frame-vision` findings against
    the frames by eye, because that false-positive count is what decides whether the check
    is promoted from advisory to blocking (plan 3.3).
-2. **`DELIVERED_WPS = 2.2` fits one shipped film and not the other** — _first in the
-   order above, and before 7.1._ — longitude delivers
-   2.23 w/s, gradient-descent 2.50 (+14%). Every run says so through the
-   `pace-calibration` advisory. Nothing has been changed because a new number moves
-   `adaptLesson`'s trimming and therefore the four pinned hashes. Somebody has to choose
-   between a re-measured constant, a per-cadence rate (the two films differ in how many
-   beats are `punchy`) and accepting the spread, and argue it in `presets.ts` beside the
-   constant. **The re-audit will read that advisory**, so it is an 8.1 conversation at the
-   latest.
+2. **`hash-map` cannot render at the `short` preset at all.** Its Python listing wants
+   25.82 canvas units to fit the 567×117 cell the vertical preset gives it, against the
+   32.78 `MIN_GLYPH_PX` floor, so a strict cast dies in the visuals stage with `code b3_v0
+could not be set`. Pre-existing since the code lane landed in 6.2 and **verified rather
+   than assumed** — the element's box is byte-identical before and after the pacing change
+   that surfaced it, and a cast from that change's parent commit fails with the same
+   message. Nothing had ever tried, because `hash-map`'s pins are _compile_ hashes and the
+   shipped cast is at `standard`. Three defensible fixes and the choice is a real one: give
+   the vertical preset a taller code cell, let `codeBox` reserve a cell that fits the
+   listing it was handed, or shorten the lesson's listing. Whoever takes 7.3 will be in
+   `palette.ts`/`style.ts` anyway and is closest to it; `--degrade` renders it meanwhile
+   (`projects/qcf2-hashmap-short`).
 
 _(Findings 3 and 4 — the lesson author and the image cost line — are closed. They were
 one bug wearing two hats and they landed together as item 0; what they bought, the one
@@ -147,9 +149,10 @@ API rather than against a real model.)_
   rebuilds the file from scratch. `grounding` was silently lost this way until 6.1.
 - **Corpus-derived constants are named recalibrations, not spec values.** `MIN_GLYPH_PX`
   (10 output px), the fill floor (mean 18% / scene 11%), `MIN_INK_SHARE` (1.0%),
-  `MAX_REVEALS_PER_SCENE` (9), and 6.4's `MIN_TRACED_INK` (3.0), `MAX_INK_ASPECT` (4.0) and
-  `MIN_GROUND_WHITE` (0.9) were each measured against the corpus and argued in the
-  constant's own comment. 8.1 must treat them as such.
+  `MAX_REVEALS_PER_SCENE` (9), 6.4's `MIN_TRACED_INK` (3.0), `MAX_INK_ASPECT` (4.0) and
+  `MIN_GROUND_WHITE` (0.9), and finding 2's `DELIVERED_LPS` (9.65 spoken letters a second)
+  and `LETTERS_PER_WORD` (4.23) were each measured against the corpus and argued in the
+  constant's own comment. Nine now, and 8.1 must treat them all as such.
 - **Do not let a gate become a re-prompt loop.** Structural failures stop and name the
   beat; the bounded repair loops live upstream where repair is cheap.
 - **`--degrade` exists so a demo is never blocked while you fix the real thing.**
@@ -275,7 +278,7 @@ any new waiver argued in writing). A new PARTIAL is a Phase-9 backlog item with 
 not a silent regression.
 
 **What the re-audit must be handed so it does not re-litigate settled decisions:** the
-seven corpus-derived constants listed above (they are recalibrations, argued in their own
+nine corpus-derived constants listed above (they are recalibrations, argued in their own
 comments, not regressions); the deliberate deviations listed in
 `HANDOFF-AUDIT-CLOSE.md`'s "Deliberate deviations" section; 6.1's warn-not-suppress
 decision; 6.4's two measured departures from its own bar (aspect scored absolutely rather
@@ -283,10 +286,13 @@ than against the request, and cached rasters gated rather than trusted); 6.5's o
 stays out of the figure key until a style pack can change a pixel, which is 7.3, and it
 keys itself through the model then); item 0's one (an image is billed when the provider's
 bytes arrive, _before_ the 6.4 gate judges them, because a rejected generation was paid for
-and never reaches the caller); and 5.1(b)'s
+and never reaches the caller); finding 2's one (the length estimate counts letters, not
+words, and `DELIVERED_WPS` is now derived from `DELIVERED_LPS` rather than measured — the
+corpus evidence for that is in the constant's comment and the refutation of the
+per-cadence alternative is that every corpus beat is `building_energy`); and 5.1(b)'s
 written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in
-under a second and should be run first — 92 checks as of 7.2, and each one is a fact some
+under a second and should be run first — 93 checks as of gating finding 2, and each one is a fact some
 pass of the original audit established.
 
 **And hand it one thing item 0 left open rather than closed:** the lesson author is now
@@ -326,7 +332,7 @@ returns 402.
 ## If you are picking this up cold
 
 Read in this order: `docs/PLAN-AUDIT-CLOSE.md` (the authority — its progress block is
-current through item 0, and the coverage table plus 8.1 are the exit), then
+current through gating finding 2, and the coverage table plus 8.1 are the exit), then
 `docs/HANDOFF-AUDIT-CLOSE.md` (what landed, the argued deviations, and the traps earned
 per phase — its trap list is worth reading even for items it does not cover), then this
 file for the item you are about to start. `docs/AUDIT-FINDINGS.md` is the evidence base

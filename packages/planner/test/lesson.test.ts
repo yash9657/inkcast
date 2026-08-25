@@ -304,10 +304,18 @@ test('a beat something derives from is never dropped', () => {
   // the wreckage validated. The rendered video went from a figure in fog straight to "if
   // the slope is positive, subtract it from your dial", with neither word introduced.
   //
-  // A chain of five steps, each deriving from the last, and far too long for any preset.
+  // A chain of eight steps, each deriving from the last, and far too long for any preset.
+  //
+  // Eight rather than five, and the reason is worth stating because the fixture was five
+  // until the length estimate changed unit. `trimStep` clamps each beat's narration to the
+  // preset's word budget *before* anything is dropped, and once seconds were counted in
+  // spoken letters the clamped five-link chain came in at 150s against `standard`'s 150s
+  // budget — so nothing was dropped and this test proved nothing. That was the fixture
+  // being marginal, not the rule changing: a test for "the trimmer never cuts a beat
+  // something derives from" has to hand the trimmer a lesson it must genuinely cut.
   const chain = {
     ...shipped,
-    steps: [0, 1, 2, 3, 4].map((k) => ({
+    steps: [0, 1, 2, 3, 4, 5, 6, 7].map((k) => ({
       ...shipped.steps[Math.min(k, shipped.steps.length - 1)]!,
       idea: `Link ${k + 1}`,
       narration:
@@ -323,7 +331,7 @@ test('a beat something derives from is never dropped', () => {
     const shaped = adaptLesson(chain, PRESETS[name]);
     const ids = new Set(lessonBeats(shaped).map((b) => b.id));
     // Something was cut — otherwise this proves nothing.
-    assert.ok(shaped.steps.length < 5, `${name}: nothing was dropped`);
+    assert.ok(shaped.steps.length < 8, `${name}: nothing was dropped`);
     // What survives is a prefix of the chain: links are cut from the free end only, so
     // the argument still starts where it started and every antecedent is present.
     for (const { step, id } of lessonBeats(shaped)) {
