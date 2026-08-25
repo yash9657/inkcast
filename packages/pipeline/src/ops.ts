@@ -18,6 +18,7 @@ import {
   fitCamera,
   frameSize,
   parseStoryboard,
+  styleIds,
   viewRect,
   type Camera,
   type Scene,
@@ -116,7 +117,9 @@ export const EDIT_OPS_SCHEMA = {
               language: { type: 'string' },
               aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] },
               palette: { type: 'string', enum: ['mono', 'color'] },
-              style: { type: 'string', enum: ['marker', 'pencil', 'chalk', 'ink'] },
+              // Loaded, not literal: a style is a JSON file in `styles/` (plan 7.3), and
+              // a model told about four when the tree has five would refuse the fifth.
+              style: { type: 'string', enum: styleIds() },
               voice: { type: 'string' },
               fps: { type: 'number' },
               outroSec: { type: 'number' },
@@ -647,12 +650,17 @@ function parseClause(sb: Storyboard, clause: string): EditOp[] {
   else if (/\bsquare\b/i.test(l)) meta.aspect = '1:1';
   else if (/\b(landscape|widescreen|youtube)\b/i.test(l)) meta.aspect = '16:9';
 
+  // The style names come from `styles/` (plan 7.3) rather than from a literal here, so
+  // the keyless path can name a fifth pack the moment someone drops one in. Ids are
+  // `[a-z0-9-]+` by schema, so there is nothing in them to escape.
+  const styles = styleIds().join('|');
   m =
-    /\bstyle\s*(?:to|=|:)\s*(marker|pencil|chalk|ink)\b/i.exec(s) ??
-    /\b(?:use|switch\s+to|make\s+it|draw\s+it\s+in|redraw\s+it\s+in|in)\s+(marker|pencil|chalk|ink)\b/i.exec(
-      s,
-    ) ??
-    /\b(marker|pencil|chalk|ink)\s+style\b/i.exec(s);
+    new RegExp(`\\bstyle\\s*(?:to|=|:)\\s*(${styles})\\b`, 'i').exec(s) ??
+    new RegExp(
+      `\\b(?:use|switch\\s+to|make\\s+it|draw\\s+it\\s+in|redraw\\s+it\\s+in|in)\\s+(${styles})\\b`,
+      'i',
+    ).exec(s) ??
+    new RegExp(`\\b(${styles})\\s+style\\b`, 'i').exec(s);
   if (m) meta.style = m[1]!.toLowerCase() as StoryboardMeta['style'];
 
   if (/\b(mono|monochrome|black\s*(?:and|&)\s*white|b&w|gr[ae]yscale)\b/i.test(l)) {

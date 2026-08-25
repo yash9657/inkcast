@@ -920,6 +920,62 @@ function check(name: string, ok: boolean, why: string): void {
   );
 }
 
+/* ---- X-f (7.3): a style is a JSON file, and nothing keeps a table of four ---- */
+{
+  const packLoader = read('packages/core/src/stylepack.ts');
+  const visualsStyle = read('packages/visuals/src/style.ts');
+  const renderPalette = read('packages/render/src/palette.ts');
+  const renderFont = read('packages/render/src/font.ts');
+  const camera = read('packages/core/src/camera.ts');
+  const fontmetrics = read('packages/core/src/fontmetrics.ts');
+  const storyboard = read('packages/core/src/storyboard.ts');
+  const shipped = ['marker', 'pencil', 'chalk', 'ink'];
+
+  check(
+    'X-f: the four shipped personalities are files in styles/',
+    shipped.every((id) => {
+      const pack = JSON.parse(read(`styles/${id}.json`)) as { id: string; pen?: unknown };
+      return pack.id === id && !!pack.pen;
+    }),
+    'a shipped style pack is missing, misfiled or has lost its pen — the loader refuses an id that disagrees with its filename, so the run would fail at parse',
+  );
+  check(
+    'X-f: no package keeps an ink table of its own any more',
+    !/marker: \{/.test(visualsStyle) &&
+      !/marker: \{/.test(renderPalette) &&
+      !/marker: \{/.test(renderFont) &&
+      !/marker: 1\.0/.test(camera) &&
+      !/HAND_FONTS/.test(fontmetrics) &&
+      [visualsStyle, renderPalette, renderFont, camera, fontmetrics].every((f) =>
+        /stylePackFor|handFontFor|knownHandStems|stylePacks/.test(f),
+      ),
+    'one of the five tables this item collapsed has grown back — a fifth style would need TypeScript again, and the pen the page draws could drift from the face the planner measured with',
+  );
+  check(
+    'X-f: meta.style is validated against styles/, not against a union of four',
+    /isStyleId/.test(storyboard) && !/z\.enum\(\['marker'/.test(storyboard),
+    'the IR enumerates four style names again, so a pack in styles/ cannot be named by a film',
+  );
+  check(
+    'X-f: the fixed-accent discipline is enforced by the loader’s schema',
+    /accent: Colour/.test(packLoader) &&
+      /accent must differ from the ink/.test(packLoader) &&
+      /tellable apart/.test(packLoader) &&
+      !/accents:\s*z\./.test(packLoader),
+    'a pack can declare a list of accents again — which is the rainbow board core/src/palette.ts exists to prevent',
+  );
+  check(
+    'X-f: a dark-surface pack is refused until the alpha work exists (S5.6)',
+    /MIN_PAPER_LUMA/.test(packLoader) && /multiply/.test(packLoader),
+    'a pack may now paint a slate board, where every generated figure multiplies into the surface and disappears — 6.4 detects that ground, it does not remove it',
+  );
+  check(
+    'X-f: an edited pack invalidates what it drew',
+    /styleKey\(/.test(read('packages/pipeline/src/keys.ts')) && /styleKey\(/.test(visualsStyle),
+    'a cache key carries the style *name* again — editing styles/marker.json would serve yesterday’s ink from the cache',
+  );
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} audit check(s) failed.`);
   process.exit(1);

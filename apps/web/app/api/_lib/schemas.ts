@@ -22,7 +22,20 @@ export const MetaPatch = z
     aspect: z.enum(['16:9', '9:16', '1:1']).optional(),
     palette: z.enum(['mono', 'color']).optional(),
     fps: z.number().int().min(1).max(60).optional(),
-    style: z.enum(['marker', 'pencil', 'chalk', 'ink']).optional(),
+    /**
+     * A style pack id (plan 7.3). Bounded rather than enumerated: the list of styles is a
+     * directory on the server (`styles/`), and `parseStoryboard` in `@inkcast/core` is
+     * what rejects a name no pack claims — with a message naming the ones that exist.
+     * Enumerating four here would reject a fifth pack at the edge, before the one check
+     * that can explain itself ever ran.
+     */
+    style: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
+      .optional(),
     voice: z.string().trim().min(1).max(120).optional(),
     outroSec: z.number().min(0).max(30).optional(),
   })

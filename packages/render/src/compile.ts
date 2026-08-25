@@ -21,7 +21,7 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { HAND_FONTS, gate, handMetricsFor, logger } from '@inkcast/core';
+import { gate, handFontFor, handMetricsFor, logger } from '@inkcast/core';
 import type { FontMetrics } from '@inkcast/core';
 import type {
   ArrowElement,
@@ -541,7 +541,7 @@ export function compileBoard(
     plots: new Map(),
     gates: opts.gates,
     hand: handMetricsFor(sb.meta.style),
-    tracking: (HAND_FONTS[sb.meta.style] ?? HAND_FONTS.marker).tracking,
+    tracking: handFontFor(sb.meta.style).tracking,
   };
   for (const scene of timed.scenes) {
     for (const el of scene.elements) {

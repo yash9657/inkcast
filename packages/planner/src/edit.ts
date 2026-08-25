@@ -11,7 +11,7 @@
  * "needs a key" with a clear warning instead of being silently ignored.
  */
 import type { Storyboard } from '@inkcast/core';
-import { logger, parseStoryboard } from '@inkcast/core';
+import { logger, parseStoryboard, styleIds } from '@inkcast/core';
 import { anthropicEdit } from './anthropic.js';
 import { layoutStoryboard } from './layout.js';
 import type { EditOptions, EditReport } from './types.js';
@@ -114,7 +114,9 @@ function applyOne(sb: Storyboard, raw: string): Applied {
   }
 
   /* --- ink style --- */
-  const style = lower.match(/\b(marker|pencil|chalk|ink)\b/);
+  // From `styles/` (plan 7.3), not a literal: this path is what a keyless edit falls back
+  // to, and it would silently ignore "make it modern-minimal" for a pack that exists.
+  const style = lower.match(new RegExp(`\\b(${styleIds().join('|')})\\b`));
   if (style?.[1] && /\b(style|look|draw|drawn|use|switch|change|make)\b/.test(lower)) {
     sb.meta.style = style[1] as Storyboard['meta']['style'];
     return { sb, note: `ink style set to ${style[1]}` };

@@ -22,7 +22,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from './log.js';
-import type { StoryboardMeta } from './storyboard.js';
+import { knownHandStems, stylePackFor } from './stylepack.js';
 
 const log = logger('core:font');
 
@@ -698,17 +698,11 @@ export function findFontFile(
   preferred: string[],
   dirs: string[] = defaultFontDirs(),
 ): string | undefined {
-  const known = [
-    'shantell',
-    'caveat',
-    'gaegu',
-    'patrick',
-    'kalam',
-    'indie',
-    'architects',
-    'handlee',
-    'gloria',
-  ];
+  // Every face some pack asks for, then the other OFL handwriting faces this repo
+  // recognises. Derived rather than listed (plan 7.3) so a fifth pack's face is a
+  // fallback candidate for the other four by existing, which is what the four hardcoded
+  // stems at the head of this list used to mean.
+  const known = [...knownHandStems(), 'kalam', 'indie', 'architects', 'handlee', 'gloria'];
   const candidates: string[] = [];
   for (const dir of dirs) {
     if (!dir || !existsSync(dir)) continue;
@@ -794,30 +788,22 @@ export type HandFont = {
 };
 
 /**
- * Which handwriting face each ink style letters with, from
- * `docs/research/design-stack.md` §3 — one OFL face per style.
+ * Which handwriting face an ink style letters with — the pack's `hand` block.
  *
- * It lives beside the metrics rather than in the visuals style table because the
- * face (and its tracking) is half of every measurement: the planner reserving a box
- * and the visuals stage wrapping into it must agree not just on the advance table
- * but on which font's advances and how much air between the letters.
- * `visuals/src/style.ts` reads these fields into its `InkStyle` rather than
- * restating them.
+ * This was a table of four, from `docs/research/design-stack.md` §3, and it lived beside
+ * the metrics rather than in the visuals style table because the face (and its tracking)
+ * is half of every measurement: the planner reserving a box and the visuals stage
+ * wrapping into it must agree not just on the advance table but on which font's advances
+ * and how much air between the letters. That reasoning is unchanged; what moved is where
+ * the assignment is written. It is a field of the style pack now (plan 7.3), so a fifth
+ * style brings its own face without editing this file, and the three other places that
+ * used to name a face — the visuals style table, the renderer's embedded-font family and
+ * its `KNOWN` fallback list — all read the same one.
  */
-export const HAND_FONTS: Record<StoryboardMeta['style'], HandFont> = {
-  marker: {
-    fontFamily: 'Shantell Sans',
-    fontFiles: ['shantellsans', 'shantell-sans', 'shantell'],
-    tracking: 0.012,
-  },
-  pencil: { fontFamily: 'Caveat', fontFiles: ['caveat'], tracking: 0.006 },
-  chalk: { fontFamily: 'Gaegu', fontFiles: ['gaegu'], tracking: 0.02 },
-  ink: {
-    fontFamily: 'Patrick Hand',
-    fontFiles: ['patrickhand', 'patrick-hand', 'patrick'],
-    tracking: 0.004,
-  },
-};
+export function handFontFor(style: string): HandFont {
+  const hand = stylePackFor(style).hand;
+  return { fontFamily: hand.fontFamily, fontFiles: hand.fontFiles, tracking: hand.tracking };
+}
 
 const handCache = new Map<string, FontMetrics>();
 
@@ -829,10 +815,10 @@ const handCache = new Map<string, FontMetrics>();
  * which is safe because nothing switches fonts underneath a running process —
  * `INKCAST_FONT`/`INKCAST_FONT_DIR` are read on first use, like every other env knob.
  */
-export function handMetricsFor(style: StoryboardMeta['style']): FontMetrics {
+export function handMetricsFor(style: string): FontMetrics {
   const cached = handCache.get(style);
   if (cached) return cached;
-  const hand = HAND_FONTS[style] ?? HAND_FONTS.marker;
+  const hand = handFontFor(style);
   const m = loadFontMetrics({ preferred: hand.fontFiles, fontFamily: hand.fontFamily });
   handCache.set(style, m);
   return m;

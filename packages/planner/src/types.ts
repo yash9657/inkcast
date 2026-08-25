@@ -113,7 +113,8 @@ export type FormatOptions = {
   preset?: PresetName;
   aspect?: '16:9' | '9:16' | '1:1';
   palette?: 'mono' | 'color';
-  style?: 'marker' | 'pencil' | 'chalk' | 'ink';
+  /** A style pack id (plan 7.3) — `styleIds()` is the list, `styles/` is the source. */
+  style?: string;
   voice?: string;
   language?: string;
   fps?: number;
@@ -256,7 +257,8 @@ export type PlanOptions = StageOptions & {
   /** Overrides for `storyboard.meta`. */
   aspect?: '16:9' | '9:16' | '1:1';
   palette?: 'mono' | 'color';
-  style?: 'marker' | 'pencil' | 'chalk' | 'ink';
+  /** A style pack id (plan 7.3) — `styleIds()` is the list, `styles/` is the source. */
+  style?: string;
   voice?: string;
   language?: string;
   fps?: number;

@@ -153,6 +153,13 @@ COPY apps/ apps/
 # (that module's own `withHand` comment says so). `assets/library` holds the
 # figure and symbol SVGs the visuals stage draws from.
 COPY assets/ assets/
+# The board's ink personalities (plan item 7.3): one JSON file per style, loaded by
+# `core/src/stylepack.ts`. Not optional and not incidental — `meta.style` is validated
+# against this directory, so an image without it cannot parse a storyboard at all. That
+# is deliberate: the loader throws rather than falling back to a built-in marker, so this
+# COPY going missing is a first-run error naming the directory instead of every video
+# quietly rendering in the wrong hand.
+COPY styles/ styles/
 # `examples/` is small and is the only thing the `filePath` source can point at
 # (generate/route.ts confines it to the repo root), which is what makes a
 # smoke test on a fresh box possible without uploading anything.
@@ -415,6 +422,7 @@ RUN --mount=type=cache,id=apt-playwright,target=/var/cache/apt,sharing=locked \
 # will not work.
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/assets   ./assets
+COPY --from=build /app/styles   ./styles
 COPY --from=build /app/examples ./examples
 COPY --from=build /app/apps/cli ./apps/cli
 COPY --from=build /app/apps/web ./apps/web

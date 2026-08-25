@@ -563,8 +563,8 @@ inkcast providers                      what each stage will use, and what it giv
 Lesson options: `--depth quick|standard|deep`, `--objective`, `--audience`,
 `--brief`, `--seconds <n>`, `--lesson <path>`.
 Format options: `--short`, `--aspect 16:9|9:16|1:1`, `--preset standard|short|square`,
-`--title`, `--voice`, `--lang`, `--style marker|pencil|chalk|ink`,
-`--palette mono|color`.
+`--title`, `--voice`, `--lang`, `--style <id>` (the ids in `styles/`: `marker`,
+`pencil`, `chalk`, `ink`, plus any you add), `--palette mono|color`.
 Run options: `--out`, `--project`, `--force`, `--open`, `--json`, `--verbose`,
 `--quiet`, `--via lesson|document`.
 
@@ -648,8 +648,9 @@ Contributions are welcome, and the bar is concrete rather than ceremonial.
 
 Good first contributions: a hand-authored lesson in `examples/lessons/` for a topic
 you know well (no key needed, and the most useful thing you can add), a new named
-curve function, an ink style, another local voice engine, a document format for
-`ingest`, or better `--json` output for scripting.
+curve function, **an ink style — a JSON file in `styles/` and no TypeScript at all**,
+another local voice engine, a document format for `ingest`, or better `--json` output
+for scripting.
 
 ---
 

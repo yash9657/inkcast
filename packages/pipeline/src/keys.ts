@@ -21,7 +21,7 @@
  * invalidates projects without anyone having to remember to edit this file.
  */
 
-import { hash } from '@inkcast/core';
+import { hash, styleKey } from '@inkcast/core';
 import type { BoardMode, Element, Scene, Storyboard, StoryboardMeta } from '@inkcast/core';
 import type { StageName } from './progress.js';
 
@@ -494,7 +494,11 @@ export function visualsFingerprint(sb: Storyboard): string {
     // `ref` for the reason `assetFingerprint` explains: it decides which lane draws
     // the entity, and which version of the curated drawing that lane uses.
     sb.assets.map((a) => [a.id, a.kind, a.prompt ?? '', a.seed ?? 0, a.ref ?? '', a.fit ?? '']),
-    sb.meta.style,
+    // `styleKey`, not `meta.style` (plan 7.3): the name identified the ink only while the
+    // numbers behind it were compiled in. A style is a JSON file now, so the key carries
+    // the name *and* the digest of what the name currently means — an edited
+    // `styles/marker.json` re-resolves the geometry instead of serving yesterday's ink.
+    styleKey(sb.meta.style),
     sb.meta.palette,
     sb.meta.aspect,
     sb.canvas,

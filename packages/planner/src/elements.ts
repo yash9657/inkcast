@@ -17,7 +17,14 @@
  * is equal to it — the two are in different units, and the measurement that says so is in
  * `FONT`'s own comment.
  */
-import { HAND_FONTS, TYPE_SCALE, codeBox, handMetricsFor, logger } from '@inkcast/core';
+import {
+  DEFAULT_STYLE,
+  TYPE_SCALE,
+  codeBox,
+  handFontFor,
+  handMetricsFor,
+  logger,
+} from '@inkcast/core';
 import type {
   ArrowElement,
   AssetElement,
@@ -157,7 +164,7 @@ export const FONT: Record<Role, number> = {
  * `visuals/src/text.ts` `layoutText`, so the box the planner reserves and the lines
  * the board letters can only disagree by the shrink-to-fit the renderer applies.
  */
-let handStyle: StoryboardMeta['style'] = 'marker';
+let handStyle: StoryboardMeta['style'] = DEFAULT_STYLE;
 
 /**
  * Point the planner's measurements at the ink style the board will letter with.
@@ -179,7 +186,7 @@ function hand(): FontMetrics {
 
 /** Width of one line at `size` canvas units, measured with the board's own hand. */
 export function handMeasure(text: string, size: number): number {
-  return hand().measure(text, size, HAND_FONTS[handStyle].tracking);
+  return hand().measure(text, size, handFontFor(handStyle).tracking);
 }
 
 /**

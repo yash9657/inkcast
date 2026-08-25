@@ -2,7 +2,13 @@
  * The choices the create flow offers.
  *
  * Every list here mirrors something the pipeline genuinely accepts:
- *  - aspects, palettes and ink styles are the enums in `StoryboardMeta`;
+ *  - aspects and palettes are the enums in `StoryboardMeta`;
+ *  - ink styles are the packs in `styles/` — a directory, not an enum, since plan item
+ *    7.3. The four below are the ones this repo ships, and they are mirrored here for the
+ *    same reason the voices are: the loader reads the filesystem and cannot be imported
+ *    into a browser bundle. **A pack a user drops into `styles/` therefore works through
+ *    the API and the CLI but does not appear in this picker** — closing that gap means
+ *    serving `styleIds()` from a route, which nothing does yet;
  *  - voices are the 28 ids `kokoro-js` validates (`KOKORO_VOICES` in
  *    `@inkcast/voice`) — that package cannot be imported into a browser bundle,
  *    so the ids are mirrored, and the *shape* is derived rather than retyped;

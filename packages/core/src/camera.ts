@@ -89,6 +89,7 @@
 import { logger } from './log.js';
 import type { Element, Scene, Storyboard, StoryboardMeta } from './storyboard.js';
 import { frameSize } from './storyboard.js';
+import { stylePackFor } from './stylepack.js';
 import {
   boundsOfPoints,
   flattenPathData,
@@ -716,13 +717,17 @@ export const TYPE_REFERENCE_HEIGHT = frameSize('16:9').h;
 
 export type TextRole = keyof typeof TYPE_SCALE;
 
-/** Stroke width multiplier against the 6-unit base, per ink personality. */
-const PEN_WIDTH: Record<StoryboardMeta['style'], number> = {
-  marker: 1.0,
-  pencil: 0.55,
-  chalk: 1.15,
-  ink: 0.75,
-};
+/**
+ * Stroke width multiplier against the 6-unit base, per ink personality.
+ *
+ * A table of four until plan 7.3; it is the style pack's `pen.weight` now, so a fifth
+ * personality sets its own pen weight in its own file. The base and the gains stay here,
+ * because they are the *board's* arithmetic rather than the pen's: `strokeWidth` below is
+ * the one number both stages draw at.
+ */
+function penWeight(style: string): number {
+  return stylePackFor(style).pen.weight;
+}
 
 /**
  * How much bigger type and ink are on a narrow frame.
@@ -786,7 +791,7 @@ export function boardMetrics(sb: Storyboard): BoardMetrics {
   // renderer applied when it owned this, and moving it here is the point: there is
   // now one place where "how heavy is the pen on this board" is answered.
   const inkGain = 1 + (gain - 1) * 0.6;
-  const strokeWidth = 6 * PEN_WIDTH[sb.meta.style] * scale * inkGain;
+  const strokeWidth = 6 * penWeight(sb.meta.style) * scale * inkGain;
 
   const type = Object.fromEntries(
     (Object.keys(TYPE_SCALE) as TextRole[]).map((role) => [role, TYPE_SCALE[role] * scale * gain]),

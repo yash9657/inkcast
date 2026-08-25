@@ -1,4 +1,22 @@
+import { DEFAULT_STYLE, styleIds } from '@inkcast/core';
 import { paint } from './ui.js';
+
+/**
+ * The `--style` line, built from `styles/` rather than typed out (plan 7.3).
+ *
+ * The preset list two lines above is a literal, and its own comment explains why — the
+ * CLI has to print help before any stage package is loaded. That reasoning does not reach
+ * here: the style list lives in `@inkcast/core`, which this app already imports, and the
+ * whole point of the item is that a fifth style is a file. A help text listing four names
+ * while the flag accepted five would be exactly the drift the preset comment describes.
+ *
+ * Padded to the column the other flag descriptions sit in, so the block stays aligned as
+ * the list grows.
+ */
+function styleLine(): string {
+  const ids = styleIds().join(' | ');
+  return `${ids.padEnd(42)} (default ${DEFAULT_STYLE})`;
+}
 
 export function usage(color: boolean): string {
   const c = paint(color);
@@ -39,7 +57,7 @@ ${h('FORMAT')}
   -t, --title <text>     title for the video (default: the lesson's topic)
       --voice <id>       voice id, e.g. af_heart, am_puck           (default af_heart)
       --lang <code>      narration language, e.g. en, es, fr        (default en)
-      --style <style>    marker | pencil | chalk | ink              (default marker)
+      --style <style>    ${styleLine()}
       --palette <name>   mono | color                              (default color)
 
 ${h('OPTIONS')}

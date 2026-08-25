@@ -12,25 +12,47 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gate, logger } from '@inkcast/core';
+import { gate, knownHandStems, logger, stylePackFor, stylePacks } from '@inkcast/core';
 import type { GateMode } from '@inkcast/core';
 import type { StyleName } from './types.js';
 
 const log = logger('render:font');
 
-/** Preferred family per ink style, then the others as a graceful second choice. */
-const FAMILY: Record<StyleName, string> = {
-  marker: 'shantellsans',
-  pencil: 'caveat',
-  chalk: 'gaegu',
-  ink: 'patrickhand',
-};
-
-const KNOWN = ['shantellsans', 'caveat', 'gaegu', 'patrickhand'];
 const EXTS = new Set(['.ttf', '.otf', '.woff2', '.woff']);
 
-const FALLBACK_STACK =
-  "'Shantell Sans', 'Caveat', 'Patrick Hand', 'Gaegu', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', 'Segoe Print', cursive";
+/**
+ * Which file to embed for a style, and which others will do — from the style pack (plan
+ * item 7.3).
+ *
+ * This was a `FAMILY` table of four plus a `KNOWN` list of the same four, and it was
+ * already drifting from the `HAND_FONTS` table in `@inkcast/core` that *measures* the
+ * face: this file knew the pencil as `caveat`, core knew it as `Caveat` with the stems
+ * `['caveat']`, and nothing compared the two. They are the same three lines of one JSON
+ * file now, so the face the planner measured with is the face the page embeds by
+ * construction rather than by two lists agreeing.
+ */
+function wantedStems(style: StyleName): string[] {
+  return stylePackFor(style).hand.fontFiles.map(normalise);
+}
+
+/**
+ * The system stack, when nothing is vendored at all — every pack's family first, so a
+ * fifth style names its own face here too, then the platform handwriting faces that have
+ * a chance of being installed.
+ */
+function fallbackStack(): string {
+  const families = [...stylePacks().values()].map((p) => `'${p.hand.fontFamily}'`);
+  return [
+    ...new Set([
+      ...families,
+      "'Bradley Hand'",
+      "'Chalkboard SE'",
+      "'Comic Sans MS'",
+      "'Segoe Print'",
+      'cursive',
+    ]),
+  ].join(', ');
+}
 
 export type ResolvedFont = {
   /** Family name to use in the page. */
@@ -130,16 +152,17 @@ function pick(style: StyleName, dir: string, explicit?: string): string | null {
     if (existsSync(abs)) return abs;
     log.warn(`fontPath not found, ignoring: ${explicit}`);
   }
-  const wanted = FAMILY[style];
   const dirs = fontSearchPaths(dir);
   const all: string[] = [];
   for (const d of dirs) all.push(...listFonts(d));
   if (!all.length) return null;
-  const exact = all.find((f) => normalise(path.basename(f, path.extname(f))).startsWith(wanted));
-  if (exact) return exact;
+  for (const wanted of wantedStems(style)) {
+    const exact = all.find((f) => normalise(path.basename(f, path.extname(f))).startsWith(wanted));
+    if (exact) return exact;
+  }
   const known = all.find((f) => {
     const n = normalise(path.basename(f, path.extname(f)));
-    return KNOWN.some((k) => n.startsWith(k));
+    return knownHandStems().some((k) => n.startsWith(k));
   });
   return known ?? all[0] ?? null;
 }
@@ -164,7 +187,7 @@ export function resolveFont(
           `no handwriting font in ${fontSearchPaths(dir).join(', ') || '(no search paths)'} — using the system stack`,
         ),
     );
-    return { family: FALLBACK_STACK, css: '', file: null };
+    return { family: fallbackStack(), css: '', file: null };
   }
   const ext = path.extname(file).toLowerCase();
   let b64 = cache.get(file);
@@ -181,5 +204,5 @@ export function resolveFont(
     '}',
   ].join('\n');
   log.debug(`embedded handwriting font ${path.basename(file)}`);
-  return { family: `'InkcastHand', ${FALLBACK_STACK}`, css, file };
+  return { family: `'InkcastHand', ${fallbackStack()}`, css, file };
 }

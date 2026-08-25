@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { styleIds } from '@inkcast/core';
 import type { StoryboardMeta } from '@inkcast/core';
 import type { CliContext } from './env.js';
 import { paint } from './ui.js';
@@ -20,7 +21,13 @@ import { usage } from './usage.js';
 import { hydrateKeys } from './vault.js';
 
 const ASPECTS = ['16:9', '9:16', '1:1'] as const;
-const STYLES = ['marker', 'pencil', 'chalk', 'ink'] as const;
+/*
+ * The style list is *loaded*, not literal (plan 7.3): a style is a JSON file in `styles/`,
+ * so a fifth one has to be accepted by the flag and printed in the help without either
+ * being edited. `styleIds()` reads that directory once and both callers ask it — see
+ * `usage.ts`, and the mirror test in `test/flags.test.ts` that holds the two together the
+ * way the preset list is held.
+ */
 const PALETTES = ['mono', 'color'] as const;
 /*
  * The third copy of this list, and the one that *rejects*. `packages/planner/src/presets.ts`
@@ -63,7 +70,7 @@ export type Flags = {
   aspect?: (typeof ASPECTS)[number];
   lang?: string;
   voice?: string;
-  style?: (typeof STYLES)[number];
+  style?: string;
   palette?: (typeof PALETTES)[number];
   preset?: (typeof PRESETS)[number];
   depth?: (typeof DEPTHS)[number];
@@ -258,7 +265,7 @@ export function readFlags(values: Record<string, unknown>): Flags {
   if (typeof values.brief === 'string') flags.brief = values.brief.trim();
   if (typeof values.lesson === 'string') flags.lesson = values.lesson;
   if (typeof values.aspect === 'string') flags.aspect = oneOf('aspect', values.aspect, ASPECTS);
-  if (typeof values.style === 'string') flags.style = oneOf('style', values.style, STYLES);
+  if (typeof values.style === 'string') flags.style = oneOf('style', values.style, styleIds());
   if (typeof values.palette === 'string') {
     flags.palette = oneOf('palette', values.palette, PALETTES);
   }

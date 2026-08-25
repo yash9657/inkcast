@@ -14,6 +14,7 @@
  */
 import { z } from 'zod';
 import { cueTokens, narrationTokens } from './speech.js';
+import { DEFAULT_STYLE, isStyleId, styleIds } from './stylepack.js';
 
 /** Canvas units. The camera is what maps these to output pixels. */
 // `.finite()` everywhere and positive extents (plan 2.3): a NaN coordinate or a
@@ -684,8 +685,20 @@ export const StoryboardMeta = z.object({
   aspect: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
   palette: z.enum(['mono', 'color']).default('color'),
   fps: z.number().int().positive().default(30),
-  /** Ink personality. `marker` is the default whiteboard look. */
-  style: z.enum(['marker', 'pencil', 'chalk', 'ink']).default('marker'),
+  /**
+   * Ink personality — the id of a style pack (plan item 7.3).
+   *
+   * A string checked against `styles/` rather than a four-name union, because a style is
+   * a JSON file now and a fifth one must not need a schema edit. The check is still a
+   * *rejection*: an unknown id fails to parse here, at the seam, rather than reaching a
+   * stage that would fall back to the marker and draw the film in the wrong hand.
+   */
+  style: z
+    .string()
+    .refine(isStyleId, (v) => ({
+      message: `unknown ink style "${v}" — this tree has ${styleIds().join(', ')} (a style is a JSON file in styles/)`,
+    }))
+    .default(DEFAULT_STYLE),
   voice: z.string().default('af_heart'),
   /** Trailing silence after the last scene, so endings do not feel clipped. */
   outroSec: z.number().min(0).default(1.2),

@@ -1,0 +1,41 @@
+{
+  "id": "chalk",
+  "name": "Chalk",
+  "description": "The classroom hand: broad, dusty, cross-hatched fills and the roughest line of the four. The surface is still the board's paper — a dark slate needs the alpha work the audit deferred (see stylepack.ts's MIN_PAPER_LUMA).",
+  "hand": {
+    "fontFamily": "Gaegu",
+    "fontFiles": ["gaegu"],
+    "tracking": 0.02,
+    "textOpacity": 0.9
+  },
+  "pen": {
+    "width": 4.0,
+    "weight": 1.15,
+    "art": {
+      "unit": 84,
+      "baseAngle": 154,
+      "follow": 0.35,
+      "parts": [
+        {
+          "d": "M -10 0 L 10 -2 L 11 -78 Q 11 -82 7 -82 L -7 -82 Q -11 -82 -11 -78 Z",
+          "fill": "#f7f5f0",
+          "stroke": "#c9c6bf",
+          "strokeWidth": 2
+        },
+        { "d": "M -5 -8 L -1 -8 L -1 -76 L -5 -76 Z", "fill": "rgba(255,255,255,0.75)" }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 2.3,
+    "bowing": 1.9,
+    "multiStroke": true,
+    "curveFitting": 0.88,
+    "maxRandomnessOffset": 3.2,
+    "strokeOpacity": 0.86,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "cross-hatch", "weight": 1.8, "hachureAngle": -35, "hachureGap": 12 }
+  },
+  "sketch": { "roughness": 1.9, "bowing": 1.2, "passes": 2, "cap": "round", "opacity": 0.8 }
+}

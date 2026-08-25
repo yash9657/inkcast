@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { styleIds } from '@inkcast/core';
 import { UsageError, lessonFromFlags, metaFromFlags, readFlags } from '../src/main.js';
 import { usage } from '../src/usage.js';
 
@@ -133,6 +134,28 @@ test('every preset the flag accepts is a preset the help text offers', () => {
   // And the validator is still a validator: it must not have become a passthrough on the
   // way to fixing the list, or this test would pass for a flag that accepts anything.
   assert.throws(() => readFlags({ preset: 'widescreen' }), UsageError);
+});
+
+/**
+ * The same drift, one flag over, and now unable to happen for the same reason the preset
+ * list still can: since plan 7.3 a style is a JSON file in `styles/`, and both the
+ * validator and the help line read `styleIds()`. This test is what proves the *user*
+ * sees the fifth pack — a style the flag accepts and the help does not print is a style
+ * nobody will ever type.
+ */
+test('every ink style the flag accepts is a style the help text offers', () => {
+  const help = usage(false);
+  const line = help.split('\n').find((l) => l.includes('--style'));
+  assert.ok(line, 'usage() must document --style at all');
+
+  for (const name of styleIds()) {
+    assert.equal(readFlags({ style: name }).style, name);
+    assert.ok(line.includes(name), `usage()'s --style line does not mention ${name}`);
+  }
+  assert.ok(styleIds().length >= 4, 'the four shipped personalities must all be packs');
+
+  // Still a validator, not a passthrough — an unknown style must not reach the pipeline.
+  assert.throws(() => readFlags({ style: 'crayon' }), UsageError);
 });
 
 test('--emit-plan reaches the pipeline, and is documented where a user would look', () => {

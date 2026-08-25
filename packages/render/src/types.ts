@@ -15,7 +15,15 @@ import type { GateMode, StageOptions } from '@inkcast/core';
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
-export type StyleName = 'marker' | 'pencil' | 'chalk' | 'ink';
+/**
+ * The id of a style pack (plan item 7.3) — a string, not a union of four.
+ *
+ * A plan reaching this file has been through `parseStoryboard`, which rejects an id no
+ * pack in `styles/` claims, so the narrowing this union used to provide has moved to the
+ * seam where a wrong name can still be reported usefully. Widening it here is what lets a
+ * fifth style be a fifth JSON file and no TypeScript at all.
+ */
+export type StyleName = string;
 export type EnterStyle = 'draw' | 'write' | 'fade' | 'pop' | 'grow';
 
 /** A stroked/filled path in canvas coordinates. Revealed with stroke-dashoffset. */

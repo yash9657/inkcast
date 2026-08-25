@@ -4,11 +4,12 @@ import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { styleIds } from '../src/stylepack.js';
 import {
-  HAND_FONTS,
   builtinMetrics,
   defaultFontDirs,
   findFontFile,
+  handFontFor,
   handMetricsFor,
   loadFontMetrics,
   parseFontMetrics,
@@ -27,14 +28,19 @@ test('builtin metrics are self-consistent and monotonic in font size', () => {
 });
 
 test('every ink style asks for its own handwriting face', () => {
+  // Over every pack in `styles/`, not a list of four: a fifth style that letters in the
+  // marker's face is a fifth style nobody can tell from the marker, and the discipline
+  // has to hold for a pack this test has never heard of (plan 7.3).
+  const ids = styleIds();
+  assert.ok(ids.length >= 4, 'the four shipped personalities must all be packs');
   const seen = new Set<string>();
-  for (const name of ['marker', 'pencil', 'chalk', 'ink'] as const) {
-    const hand = HAND_FONTS[name];
+  for (const name of ids) {
+    const hand = handFontFor(name);
     assert.ok(hand.fontFiles.length > 0);
     assert.ok(hand.fontFamily.length > 0);
     seen.add(hand.fontFamily);
   }
-  assert.equal(seen.size, 4, 'the four styles must not share one face');
+  assert.equal(seen.size, ids.length, 'no two styles may letter in one face');
 });
 
 test('handMetricsFor loads one deterministic face per style and caches it', () => {
@@ -61,16 +67,22 @@ test('font discovery prefers the requested face, then any handwriting face', asy
     path.basename(findFontFile(['patrickhand', 'patrick-hand'], [dir]) ?? ''),
     'PatrickHand-Regular.ttf',
   );
-  // Shantell is absent, so it falls back to another known handwriting face
-  // rather than to the unrelated sans.
-  assert.equal(path.basename(findFontFile(['shantellsans'], [dir]) ?? ''), 'Caveat[wght].ttf');
+  // Shantell is absent, so it falls back to another known handwriting face rather than
+  // to the unrelated sans. *Which* one is the fallback order in `knownHandStems`, which
+  // is derived from the style packs now (plan 7.3) — so this asserts the invariant the
+  // fallback exists for, not the incidental winner of a two-horse race.
+  const fallback = path.basename(findFontFile(['shantellsans'], [dir]) ?? '');
+  assert.ok(
+    ['Caveat[wght].ttf', 'PatrickHand-Regular.ttf'].includes(fallback),
+    `expected a handwriting face, got ${fallback}`,
+  );
   assert.equal(findFontFile(['caveat'], [path.join(dir, 'nope')]), undefined);
 });
 
 test('a corrupt or missing font degrades to builtin metrics instead of throwing', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-fonts-'));
   await writeFile(path.join(dir, 'Caveat[wght].ttf'), 'definitely not a font');
-  const hand = HAND_FONTS.pencil;
+  const hand = handFontFor('pencil');
   const m = loadFontMetrics({
     preferred: hand.fontFiles,
     fontFamily: hand.fontFamily,
