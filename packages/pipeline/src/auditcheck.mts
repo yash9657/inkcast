@@ -659,7 +659,7 @@ function check(name: string, ok: boolean, why: string): void {
       // Three, not the original four: `code` came out when 6.2 built that lane. The
       // expiry check below is what forced it out, and is what will force the next one.
       ['chemistry', 'circuits', 'geography'].every((l) =>
-        new RegExp(`^\\s{2}${l}: \\{ needs:`, 'm').test(lanes),
+        new RegExp(`^\\s{2}${l}: \\{`, 'm').test(lanes),
       ),
     'a topic class this pipeline cannot draw has stopped being declared — the fallback for it is a confidently wrong picture and nothing says so',
   );
@@ -673,23 +673,66 @@ function check(name: string, ok: boolean, why: string): void {
     !/\bgate\(/.test(lanes) && !/throw /.test(lanes),
     'the lane guard blocks now: trading a wrong picture for a missing one is 6.2/6.3’s decision, made with frames in front of you',
   );
-  // The table's own expiry date. Each lane names the library that would end it, so the
+  // The table's own expiry date. Each lane names the packages that would end it, so the
   // day one is installed the entry has to come out — otherwise the studio goes on
   // apologising for a lane that exists. Reads `package.json` files, not modules.
+  //
+  // **Every name it matched was unmatchable until 6.3** (see `UNSERVED`'s comment): the
+  // npm package is `@rdkit/rdkit` rather than `rdkit`, `schemdraw` is Python, and a map
+  // lane installs `topojson-client`. A tripwire nobody can trip is worse than none,
+  // because it is *recorded* as the thing that means you cannot forget. Names are checked
+  // against the registry now, and the scoped-package case is why the pattern below is not
+  // simply `"name":`.
   {
     const manifests =
       ['package.json', 'packages/visuals/package.json', 'packages/planner/package.json', 'packages/render/package.json', 'packages/core/package.json'] // prettier-ignore
         .map((f) => read(f))
         .join('\n');
-    const built = [...lanes.matchAll(/renderer: '([a-z0-9-]+)'/g)]
-      .map((m) => m[1]!)
-      .filter((dep) => new RegExp(`"${dep}"\\s*:`).test(manifests));
+    const named = [...lanes.matchAll(/ends: \[([^\]]*)\]/g)]
+      .flatMap((m) => [...m[1]!.matchAll(/'([^']+)'/g)].map((q) => q[1]!))
+      .filter((v, i, all) => all.indexOf(v) === i);
+    check(
+      'S5-a: every package that would end a lane is one that could really be installed',
+      named.length > 0 && named.every((dep) => /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(dep)),
+      `${named.join(', ')} — a lane names an expiry package that is not a valid npm name, so its tripwire can never fire`,
+    );
+    const built = named.filter((dep) =>
+      new RegExp(`"${dep.replace(/[/@.]/g, '\\$&')}"\\s*:`).test(manifests),
+    );
     check(
       'S5-a: no lane is declared unserved after its renderer has been installed',
       built.length === 0,
       `${built.join(', ')} is a dependency now — that lane exists, so delete it from UNSERVED and stop warning about it`,
     );
   }
+  // Circuits is the lane no library ends: it needs curated symbols, so the asset library
+  // is its tripwire. `docs/LANE-CIRCUITS.md` argues that; this is what enforces it.
+  check(
+    'S5-a: circuits stays unserved only while the symbol set really is missing',
+    /circuits: \{ needs: .*ends: \[\] \}/.test(lanes) &&
+      !/symbols\/circuit\//.test(read('assets/library/library.json')),
+    'the circuit symbols are in the library now — that lane can be built, so it stops being a gap the guard apologises for',
+  );
+}
+
+/* ---- S5-a (6.3): the lane order is measured, argued, and re-runnable ---- */
+{
+  const demand = read('packages/pipeline/src/lanedemand.mts');
+  check(
+    'S5-a: the demand signal 6.3 chooses by is an instrument, not a memory',
+    /unservedLanes\(/.test(demand) && /fixture/.test(demand),
+    'the lane demand signal is back to being reconstructed by hand from fifty project directories — which is how a demand-driven plan becomes a taste-driven one',
+  );
+  check(
+    'S5-a: each unserved lane has its one-page doc, written before any code',
+    ['CHEMISTRY', 'CIRCUITS', 'GEOGRAPHY'].every((l) => read(`docs/LANE-${l}.md`).length > 500),
+    'a lane doc is missing — the plan requires one per lane before its code, because each lane is a dependency choice as much as a feature',
+  );
+  check(
+    'S5-a: the waiver for shipping no lane is written down (W8)',
+    /\*\*W8 — S5-a/.test(read('docs/AUDIT-FINDINGS.md')),
+    '6.3 ships three lane docs and no lane, and the argument for that has to be a named waiver the re-audit can read — not an absence',
+  );
 }
 
 /* ---- S5-a (6.2): the code lane sets source, and never letters it ---- */

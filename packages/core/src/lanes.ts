@@ -79,14 +79,38 @@ export type LaneGap = {
  *
  * `needs` names the notation rather than the subject, per decision 1: it is what the
  * message has to say for "this needs a lane we don't have" to be actionable instead of
- * merely discouraging. `renderer` is the library that would supply it, and it is here
- * because `auditcheck.mts` reads it — the day one of those turns up in the tree, the
- * lane exists and its entry has to come out of this table.
+ * merely discouraging.
+ *
+ * `ends` is the table's own expiry date: the npm packages that, once installed, mean the
+ * lane exists and this entry has to come out. `auditcheck.mts` reads it and fails when one
+ * of them is a dependency, so deleting a row is not left to anyone's memory.
+ *
+ * **It was left to memory until plan 6.3 checked**, and the reason is worth keeping. The
+ * field used to hold one prose name apiece — `rdkit`, `schemdraw`, `topojson` — matched
+ * against `package.json` as `"<name>":`. None of the three could ever have matched: the
+ * npm package is `@rdkit/rdkit`, not `rdkit`; `schemdraw` is a **Python** library and
+ * cannot appear in a manifest at all; and a map lane installs `topojson-client`, not the
+ * `topojson` meta-package. Three dead tripwires on a mechanism whose entire job is to
+ * fire, and nothing noticed, because the one lane that ever shipped happened to name its
+ * library exactly (`shiki`). So these are real, installable package names now, checked
+ * against the registry, and there are several per lane because the choice between them is
+ * open — `docs/LANE-CHEMISTRY.md` and `docs/LANE-GEOGRAPHY.md` make the argument.
+ *
+ * **Circuits names none**, and that is not an omission: no library supplies a schematic
+ * lane here. It needs a curated symbol set drawn to this board's own hand, the way the
+ * figure library is — so its tripwire is `assets/library/`, and `auditcheck.mts` checks
+ * that instead. `docs/LANE-CIRCUITS.md` says why.
  */
-export const UNSERVED: Record<Lane, { needs: string; renderer: string }> = {
-  chemistry: { needs: 'chemical structure notation', renderer: 'rdkit' },
-  circuits: { needs: 'circuit schematics and timing diagrams', renderer: 'schemdraw' },
-  geography: { needs: 'geographically accurate maps', renderer: 'topojson' },
+export const UNSERVED: Record<Lane, { needs: string; ends: string[] }> = {
+  chemistry: {
+    needs: 'chemical structure notation',
+    ends: ['openchemlib', 'smiles-drawer', '@rdkit/rdkit'],
+  },
+  circuits: { needs: 'circuit schematics and timing diagrams', ends: [] },
+  geography: {
+    needs: 'geographically accurate maps',
+    ends: ['topojson-client', 'd3-geo', 'world-atlas'],
+  },
 };
 
 /**

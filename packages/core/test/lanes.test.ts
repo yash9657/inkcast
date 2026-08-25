@@ -200,6 +200,35 @@ test('the code lane exists now, so nothing apologises for it', () => {
   assert.ok(!('code' in UNSERVED));
 });
 
+/**
+ * The tripwire that ends a lane has to be one that can fire (plan 6.3).
+ *
+ * Every name in `ends` used to be a name no manifest could ever contain — `rdkit` where
+ * the package is `@rdkit/rdkit`, `schemdraw` which is Python, `topojson` where a map lane
+ * installs `topojson-client`. `auditcheck.mts` matched them against `package.json` and
+ * therefore matched nothing, for three lanes, on a mechanism whose whole purpose is to
+ * make deleting the row unforgettable. Nobody noticed because the one lane that ever
+ * shipped named its library exactly.
+ *
+ * So this asserts the shape a real npm name has. It cannot check that the package exists
+ * — that would be a network call in a unit test — and the registry check is recorded in
+ * the lane docs instead.
+ */
+test('every package that would end a lane could really be installed', () => {
+  for (const [lane, { ends }] of Object.entries(UNSERVED)) {
+    for (const dep of ends) {
+      assert.match(dep, /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/, `${lane}: ${dep}`);
+      assert.ok(!dep.includes(' '), `${lane}: ${dep} is prose, not a package`);
+    }
+  }
+  // Circuits is the one lane no library ends: it needs curated symbols drawn to this
+  // board's hand, so its tripwire is the asset library. An empty list is the honest
+  // answer and `docs/LANE-CIRCUITS.md` argues it — a plausible-looking name here would
+  // be worse than none, which is exactly the defect this test exists for.
+  assert.deepEqual(UNSERVED.circuits.ends, []);
+  assert.ok(UNSERVED.chemistry.ends.length > 0 && UNSERVED.geography.ends.length > 0);
+});
+
 /* ------------------------------------------------------------------ SMILES */
 
 test('a title-cased subject does not fire the place-name signal', () => {
