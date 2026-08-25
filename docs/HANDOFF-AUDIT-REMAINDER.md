@@ -8,8 +8,8 @@ its bar rather than restating it, and where this file disagrees with the plan it
 loud.
 
 Written 2026-08-24 on branch `visuals-morph-density`, just after 6.1 landed, and rewritten
-the same day as each of 6.2, 6.4, 6.5, 7.2, the three gating findings (2, 3 and 4) and 7.1
-landed and their sections came out. **A section is deleted from this file the moment its
+the same day as each of 6.2, 6.4, 6.5, 7.2, the three gating findings (2, 3 and 4), 7.1 and
+7.3 landed and their sections came out. **A section is deleted from this file the moment its
 work lands** — see the closing note; what a landed item bought is in
 `HANDOFF-AUDIT-CLOSE.md`, not here.
 
@@ -17,33 +17,26 @@ work lands** — see the closing note; what a landed item bought is in
 
 Phases 0–5 are landed and tested. So are 6.1 (the honest guard for the unserved topic
 classes), 6.2 (the code lane), 6.4 (the raster trust gate), 6.5 (the figure cache key names
-the model that drew it), 7.2 (the plan is inspectable on demand), 7.1 (the partial
-re-encode) and the three findings this file used to carry: a run now reports the lesson
-author it really used and the images it really paid for, and the length estimate counts
-spoken letters rather than words. **The audit's table has no `FAIL` left in it** — 7.1 was
-the last one (S10-b) and every open item is a PARTIAL. At that point: **1151 tests green**
-(3 pre-existing keyvault skips, 1154 total), **auditcheck 97/97**, lint and typecheck clean,
-and all three shipped lessons casting strict-clean end to end at `standard`. Four items
-remain — **7.3, 6.3, 8.1, 8.2** — and neither 7.3 nor 6.3 blocks the other, so they can be
-reordered freely. Phase 8 needs both of them plus a funded API key.
+the model that drew it), **all of Phase 7** — 7.1 (the partial re-encode), 7.2 (the plan is
+inspectable on demand) and 7.3 (a style is a JSON file in `styles/`) — and the three
+findings this file used to carry: a run now reports the lesson author it really used and the
+images it really paid for, and the length estimate counts spoken letters rather than words.
+**The audit's table has no `FAIL` left in it** — 7.1 was the last one (S10-b) and every open
+item is a PARTIAL. At that point: **1162 tests green** (3 pre-existing keyvault skips, 1165
+total), **auditcheck 103/103**, lint and typecheck clean, and all three shipped lessons
+casting strict-clean end to end at `standard`. Three items remain — **6.3, 8.1, 8.2** — and
+Phase 8 needs 6.3 landed or waived, plus a funded API key.
 
 ## The order to knock these out
 
-**1. 7.3 — style packs go declarative.** Unblocked but not free: read its section before
-believing 6.4 unblocked it. The honest reading is that a dark pack needs the real-alpha work
-S5.6 deferred, so budget for that or scope the pack to light surfaces and say which in
-writing — either is defensible, silence is not. Whoever takes this is also closest to the
-second gating item below.
-
-**2. 6.3 — circuits, chemistry, geography.** Second on purpose, and it may not be code at
-all. Its own rule is that the next lane is chosen from 6.1's findings, and the guard has
+**1. 6.3 — circuits, chemistry, geography.** The only startable item, and it may not be code
+at all. Its own rule is that the next lane is chosen from 6.1's findings, and the guard has
 still fired on nothing, so the honest output of this item today is a **written decision plus
-the two lane docs**, not a lane. Do it once the corpus has had a few more films through it —
-which 7.3 will produce.
+the two lane docs**, not a lane.
 
-**3. 8.1, then 8.2.** 8.1 needs 7.3 and 6.3 landed or waived in writing, and re-reads
-everything below. 8.2 additionally needs ~$3 of credit and a small harness that does not
-exist yet (see its section). Neither is startable today.
+**2. 8.1, then 8.2.** 8.1 needs 6.3 landed or waived in writing, and re-reads everything
+below. 8.2 additionally needs ~$3 of credit and a small harness that does not exist yet (see
+its section). Neither is startable today.
 
 ## How to verify anything you land
 
@@ -61,7 +54,9 @@ the compiler**, because it is the only board in the corpus with a listing on it.
 **Disposable evidence projects follow the `qc<phase>-<lesson>` convention.** The ones worth
 knowing: `qc0-doc` and `qc0-hashmap` (what an honest cost report looks like — see the note
 below), `qcf2-gd` / `qcf2-longitude` / `qcf2-hashmap-short` (the pace calibration measured
-across the corpus), and `qc71-longitude` (the segment cache, 32 segments on disk).
+across the corpus), `qc71-longitude` (the segment cache, 32 segments on disk) and
+`qc73-longitude` (the strict cast that proved 7.3 changed no pixel — its `geomhash` is
+line-for-line `qc71-longitude`'s).
 
 **A cost report is evidence again.** Since the cost-honesty findings landed,
 `pipeline.json`'s `cost.lines` are built only from calls a stage reported making, so an
@@ -72,7 +67,9 @@ segment cache, not scratch (7.1). A `render 1.4s` line means every segment was r
 full encode of a 2:14 film is ~57s. If you are timing a change, look at the
 `reused N of M segments` line at `INKCAST_LOG=info` rather than at the wall clock, and
 remember that anything touching `plan.style`, `fontFamily`, the palette or the frame size is
-in **every** segment's key and so re-encodes the whole film. That is correct, not a bug.
+in **every** segment's key and so re-encodes the whole film. That is correct, not a bug —
+and since 7.3 it includes **editing a file in `styles/`**, because a pack's digest is part
+of every key the style's name used to carry (`styleKey()`).
 
 Four more instruments, all cheap:
 
@@ -121,7 +118,7 @@ done-bar the plan's wording did not have.
    Nothing had ever tried it, because `hash-map`'s pins are _compile_ hashes and the shipped
    cast is at `standard`. Three defensible fixes and the choice is a real one — give the
    vertical preset a taller code cell, let `codeBox` reserve a cell that fits the listing it
-   was handed, or shorten the lesson's listing. Whoever takes 7.3 is closest to it;
+   was handed, or shorten the lesson's listing. It is unowned now that 7.3 has landed;
    `--degrade` renders it meanwhile (`projects/qcf2-hashmap-short`).
 
 ## Rules that apply to every item below
@@ -150,56 +147,19 @@ done-bar the plan's wording did not have.
   `MIN_GROUND_WHITE` (0.9), and the pacing pair `DELIVERED_LPS` (9.65 spoken letters a
   second) and `LETTERS_PER_WORD` (4.23) were each measured against the corpus and argued in
   the constant's own comment. Nine of them, and 8.1 must treat them all as such.
+  7.3's `MIN_PAPER_LUMA` (0.5) is deliberately **not** a tenth: its own comment says it is a
+  rail rather than a measurement, sized to catch a slate board and nothing subtler.
 - **Do not let a gate become a re-prompt loop.** Structural failures stop and name the beat;
   the bounded repair loops live upstream where repair is cheap.
+- **A style is a JSON file, and five packages read it rather than keeping a table** (7.3).
+  If you find yourself writing `if (style === ...)` anywhere, the field belongs in
+  `styles/*.json` and its schema in `core/src/stylepack.ts`. `styles/README.md` is what a
+  pack author reads. One gap is known and written up rather than fixed: the studio's
+  picker (`apps/web/components/studio/options.ts`) still lists the four shipped ids as a
+  literal, because the loader reads the filesystem and cannot enter a browser bundle — a
+  user-added pack works through the CLI and the API but is not offered in the web UI until
+  someone serves `styleIds()` from a route.
 - **`--degrade` exists so a demo is never blocked while you fix the real thing.**
-
----
-
-# Phase 7 — what is left of scale and cost (7.3, and only 7.3)
-
-## 7.3 Style packs go declarative
-
-**The bar (plan):** implement `docs/STYLES.md`'s StylePack loader (the shape is at
-STYLES.md §2, line 45; the ordering note at line 177). A new style becomes a JSON file in
-`styles/`, consumed by the single core table from 2.2. The four shipped personalities become
-the first four packs and the type-unions collapse to the loader's output. _Done when_ adding
-a fifth style touches zero TypeScript.
-
-**Where the code is** (verified 2026-08-24). The colour table is already one table —
-`packages/core/src/palette.ts`, whose header says in so many words that per-ink-style colour
-packs (chalk on dark slate) are this item's decision and not a second table there
-(`palette.ts:18`). Per-style _personality_ (stroke, roughness, face) lives in
-`visuals/src/style.ts`; the renderer keeps pen personality in `render/src/palette.ts` and
-re-exports the colours. The union to collapse is
-`z.enum(['marker', 'pencil', 'chalk', 'ink'])` at `core/src/storyboard.ts:688`.
-
-**Trap 1 — the sequencing one, now satisfied, but read this before relying on it.** A
-dark-surface pack is where every raster's opaque white ground becomes visible: the S5.6
-real-alpha work the audit deferred. The plan sequences 7.3 after 6.4 for that reason, and
-**6.4 has landed**, so the item is unblocked.
-
-What 6.4 actually bought here is narrower than "solved", and the difference matters on a
-dark board. `groundWhiteness` (`visuals/src/png.ts`) will tell you a figure's ground is
-white, and `figureGround` rejects one that is not — so a dark pack can _detect_ the card. It
-cannot remove it: every raster in every cache is still opaque white behind the subject, and
-against a slate board that is a white rectangle, not a subtle one. Real alpha — asking for
-it, or keying it out on the way in — is still unwritten, and the honest reading is that a
-dark pack needs it rather than that 6.4 supplied it. The gate's threshold (0.9) was set
-against 42 rasters that are all ≥0.954, so it has never fired on a real non-white ground
-either. **Budget for the alpha work, or scope the first packs to light surfaces and say so
-in writing.**
-
-**Trap 2 — 6.5 deferred a decision to this item, and it is now due.** The figure cache key
-deliberately leaves style out, on the argument that style cannot change a raster's pixels
-until a style pack can pick the image endpoint. The moment a pack does that, the key has to
-carry it — through the model token that is already there, which is why 6.5 shaped it that
-way. See the key's comment in `visuals/src/image.ts`.
-
-**Trap 3 — a style change re-encodes every segment, and that is correct.** Since 7.1
-`plan.style`, `fontFamily` and the palette are in every segment's cache key, so the first
-render after a pack change is a full one. Do not "optimise" that: a style pack that did not
-invalidate the segments would serve yesterday's ink.
 
 ---
 
@@ -264,8 +224,17 @@ not a silent regression.
 - **6.1's** warn-not-suppress decision;
 - **6.4's two** measured departures from its own bar: aspect scored absolutely rather than
   against the request, and cached rasters gated rather than trusted;
-- **6.5's one**: style stays out of the figure key until a style pack can change a pixel —
-  which is 7.3, and it keys itself through the model then;
+- **6.5's one**: style stays out of the figure key until a style pack can change a pixel.
+  7.3 has landed and that is still true — the schema deliberately does not accept a
+  `generation.stylePrompt`, so no pack can reach the image endpoint yet and the key is
+  unchanged. Re-read it when the prompt block arrives;
+- **7.3's three**, all departures from `docs/STYLES.md` §2 rather than from the plan:
+  `accents: string[]` is a single `accent` (the fixed-accent discipline is not opt-out);
+  the `surface` and `generation` blocks are refused outright, because nothing reads a
+  texture, a vignette or a style prompt and a field that parses and is dropped is a
+  promise the renderer does not keep; and a pack's `paper` must be light, so the eight
+  built-ins §2 lists are not all buildable — the dark ones wait on S5.6. `MIN_PAPER_LUMA`
+  is a rail, not a corpus constant, and says so;
 - **the cost findings' one**: an image is billed when the provider's bytes arrive, _before_
   the 6.4 gate judges them, because a rejected generation was paid for and never reaches the
   caller;
@@ -279,7 +248,7 @@ not a silent regression.
 - and **5.1(b)'s** written deferral of retrieval (`docs/PLAN-RETRIEVAL.md`, waiver W7).
 
 `npx tsx packages/pipeline/src/auditcheck.mts` re-derives the mechanical subset in under a
-second and should be run first — **97 checks as of 7.1**, each one a fact some pass of the
+second and should be run first — **103 checks as of 7.3**, each one a fact some pass of the
 original audit established.
 
 **And hand it the one thing still open for want of credit:** the lesson author is observed
@@ -317,7 +286,7 @@ returns 402.
 ## If you are picking this up cold
 
 Read in this order: `docs/PLAN-AUDIT-CLOSE.md` (the authority — its progress block is
-current through 7.1, and the coverage table plus 8.1 are the exit), then
+current through 7.3, and the coverage table plus 8.1 are the exit), then
 `docs/HANDOFF-AUDIT-CLOSE.md` (what landed, the argued deviations, and the traps earned per
 phase — its trap list is worth reading even for items it does not cover), then this file for
 the item you are about to start. `docs/AUDIT-FINDINGS.md` is the evidence base behind all

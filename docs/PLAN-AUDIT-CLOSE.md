@@ -740,6 +740,59 @@ bulb` does not. Measured: swept over all 38 lessons on disk (79 distinct picture
 >   the two projects, so the key is content and not path. Eleven unit tests in
 >   `segments.test.ts` carry the claims a hand-run film cannot, including the done-bar as
 >   arithmetic; four `auditcheck` lines pin the mechanism. Next: 7.3, 6.3.
+>
+> **Progress (2026-08-24): 7.3 is landed — style packs are declarative.** 1162 tests green
+> (3 pre-existing keyvault skips, 1165 total), auditcheck 103/103, lint and typecheck clean,
+> and a strict `longitude` cast end to end.
+>
+> - **The item found five tables, not one.** The plan's framing was "the type-unions
+>   collapse to the loader's output", and the union was the small half. `meta.style` was
+>   read by the rough.js personality in `visuals/src/style.ts`, the sketch engine's hand
+>   _and_ the pen sprites in `render/src/palette.ts`, `HAND_FONTS` in
+>   `core/src/fontmetrics.ts`, `PEN_WIDTH` in `core/src/camera.ts`, and `FAMILY`/`KNOWN` in
+>   `render/src/font.ts`. Two of those had already drifted in exactly the 2.2 way: the
+>   renderer knew the pencil's face as `caveat` where core knew it as `Caveat` with three
+>   filename stems, and nothing compared them. They are one JSON file per style now.
+> - **The pen sprite is pack data, not a `PenId`.** `STYLES.md` §3 models the pen as an id
+>   naming a vendored sprite; the sprites are pure path data, so they moved into the packs
+>   whole. Otherwise "adding a fifth style touches zero TypeScript" carries an asterisk —
+>   a fifth style holding the marker's pen is not really a fifth style. The one thing the
+>   renderer knew about a sprite that a pack author could not have imitated, that the
+>   marker's barrel is `#2f6fed` and gets swapped for the film's accent, is a declarative
+>   token now: any part of any sprite may write `"accent"`.
+> - **The fixed-accent discipline is in the schema**, as the done-bar asks, and it is the
+>   first of three deliberate departures from `STYLES.md` §2: `accents: string[]` became a
+>   single `accent`, because a list is an invitation to the rainbow board `palette.ts`
+>   exists to prevent. The `surface` and `generation` blocks are not accepted at all —
+>   nothing in this tree reads a texture or a vignette, and a field that parses and is
+>   dropped is a promise the renderer does not keep.
+> - **A dark pack is refused, with the reason in the error.** The plan sequenced this item
+>   after 6.4 so a dark surface would force the real-alpha work, and the honest reading is
+>   that it still needs it — so `MIN_PAPER_LUMA` blocks a pack darker than mid-grey rather
+>   than letting one ship broken. The mechanism is sharper than the handoff's phrasing: a
+>   figure composites with `mix-blend-mode: multiply` (`visuals/src/image.ts`), so on a
+>   slate board it is not a white card that appears, it is the picture's own ink
+>   multiplying into a surface already darker than the ink and disappearing. No gate
+>   catches that, because the raster is fine. **6.4 detects a non-white ground; it cannot
+>   key one out**, and that is what a chalkboard pack needs.
+> - **An edited pack invalidates what it drew.** A style's identity in a cache key is
+>   `styleKey()` — `id@digest12` over the pack's canonical JSON — because the _name_ was a
+>   sufficient identity only while the numbers behind it were compiled in. Every project
+>   on disk re-resolves once because of this, which is the correct cost.
+> - **The proof it is the same ink.** All four packs reproduce the tables they replaced
+>   exactly: the pinned compile hashes did not move, `geomhash` on a fresh `longitude` cast
+>   is line-for-line identical to `qc71-longitude`, and frames at t=3/20/60/100 rendered
+>   from one project by the pre-change code and by this one are **byte-identical**
+>   (`git stash`, `frames.mts`, `cmp`). A fifth pack dropped into `INKCAST_STYLE_DIR` then
+>   rendered a real frame of that film in a visibly different hand with no TypeScript
+>   edited — the done-bar, done rather than argued.
+> - **One gap, written up rather than fixed.** The studio's style picker
+>   (`apps/web/components/studio/options.ts`) still lists the four shipped ids as a
+>   literal, because the loader reads the filesystem and cannot be imported into a browser
+>   bundle — the same constraint that already makes the voice list a mirror. So a
+>   user-added pack works through the CLI and the API and does not appear in the web
+>   picker. Closing it means serving `styleIds()` from a route; the file now says so where
+>   the list is. Next: 6.3, then Phase 8.
 
 **Two rules that shape everything here:**
 

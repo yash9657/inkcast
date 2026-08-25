@@ -6,8 +6,8 @@ six times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase
 (`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
 trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan), and
 after gating findings 3 and 4 (the run reports what it did, not what it intended), after
-gating finding 2 (the length estimate counts spoken letters), and after 7.1 (the partial
-re-encode).
+gating finding 2 (the length estimate counts spoken letters), after 7.1 (the partial
+re-encode), and after 7.3 (style packs go declarative — which closes Phase 7).
 **The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
 first; it is the work list, the coverage proof, and the exit criteria. This file only
 says where execution stands, what a new session needs to know that the plan cannot, and
@@ -17,8 +17,8 @@ Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.m
 
 ## Where things stand
 
-**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, 7.1, 7.2 and the
-three findings the remainder handoff carried (2, 3 and 4):**
+**Phases 0 through 5 are landed and tested, and so are 6.1, 6.2, 6.4, 6.5, all of Phase 7
+(7.1, 7.2, 7.3) and the three findings the remainder handoff carried (2, 3 and 4):**
 
 - `e515179` — the audit report, the plan, and the waivers (docs only).
 - `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
@@ -475,6 +475,56 @@ anthropic/claude-opus-5` and billed for it. The observation is `onAuthor` (a cal
   directions of the accumulate/wipe rule, and the done-bar as arithmetic — and four
   `auditcheck` lines pin the mechanism.
 
+- 2026-08-24 — **7.3, style packs go declarative — Phase 7 closed.** A style is a JSON file
+  in `styles/` (`packages/core/src/stylepack.ts` is the schema and the loader,
+  `styles/README.md` is the format for whoever writes the fifth one). Five things a
+  re-audit will ask about.
+  1. **The item was five tables, not one union.** The plan says "the type-unions collapse to
+     the loader's output", and the union was the small half. `meta.style` keyed the rough.js
+     personality in `visuals/src/style.ts`, the sketch engine's hand _and_ the pen sprites in
+     `render/src/palette.ts`, `HAND_FONTS` in `core/src/fontmetrics.ts`, `PEN_WIDTH` in
+     `core/src/camera.ts` and `FAMILY`/`KNOWN` in `render/src/font.ts`. Two had already
+     drifted the way 2.2's colours had: the renderer knew the pencil's face as `caveat`,
+     core knew it as `Caveat` with three filename stems, and nothing compared them.
+  2. **The pen sprite is inline pack data, not a `PenId`.** `STYLES.md` §3 models it as an
+     id naming a vendored sprite; the sprites are pure path data, so they moved into the
+     packs whole — otherwise the done-bar carries an asterisk, because a fifth style holding
+     the marker's pen is not a fifth style. The renderer's one piece of sprite knowledge a
+     pack author could not have imitated (the marker's barrel is `#2f6fed`, swapped for the
+     film's accent) is a declarative `"accent"` token any part of any sprite may write.
+  3. **Two roughnesses stay two numbers.** Both drawing engines take a roughness and a
+     bowing on different scales, and today's four styles set them to values not derivable
+     from one another (marker: rough.js 1.15, the sketch engine 1.1). Folding them would
+     have moved every pinned pixel for a tidiness nobody asked for, so a pack states both
+     under `rough` and `sketch` — which at least puts the divergence in one file.
+  4. **Three deliberate departures from `STYLES.md` §2, all in the schema.** `accents:
+string[]` is a single `accent` (a list is the rainbow board `palette.ts` exists to
+     prevent, and the loader also rejects an accent equal to the ink or to the second
+     marker — the done-bar's "fixed-accent discipline enforced by the loader's schema").
+     The `surface` and `generation` blocks are not accepted at all, because nothing in this
+     tree reads a texture, a vignette or a style prompt, and a field that parses and is
+     dropped is a promise the renderer does not keep. And **`paper` must be light**: a pack
+     below mid-grey is refused, with the reason in the error.
+  5. **Why the dark pack is refused rather than shipped, and how the handoff's phrasing
+     was wrong.** A figure composites with `mix-blend-mode: multiply`
+     (`visuals/src/image.ts`), so a slate board does not show a white card — the card is
+     invisible under multiply against any backdrop. What happens is worse and quieter: the
+     picture's own dark ink multiplies into a surface already darker than the ink and the
+     drawing disappears, with no gate firing because the raster is fine. 6.4 detects a
+     ground that is not white; it cannot key one out. That is the real content of "a dark
+     pack needs the alpha work S5.6 deferred", and `MIN_PAPER_LUMA` is where it is written
+     down.
+
+  **The proof it is the same ink**, which is what this item owed: the pinned compile hashes
+  did not move, `geomhash` on a fresh strict `longitude` cast (`qc73-longitude`) is
+  line-for-line identical to `qc71-longitude`, and frames at t=3/20/60/100 rendered from one
+  project by the pre-change code and by this one are byte-identical (`git stash` →
+  `frames.mts` → `cmp`). Then the bar itself: a fifth pack in `INKCAST_STYLE_DIR` rendered a
+  real frame of that film in a visibly different hand — heavier stroke, single pass, Caveat
+  — with no TypeScript edited. Cache keys carry `styleKey()` = `id@digest12` over the pack's
+  canonical JSON, because the name identified the ink only while the numbers behind it were
+  compiled in; every project on disk re-resolves once as a result.
+
 The plan's own header carries a progress block saying the same thing; keep that block
 current as phases land. Per-phase detail also lives in Claude's project memory
 (`audit-close-progress`), but this file and the plan header are the durable record.
@@ -567,7 +617,7 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
   so degrade stays an escape and the message format stays uniform.
 - **The harness.** `packages/pipeline/src/auditcheck.mts`
   (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
-  re-checkable facts, currently **65**, all green. **The plan (item 0.3) says each item
+  re-checkable facts, currently **103**, all green. **The plan (item 0.3) says each item
   adds its line here as it closes.** Every Phase 1–5 item's lines are in.
 - **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
   (real cmap) in `packages/core/src/fontmetrics.ts` (moved there in 2.1); wired at the top of
@@ -607,9 +657,9 @@ before `enter.cueWord` reports its reveals as phrase-searched (recompile it — 
    `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
    treat both floors as named recalibrations, not regressions.
 
-## What remains to close the audit: 6.3 → 7 → 8
+## What remains to close the audit: 6.3 → 8
 
-**The four remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+**The three remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
 carries, per item, the plan's bar, the verified file anchors to start from, the decisions
 already made that constrain it, and the traps — plus what still gates the work (no API
 credit, and one new defect: `hash-map` cannot render at the `short` preset at all). The
@@ -619,8 +669,8 @@ what they bought is recorded below. Open it
 when the question is "what next"; this file stays the record of what landed and why. The
 summary below is the shape of the road only.
 
-**The audit is not closed.** Phases 0–5 and items 6.1, 6.2, 6.4, 6.5 and 7.2 are landed; the rest of
-Phases 6–8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
+**The audit is not closed.** Phases 0–5, items 6.1, 6.2, 6.4 and 6.5, and all of Phase 7
+are landed; 6.3 and Phase 8 of `docs/PLAN-AUDIT-CLOSE.md` are open, and that plan stays the authority on
 scope, done-bars, and the coverage table that maps every non-PASS audit finding to exactly
 one item or waiver.
 
@@ -630,12 +680,12 @@ one item or waiver.
   **When a lane lands, delete its entry from `UNSERVED` in `core/src/lanes.ts`** — the
   auditcheck line will say so, but the studio would otherwise go on apologising for a
   lane that exists.
-- **Phase 7 — scale and cost** (~1 week, after everything above). 7.2 is done
-  (`--emit-plan` + `planhash --timing`). Left: 7.1 per-scene
-  segment cache / partial re-encode (byte-identical splice is the test); 7.3 declarative
-  StylePacks (depends on 2.2, and
-  sequenced after 6.4, which has landed — but see the remainder handoff's 7.3 section:
-  6.4 gave a dark pack a way to _detect_ an opaque white ground, not a way to remove it).
+- **Phase 7 — scale and cost.** Done: 7.1 (the segment cache — a tail edit re-encodes the
+  tail, byte-identical to a full render), 7.2 (`--emit-plan` + `planhash --timing`) and
+  7.3 (style packs are JSON in `styles/`). Nothing left in the phase. The one thing 7.3
+  did _not_ do is the dark-surface pack: the loader refuses a paper below mid-grey, on
+  the argument in the entry above, so a chalkboard style is the first thing the deferred
+  alpha work (S5.6) buys.
 - **Phase 8 — the exit** (~2 days + ~$3). 8.1 re-run the audit: every check PASS
   or named-waiver (W1–W7 plus the two Phase-2 recalibrations argued in W2 and the
   plan's progress block). 8.2 the bake-off: render Golpo's two reference topics,
@@ -936,3 +986,32 @@ Earned in the 7.2 session:
   and then it is a source of truth nobody decided to create. One sentence at the top is
   cheaper than the bug report, and `auditcheck` now fails if the sentence or the property
   goes away.
+
+Earned in the 7.3 session:
+
+- **Count the tables before believing the item is a union.** The plan described 7.3 as
+  collapsing a type-union to a loader's output, which reads as one enum and one table. It
+  was five tables in four packages, two of them already drifted from each other, and the
+  union was the cheapest part of the change. The way to find them is to grep for a _value_
+  rather than the type — `pencil` found `caveat` in `render/src/font.ts` and `0.55` in
+  `core/src/camera.ts`, neither of which mentions `StyleName` at all.
+- **When you make a thing user-editable, ask what used to identify it.** Four hardcoded
+  tables meant the _name_ `marker` was a complete identity, so every cache key carried the
+  name and nothing else. The moment a user can edit `styles/marker.json`, the name is a
+  label and the file is the fact — and a key that still carried the label would serve
+  yesterday's ink from a cache nobody suspects. `styleKey()` is one line; noticing it was
+  needed is the work.
+- **A guard whose message names the missing work is worth more than a guard that says
+  no.** `MIN_PAPER_LUMA` refuses a dark pack, which on its own reads as an arbitrary
+  limit. What makes it useful at the re-audit is that the error says _why_ — figures
+  composite with `multiply`, so the drawing disappears into the slate — and names the
+  deferred item (S5.6) that lifts it. The number itself is admitted to be a rail rather
+  than a measurement, in its own comment, because pretending otherwise would put a tenth
+  entry on the list of corpus-derived constants that 8.1 has to treat as recalibrations.
+- **Prove a "no code needed" bar by needing no code.** The done-bar is "adding a fifth
+  style touches zero TypeScript", and the cheap way to report it is to assert that the
+  loader loads. The honest way is to write a fifth pack into a scratch directory, point
+  `INKCAST_STYLE_DIR` at it, and render a frame of a real film in the new hand — which is
+  what `core/test/stylepack.test.ts` does in unit form and what was done once by hand and
+  looked at. Both were necessary: the test cannot see that the frame is legible, and the
+  hand-run cannot run in CI.
