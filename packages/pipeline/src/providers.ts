@@ -103,7 +103,7 @@ export function voiceProvider(
  * whether anything needs re-recording, which is a question that has to be answerable
  * before a single character is spoken.
  */
-export const ELEVENLABS_DEFAULT_MODEL = 'eleven_flash_v2_5';
+export const ELEVENLABS_DEFAULT_MODEL = 'eleven_multilingual_v2';
 
 export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = process.env): string {
   if (provider !== 'elevenlabs') return '';

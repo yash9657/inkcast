@@ -171,6 +171,59 @@ export type Preset = {
 export const DELIVERED_LPS = 9.65;
 
 /**
+ * The same measurement, per voice provider — because it is a property of the engine.
+ *
+ * The constant above was pooled over four films spoken by **the local default voice**,
+ * and its own note says to re-measure it "when the engine, the language or the phrase
+ * gaps change". A keyed run changes all three at once, and nobody had noticed: the
+ * ElevenLabs film in `projects/deb81002b073` delivered **10.87 lps**, 13% faster than
+ * the number that budgeted it, and QC's `pace-calibration` advisory said so on every
+ * run. Thirteen per cent means every scene is shorter than the plan asked for before
+ * any other defect acts — the film is compressed beyond plan by construction.
+ *
+ * So the estimate reads the rate of the provider the run will actually use, threaded
+ * from `cast()` (which resolves the provider before the lesson stage) through
+ * `PresetInput.voiceProvider`.
+ *
+ * ## What is measured and what is not
+ *
+ * `kokoro` is the pooled four-film figure and is solid. `elevenlabs` is **one film**,
+ * and it was spoken by `eleven_flash_v2_5` splitting at clauses — this repo now
+ * defaults to `eleven_multilingual_v2` splitting at sentences, which changes the
+ * number again (fewer inter-fragment gaps alone makes a scene faster). It is recorded
+ * as measured-but-stale rather than adjusted by guesswork, and re-measuring it is
+ * `docs/PLAN-WATCHABILITY.md` §5.3. A stale measurement beats the *wrong engine's*
+ * measurement by 13 points, which is the whole of this item.
+ *
+ * `say` and `silence` have no measurement at all and take the local figure: `say` is
+ * not for publishing (`SAY_NOT_FOR_PUBLISHING`) and `silence` speaks nothing.
+ */
+export const DELIVERED_LPS_BY_PROVIDER: Readonly<Record<string, number>> = {
+  kokoro: DELIVERED_LPS,
+  elevenlabs: 10.87,
+  say: DELIVERED_LPS,
+  system: DELIVERED_LPS,
+  silence: DELIVERED_LPS,
+};
+
+/** Spoken letters a second `provider` delivers. The local rate for anything unknown. */
+export function deliveredLps(provider?: string): number {
+  return (provider ? DELIVERED_LPS_BY_PROVIDER[provider] : undefined) ?? DELIVERED_LPS;
+}
+
+/**
+ * The same, in words a second — the unit the preset field and the brief speak.
+ *
+ * An unknown provider returns `DELIVERED_WPS` *exactly*, byte for byte, which is what
+ * keeps `resolvePreset({})` and therefore both pinned lesson hashes unchanged.
+ */
+export function deliveredWps(provider?: string): number {
+  return provider && DELIVERED_LPS_BY_PROVIDER[provider] !== undefined
+    ? round2(DELIVERED_LPS_BY_PROVIDER[provider]! / LETTERS_PER_WORD)
+    : DELIVERED_WPS;
+}
+
+/**
  * Words a second a finished render delivers, for a film of average word length.
  *
  * Derived, not measured — the measurement is `DELIVERED_LPS` above. Kept as a named
@@ -319,6 +372,16 @@ export type PresetInput = {
   maxSeconds?: number;
   wordsPerSecond?: number;
   board?: BoardMode;
+  /**
+   * Which voice provider this run will speak with — `kokoro`, `elevenlabs`, `say`.
+   *
+   * Not the voice *id*: `FormatOptions.voice` is `meta.voice`, which names a voice or
+   * a mood and cannot answer this. See `DELIVERED_LPS_BY_PROVIDER` for why the
+   * estimate needs to know, and `cast()` for where the answer comes from — it
+   * resolves the provider before the lesson stage runs, which is what makes this
+   * possible at all.
+   */
+  voiceProvider?: string;
 };
 
 /**
@@ -343,7 +406,9 @@ export function resolvePreset(opts: PresetInput = {}): Preset {
     preset.vertical = opts.aspect === '9:16';
   }
   if (opts.maxSeconds) preset.maxSeconds = opts.maxSeconds;
-  if (opts.wordsPerSecond) preset.wordsPerSecond = opts.wordsPerSecond;
+  // The provider's own rate, unless the caller named one. Order matters: an explicit
+  // `--wps` is a person overriding the pipeline and wins over both.
+  preset.wordsPerSecond = opts.wordsPerSecond || deliveredWps(opts.voiceProvider);
   if (opts.board) preset.board = opts.board;
   return preset;
 }

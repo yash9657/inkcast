@@ -466,6 +466,17 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
     ...(input.preset === undefined ? {} : { preset: input.preset }),
     ...(metaOverrides.aspect === undefined ? {} : { aspect: metaOverrides.aspect }),
     ...(input.maxSeconds === undefined ? {} : { maxSeconds: input.maxSeconds }),
+    /*
+     * The engine that will speak, resolved above and threaded into the *estimate*.
+     *
+     * This is the one place in the pipeline that knows the provider before the lesson
+     * is written, which is what makes a per-engine length budget possible at all. It
+     * matters by 13%: `projects/deb81002b073` was briefed and trimmed at the local
+     * engine's 9.65 letters a second and spoken by ElevenLabs at 10.87, so every
+     * scene came out shorter than the plan asked for before any other defect acted.
+     * See `DELIVERED_LPS_BY_PROVIDER`.
+     */
+    voiceProvider: provs.voice.name,
   };
   const presetShape = planner.resolvePreset(format);
   const seconds = targetSeconds(presetShape, {
@@ -641,6 +652,11 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
         aspect: presetShape.aspect,
         seconds: targetSec,
         depth: input.depth ?? 'standard',
+        // The brief's word budget is seconds × the *engine's* rate, so two runs of one
+        // document at different providers are two different briefs and must be two
+        // different cache entries. A local run is unaffected: `deliveredWps('kokoro')`
+        // is `DELIVERED_WPS` exactly, and the key simply gains a constant field.
+        voice: provs.voice.name,
       },
     );
 

@@ -31,20 +31,30 @@ const log = logger('voice:elevenlabs');
 
 const API = 'https://api.elevenlabs.io/v1';
 
-/** The quality-optimised engine. One credit per character. */
+/**
+ * The engine this adapter speaks with. One credit per character.
+ *
+ * **The listening note came back negative.** `ELEVENLABS_FLASH_MODEL` below is the
+ * latency-optimised engine, and it was chosen for the only reason anything is chosen
+ * on price: voice was 86% of the last full keyed bill, flash halves it, and no tool
+ * in this repo can hear the difference. The comment that switched it said so in as
+ * many words — "a person has to" — and left the debt standing. A person has now
+ * listened to a finished film in it and the answer is that flash's prosody across
+ * concatenated fragments is choppy, which is the "no proper cadence" the dissection
+ * of `projects/deb81002b073` names.
+ *
+ * The arithmetic, stated once so nobody re-litigates it: ~1300 characters a film at 1
+ * credit rather than 0.5, at $0.00022 a credit, is **$0.29 a film against $0.14**.
+ * Fifteen cents. The film is the product.
+ */
 export const ELEVENLABS_MULTILINGUAL_MODEL = 'eleven_multilingual_v2';
 
 /**
- * The engine this adapter speaks with, and half the price of the one it replaces.
+ * The latency-optimised engine, at half the credits — no longer the default.
  *
- * Flash bills **0.5 credits per character** where multilingual v2 bills 1, and voice
- * was 86% of the last full keyed bill: `projects/1d80720ea373` booked $0.3835 of
- * $0.4453 over 109.78s, so the **voice line alone** was $0.2096 per finished minute
- * and the whole run was $0.2434 (`perMinuteUsd` in that file) against a $0.20 target.
- * Halving the voice line is the only change in the pipeline that moves that number
- * without changing what the film is. It is the latency-optimised model rather than the
- * quality-optimised one, which is why the phase that switched it required a listening
- * note: no tool in this repo can hear the difference, so a person has to.
+ * Kept, and kept exported, for two reasons: `ELEVENLABS_MODEL_ID` still selects it
+ * for anyone who wants the cheaper film, and `CREDITS_PER_CHAR` below has to be able
+ * to price the projects on disk that were spoken with it.
  */
 export const ELEVENLABS_FLASH_MODEL = 'eleven_flash_v2_5';
 
@@ -58,7 +68,7 @@ export const ELEVENLABS_FLASH_MODEL = 'eleven_flash_v2_5';
  * `pipeline.json` — asks here.
  */
 export function elevenLabsModel(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_FLASH_MODEL;
+  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_MULTILINGUAL_MODEL;
 }
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
 const FALLBACK_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -136,9 +146,14 @@ const VOICE_SETTINGS = {
  * v3 folds in the effective model id, which is the field that was missing: switching
  * from multilingual to flash is a different recording of the same words, and until it
  * entered this string an existing project stayed fresh and never heard the new engine.
+ *
+ * v4 is the speed clamp (`elevenLabsSpeed`). The stage hashes the speed it *asked*
+ * for, not the one this adapter sends, so a clamp applied here is invisible to the
+ * clip key by construction — and a phrase that used to be stretched to 0.81 and is
+ * now sent at 0.9 is different audio for narration that never moved.
  */
 export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string {
-  return `el/v3:${elevenLabsModel(env)}+context+pinned-settings`;
+  return `el/v4:${elevenLabsModel(env)}+context+pinned-settings+speed-clamped`;
 }
 
 /**
@@ -162,6 +177,51 @@ export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string
  * delivered rate misses the band — so a voice this is wrong for reports itself.
  */
 export const ELEVENLABS_BASELINE_WPM = 185;
+
+/*
+ * **Measured under the old engine and the old split, and not yet re-measured.**
+ * 185 came off `eleven_flash_v2_5` splitting at clauses; this adapter now speaks
+ * `eleven_multilingual_v2` in whole sentences, and both change the delivered rate —
+ * fewer inter-fragment gaps alone makes a scene faster. Re-measuring costs a keyed
+ * run of a real film, which is `docs/PLAN-WATCHABILITY.md` §5.3's job, and it is
+ * recorded here rather than guessed at because a number invented to look re-measured
+ * is worse than a stale one that says it is stale.
+ *
+ * What makes the staleness survivable in the meantime is the clamp below: a baseline
+ * wrong by 20% used to become a 20% stretch on every phrase, and now becomes at most
+ * 10% with the delivered rate reported against the teaching band on every run.
+ */
+
+/**
+ * How far the engine's own rate may be stretched, either way.
+ *
+ * The stage divides its target rate by the baseline above and hands the result over
+ * as `speed`, which is right in principle and was audibly wrong in practice: 185
+ * against a 150 wpm target is **0.81 on every phrase**, and a voice slowed by a fifth
+ * for its whole runtime does not sound calm, it sounds like a recording being played
+ * back slowly. That is the "drags" half of the dissection's voice finding.
+ *
+ * So the correction is a nudge rather than a lever. Inside ±10% the engine's own
+ * prosody survives; outside it, the honest conclusion is that the *baseline* is wrong
+ * for this voice, and `narrate()` already reports the delivered rate against the
+ * teaching band on every run so that shows up as a measurement rather than as a
+ * permanent stretch nobody can hear the cause of.
+ */
+const MAX_SPEED_CORRECTION = 0.1;
+
+/** The `speed` this adapter will actually send for a requested one. */
+export function elevenLabsSpeed(requested: number): number {
+  if (!Number.isFinite(requested) || requested <= 0) return 1;
+  return (
+    Math.round(clamp(requested, 1 - MAX_SPEED_CORRECTION, 1 + MAX_SPEED_CORRECTION) * 1000) / 1000
+  );
+}
+
+const clampSpeed = elevenLabsSpeed;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
 
 /** Preferred stock voices per Kokoro voice family (accent + gender). */
 const PREFERENCES: Record<string, readonly string[]> = {
@@ -368,9 +428,63 @@ export function createElevenLabsProvider(): VoiceProvider {
     return list.find((v) => v.voice_id !== blocked);
   };
 
+  /**
+   * Learn a plan refusal from the account's own catalogue instead of from a 402.
+   *
+   * The substitution in `synthesize` below is correct and costs a round trip to
+   * discover: the request goes out, the plan refuses that voice, and a second request
+   * goes out with a voice the account can use. `/voices` is the account's *own* list,
+   * which is exactly the set its API calls may use and a free metadata call, so a
+   * voice that is not in it is a refusal already known.
+   *
+   * Four things it deliberately does not do.
+   *
+   * It does not run in `resolveVoice`. A mood pin resolves by id, offline, on every
+   * run including a fully cached one — that is what makes two accounts cast the same
+   * lesson identically, and it is asserted by a test that counts `fetch` calls. This
+   * runs once, immediately before the first generation, so a film whose every clip is
+   * cached still costs nothing.
+   *
+   * It does not change what `resolveVoice` returned. That value is a clip cache-key
+   * input (`ActiveProvider.voice`); moving it would re-key a whole film for a decision
+   * about *this account*. The substitute travels on `SynthesisResult.substitution`,
+   * the same way the 402's does.
+   *
+   * It does not substitute when the catalogue could not be read: an empty list means
+   * "we could not ask", not "the account has no voices". And it never fires twice —
+   * one GET per provider instance, whatever happens.
+   */
+  let preflighted = false;
+  const preflightVoice = async (voiceId: string): Promise<void> => {
+    if (preflighted) return;
+    preflighted = true;
+    if (planSwap.has(voiceId)) return;
+    let list: VoiceRecord[];
+    try {
+      list = await loadCatalogue();
+    } catch {
+      return;
+    }
+    if (!list.length || list.some((v) => v.voice_id === voiceId)) return;
+    const substitute = await planSubstitute(voiceId);
+    if (!substitute) return;
+    const named = voiceMood(voiceId)?.elevenlabs.name;
+    const why =
+      `this plan cannot use ${named ? `"${named}" ` : ''}${voiceId} via the API ` +
+      "(it is not in the account's own voice list)";
+    log.warn(`${why} — substituting "${substitute.name}" (${substitute.voice_id})`);
+    planSwap.set(voiceId, {
+      voice: substitute.voice_id,
+      name: substitute.name,
+      from: voiceId,
+      why,
+    });
+  };
+
   const body = (req: SynthesisRequest): string => {
     const settings: Record<string, unknown> = { ...VOICE_SETTINGS };
-    if (req.speed !== 1) settings.speed = Math.max(0.7, Math.min(1.2, req.speed));
+    const speed = clampSpeed(req.speed);
+    if (speed !== 1) settings.speed = speed;
     return JSON.stringify({
       text: req.text,
       model_id: elevenLabsModel(),
@@ -414,6 +528,29 @@ export function createElevenLabsProvider(): VoiceProvider {
 
     naturalWpm() {
       return ELEVENLABS_BASELINE_WPM;
+    },
+
+    /**
+     * Whole sentences, not clauses.
+     *
+     * The clause split was chosen for cue precision and it did buy that — but the
+     * precision does not come from the split. Word timings come back from the
+     * timestamped endpoint whatever size the request was, so cue resolution stays
+     * word-exact on sentences; what the split decides is how much text the *engine*
+     * gets to shape a contour across.
+     *
+     * `previous_text`/`next_text` were the argument for keeping clauses safe, and
+     * they help. They are not enough: a scene delivered as four to ten separate
+     * generations, edge-trimmed and concatenated with modelled gaps, still lands
+     * slightly differently on each fragment — a new onset, a fresh pitch range — and
+     * ten of those in a row is the choppiness the dissection of
+     * `projects/deb81002b073` heard and called "no proper cadence". Kokoro reached
+     * the same conclusion for a different reason (no context window at all) and this
+     * is `VoiceProvider.preferredSplit`'s whole purpose: the engine says how much
+     * text it needs to sound like a person.
+     */
+    preferredSplit() {
+      return 'sentence';
     },
 
     modelId() {
@@ -471,6 +608,8 @@ export function createElevenLabsProvider(): VoiceProvider {
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
+      // Once per run, before a single character is generated. See `preflightVoice`.
+      await preflightVoice(req.voice);
       // Every return path carries the substitution, not just the one that learned it.
       // The learning happens on phrase 0 and the film has hundreds; a result shape
       // that only described the first would leave the record dependent on which clip

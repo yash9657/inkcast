@@ -125,6 +125,15 @@ export type FormatOptions = {
    * from `docs/LESSON-ENGINE.md` rather than the summariser's dump-and-move-on.
    */
   wordsPerSecond?: number;
+  /**
+   * Which voice provider will speak this film — `kokoro`, `elevenlabs`, `say`.
+   *
+   * Distinct from `voice` above, which is the voice *id*. This one exists because
+   * the length estimate is per engine: see `DELIVERED_LPS_BY_PROVIDER` in
+   * `./presets.ts`. Absent means the local rate, which is what every caller that
+   * has not been threaded gets and is the number the pinned hashes are taken at.
+   */
+  voiceProvider?: string;
 };
 
 export type LessonOptions = StageOptions &

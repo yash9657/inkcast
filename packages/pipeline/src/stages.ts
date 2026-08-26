@@ -84,6 +84,14 @@ export type FormatOptions = {
   fps?: number;
   maxSeconds?: number;
   wordsPerSecond?: number;
+  /**
+   * The voice provider that will speak this film, threaded into the *length estimate*.
+   *
+   * Not the voice id (`voice` above). The lesson's word budget is seconds × a rate,
+   * and the rate is a property of the engine: see `DELIVERED_LPS_BY_PROVIDER` in the
+   * planner. Mirrored here for the reason this file's header gives.
+   */
+  voiceProvider?: string;
 };
 
 export type LessonStageOptions = FormatOptions & {
@@ -206,6 +214,8 @@ type LessonStageModule = {
     aspect?: StoryboardMeta['aspect'];
     maxSeconds?: number;
     wordsPerSecond?: number;
+    /** The engine that will speak — the length estimate is per provider. */
+    voiceProvider?: string;
   }): PresetShape;
   resolveLessonAdapter(opts: LessonStageOptions): 'anthropic' | 'heuristic';
   readLessonFile(file: string): Promise<Lesson>;

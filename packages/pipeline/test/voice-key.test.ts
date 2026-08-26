@@ -20,15 +20,19 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { type Storyboard } from '@inkcast/core';
-import { ELEVENLABS_FLASH_MODEL, elevenLabsModel } from '@inkcast/voice';
+import {
+  ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_MULTILINGUAL_MODEL,
+  elevenLabsModel,
+} from '@inkcast/voice';
 import { markVoiceFresh, staleVoiceScenes } from '../src/cast.js';
 import { ELEVENLABS_DEFAULT_MODEL, voiceEngine } from '../src/providers.js';
 import type { ResolvedVoice } from '../src/stages.js';
 
-/** A keyed environment on the default engine. */
-const FLASH: NodeJS.ProcessEnv = { ELEVENLABS_API_KEY: 'sk_test' };
+/** A keyed environment on the default engine, which is multilingual v2. */
+const DEFAULT_ENV: NodeJS.ProcessEnv = { ELEVENLABS_API_KEY: 'sk_test' };
 /** The same environment with the engine overridden — the knob that had no effect. */
-const V2: NodeJS.ProcessEnv = { ...FLASH, ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2' };
+const FLASH: NodeJS.ProcessEnv = { ...DEFAULT_ENV, ELEVENLABS_MODEL_ID: ELEVENLABS_FLASH_MODEL };
 
 function board(): Storyboard {
   return {
@@ -123,33 +127,33 @@ test('the pipeline and the adapter agree on which engine is in force', () => {
   // Mirrored rather than imported — `providers.ts` must decide whether to run the voice
   // stage before it has loaded the voice stage — so the copy is pinned against the
   // original here. Drift is a cache that never invalidates, which is invisible.
-  assert.equal(ELEVENLABS_DEFAULT_MODEL, ELEVENLABS_FLASH_MODEL);
+  assert.equal(ELEVENLABS_DEFAULT_MODEL, ELEVENLABS_MULTILINGUAL_MODEL);
+  assert.equal(voiceEngine('elevenlabs', DEFAULT_ENV), elevenLabsModel(DEFAULT_ENV));
   assert.equal(voiceEngine('elevenlabs', FLASH), elevenLabsModel(FLASH));
-  assert.equal(voiceEngine('elevenlabs', V2), elevenLabsModel(V2));
-  assert.equal(voiceEngine('elevenlabs', V2), 'eleven_multilingual_v2');
+  assert.equal(voiceEngine('elevenlabs', FLASH), ELEVENLABS_FLASH_MODEL);
 
   // Only ElevenLabs runs more than one engine, and a provider with one has no business
   // adding an empty field to every other project's key.
-  assert.equal(voiceEngine('kokoro', V2), '');
-  assert.equal(voiceEngine('say', V2), '');
+  assert.equal(voiceEngine('kokoro', FLASH), '');
+  assert.equal(voiceEngine('say', FLASH), '');
 });
 
 test('changing the engine makes every scene stale, so the stage is actually re-run', async () => {
   const sb = board();
   const dir = await cachedProject(
     sb,
-    spokenBy('elevenlabs', 'eleven_flash_v2_5'),
+    spokenBy('elevenlabs', ELEVENLABS_MULTILINGUAL_MODEL),
     'elevenlabs',
-    FLASH,
+    DEFAULT_ENV,
   );
 
   // The same environment: nothing to do, which is the property the cache exists for.
-  assert.deepEqual([...(await staleVoiceScenes(dir, sb, 'elevenlabs', { env: FLASH }))], []);
+  assert.deepEqual([...(await staleVoiceScenes(dir, sb, 'elevenlabs', { env: DEFAULT_ENV }))], []);
 
   // The override. Before the engine entered this key the set came back empty, `cast()`
   // reported `voice cached`, and the request was ignored in silence.
   assert.deepEqual(
-    [...(await staleVoiceScenes(dir, sb, 'elevenlabs', { env: V2 }))],
+    [...(await staleVoiceScenes(dir, sb, 'elevenlabs', { env: FLASH }))],
     ['s0', 's1'],
     'ELEVENLABS_MODEL_ID did not reach the decision to re-record',
   );

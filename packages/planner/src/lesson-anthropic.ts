@@ -17,7 +17,7 @@ import type { Lesson } from '@inkcast/core';
 import { Lesson as LessonSchema, critiqueLesson, logger, report } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
 import { drawLesson } from './draw-anthropic.js';
-import { DELIVERED_WPS, resolvePreset } from './presets.js';
+import { resolvePreset } from './presets.js';
 import { lessonJsonSchema } from './schema.js';
 import type { LessonOptions, SourceDoc } from './types.js';
 
@@ -126,8 +126,13 @@ const UNDERLAY_KINDS = `
 function teachingBrief(opts: LessonOptions, seconds: number): string {
   const audience = opts.audience ?? 'a curious beginner with no background in the subject';
   const shape = resolvePreset(opts);
-  /** The budget, in the only unit a language model can count: words. */
-  const words = Math.round(seconds * DELIVERED_WPS);
+  // The budget, in the only unit a language model can count: words — and at the rate
+  // *this run* will actually be spoken at. `shape.wordsPerSecond` is the preset's own
+  // field, which `resolvePreset` has already set from the voice provider
+  // (`DELIVERED_LPS_BY_PROVIDER`) and which an explicit `--wps` overrides. Importing
+  // the constant instead was how a keyed film came to be briefed at the local
+  // engine's rate and then delivered 13% faster than the budget it was written to.
+  const words = Math.round(seconds * shape.wordsPerSecond);
   const beats = shape.maxBeats;
   /** Spread evenly. Stated because "165 words" alone does not say how thin that is. */
   const perBeat = Math.floor(words / beats);

@@ -66,6 +66,8 @@ import {
   elevenLabsDelivery,
   elevenLabsModel,
   ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_MULTILINGUAL_MODEL,
+  elevenLabsSpeed,
   ELEVENLABS_USD_PER_CREDIT,
 } from './providers/elevenlabs.js';
 import {
@@ -963,23 +965,50 @@ test('a run where nothing was synthesised does not claim anyone spoke', async ()
   });
 });
 
-test('the ElevenLabs engine is flash, and its id is inside the clip key', () => {
-  // Deliverable 3: flash bills half a credit per character where multilingual bills one.
-  assert.equal(elevenLabsModel({} as NodeJS.ProcessEnv), ELEVENLABS_FLASH_MODEL);
+test('the ElevenLabs engine is multilingual v2, and its id is inside the clip key', () => {
+  // Flash was chosen on price — half a credit a character — with a standing note that
+  // no tool here can hear the difference and a person would have to. The person has
+  // now listened, and the difference is the choppiness across concatenated fragments
+  // the dissection called "no proper cadence". Fifteen cents a film.
+  assert.equal(elevenLabsModel({} as NodeJS.ProcessEnv), ELEVENLABS_MULTILINGUAL_MODEL);
+  // The override still reaches the cheaper engine for anyone who wants it.
   assert.equal(
-    elevenLabsModel({ ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2' } as NodeJS.ProcessEnv),
-    'eleven_multilingual_v2',
+    elevenLabsModel({ ELEVENLABS_MODEL_ID: ELEVENLABS_FLASH_MODEL } as NodeJS.ProcessEnv),
+    ELEVENLABS_FLASH_MODEL,
   );
 
   // The delivery signature is hashed into every scene key, so changing the engine has
-  // to change it — otherwise an existing project stays fresh and never hears flash.
+  // to change it — otherwise an existing project stays fresh and never hears the new one.
   const flash = elevenLabsDelivery({ ELEVENLABS_MODEL_ID: ELEVENLABS_FLASH_MODEL } as never);
-  const v2 = elevenLabsDelivery({ ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2' } as never);
+  const v2 = elevenLabsDelivery({ ELEVENLABS_MODEL_ID: ELEVENLABS_MULTILINGUAL_MODEL } as never);
   assert.notEqual(flash, v2);
   assert.ok(flash.includes(ELEVENLABS_FLASH_MODEL));
 
   // The free provider names its engine too, so `charsByProvider` has something to label.
   assert.equal(createKokoroProvider().modelId?.(), KOKORO_MODEL_ID);
+});
+
+test('the speed correction is a nudge, never a stretch', () => {
+  // The stage divides its 150 wpm target by the adapter's 185 baseline and asks for
+  // 0.81 — a fifth slower, on every phrase, for the whole film. That is not a calm
+  // delivery, it is a recording played back slowly, and it is half of what the
+  // dissection heard. Inside ±10% the engine's own prosody survives.
+  assert.equal(elevenLabsSpeed(0.81), 0.9);
+  assert.equal(elevenLabsSpeed(1.4), 1.1);
+  assert.equal(elevenLabsSpeed(0.97), 0.97);
+  assert.equal(elevenLabsSpeed(1), 1);
+  // A baseline the stage could not compute leaves the engine alone entirely.
+  assert.equal(elevenLabsSpeed(0), 1);
+  assert.equal(elevenLabsSpeed(Number.NaN), 1);
+});
+
+test('ElevenLabs asks for whole sentences, like every other engine here', () => {
+  // Clause-level was chosen for cue precision, and the precision does not come from
+  // the split: word timings come back from the timestamped endpoint whatever size the
+  // request was. What the split decides is how much text the engine gets to shape a
+  // contour across — and a scene delivered as ten separate generations is ten fresh
+  // onsets concatenated. See `VoiceProvider.preferredSplit`.
+  assert.equal(createElevenLabsProvider().preferredSplit?.(), 'sentence');
 });
 
 test('an exhausted balance is classified, not scraped out of the message', async () => {
@@ -1017,6 +1046,100 @@ test('an exhausted balance is classified, not scraped out of the message', async
   }
 });
 
+/** The voice id out of a `/v1/text-to-speech/<id>[/with-timestamps][?…]` URL. */
+function voiceIdOf(url: string): string {
+  return (url.split('/text-to-speech/')[1] ?? '').split(/[/?]/)[0] ?? '';
+}
+
+test('a voice the account cannot use is substituted before the first generation', async () => {
+  // The free plan's 402 on a library voice is discoverable for free: `/voices` is the
+  // account's own list, which is exactly the set its API calls may use. Learning the
+  // refusal there costs a metadata GET; learning it from a 402 costs a round trip and
+  // leaves phrase 0 to be generated twice.
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ELEVENLABS_API_KEY;
+  const realOverride = process.env.ELEVENLABS_VOICE_ID;
+  process.env.ELEVENLABS_API_KEY = 'sk_test_never_spent';
+  delete process.env.ELEVENLABS_VOICE_ID;
+  const out = path.join(await mkdtemp(path.join(os.tmpdir(), 'inkcast-preflight-')), 'clip.wav');
+
+  /** Rachel is pinned by the `calm` mood; this account has never heard of her. */
+  const RACHEL = voiceMood('calm')!.elevenlabs.voiceId;
+  const spokenWith: string[] = [];
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes('/voices')) {
+      return new Response(
+        JSON.stringify({ voices: [{ voice_id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah' }] }),
+        { status: 200 },
+      );
+    }
+    spokenWith.push(voiceIdOf(u));
+    void init;
+    return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const el = createElevenLabsProvider();
+    // Resolution is unchanged: by id, offline, so two accounts cast the same lesson
+    // identically and the clip cache key does not move for a fact about one account.
+    assert.equal(await el.resolveVoice('calm'), RACHEL);
+
+    const result = await el.synthesize({
+      text: 'Phrase zero.',
+      voice: RACHEL,
+      speed: 1,
+      language: 'en',
+      outPath: out,
+    });
+
+    // Every generation was in the voice the account can actually use — and none of
+    // them was in Rachel, which is the wasted round trip this removes.
+    assert.deepEqual([...new Set(spokenWith)], ['EXAVITQu4vr4xnSDxMaL']);
+    assert.equal(result.substitution?.voice, 'EXAVITQu4vr4xnSDxMaL');
+    assert.equal(result.substitution?.from, RACHEL);
+    assert.match(String(result.substitution?.why), /cannot use/);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = realKey;
+    if (realOverride !== undefined) process.env.ELEVENLABS_VOICE_ID = realOverride;
+  }
+});
+
+test('a voice list that cannot be read is not evidence of anything', async () => {
+  const realFetch = globalThis.fetch;
+  const realKey = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = 'sk_test_never_spent';
+  const out = path.join(await mkdtemp(path.join(os.tmpdir(), 'inkcast-preflight2-')), 'clip.wav');
+  const spokenWith: string[] = [];
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = String(url);
+    // The catalogue is unreachable. An empty list means "we could not ask", never
+    // "the account has no voices" — substituting on it would change the voice of
+    // every film cast during an outage.
+    if (u.includes('/voices')) throw new Error('offline');
+    spokenWith.push(voiceIdOf(u));
+    return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const result = await createElevenLabsProvider().synthesize({
+      text: 'Phrase zero.',
+      voice: voiceMood('calm')!.elevenlabs.voiceId,
+      speed: 1,
+      language: 'en',
+      outPath: out,
+    });
+    assert.deepEqual([...new Set(spokenWith)], [voiceMood('calm')!.elevenlabs.voiceId]);
+    assert.equal(result.substitution, undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = realKey;
+  }
+});
+
 test('a phrase the adapter generated twice is billed twice', async () => {
   // One `synthesize` is not one generation. `/with-timestamps` can answer 200 with no
   // `audio_base64` — audio that was made, charged and cannot be used — and the fall
@@ -1044,7 +1167,10 @@ test('a phrase the adapter generated twice is billed twice', async () => {
       language: 'en',
       outPath: out,
     });
-    return { result, calls };
+    // Generations only. The adapter also asks `/voices` once per run, before its first
+    // generation, to learn a plan refusal from the account's own list rather than from
+    // a 402 (`preflightVoice`) — that is free metadata and not a charge.
+    return { result, calls: calls.filter((u) => u.includes('/text-to-speech')) };
   };
 
   try {
