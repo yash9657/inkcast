@@ -39,14 +39,13 @@ import {
   toast,
 } from '@/components/ui';
 import {
-  acceptsTargetLength,
   errorMessage,
   generate,
   getCapabilities,
   keyStateFor,
   type Aspect,
   type Capabilities,
-  type Depth,
+  type FilmFormat,
   type GenerateInput,
   type InkStyle,
   type Palette,
@@ -117,41 +116,36 @@ const FORMATS: { value: Aspect; label: string; hint: string; glyph: string }[] =
 ];
 
 /**
- * How thoroughly to teach.
+ * How long the film runs, and what the board does between beats.
  *
- * Phrased as pedagogy rather than as a duration slider, because the length is a
- * consequence of the choice and not the choice itself. `seconds` is the target
- * the lesson stage plans against — see `critiqueLesson(l, { maxSeconds })` in
- * `@inkcast/core`, which rejects a plan that overruns it by more than a quarter.
+ * This replaces a "Teaching depth" control that could not do anything. That one
+ * offered 45 / 90 / 180 seconds and sent them as `meta.depth` or `meta.targetSeconds`
+ * — neither of which the generate endpoint validates, so `teachingMeta()` dropped
+ * both on every submit and the form printed a note saying the runtime followed the
+ * document. Three tiles, no effect, and an honest sentence underneath them.
+ *
+ * These two are real: they select a **preset**, which decides the word budget, the
+ * beat count, the pause ceiling and the board mode together. Both wipe — one card
+ * per beat, cleared between them. The mega-canvas presets are reachable from the CLI
+ * and deliberately not from here; see `studioFormat` in `lib/jobs.ts`.
  */
-const DEPTHS: { value: Depth; label: string; hint: string; seconds: number }[] = [
+const FILM_FORMATS: { value: FilmFormat; label: string; hint: string; seconds: number }[] = [
   {
-    value: 'short',
-    label: 'One idea',
-    hint: '≈45s. A hook, a single idea, one payoff. Nothing else fits.',
-    seconds: 45,
+    value: 'explainer',
+    label: 'Explainer',
+    hint: '≈75s. Eight beats, one card each, nothing that does not earn its place.',
+    seconds: 75,
   },
   {
-    value: 'standard',
-    label: 'A lesson',
-    hint: '≈90s. Hook, everyday anchor, a few steps, a worked example, recap.',
-    seconds: 90,
-  },
-  {
-    value: 'deep',
-    label: 'Thorough',
-    hint: '≈3 min. Every step justified from first principles, misconception named.',
-    seconds: 180,
+    value: 'deepdive',
+    label: 'Deep dive',
+    hint: '≈2½ min. Fourteen beats for a subject that genuinely needs them.',
+    seconds: 150,
   },
 ];
 
-/** The depth a freshly chosen frame implies. Vertical is short-form by nature. */
-function depthForAspect(aspect: Aspect): Depth {
-  return aspect === '9:16' ? 'short' : 'standard';
-}
-
-function depthOption(depth: Depth) {
-  return DEPTHS.find((option) => option.value === depth) ?? DEPTHS[1]!;
+function formatOption(format: FilmFormat) {
+  return FILM_FORMATS.find((option) => option.value === format) ?? FILM_FORMATS[0]!;
 }
 
 export function CreateForm() {
@@ -205,13 +199,7 @@ export function CreateForm() {
   }, [preset, arriving]);
 
   const [aspect, setAspect] = React.useState<Aspect>('16:9');
-  const [depth, setDepth] = React.useState<Depth>(depthForAspect('16:9'));
-  /**
-   * Once the depth has been chosen by hand, changing the frame stops overriding
-   * it. A default that keeps reasserting itself over an explicit choice is a bug,
-   * however sensible the default is.
-   */
-  const [depthChosen, setDepthChosen] = React.useState(false);
+  const [format, setFormat] = React.useState<FilmFormat>('explainer');
   const [style, setStyle] = React.useState<InkStyle>('marker');
   const [palette, setPalette] = React.useState<Palette>('color');
   const [language, setLanguage] = React.useState('en');
@@ -247,8 +235,12 @@ export function CreateForm() {
 
   const words = wordCount(text);
   const estimate = estimateSpokenSeconds(text);
-  const chosenDepth = depthOption(depth);
-  const lengthHonoured = acceptsTargetLength(caps?.accepts);
+  const chosenFormat = formatOption(format);
+  // Whether this build will honour the chosen length at all. A server that predates
+  // `formats` renders at its own default, and the copy below says so rather than
+  // showing a picker that quietly does nothing — which is what the control this one
+  // replaces did for its whole life.
+  const lengthHonoured = (caps?.formats.length ?? 0) > 0;
   // The packs this box can actually draw with, which is a question only the box can
   // answer (plan 9.4). Falls back to the shipped four until `/api/providers` replies.
   const inkStyles = React.useMemo(() => styleOptions(caps?.styles ?? []), [caps?.styles]);
@@ -306,10 +298,9 @@ export function CreateForm() {
         voice,
         style,
         palette,
-        depth,
-        targetSeconds: chosenDepth.seconds,
+        format,
         // Only fields the server advertised are actually sent. See `generate()`.
-        ...(caps ? { accepts: caps.accepts } : {}),
+        ...(caps ? { accepts: caps.accepts, formats: caps.formats } : {}),
       };
       const trimmedTitle = title.trim();
       if (trimmedTitle) input.title = trimmedTitle;
@@ -478,7 +469,7 @@ export function CreateForm() {
         </CardContent>
       </Card>
 
-      {/* ------------------------------------------------- format and depth */}
+      {/* ------------------------------------------------ frame and length */}
 
       <Card className="gap-6">
         <CardContent className="flex flex-col gap-6">
@@ -487,11 +478,7 @@ export function CreateForm() {
             legend="Format"
             hint="Vertical is a first-class target with its own pacing, not a cropped landscape."
             value={aspect}
-            onValueChange={(next) => {
-              setAspect(next);
-              // The frame implies a length until the user says otherwise.
-              if (!depthChosen) setDepth(depthForAspect(next));
-            }}
+            onValueChange={setAspect}
             options={FORMATS.map((option) => ({
               value: option.value,
               label: option.label,
@@ -504,32 +491,30 @@ export function CreateForm() {
           <Separator />
 
           <TileGroup
-            name="depth"
-            legend="Teaching depth"
+            name="length"
+            legend="Length"
             hint="How much is explained, and therefore how long it runs."
-            value={depth}
-            onValueChange={(next) => {
-              setDepth(next);
-              setDepthChosen(true);
-            }}
-            options={DEPTHS.map((option) => ({
+            value={format}
+            onValueChange={setFormat}
+            options={FILM_FORMATS.map((option) => ({
               value: option.value,
               label: option.label,
               hint: option.hint,
             }))}
-            className="grid-cols-1 sm:grid-cols-3"
+            className="grid-cols-1 sm:grid-cols-2"
           />
 
           <LabelHint>
             {lengthHonoured ? (
               <>
-                The planner aims for {clock(chosenDepth.seconds)} and is rejected if it overruns by
-                more than a quarter.
+                The planner aims for {clock(chosenFormat.seconds)} and is rejected if it overruns by
+                more than a quarter. Either way the board shows one card per beat and wipes between
+                them.
               </>
             ) : (
               <>
-                This studio build plans from the length of the source rather than a target, so depth
-                is recorded with the project and the runtime follows the document.
+                This studio build plans from the length of the source rather than a target, so the
+                runtime follows the document.
               </>
             )}
           </LabelHint>

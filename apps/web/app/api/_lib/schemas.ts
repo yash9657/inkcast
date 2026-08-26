@@ -109,6 +109,25 @@ export const GenerateFields = z
     force: z.boolean().optional(),
 
     /**
+     * The shape of the film: how long, and how the board behaves between beats.
+     *
+     * Two values, and deliberately not the five `PresetName` has. `standard`,
+     * `short` and `square` all accumulate onto one mega-canvas — the defect class
+     * `docs/PLAN-WATCHABILITY.md` §E2 measures — and the studio must not be able to
+     * ask for it. `standard` in particular is what every pinned hash and every
+     * cached project on disk is compiled against, so it stays reachable from the CLI
+     * and is not a thing a form can select.
+     *
+     * `.strict()` extended deliberately. Until now the schema's own note said a
+     * hosted visitor "cannot ask for `standard` and cannot override this by sending
+     * one — the field is refused at the schema" — which was true and was also why
+     * the *local* studio could not reach `explainer` at all, and cast at the
+     * mega-canvas default every time. The refusal survives where it was pointed:
+     * neither value here is `standard`, and hosted still pins its own server-side.
+     */
+    preset: z.enum(['explainer', 'deepdive']).optional(),
+
+    /**
      * Storyboard overrides, accepted **either** nested under `meta` or flattened
      * at the top level (`{ aspect: '9:16', voice: 'af_heart' }`).
      *

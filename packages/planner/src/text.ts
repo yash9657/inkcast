@@ -318,6 +318,20 @@ export function shorten(s: string, max: number): string {
   // a comma or a full stop matches neither and stops the loop on its own.
   const casualty = (tokens[max] ?? '').replace(/^[^\p{L}\p{N}]+/u, '');
   const midPhrase = casualty !== '' && !CLAUSE_HEAD.test(casualty);
+  return unpaired(trimDangling(kept, midPhrase), casualty)
+    .join(' ')
+    .replace(/[,;:.\-–—]+$/, '');
+}
+
+/**
+ * Trim words off the end of a cut that promise a word the cut removed.
+ *
+ * Shared by both shorteners, because "how do you finish a cut" is one question:
+ * `DANGLING` is the closed classes (a determiner, a preposition, an auxiliary) and
+ * `DANGLING_ADJ` — guarded, see its own note — is the attributive-only modifiers.
+ */
+function trimDangling(tokens: readonly string[], midPhrase: boolean): string[] {
+  const kept = [...tokens];
   while (kept.length > 1) {
     const last = kept[kept.length - 1] as string;
     const before = kept[kept.length - 2] as string;
@@ -325,7 +339,47 @@ export function shorten(s: string, max: number): string {
     if (!DANGLING.test(last) && !adjective) break;
     kept.pop();
   }
-  return kept.join(' ').replace(/[,;:.\-–—]+$/, '');
+  return kept;
+}
+
+/**
+ * A correlative whose second half the cut removed, and the words in front of it.
+ *
+ * The defect this closes, from a shipped film: "Falling is a tug of war between a
+ * bigger pull and a bigger inertia" at nine words came out as **"Falling is a tug of
+ * war between bigger pull"**, which QC's frame-vision flagged. Every guard above
+ * passes it — the cut landed on "and", which is a clause head, so the mid-phrase
+ * rule is off; the last kept word is "pull", which is an ordinary noun. Nothing
+ * looking at the *end* of the caption can see the problem, because the problem is
+ * "between", six words earlier, still waiting for its second object.
+ *
+ * So this looks at the one thing that identifies the case exactly: the cut fell on a
+ * coordinator, and the retained words open a correlative that coordinator was going
+ * to close. `between … and`, `either … or`, `neither … nor`, `from … to`. The head
+ * is re-cut in front of the opener, which is the last place the phrase was finished.
+ *
+ * Deliberately narrow. "a difference between two places" cut after "two" is not this
+ * — its casualty is a noun, not a coordinator — and firing there would shorten a
+ * caption that reads perfectly well.
+ */
+const CORRELATIVE = /^(?:between|either|neither|from)$/i;
+const COORDINATOR = /^(?:and|or|nor|to)$/i;
+
+function unpaired(kept: readonly string[], casualty: string): string[] {
+  if (!COORDINATOR.test(casualty)) return [...kept];
+  const bare = (t: string): string => t.replace(/[^\p{L}\p{N}'-]/gu, '');
+  for (let i = kept.length - 1; i > 0; i--) {
+    if (!CORRELATIVE.test(bare(kept[i] as string))) continue;
+    // Already closed inside the caption — "between A and B, between C" — so the
+    // opener this cut orphaned is not this one.
+    if (kept.slice(i + 1).some((t) => COORDINATOR.test(bare(t)))) return [...kept];
+    // Never down to a stub. A correlative that opens the phrase — "Either the ball
+    // speeds up **or** …" — has nothing in front of it to fall back to, and one word
+    // is not a caption. The broken cut is the better of the two bad answers there.
+    const head = trimDangling(kept.slice(0, i), true);
+    return head.length >= 2 ? head : [...kept];
+  }
+  return [...kept];
 }
 
 /** Longest common word overlap ratio, for matching a term to narration. */

@@ -233,6 +233,44 @@ test('a wiped recap draws its own summary, because there is no board behind it',
   );
 });
 
+test('every shape the studio can cast holds one card and never pulls back', () => {
+  /*
+   * The studio's two lengths (`STUDIO_PRESETS` in `apps/web/lib/jobs.ts`), against
+   * the frame the whole of plan item 3.2 is about: `standard`'s recap zooms out to
+   * 1.2 over a 4448x2908 canvas and shows all ten beats at once, which QC's
+   * frame-vision flagged as five sub-10px label groups. It is the widest shot in the
+   * film and the least readable, and until the studio could name a preset it was the
+   * last thing every local film did.
+   *
+   * Asserted here rather than only in the web app because this is where it is *true*:
+   * a wiping board has no board behind the card to pull back over, so the frame is
+   * unreachable by construction rather than forbidden by a check.
+   */
+  for (const preset of ['explainer', 'deepdive'] as const) {
+    const sb = compileLesson(gradient, { preset });
+    assert.equal(sb.meta.board, 'wipe', `${preset} must wipe`);
+
+    const zooms = sb.scenes.map((s) => s.camera.zoom ?? 1);
+    const recap = sb.scenes.find((s) => s.role === 'recap');
+    assert.ok(recap, `${preset} kept its recap`);
+    // Every beat is the same shot, the recap included — so "the widest shot in the
+    // film" is not a thing this format has.
+    assert.equal(
+      new Set(zooms.map((z) => z.toFixed(4))).size,
+      1,
+      `${preset} zooms ${zooms.map((z) => z.toFixed(2)).join(', ')}`,
+    );
+    assert.equal(recap.camera.transition, 0.45, `${preset} recap takes the ordinary pan`);
+  }
+
+  // Non-vacuous: the shape the studio can no longer select still does all of it.
+  const recapKept = kept.scenes.at(-1) as Scene;
+  assert.ok(
+    (recapKept.camera.zoom ?? 1) < Math.max(...kept.scenes.map((s) => s.camera.zoom ?? 1)) / 2,
+    'the accumulating recap really is the pull-back this format avoids',
+  );
+});
+
 test('the mode is written only by a preset that asks for it, never defaulted', () => {
   // A `.default('accumulate')` on `StoryboardMeta` would pass every assertion above
   // and still rewrite every `storyboard.json` on disk through `cast.ts`'s reparse.

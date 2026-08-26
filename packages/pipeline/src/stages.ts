@@ -71,7 +71,7 @@ export type SourceDoc = {
  * asserts this union is exactly `Object.keys(PRESETS)`, in both directions, so the next
  * preset cannot be added on one side only.
  */
-export type PresetName = 'standard' | 'short' | 'square' | 'explainer';
+export type PresetName = 'standard' | 'short' | 'square' | 'explainer' | 'deepdive';
 
 /** Format options every lesson-shaped stage understands. */
 export type FormatOptions = {

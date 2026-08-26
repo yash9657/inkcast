@@ -395,6 +395,32 @@ export const LessonStep = z.object({
   /** The single new idea, in one sentence. If it needs two, split the step. */
   idea: z.string(),
   /**
+   * What this card is *called*, in at most six words — a name, not a sentence.
+   *
+   * ## The defect
+   *
+   * Until this existed the board's caption was `shorten(idea, preset.captionWords)`:
+   * a word count applied to a sentence. Nine words of "Falling is a tug of war
+   * between a bigger pull and a bigger reluctance" is **"Falling is a tug of war
+   * between bigger pull"**, which is not a shorter title, it is a broken one — the
+   * board promises a noun it never writes. Frame-vision caught two of them in one
+   * film ("Air is what makes a feather lose" is the other), and they are unfixable
+   * downstream: no amount of cutting at better boundaries turns a sentence into a
+   * name, because the name was never in the sentence to be found.
+   *
+   * ## Why the author writes it
+   *
+   * Because the author is the only party that knows it. `idea` is a claim and a
+   * title is a handle — "Free fall", "Air resistance", "The tug of war" — and the
+   * step from one to the other is a judgement about what the beat is *about*, which
+   * is the same judgement the author already made in order to write the beat.
+   *
+   * Optional, and never defaulted: a lesson written before this field existed still
+   * parses, and `captionFor` still shortens its `idea` — at a clause boundary now,
+   * which is the best that can be done without a name.
+   */
+  title: z.string().trim().max(80).optional(),
+  /**
    * WHY it is true, from what the learner already knows. An explanation that
    * asserts is a definition; an explanation that derives is teaching. Never
    * leave this empty.

@@ -66,6 +66,7 @@
 
 import { isHosted, json, unexpected } from '../_lib/http';
 import { META_KEYS } from '../_lib/schemas';
+import { STUDIO_PRESETS } from '@/lib/jobs';
 import { loadCore, loadPipeline } from '@/lib/store';
 import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
 import type { KeyStatus } from '../keys/_store.js';
@@ -128,6 +129,18 @@ export async function GET(request: Request) {
       warnings: warningsFor(chosen, keys, hosted),
       /** `meta` fields this build's generate endpoint validates. */
       accepts: META_KEYS,
+      /**
+       * The film shapes this build's generate endpoint will accept as `preset`.
+       *
+       * A separate list from `accepts` because `preset` is not a `meta` field: it
+       * is the *format* — how long the film runs and what the board does between
+       * beats — and it sits beside `meta` in `GenerateFields` rather than inside
+       * it. Advertised for the same reason `accepts` is: the schema is `.strict()`,
+       * so a studio that knows about an option must be able to tell whether the
+       * server does before it sends one, or a newer picker turns into a 400 that
+       * takes the user's aspect, ink and voice down with it.
+       */
+      formats: [...STUDIO_PRESETS],
       /**
        * The ink packs this tree can actually draw with, each with the name and
        * description the pack itself carries.

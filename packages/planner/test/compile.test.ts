@@ -597,6 +597,46 @@ test('a plot intent with nothing to plot is not drawn as a false curve', () => {
   assert.ok(scene.elements.length > 1);
 });
 
+test('a card is called what the author called it, not the first nine words of a claim', () => {
+  /*
+   * The two halves of plan item 3.3, on the beat that shipped the defect.
+   *
+   * `idea` is a *claim* and a title is the *subject* of that claim, and no amount of
+   * cutting turns one into the other. "Air is what makes a feather lose" is seven
+   * words at a nine-word budget, so nothing was cut at all — the board simply wrote
+   * an unfinished sentence in the largest hand in the film, and QC's frame-vision
+   * flagged it on a strict-clean run.
+   */
+  const beat = {
+    idea: 'Falling is a tug of war between bigger pull and bigger inertia.',
+    because: 'because the two effects scale together',
+    from: 'given' as const,
+    derivedFrom: [],
+    emphasis: [],
+    terms: [],
+    narration: 'Falling is a tug of war, and both sides grow together.',
+    hold: 0,
+    visuals: [],
+  };
+  const withTitle = { ...beat, title: 'The tug of war' };
+
+  const named = compileLesson({ ...lesson, steps: [withTitle, ...lesson.steps.slice(1)] }, {});
+  const unnamed = compileLesson({ ...lesson, steps: [beat, ...lesson.steps.slice(1)] }, {});
+  const captionOf = (board: Storyboard, index: number): string => {
+    const scene = board.scenes[index];
+    const el = scene?.elements.find((e) => e.id.endsWith('_idea'));
+    return el && el.type === 'text' ? el.text : '';
+  };
+  // Beat 2 of the shipped lesson is `steps[0]`: hook, anchor, then the steps.
+  const at = named.scenes.findIndex((sc) => sc.elements.some((e) => e.id === 'b2_idea'));
+  assert.ok(at >= 0, 'the replaced step compiled to a scene');
+
+  assert.equal(captionOf(named, at), 'The tug of war', 'the authored title is written verbatim');
+  // Without one, the claim is shortened — and the correlative guard keeps the cut off
+  // "between bigger pull", which is what the board wrote on the real film.
+  assert.equal(captionOf(unnamed, at), 'Falling is a tug of war');
+});
+
 test('updateLine computes the arithmetic rather than copying it', () => {
   const line = updateLine(
     {

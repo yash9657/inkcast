@@ -400,6 +400,26 @@ export type UnderlineSpec = {
   overshoot: number;
   /** How far it starts before the first letter, as a fraction of `overshoot`. */
   approach: number;
+  /**
+   * The second rule, when the title takes a double underline (parity item 5).
+   *
+   * A hand that wants a heading to *be* a heading underlines it twice: one confident
+   * pass, then a shorter one under it, faster and closer in. It is the cheapest mark
+   * in the vocabulary that says "this is the name of the thing" rather than "this is
+   * a line", and it is the one Golpo's boards use on every card title.
+   *
+   * The second stroke is deliberately not a copy of the first. It is drawn *back*
+   * along the words — right to left, as a hand returning — starts and ends inside the
+   * first one, and takes its own seed, so the two are visibly two gestures rather
+   * than one shape stamped twice. Absent means one rule, which is what a caption or a
+   * label gets.
+   */
+  double?: {
+    /** Vertical separation from the first rule, as a fraction of the type size. */
+    gap: number;
+    /** How much shorter it is at each end, as a fraction of the run's width. */
+    inset: number;
+  };
 };
 
 /**
@@ -417,6 +437,14 @@ export const TITLE_UNDERLINE: UnderlineSpec = {
   rise: 0.14,
   overshoot: 0.22,
   approach: 0.45,
+  /*
+   * The second rule, at 0.13 of the type size below the first — about 12 units under
+   * a 96-unit title, which is the distance at which two strokes read as a deliberate
+   * double rather than as one thick smudge or as two unrelated lines. `inset` 0.06
+   * keeps it inside the first at both ends, which is what a returning hand does: the
+   * flick overshoots on the way out and stops short on the way back.
+   */
+  double: { gap: 0.13, inset: 0.06 },
 };
 
 /**
@@ -447,7 +475,16 @@ export function sketchUnderline(
   const over = size * spec.overshoot;
   const a: Pt = [run.x0 - over * spec.approach, run.baseline + size * spec.drop];
   const b: Pt = [run.x1 + over, run.baseline + size * (spec.drop - spec.rise)];
-  return sketchLine(rng, st, a, b, 1);
+  const first = sketchLine(rng, st, a, b, 1);
+  if (!spec.double) return first;
+
+  // The hand comes back. Right to left, inside the first at both ends, one stroke —
+  // and it follows the first in the returned order, so the reveal draws them in the
+  // order they were made. See the note on `UnderlineSpec.double`.
+  const inset = (b[0] - a[0]) * spec.double.inset;
+  const gap = size * spec.double.gap;
+  const back = sketchLine(rng, st, [b[0] - inset, b[1] + gap], [a[0] + inset, a[1] + gap], 1);
+  return [...first, ...back];
 }
 
 /* ---------------------------------------------------------------- brand mark */

@@ -48,7 +48,7 @@ import {
 } from '../_lib/schemas';
 import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
 import { hydrateEnv, withKeys } from '@/lib/keys';
-import { hostedFormat, isRunning, startJob } from '@/lib/jobs';
+import { isRunning, startJob, studioFormat } from '@/lib/jobs';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
 export const runtime = 'nodejs';
@@ -183,7 +183,15 @@ export async function POST(request: Request) {
       fields.projectId ??
       (upload
         ? core.projectId()
-        : core.projectId(JSON.stringify({ source, meta, title: fields.title })));
+        : core.projectId(
+            // `preset` joins the derivation because it changes the film: `explainer`
+            // is 75 seconds over eight beats and `deepdive` is 150 over fourteen, and
+            // without it the same document cast at both lengths would derive one id,
+            // resume the first one's cached lesson and storyboard, and hand back the
+            // wrong film. Absent when nothing asked, so `JSON.stringify` drops it and
+            // every id derived before this line still derives the same way.
+            JSON.stringify({ source, meta, title: fields.title, preset: fields.preset }),
+          ));
 
     /*
      * ------------------------------------------------ whose project is that id
@@ -257,25 +265,25 @@ export async function POST(request: Request) {
     /* ------------------------------------------------------------- the job */
 
     /*
-     * `hostedFormat()` is the format cap, and it is spread here rather than merged
-     * inside the runner because this is the only place that knows a *request*
-     * asked for the film — everything downstream sees an already-decided
-     * `CastInput`.
+     * The film's *shape*, spread here rather than merged inside the runner because
+     * this is the only place that knows a request asked for it — everything
+     * downstream sees an already-decided `CastInput`.
      *
-     * It returns `{}` when `INKCAST_HOSTED` is unset, so a local studio run is
-     * untouched and needs no conditional. Hosted, it pins `preset: 'explainer'`
-     * (75s, 16:9, `board: 'wipe'`), and that is what makes the queue's arithmetic
-     * true rather than aspirational: `estimateWaitSec` quotes a wait built from a
-     * rolling mean of measured leases, and until this line existed a hosted POST
-     * rendered at the `standard` default — 150s of film, twice the length the
-     * plan's two-lane budget was sized against — so every position the queue card
-     * showed was an under-estimate by construction. `HOSTED_PRESET` was exported
-     * and unit-tested for a day without being applied to anything.
+     * `studioFormat` always returns one now, and that is the change. It used to
+     * return `{}` locally, meaning "let the CLI-shaped defaults stand" — and the
+     * CLI-shaped default is `standard`: one 4448×2908 canvas that accumulates every
+     * beat, panned at zoom 4.4, ending on a recap zoomed out to 1.2 where ten
+     * panels are thumbnails nobody can read. So `explainer` and everything measured
+     * about it (fill 55.5% → 62.3%, regions 4 → 1) was reachable from the CLI and
+     * from a hosted box and from nowhere a local user could press.
      *
-     * Deliberately last in the literal, and deliberately not reachable from the
-     * request body: `GenerateFields` is `.strict()` and has no `preset`, so a
-     * hosted visitor cannot ask for `standard` and cannot override this by
-     * sending one — the field is refused at the schema before it reaches here.
+     * Hosted still pins `explainer` whatever the body said, for the queue reason on
+     * `HOSTED_PRESET`: `estimateWaitSec` quotes a wait built from measured leases,
+     * and a 150-second film in the queue is a wait for everybody behind it.
+     *
+     * `GenerateFields.preset` is a two-value enum — `explainer` and `deepdive`,
+     * both wiping — so the refusal that note used to describe still holds where it
+     * was pointed: nothing a form can send selects the mega-canvas.
      */
     const castInput = {
       ...(fields.text === undefined ? {} : { text: fields.text }),
@@ -283,7 +291,7 @@ export async function POST(request: Request) {
       ...(serverPath === undefined ? {} : { filePath: serverPath }),
       ...(fields.title === undefined ? {} : { title: fields.title }),
       ...(meta === undefined ? {} : { meta }),
-      ...hostedFormat(),
+      ...studioFormat(fields.preset),
     };
 
     /*
@@ -436,7 +444,7 @@ async function readMultipart(request: Request): Promise<Parsed<GenerateInput>> {
   }
 
   const raw: Record<string, unknown> = {};
-  for (const key of ['text', 'url', 'filePath', 'title', 'projectId'] as const) {
+  for (const key of ['text', 'url', 'filePath', 'title', 'projectId', 'preset'] as const) {
     const value = form.get(key);
     if (typeof value === 'string' && value.trim() !== '') raw[key] = value;
   }

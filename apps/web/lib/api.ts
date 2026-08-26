@@ -107,9 +107,15 @@ export type ProjectDetail = {
 /**
  * How thoroughly to teach, and therefore how long the video runs.
  *
- * A choice about pedagogy rather than about file size: `short` is the 9:16
- * constraint — one idea, one visual, one payoff — and `deep` is the one that can
- * afford to justify every step and name the misconception.
+ * **No longer what the studio's Length control sends.** `depth` and `targetSeconds`
+ * are `meta` fields, and `POST /api/generate` has never validated either — so
+ * `teachingMeta()` dropped them on every submit and the form printed a note saying
+ * the runtime followed the document. The control that offered them is now
+ * `FilmFormat`, which selects a preset the endpoint really does accept.
+ *
+ * Kept because they are a coherent request to make of a server that grows the
+ * fields, and `teachingMeta()` still guards them behind `accepts`. Nothing in this
+ * app sets them today.
  */
 export type Depth = 'short' | 'standard' | 'deep';
 
@@ -127,6 +133,15 @@ export type GenerateInput = {
   depth?: Depth;
   /** Target runtime the lesson stage should plan against. */
   targetSeconds?: number;
+  /**
+   * The film's shape. Sent only when the server advertised it in `formats`.
+   *
+   * Not part of `meta`: this is the *format* — the preset — and it sits beside
+   * `meta` in the generate schema for the same reason it sits beside it here.
+   */
+  format?: FilmFormat;
+  /** What `GET /api/providers` said this build accepts as `preset`. */
+  formats?: readonly FilmFormat[];
   /**
    * The `meta` field names this server validates, from `GET /api/providers`.
    *
@@ -368,7 +383,25 @@ export type Capabilities = {
    * `components/studio/options.ts`.
    */
   styles: StylePack[];
+  /**
+   * The film shapes `POST /api/generate` will accept as `preset` on this build.
+   *
+   * Empty against a server that predates the field, and the form then sends no
+   * `preset` at all — which is right rather than merely safe: that server's own
+   * default is whatever it was, and a `.strict()` schema would 400 the whole
+   * request over an option it has never heard of.
+   */
+  formats: FilmFormat[];
 };
+
+/**
+ * How long the film runs, and what the board does between beats.
+ *
+ * Both wipe: one card per beat, cleared between them. The mega-canvas presets
+ * (`standard`, `short`, `square`) are reachable from the CLI and deliberately not
+ * from here — see `studioFormat` in `lib/jobs.ts`.
+ */
+export type FilmFormat = 'explainer' | 'deepdive';
 
 /** One ink pack, named by the file it came from. See `styles/README.md`. */
 export type StylePack = { id: InkStyle; label: string; hint: string };
@@ -440,6 +473,9 @@ export async function getCapabilities(signal?: AbortSignal): Promise<Capabilitie
     accepts: (Array.isArray(out.accepts) ? out.accepts : []).filter(
       (field): field is string => typeof field === 'string',
     ),
+    formats: (Array.isArray(out.formats) ? out.formats : []).filter(
+      (name): name is FilmFormat => name === 'explainer' || name === 'deepdive',
+    ),
     styles: (Array.isArray(out.styles) ? out.styles : []).flatMap((raw) => {
       const rec = asRecord(raw);
       const id = str(rec.id);
@@ -501,12 +537,6 @@ function teachingMeta(input: GenerateInput): Record<string, unknown> {
   return out;
 }
 
-/** True when this server will honour a chosen runtime. Drives the form's copy. */
-export function acceptsTargetLength(accepts: readonly string[] | undefined): boolean {
-  if (!accepts) return false;
-  return accepts.includes('depth') || SECONDS_FIELDS.some((name) => accepts.includes(name));
-}
-
 /**
  * Start a run.
  *
@@ -526,6 +556,15 @@ export async function generate(input: GenerateInput, signal?: AbortSignal): Prom
     ...teachingMeta(input),
   };
   const title = input.title?.trim();
+  /*
+   * The format, sent only when this server said it validates one.
+   *
+   * Same rule as `teachingMeta` above and for the same reason: the generate schema
+   * is `.strict()`, so a field a build has never heard of is a 400 that takes the
+   * aspect ratio, ink and voice down with it. A server too old to advertise
+   * `formats` renders at whatever its own default is, which is the honest outcome.
+   */
+  const format = input.format && input.formats?.includes(input.format) ? input.format : undefined;
 
   let init: RequestInit;
   if (input.file) {
@@ -533,11 +572,13 @@ export async function generate(input: GenerateInput, signal?: AbortSignal): Prom
     const form = new FormData();
     form.append('meta', JSON.stringify(meta));
     if (title) form.append('title', title);
+    if (format) form.append('preset', format);
     form.append('file', input.file, input.file.name);
     init = { method: 'POST', body: form };
   } else {
     const body: Record<string, unknown> = { meta };
     if (title) body.title = title;
+    if (format) body.preset = format;
     if (input.text?.trim()) body.text = input.text;
     if (input.url?.trim()) body.url = input.url.trim();
     init = {

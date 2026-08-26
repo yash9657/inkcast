@@ -200,7 +200,12 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // preset key invalidates only the runs that ask for it, and `presetShape.name` is
   // already inside this stage's key in `cast.ts` — but the brief edits above do, and they
   // are the same change arriving from the other end.
-  lesson: 12,
+  // 13: the author names every card. `LessonStep.title` is a new optional field and
+  // `NAME EVERY CARD` is a new block in the brief — neither of which is in this
+  // stage's cache key, which is the whole reason this constant exists. Also the
+  // brief's word budget now reads the *engine's* rate rather than the local one
+  // (plan 2.4), so a keyed run is briefed for a different number of words.
+  lesson: 13,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -248,7 +253,13 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // pin (`planner/test/pinned-hashes.test.ts` runs on every `pnpm -r test`). Bumped
   // anyway, because the field is read at compile time and a cached storyboard
   // compiled before it existed carries the old fractions with nothing to say so.
-  storyboard: 16,
+  // 17: `captionFor` prefers the authored `title`, and its fallback no longer leaves
+  // a correlative unpaired — "Falling is a tug of war between bigger pull" becomes
+  // "Falling is a tug of war". Both change what a card is called for a lesson that
+  // has not moved. Neither moves a pinned hash (the four shipped compiles carry no
+  // titles and no orphaned correlative), which is exactly why the bump is needed:
+  // nothing else would invalidate the storyboards on disk.
+  storyboard: 17,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never
@@ -299,12 +310,14 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // dwell advisory moved to its own id, `dwell-text`. `qc.json` from an older run
   // describes a different set of checks under the same names.
   check: 2,
+  // 7: a heading's accent rule is a double underline — one pass out, one shorter one
+  // back — which is different ink for a board that has not changed (parity item 5).
   // 6: the schedule. Entrance length follows the ink (`core/src/inktime.ts`) instead
   // of a flat 0.8s, and a beat's marks are given to one hand in turn
   // (`serializePen`), with reading time reserved at the end of every beat. Every item
   // in every plan has a different `start` and `dur`; nothing about *what* is drawn
   // moved. `renderFingerprint` hashes the plan, so this bump and that hash agree.
-  render: 6,
+  render: 7,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */

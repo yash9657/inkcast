@@ -1078,10 +1078,19 @@ function sweep(): void {
  * halves every wait in the queue, and it is the reason the estimate this module
  * quotes can stay in single-digit minutes at depth ten.
  *
- * Local runs are untouched: the person pasting the text is the person paying for
- * the tokens and waiting for their own CPU, and `standard` is still the right
- * default there. That is the whole reason this is a function of `isHosted()`
- * rather than a change to `resolvePreset`.
+ * Local runs are no longer untouched, and the sentence that used to stand here —
+ * "`standard` is still the right default there" — is the one
+ * `docs/PLAN-WATCHABILITY.md` was written to refute. It was a decision about *cost*
+ * (the local user pays for their own CPU, so let them have the long cut) applied to
+ * a question about *quality*: `standard` accumulates every beat onto one 4448×2908
+ * canvas, pans it at zoom 4.4, and ends on a recap zoomed out to 1.2 where ten
+ * panels are unreadable thumbnails. That is not a longer film, it is a worse one,
+ * and every local studio run got it. See `studioFormat` below.
+ *
+ * This constant stays because a hosted box has a *second*, independent reason to
+ * pin the shorter film — the queue is a budget and every wait in it is the render
+ * time of the films ahead — and because that reason survives whatever the local
+ * default becomes.
  */
 export const HOSTED_PRESET = 'explainer' as const;
 
@@ -1101,12 +1110,49 @@ export const HOSTED_PRESET = 'explainer' as const;
  */
 export const HOSTED_PRESET_SEC = 75;
 
+/** The two shapes a studio film may be cast in. See `StudioPreset`. */
+export const STUDIO_PRESETS = ['explainer', 'deepdive'] as const;
+export type StudioPreset = (typeof STUDIO_PRESETS)[number];
+
 /**
- * The `preset` to merge into a `CastInput` on this deployment.
+ * The `preset` to merge into a `CastInput`, from what the request asked for.
  *
- * An object rather than a bare string so a caller can spread it: `{}` locally
- * means "say nothing and let the CLI-shaped defaults stand", which is exactly
- * what the studio wants, and it composes without a conditional at the call site.
+ * ## Why the studio picks a format at all
+ *
+ * Because it has to pick *something*, and the something it was picking was
+ * `resolvePreset`'s default — `standard`, the mega-canvas. Nothing in the studio
+ * ever named a preset, so the whole of `explainer` (wipe, 75s, eight beats), built
+ * and measured over two plans, was reachable only from the CLI and from a hosted
+ * deployment. A local user could not get to it at all.
+ *
+ * ## Why only two, and why `standard` is not one of them
+ *
+ * `standard`, `short` and `square` accumulate. That is the right shape for the CLI,
+ * where the flag is explicit and the caller has read what it does, and it is the
+ * shape every pinned hash and every cached project on disk is compiled against — so
+ * it must keep existing and must not be what a form quietly selects.
+ *
+ * ## Hosted still wins
+ *
+ * A hosted box pins `explainer` whatever the body said, for the queue reason on
+ * `HOSTED_PRESET`. The request's own choice is honoured only where the person
+ * choosing is the person waiting.
+ */
+export function studioFormat(
+  asked?: StudioPreset,
+  hosted: boolean = isHosted(),
+): { preset: StudioPreset } {
+  if (hosted) return { preset: HOSTED_PRESET };
+  return { preset: asked ?? 'explainer' };
+}
+
+/**
+ * The old name, kept so nothing that only wants the hosted cap has to change.
+ *
+ * `{}` locally used to mean "say nothing and let the CLI-shaped defaults stand",
+ * which is exactly the behaviour `studioFormat` replaces — so the generate route
+ * calls that one and this stays for callers whose question really is "is this box
+ * hosted".
  */
 export function hostedFormat(hosted: boolean = isHosted()): { preset?: typeof HOSTED_PRESET } {
   return hosted ? { preset: HOSTED_PRESET } : {};

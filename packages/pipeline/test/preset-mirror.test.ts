@@ -41,6 +41,7 @@ const MIRRORED: Record<PresetName, true> = {
   short: true,
   square: true,
   explainer: true,
+  deepdive: true,
 };
 
 const mirrored = Object.keys(MIRRORED).sort();

@@ -79,6 +79,50 @@ test('a cut never ends on a word that promises another one', () => {
 
 /* ---------------------------------------------------------- what must not trim */
 
+test('a cut never orphans half of a correlative', () => {
+  // The shipped defect, from `projects/deb81002b073` scene s4 — flagged by QC's
+  // frame-vision on a strict-clean run. Every guard in this file passes it: the cut
+  // fell on "and", which is a clause head, so the mid-phrase rule is off; the last
+  // kept word is "pull", an ordinary noun. Nothing looking at the *end* of the
+  // caption can see it, because the problem is "between", six words earlier.
+  assert.equal(
+    shorten('Falling is a tug of war between bigger pull and bigger inertia.', 9),
+    'Falling is a tug of war',
+  );
+  assert.equal(
+    shorten('Falling is a tug of war between a bigger pull and a bigger reluctance.', 9),
+    'Falling is a tug of war',
+  );
+  // Cut exactly on the "to" that closes "from …": what is left says you can go from
+  // somewhere and never says where to.
+  assert.equal(shorten('You can go from London to Paris in two hours.', 5), 'You can go');
+  // Cut past it, and the pair is intact — so nothing fires.
+  assert.equal(
+    shorten('You can go from London to Paris in two hours.', 8),
+    'You can go from London to Paris',
+  );
+
+  // And it is narrow. "between two places" is an ordinary prepositional phrase whose
+  // cut lands on a noun, not on a coordinator — firing there would shorten a caption
+  // that reads perfectly well, and would move a pinned hash for nothing.
+  assert.equal(
+    shorten('Longitude is a difference between two places, measured in time.', 6),
+    'Longitude is a difference between two',
+  );
+  // A correlative that is already closed inside the caption is not orphaned.
+  assert.equal(
+    // "is" is trimmed as a dangling auxiliary by the guard that was already here.
+    shorten('The gap between anode and cathode is where the work happens.', 7),
+    'The gap between anode and cathode',
+  );
+  // And a correlative that opens the phrase leaves nothing to fall back to. One word
+  // is not a caption, so the broken cut is the better of two bad answers.
+  assert.equal(
+    shorten('Either the ball speeds up or the ground moves.', 5),
+    'Either the ball speeds up',
+  );
+});
+
 test('a finished phrase is left alone, adjective ending or not', () => {
   const cases: [string, number, string][] = [
     // Predicative adjectives are perfectly good endings, and there are far more of these

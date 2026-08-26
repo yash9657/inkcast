@@ -173,6 +173,13 @@ THE WORKED EXAMPLE IS NOT OPTIONAL
 NAME THE MISCONCEPTION
 \`misconception\` names the wrong belief this specific explanation *creates* — the thing a learner would confidently say afterwards that is false — then refutes it with a picture. For gradient descent it is that the method finds *the* minimum, when it only finds *a* minimum. Not a generic caveat, not a list of limitations: the one wrong sentence they would say.
 
+NAME EVERY CARD
+\`title\` is what the beat's card is *called* — at most six words, and a **name rather than a sentence**. "Free fall". "Air resistance". "The tug of war". It is written at the top of the board in the largest hand in the film and it is the first thing a viewer reads, so it has to be a handle they can carry, not a claim they have to parse.
+
+The difference from \`idea\`, which is the thing most often got wrong: \`idea\` is a *claim* ("Falling is a tug of war between bigger pull and bigger inertia"), and a title is the *subject* of that claim ("A tug of war"). Do not write the first six words of the idea. Do not write a full sentence and trust it to be cut — a sentence cut to six words promises nouns the board never writes, which is where "Falling is a tug of war between bigger pull" came from on a real film.
+
+No trailing punctuation, no "Step 3:", no restating the topic on every card.
+
 NARRATION
 - Spoken English at about 150 words per minute. Contractions. Short clauses. Whole sentences only — never a fragment, never a sentence continued into the next beat.
 - Talk to one person. No "let's", no "we will explore", no "as we can see", no citations, no bullet-point voice.

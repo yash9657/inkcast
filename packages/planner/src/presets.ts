@@ -32,7 +32,7 @@ import { keywords, sentences, wordCount } from './text.js';
 
 const log = logger('planner:presets');
 
-export type PresetName = 'standard' | 'short' | 'square' | 'explainer';
+export type PresetName = 'standard' | 'short' | 'square' | 'explainer' | 'deepdive';
 
 export type Preset = {
   name: PresetName;
@@ -346,6 +346,55 @@ export const PRESETS: Record<PresetName, Preset> = {
     maxGestures: 10,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1,
+    board: 'wipe',
+  },
+  /**
+   * The long cut, with the board defects taken out — the studio's second length.
+   *
+   * `explainer` above is the argument that a 75-second film teaches better than a
+   * 150-second one, and it is the studio's default because of it. This exists for the
+   * case that argument does not cover: a subject that genuinely needs fourteen beats,
+   * where the honest answer is a longer film rather than a thinner one.
+   *
+   * It is **`standard`'s budget**, field for field — same 150 seconds, same fourteen
+   * beats, same words per beat — with the three things that made `standard` unwatchable
+   * changed and nothing else:
+   *
+   *  - `board: 'wipe'`. One card per beat. On the corpus this moved content fill from
+   *    55.5% to 62.3% and regions from 4 to 1, and it is the only way to stop a
+   *    ten-panel recap frame that shows every beat at a size nobody can read. A long
+   *    film has *more* reason to wipe than a short one, not less: the mega-canvas gets
+   *    bigger with every beat and the camera zoom with it.
+   *  - `maxHold: 1.2` against `standard`'s uncapped. Higher than `explainer`'s 0.8
+   *    because two and a half minutes can afford a longer pause where a minute cannot —
+   *    that is the whole reason the ceiling is a property of the format.
+   *  - `holdBonus: 0`. 0.15s a beat is a decision nobody made, taken fourteen times.
+   *
+   * And `maxGestures`, which `standard` cannot have: both shipped lessons pin
+   * byte-identical compiles to `standard`, so the gesture ceiling (plan 1.5) arrives on
+   * the new presets exactly as `board: 'wipe'` did.
+   *
+   * **`standard` itself is untouched and stays reachable**, by `--preset standard` and
+   * as the CLI's default. It is what the pinned hashes are taken against, what every
+   * cached project on disk was compiled at, and what a user who wants the old shape
+   * asks for by name.
+   */
+  deepdive: {
+    name: 'deepdive',
+    aspect: '16:9',
+    maxSeconds: 150,
+    maxPerRegion: 4,
+    visualsPerBeat: 3,
+    maxBeats: 14,
+    maxWordsPerBeat: 46,
+    captionRole: 'label',
+    captionWords: 9,
+    vertical: false,
+    holdBonus: 0,
+    maxHold: 1.2,
+    maxGestures: 10,
+    wordsPerSecond: DELIVERED_WPS,
+    outroSec: 1.6,
     board: 'wipe',
   },
   square: {

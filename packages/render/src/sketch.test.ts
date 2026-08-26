@@ -35,8 +35,13 @@ function ys(d: string): number[] {
 
 test('a title rule is one stroke, left to right, that lifts as it goes', () => {
   const run = { x0: 300, x1: 900, baseline: 220, size: 96 };
-  const strokes = sketchUnderline(new Rng(11), MARKER, run);
-  // One stroke, not `passes` of them: the second pass would sweep back over the words.
+  // The gesture on its own, without the return stroke: `st.passes` must never reach
+  // it, because a second *pass* sweeps back over the words the way a hand scribbling
+  // something out does. The deliberate return stroke is the next test.
+  const strokes = sketchUnderline(new Rng(11), MARKER, run, {
+    ...TITLE_UNDERLINE,
+    double: undefined,
+  });
   assert.equal(strokes.length, 1);
 
   const d = strokes[0] as string;
@@ -55,6 +60,33 @@ test('a title rule is one stroke, left to right, that lifts as it goes', () => {
     (y[y.length - 1] as number) < (y[0] as number),
     'the rule should lift to the right, not sag',
   );
+});
+
+test('a title takes a double rule, drawn back the way the hand came', () => {
+  // Parity item 5: a hand that wants a heading to *be* a heading underlines it twice.
+  // One confident pass out, one shorter one back — the cheapest mark in the vocabulary
+  // that says "this is the name of the thing" rather than "this is a line".
+  const run = { x0: 300, x1: 900, baseline: 220, size: 96 };
+  const strokes = sketchUnderline(new Rng(11), MARKER, run);
+  assert.equal(strokes.length, 2, 'two gestures, not one line drawn thick');
+
+  const [out, back] = strokes as [string, string];
+  const outX = xs(out);
+  const backX = xs(back);
+  // The return runs the other way, which is what makes it read as a second gesture
+  // rather than as a copy stamped below the first.
+  assert.ok((backX[backX.length - 1] as number) < (backX[0] as number), 'the return runs back');
+  // And it stops short at both ends: the flick overshoots on the way out, and a hand
+  // coming back does not repeat the overshoot.
+  assert.ok((backX[0] as number) < (outX[outX.length - 1] as number));
+  assert.ok((backX[backX.length - 1] as number) > (outX[0] as number));
+  // Below the first, and far enough below to read as two strokes rather than a smudge.
+  const gap = Math.min(...ys(back)) - Math.min(...ys(out));
+  assert.ok(gap > run.size * 0.05, `the two rules are ${gap.toFixed(1)} units apart`);
+  assert.ok(gap < run.size * 0.3, `the two rules are ${gap.toFixed(1)} units apart`);
+
+  // Still deterministic, which is the whole contract of this module.
+  assert.deepEqual(sketchUnderline(new Rng(11), MARKER, run), strokes);
 });
 
 test('the title rule scales with the type size and nothing else', () => {

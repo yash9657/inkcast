@@ -459,6 +459,11 @@ test('the Lesson tool schema makes the shape of a lesson non-optional', async ()
   for (const beat of ['hook', 'anchor', 'recap', 'worked', 'misconception']) {
     assert.deepEqual(Object.keys(schema.properties[beat]!.properties ?? {}), [
       'idea',
+      // Plan 1.5/3.3: what the card is *called*. Optional in the schema and asked for
+      // in the brief, because a lesson written before it existed must still parse —
+      // and because `captionFor` can still shorten an `idea` when it is absent, just
+      // not into a name.
+      'title',
       'because',
       'from',
       'derivedFrom',

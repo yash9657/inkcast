@@ -42,7 +42,7 @@ const PALETTES = ['mono', 'color'] as const;
  * same four names in prose and has to move with this line; there is no way to make a help
  * string a compile error, so the pair is checked in `test/flags.test.ts` instead.
  */
-const PRESETS = ['standard', 'short', 'square', 'explainer'] as const;
+const PRESETS = ['standard', 'short', 'square', 'explainer', 'deepdive'] as const;
 const DEPTHS = ['quick', 'standard', 'deep'] as const;
 const ROUTES = ['lesson', 'document'] as const;
 const BOARDS = ['accumulate', 'wipe'] as const;

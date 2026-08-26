@@ -1313,8 +1313,28 @@ function termRow(
   return fits;
 }
 
-/** The words that name a cell on the finished board. */
+/**
+ * The words that name a cell on the finished board.
+ *
+ * The author's own `title` first, because that is the only source that contains a
+ * *name*. Everything below it is a sentence being cut down, and a sentence cut to a
+ * word count promises nouns it never writes: "Falling is a tug of war between a
+ * bigger pull and a bigger reluctance" at nine words came out as "Falling is a tug
+ * of war between bigger pull", which frame-vision flagged on a shipped film. See
+ * `LessonStep.title`.
+ *
+ * The fallback is still `shorten`, which now refuses to leave a correlative unpaired
+ * (see `unpaired`) — that is the mechanical half of the same defect, and the half a
+ * shortener can actually fix. The half it cannot is an `idea` that is *itself* an
+ * unfinished sentence: "Air is what makes a feather lose" is seven words at a
+ * nine-word budget, so nothing was cut at all and the board wrote it as it stood.
+ * Only a title can fix that one.
+ */
 function captionFor(step: LessonStep, role: BeatRole, preset: Preset): string {
+  const authored = stripMarkdown(step.title ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (authored) return authored;
   const idea = stripMarkdown(step.idea).replace(/\s+/g, ' ').trim();
   const text = shorten(idea, preset.captionWords);
   if (text) return text;

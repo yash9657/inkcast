@@ -833,17 +833,21 @@ test('the brand plate goes to the emptiest corner of the last frame', () => {
 
 test("a heading's accent rule is drawn as an underline, not as a level rule", () => {
   // This replaces a treatment rather than adding one. The failure mode it guards is
-  // two rules on the board — the generic two-point branch drawing its level stroke and
-  // the underline drawing a second one over it — so the assertion is on the *only*
-  // stroke the element produces, and its identity is checked by shape.
-  const ruleOf = (sb: ReturnType<typeof signedBoard>) => {
+  // the generic two-point branch drawing its level stroke *as well as* the underline —
+  // so the count is exact and the identity is checked by shape.
+  //
+  // A heading's rule is two strokes since parity item 5: one confident pass out and a
+  // shorter one back, which is what a hand does to a title it means (see
+  // `UnderlineSpec.double`). A body line's is still one. Both numbers are stated,
+  // because "however many it happens to produce" is what this test exists to refuse.
+  const ruleOf = (sb: ReturnType<typeof signedBoard>, strokes: number) => {
     const item = compilePlan(sb, DIR).items.find((i) => i.id === 'rule');
     assert.ok(item, 'the accent rule must still be an item');
-    assert.equal(item.prims.length, 1, 'one gesture, one stroke — never a rule plus an underline');
+    assert.equal(item.prims.length, strokes, 'the rule is exactly its own gesture');
     return pointsOf((item.prims[0] as GeomPrim).d);
   };
 
-  const pts = ruleOf(signedBoard(1.6));
+  const pts = ruleOf(signedBoard(1.6), 2);
   const first = pts[0] as [number, number];
   const last = pts[pts.length - 1] as [number, number];
   // Overshoot: the hand runs past the last letter. 0.22 of a 62-unit heading is ~13
@@ -862,7 +866,7 @@ test("a heading's accent rule is drawn as an underline, not as a level rule", ()
   // The same path under a body line is not a title rule and keeps today's treatment.
   // `titleRules` matches on geometry, so this is what stops it claiming every level
   // accent stroke on the board — a plot's baseline, a timeline's axis.
-  const plain = ruleOf(signedBoard(1.6, [], 'body'));
+  const plain = ruleOf(signedBoard(1.6, [], 'body'), 1);
   const plainFirst = plain[0] as [number, number];
   const plainLast = plain[plain.length - 1] as [number, number];
   assert.ok(

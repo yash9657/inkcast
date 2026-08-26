@@ -79,6 +79,8 @@ const {
   waitForJob,
   HOSTED_PRESET,
   HOSTED_PRESET_SEC,
+  STUDIO_PRESETS,
+  studioFormat,
 } = await import('./jobs.js');
 
 /* ------------------------------------------------------------------ helpers */
@@ -549,7 +551,29 @@ test('the hosted deployment renders one preset, and a local one is left alone', 
   // failure it guards is a preset edit that leaves every hosted visitor reading
   // a wait justified by a film length that is no longer true.
   assert.equal(HOSTED_PRESET_SEC, 75);
-  // Locally the person pasting the text is the person paying for it and waiting
-  // for their own CPU, so nothing is imposed: an empty patch spreads to nothing.
+  // `hostedFormat` still answers only "is this box hosted", which is the question
+  // the queue's arithmetic asks. What a *studio request* is cast at is a different
+  // question, and it is `studioFormat`'s.
   assert.deepEqual(hostedFormat(false), {});
+});
+
+test('a local studio run gets a wiping board, and can never select the mega-canvas', () => {
+  // The defect this closes: nothing in the studio ever named a preset, so every
+  // local run took `resolvePreset`'s default — `standard`, one 4448×2908 canvas
+  // that accumulates every beat and ends on a recap zoomed out to 1.2 where ten
+  // panels are unreadable thumbnails. `explainer` had been built, measured (fill
+  // 55.5% → 62.3%, regions 4 → 1) and shipped, and was reachable only from the CLI
+  // and from a hosted deployment.
+  assert.deepEqual(studioFormat(undefined, false), { preset: 'explainer' });
+  assert.deepEqual(studioFormat('deepdive', false), { preset: 'deepdive' });
+
+  // Both offered shapes wipe. `standard`, `short` and `square` accumulate, and they
+  // stay reachable by name from the CLI — where the flag is explicit and the caller
+  // has read what it does — and out of reach of a form.
+  assert.deepEqual([...STUDIO_PRESETS], ['explainer', 'deepdive']);
+
+  // Hosted overrides whatever was asked for, for the queue reason on `HOSTED_PRESET`:
+  // a 150-second film in the queue is a wait for everybody behind it.
+  assert.deepEqual(studioFormat('deepdive', true), { preset: 'explainer' });
+  assert.deepEqual(studioFormat(undefined, true), { preset: 'explainer' });
 });
