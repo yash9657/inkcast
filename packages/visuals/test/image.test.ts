@@ -22,6 +22,7 @@ import {
   detectImageProvider,
   extractPathData,
   figureGround,
+  figureImageRect,
   formPlausibility,
   generateIllustration,
   illustrationKey,
@@ -676,4 +677,40 @@ test('a keyed figure keeps real colour and rejects compression noise', () => {
 
 test('keying abstains on bytes it cannot read, rather than guessing', () => {
   assert.equal(keyFigureToSurface(Buffer.from('not a png'), SLATE), undefined);
+});
+
+test('a figure fills the box it was given, centred, and is never letterboxed', () => {
+  // One of the two finish defects `docs/PLAN-WATCHABILITY.md` §4.2 names. It is not
+  // cosmetic: the reveal mask and the pen sprite both work from the *element's*
+  // bounding box, so an image letterboxed inside a wider box spends part of its sweep
+  // on empty margin and parks the nib off the picture.
+  const box = { w: 840, h: 560 };
+
+  // A square raster in a 3:2 box: height is the binding dimension, and the picture is
+  // centred horizontally with nothing above or below it.
+  const square = figureImageRect(box, { w: 1024, h: 1024 });
+  assert.equal(square.h, 560, 'the binding dimension is filled exactly');
+  assert.equal(square.y, 0);
+  assert.equal(square.w, 560);
+  assert.equal(square.x, 140, 'centred in the remaining width');
+
+  // A raster wider than the box: width binds, and the margin moves to the other axis.
+  const wide = figureImageRect(box, { w: 1600, h: 800 });
+  assert.equal(wide.w, 840);
+  assert.equal(wide.x, 0);
+  assert.equal(wide.h, 420);
+  assert.equal(wide.y, 70);
+
+  // Aspect is never traded for coverage: a stretched figure is a different picture.
+  for (const rect of [square, wide]) {
+    assert.ok(rect.w <= box.w + 1e-9 && rect.h <= box.h + 1e-9, 'never overflows the box');
+  }
+  assert.ok(
+    Math.abs(square.w / square.h - 1) < 1e-9 && Math.abs(wide.w / wide.h - 2) < 1e-9,
+    'the raster keeps its own aspect',
+  );
+
+  // A raster whose size could not be read takes the whole box rather than collapsing
+  // to nothing — `pngSize` abstains on shapes the decoder does not know.
+  assert.deepEqual(figureImageRect(box, { w: 0, h: 0 }), { x: 0, y: 0, w: 840, h: 560 });
 });

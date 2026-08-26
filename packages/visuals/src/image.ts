@@ -1386,6 +1386,32 @@ const CHROMA_FULL = 128;
  * data-URIs a relative `<image href>`, and the runtime already paints one — `image` is in
  * its `PAINTABLE` set. Nothing upstream had ever produced one.
  */
+/**
+ * Where a raster's `<image>` goes inside the box the board reserved for it.
+ *
+ * The raster's own aspect, fitted and centred, emitted at exactly that rectangle —
+ * rather than handing the box to `preserveAspectRatio` and letting the renderer
+ * letterbox inside it. The difference is not cosmetic and it is why this is its own
+ * function: the reveal mask and the pen sprite both work from the *element's* bounding
+ * box, so a letterboxed image spends a fifth of its sweep on empty margin and parks
+ * the nib off the picture entirely.
+ *
+ * Extracted so the arithmetic can be checked without a provider, a key or a cache —
+ * `docs/PLAN-WATCHABILITY.md` §4.2 names the letterbox as one of two finish defects
+ * that had to be closed before the lane could be judged, and a defect closed by a
+ * comment is a defect waiting to reopen.
+ */
+export function figureImageRect(
+  box: { w: number; h: number },
+  size: { w: number; h: number },
+): { x: number; y: number; w: number; h: number } {
+  if (!(size.w > 0) || !(size.h > 0)) return { x: 0, y: 0, w: box.w, h: box.h };
+  const scale = Math.min(box.w / size.w, box.h / size.h);
+  const w = size.w * scale;
+  const h = size.h * scale;
+  return { x: (box.w - w) / 2, y: (box.h - h) / 2, w, h };
+}
+
 export async function figureRaster(args: {
   id: string;
   prompt: string;
@@ -1422,17 +1448,7 @@ export async function figureRaster(args: {
     aspect: args.box.h > 0 ? args.box.w / args.box.h : 1,
   });
   if (!raster) return undefined;
-  // Fit the raster's own aspect inside the box and emit the `<image>` at exactly that
-  // rectangle, rather than letting `preserveAspectRatio` letterbox it inside a wider one.
-  // The difference is not cosmetic: the reveal mask and the pen both work from the
-  // element's bounding box, so a letterboxed image spends a fifth of its sweep on empty
-  // margin and parks the nib off the picture entirely.
-  const size = pngSize(raster.png);
-  const scale = Math.min(args.box.w / size.w, args.box.h / size.h);
-  const w = size.w * scale;
-  const h = size.h * scale;
-  const x = (args.box.w - w) / 2;
-  const y = (args.box.h - h) / 2;
+  const { x, y, w, h } = figureImageRect(args.box, pngSize(raster.png));
   // The href is project-relative: the renderer resolves and inlines it against the project
   // directory, and keeping it relative is what lets a project stay self-describing.
   //

@@ -205,7 +205,13 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // stage's cache key, which is the whole reason this constant exists. Also the
   // brief's word budget now reads the *engine's* rate rather than the local one
   // (plan 2.4), so a keyed run is briefed for a different number of words.
-  lesson: 13,
+  // 14: the art director (plan 4.1). A pass, not a brief — the fifth attempt at making
+  // the author ask for a picture is not another brief, because the previous four are
+  // recorded at 10, 11 and 12 above and `projects/deb81002b073` is the fourth data
+  // point: a lesson about bowling balls, feathers and vacuum tubes with zero underlays
+  // in it. `routeFigures` now writes the `underlay` into the lesson itself, so a
+  // cached lesson from before it existed has pictures nothing asked for.
+  lesson: 14,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.

@@ -241,6 +241,7 @@ export {
   figureGround,
   figureModelOverride,
   figurePrompt,
+  figureImageRect,
   figureRaster,
   formPlausibility,
   generateIllustration,

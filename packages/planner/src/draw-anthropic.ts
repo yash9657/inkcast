@@ -46,7 +46,7 @@ import { prepareMarks } from './drawing.js';
 import type { Box } from './elements.js';
 import { figureBox, readInkBox } from './underlay.js';
 import { drawingJsonSchema } from './schema.js';
-import type { DrawPreview, LessonOptions } from './types.js';
+import type { DrawFigure, DrawPreview, LessonOptions } from './types.js';
 
 const log = logger('planner:drawing:anthropic');
 
@@ -657,19 +657,20 @@ function drawable(lesson: Lesson): { step: LessonStep; intent: VisualIntent }[] 
  * line-art form — or the marks annotate a picture the film never shows. `drawKey` hashes
  * the picture into the drawing's key for the same reason.
  */
-export type DrawFigure = (prompt: string, box: Box) => Promise<Uint8Array | undefined>;
-
 /**
- * The figure seam, off the options bag.
+ * The figure seam, which `@inkcast/pipeline` supplies.
  *
- * Read through a widening rather than declared, because `LessonOptions` lives in `types.ts`
- * with the rest of the shared stage surface and this is the only file that reads a figure
- * board. Until the caller that owns an image provider supplies it — `@inkcast/pipeline`, the
- * same seam that already supplies `drawUnderlay` — every figure takes the path it has always
- * taken, and `underlayFor` says so in the log rather than letting it pass in silence.
+ * Re-exported from `types.ts` rather than declared here, and that is the change: it
+ * used to be read off the options bag through a widening — `(opts as … & { drawFigure?
+ * }).drawFigure` — because nothing supplied it, and declaring a field no caller fills
+ * in is a promise the surface cannot keep. `openDrawUnderlay` supplies it now, so the
+ * field is declared beside `drawUnderlay` where it belongs and the cast goes. A caller
+ * that still passes nothing composes the marks unseen, and `underlayFor` says so.
  */
+export type { DrawFigure } from './types.js';
+
 function figureSeam(opts: LessonOptions): DrawFigure | undefined {
-  return (opts as LessonOptions & { drawFigure?: DrawFigure }).drawFigure;
+  return opts.drawFigure;
 }
 
 /**

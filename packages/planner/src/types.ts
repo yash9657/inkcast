@@ -57,6 +57,24 @@ export type DrawUnderlay = (
   prompt: string,
 ) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
 
+/**
+ * The same seam for the figure lane, and it hands back one thing less.
+ *
+ * A form's picture is *traced*, so where its ink really landed has to be measured and
+ * carried back as `inkBox`. A figure is never traced — a binary trace erases the hues
+ * that carry its teaching — so it simply claims the box it was given, and the only
+ * thing to return is the board the author will look at.
+ *
+ * `undefined` whenever a picture cannot be produced. The beat still gets its figure on
+ * the board (the compiler mints the asset from the prompt alone), but its marks are
+ * composed without the author having seen it — which is a worse drawing, not a missing
+ * one. See `underlayFor` in `./draw-anthropic.ts`.
+ */
+export type DrawFigure = (
+  prompt: string,
+  box: { x: number; y: number; w: number; h: number },
+) => Promise<Uint8Array | undefined>;
+
 /** One heading and the body text that belongs to it. */
 export type SourceSection = {
   /** Heading text. `''` for the implicit preamble before the first heading. */
@@ -182,6 +200,17 @@ export type LessonOptions = StageOptions &
      * alone — see `DrawUnderlay`.
      */
     drawUnderlay?: DrawUnderlay;
+    /**
+     * How to generate the colour teaching picture a `figure` beat's marks are composed
+     * on top of. Same seam and the same reason as `drawUnderlay`: the planner depends
+     * on neither an image provider nor Chromium.
+     *
+     * Without it a figure is still minted and still reaches the board — the compiler
+     * needs no key for that — but the marks are composed **blind**, against the generic
+     * drawing brief, and redraw the structure the picture already contains. See
+     * `underlayFor`'s figure branch and `DrawFigure` in `./draw-anthropic.ts`.
+     */
+    drawFigure?: DrawFigure;
     /**
      * Whether a drawing with something measurably wrong with it gets a correction call.
      * Default `true`; `INKCAST_DRAW_FIX=0` turns it off for a whole run.

@@ -46,9 +46,27 @@ export type DrawUnderlay = (
   prompt: string,
 ) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
 
+/**
+ * The figure seam, mirrored from `@inkcast/planner`'s `DrawFigure` for the same reason
+ * `DrawUnderlay` above is mirrored: nothing here may pull a stage package in eagerly.
+ */
+export type DrawFigure = (
+  prompt: string,
+  box: { x: number; y: number; w: number; h: number },
+) => Promise<Uint8Array | undefined>;
+
 export type DrawUnderlayHandle = {
   /** Pass to the lesson stage as `drawUnderlay`. */
   underlay: DrawUnderlay;
+  /**
+   * Pass to the lesson stage as `drawFigure`.
+   *
+   * On this handle rather than its own, because the expensive thing here is the
+   * browser and there is no reason to launch two. The two seams differ only in where
+   * the raster goes: a form is placed by the *ink box* a trace measured, and a figure
+   * is never traced and simply claims `figureBox()`.
+   */
+  figure: DrawFigure;
   /** Releases Chromium. Safe to call when nothing was generated. */
   close(): Promise<void>;
 };
@@ -162,6 +180,75 @@ export function openDrawUnderlay(dir: string, opts: DrawUnderlayOptions = {}): D
     return { png: page, inkBox: [box.x, box.y, box.w, box.h] };
   };
 
+  /**
+   * The picture a figure beat's marks are composed on top of.
+   *
+   * Without this the author composes **blind**: `underlayFor` falls back to
+   * `DRAW_BRIEF` — "fill the canvas", "draw the structure and the relation", 10 to 25
+   * marks — and the compiler lays the result over a picture the author was never
+   * shown. Measured on `projects/cardiac8f`: 23 of the 45 marks across its three
+   * figure beats redraw something the figure already has, one of them a closed
+   * 17-point heart outline on a colour cutaway of a heart.
+   *
+   * The raster is generated under the id, prompt, seed and **aspect** the compiler
+   * will mint for this asset, so the visuals stage resolves to this very picture from
+   * the cache rather than paying for a second one. `aspect` is the easy half to get
+   * wrong and the one that costs the most: `illustrationKey` hashes the requested
+   * shape, so asking square here and 3:2 there is two images of one subject.
+   */
+  const figure: DrawFigure = async (prompt, box) => {
+    const [images, place] = await Promise.all([loadImages(), loadUnderlay()]);
+    const asset = place.underlayAsset(prompt);
+    const raster = await images.illustrationRaster({
+      id: asset.id,
+      prompt: asset.prompt,
+      dir,
+      seed: place.assetSeed(asset.id),
+      kind: 'figure',
+      aspect: box.h > 0 ? box.w / box.h : 1,
+      lane: 'figure',
+      onSpend: (s) => noteSpend(opts, s),
+    });
+    if (!raster) {
+      log.debug(`no image came back for the figure "${prompt.slice(0, 60)}"`);
+      return undefined;
+    }
+    // Placed exactly as `figureRaster` will place it on the board, by the one function
+    // that owns that arithmetic — so the picture the author reasons about and the
+    // picture the viewer sees are at the same scale and the same offset.
+    const rect = images.figureImageRect(box, {
+      w: imageWidth(raster.png),
+      h: imageHeight(raster.png),
+    });
+    return board(raster.png, { x: box.x + rect.x, y: box.y + rect.y, w: rect.w, h: rect.h });
+  };
+
+  /** One image, at one rectangle, on a blank board — the author's whole view. */
+  const board = async (
+    png: Buffer,
+    at: { x: number; y: number; w: number; h: number },
+  ): Promise<Uint8Array | undefined> => {
+    const b = await chrome();
+    if (!b) return undefined;
+    const html =
+      `<body style="margin:0;background:${PAPER}">` +
+      `<div style="position:relative;width:${DRAW_W}px;height:${DRAW_H}px;overflow:hidden;background:${PAPER}">` +
+      `<img src="data:image/png;base64,${Buffer.from(png).toString('base64')}" ` +
+      `style="position:absolute;left:${at.x}px;top:${at.y}px;width:${at.w}px"/>` +
+      '</div></body>';
+    let page: Page | undefined;
+    try {
+      page = await b.newPage({ viewport: { width: DRAW_W, height: DRAW_H }, deviceScaleFactor: 1 });
+      await page.setContent(html);
+      return await page.screenshot({});
+    } catch (err) {
+      log.warn('could not draw the figure for the author to look at', err);
+      return undefined;
+    } finally {
+      await page?.close().catch(() => undefined);
+    }
+  };
+
   /** The board as the author will see it: this image's ink, at `box`, on a blank canvas. */
   const view = async (
     png: Buffer,
@@ -206,6 +293,7 @@ export function openDrawUnderlay(dir: string, opts: DrawUnderlayOptions = {}): D
 
   return {
     underlay,
+    figure,
     async close() {
       // Wait for a launch already in flight rather than racing it: closing before it
       // resolves leaves a Chromium behind, and this runs in the stage's `finally`.
@@ -226,4 +314,9 @@ export function openDrawUnderlay(dir: string, opts: DrawUnderlayOptions = {}): D
  */
 function imageWidth(png: Buffer): number {
   return png.length >= 20 ? png.readUInt32BE(16) : 1024;
+}
+
+/** The other half of the same header, four bytes further in. */
+function imageHeight(png: Buffer): number {
+  return png.length >= 24 ? png.readUInt32BE(20) : 1024;
 }

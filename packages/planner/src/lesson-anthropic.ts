@@ -16,6 +16,7 @@
 import type { Lesson } from '@inkcast/core';
 import { Lesson as LessonSchema, critiqueLesson, logger, report } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail } from './anthropic.js';
+import { routeFigures } from './artdirect.js';
 import { drawLesson } from './draw-anthropic.js';
 import { resolvePreset } from './presets.js';
 import { lessonJsonSchema } from './schema.js';
@@ -390,7 +391,7 @@ export async function anthropicLesson(
         beats: 3 + lesson.steps.length,
         objective: lesson.objective,
       });
-      await drawLesson(lesson, opts);
+      await illustrate(lesson, opts);
       return lesson;
     }
 
@@ -415,8 +416,25 @@ export async function anthropicLesson(
   // A lesson that never passed critique still gets its pictures: the beats are what they
   // are by this point, and a flawed argument drawn well is a better video than a flawed
   // argument drawn as a hillside.
-  if (best?.lesson) await drawLesson(best.lesson, opts);
+  if (best?.lesson) await illustrate(best.lesson, opts);
   return best?.lesson;
+}
+
+/**
+ * Decide which beats get a generated picture, then draw every beat.
+ *
+ * The order is the whole point and it is one line: the art director runs **before**
+ * the drawing author, because the marks are composed *on top of* whatever picture the
+ * beat ends up with. A router that ran afterwards would place a figure under a set of
+ * marks that had been aimed at empty board.
+ *
+ * Both halves are non-fatal and both are no-ops without a key, so this is exactly
+ * `drawLesson` on a machine that has neither — which is what the two call sites above
+ * used to say directly.
+ */
+async function illustrate(lesson: Lesson, opts: LessonOptions): Promise<void> {
+  await routeFigures(lesson, opts);
+  await drawLesson(lesson, opts);
 }
 
 function revisionRequest(problems: string[]): string {

@@ -112,6 +112,36 @@ export async function lessonJsonSchema(): Promise<Json | undefined> {
  * exists at all: a second copy of the mark vocabulary would drift from the first, and
  * the compiler would then be reading fields the author was never told to emit.
  */
+/**
+ * The art director's verdicts, as a JSON Schema for its forced tool.
+ *
+ * Declared here rather than derived from `artdirect.ts`'s zod schema for the reason
+ * every other schema in this file is derived *to* JSON: this is the one direction
+ * `zod-to-json-schema` runs, and a hand-written copy would drift from the parser that
+ * validates the answer. `RouteAnswer` there is the parser; this is the same shape
+ * sent to the model.
+ */
+export async function figureRouteJsonSchema(): Promise<Json | undefined> {
+  return toJsonSchema(
+    z.object({
+      beats: z.array(
+        z.object({
+          id: z.string().describe('the beat id, exactly as it was given'),
+          route: z
+            .enum(['figure', 'form', 'marks'])
+            .describe('which lane draws this beat’s picture'),
+          prompt: z
+            .string()
+            .optional()
+            .describe('the picture, as an image generator should be asked for it'),
+          why: z.string().optional().describe('one clause of reasoning'),
+        }),
+      ),
+    }),
+    'the art director needs it to choose a lane per beat',
+  );
+}
+
 export async function drawingJsonSchema(): Promise<Json | undefined> {
   return toJsonSchema(
     z.object({ elements: z.array(Mark) }),

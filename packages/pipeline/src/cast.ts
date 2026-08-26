@@ -592,6 +592,12 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   const lessonOpts: LessonStageOptions = {
     drawPreview: drawing.preview,
     drawUnderlay: underlays.underlay,
+    // The other half of the same seam, and the one the figure lane was missing. Without
+    // it `underlayFor` composes a figure's marks *blind* — no picture, so it falls
+    // through to `DRAW_BRIEF` and draws the structure the figure already contains. On
+    // `projects/cardiac8f` that was 23 of 45 marks, one of them a 17-point heart
+    // outline on a colour cutaway of a heart. See `openDrawUnderlay`'s `figure`.
+    drawFigure: underlays.figure,
     ...format,
     maxSeconds: targetSec,
     ...(input.audience === undefined ? {} : { audience: input.audience }),
@@ -657,6 +663,19 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
         // different cache entries. A local run is unaffected: `deliveredWps('kokoro')`
         // is `DELIVERED_WPS` exactly, and the key simply gains a constant field.
         voice: provs.voice.name,
+        /*
+         * And the image provider, which decides two things about the lesson this key
+         * is supposed to describe: `illustrations` changes the brief (a lane that is
+         * not there must not be offered), and `routeFigures` — the art-director pass —
+         * does not run at all without one.
+         *
+         * A hole of the same class as the one above, and older: `illustrations` has
+         * been changing the brief since the drawing lane existed and has never been in
+         * this key. So a project cast with no image key, then re-cast after pasting
+         * one, read the keyless lesson back off disk and reported `lesson cached` —
+         * the run that was *meant* to add pictures being the exact run that could not.
+         */
+        images: provs.images.name,
       },
     );
 

@@ -118,6 +118,17 @@ export type LessonStageOptions = FormatOptions & {
    * so it comes from here for the same reason `drawPreview` does. See `draw-underlay.ts`.
    */
   drawUnderlay?: (prompt: string) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
+  /**
+   * The same thing for the figure lane: the beat's colour picture, drawn at the box it
+   * will really occupy, so the marks are composed against what the viewer will see.
+   *
+   * A figure is never traced, so unlike an underlay there is no ink to measure and
+   * nothing to hand back but the board itself. See `openDrawUnderlay`'s `figure`.
+   */
+  drawFigure?: (
+    prompt: string,
+    box: { x: number; y: number; w: number; h: number },
+  ) => Promise<Uint8Array | undefined>;
   onProgress?: OnProgress;
   force?: boolean;
   /**
@@ -299,6 +310,10 @@ type ImageModule = {
     prompt: string;
     dir: string;
     seed?: number;
+    /** `form` (line art, to be traced) or `figure` (a colour teaching picture). */
+    kind?: 'form' | 'figure';
+    /** Width over height of the box this raster will fill. Defaults to square. */
+    aspect?: number;
     /** Which cost lane its provider calls are filed under. See the visuals package. */
     lane?: string;
     /** Where a real provider call is billed, one entry per call. */
@@ -314,6 +329,11 @@ type ImageModule = {
     | undefined
   >;
   tracedInkBox(png: Buffer): Promise<{ x: number; y: number; w: number; h: number } | undefined>;
+  /** Where a raster's `<image>` goes inside the box the board reserved for it. */
+  figureImageRect(
+    box: { w: number; h: number },
+    size: { w: number; h: number },
+  ): { x: number; y: number; w: number; h: number };
 };
 
 /** A still session, as `@inkcast/render` offers it. See `render/src/still.ts`. */
@@ -461,7 +481,11 @@ export async function loadVisuals(): Promise<VisualsModule> {
 
 /** The image lane on its own, for generating and measuring a drawing's underlay. */
 export async function loadImages(): Promise<ImageModule> {
-  return (await load('visuals', ['illustrationRaster', 'tracedInkBox'])) as unknown as ImageModule;
+  return (await load('visuals', [
+    'illustrationRaster',
+    'tracedInkBox',
+    'figureImageRect',
+  ])) as unknown as ImageModule;
 }
 
 /** The underlay's placement rules, which the planner owns so both sides cannot drift. */

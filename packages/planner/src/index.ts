@@ -117,6 +117,15 @@ export {
 export { readInkBox, underlayAsset, underlayInkBox, UNDERLAY_AREA } from './underlay.js';
 export { assetSeed } from './compile.js';
 export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
+export {
+  MAX_FIGURES,
+  DEFAULT_ROUTER_MODEL,
+  applyRoutes,
+  routeFigures,
+  routerModel,
+  type BeatRoute,
+  type Route,
+} from './artdirect.js';
 export type { DrawOneOptions } from './draw-anthropic.js';
 /* The measurement in front of the drawing critic's gate, and the critic itself. Exported
  * because what decides whether a drawing needs a model is worth being able to run on its
