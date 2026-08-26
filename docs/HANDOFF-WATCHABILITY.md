@@ -17,7 +17,7 @@ Read the five commits, in order, against the plan:
 4958b67  Phase 1 — one hand, ink-proportional draw times, dwell
 2379bc3  Phase 2 — multilingual v2, sentence split, speed clamp, per-provider pace
 e6ba0cf  Phase 3 — the studio casts a card; every card has a name
-<this>   Phase 4 — the art director, the figure seam, the finish defects
+8f73ff4  Phase 4 — the art director, the figure seam, the finish defects
 ```
 
 **2. Then finish Phase 5**, which is untouched. It is the smallest phase and it is what
