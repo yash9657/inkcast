@@ -40,7 +40,7 @@ import type { Browser } from 'playwright';
 import { openCapture } from './browser.js';
 import { inkShare } from './ink.js';
 import type { BoardViolation } from './boardcheck.js';
-import type { RenderPlan } from './types.js';
+import type { Rect, RenderPlan } from './types.js';
 
 const log = logger('check:tier2');
 
@@ -170,15 +170,77 @@ export function sampleTimes(plan: RenderPlan, n = SAMPLES): { at: number; sceneI
   });
 }
 
-/** The board text the plan says is fully written by `t`. */
+/**
+ * The camera's view of the board at `t`, in canvas units.
+ *
+ * The arithmetic is `seek()`'s in `page/runtime.js`, reproduced rather than shared for the
+ * reason everything in this package that mirrors the runtime is: that file runs inside
+ * Chromium and this one runs in Node. It is three lines and it is pinned by
+ * `check.test.ts` — if the runtime's framing ever moves, this moves with it.
+ *
+ * Taken from the scene the sample belongs to rather than interpolated across a camera
+ * transition, and that is safe by construction: `sampleTimes` looks a quarter-second
+ * before a beat's ink starts leaving, which is the far end of the scene, and a transition
+ * runs at its near end.
+ */
+function cameraRect(plan: RenderPlan, t: number): Rect | undefined {
+  let scene = plan.scenes[0];
+  for (const s of plan.scenes) {
+    if (t >= s.start) scene = s;
+  }
+  if (!scene) return undefined;
+  const base = Math.min(plan.frame.w / plan.canvas.w, plan.frame.h / plan.canvas.h);
+  const px = base * (scene.camera.zoom > 0 ? scene.camera.zoom : 1);
+  if (!(px > 0)) return undefined;
+  const w = plan.frame.w / px;
+  const h = plan.frame.h / px;
+  return { x: scene.camera.x - w / 2, y: scene.camera.y - h / 2, w, h };
+}
+
+/** Whether any of `box` is inside `view`. Touching edges do not count as seen. */
+function intersects(box: Rect, view: Rect): boolean {
+  return (
+    box.x < view.x + view.w &&
+    box.x + box.w > view.x &&
+    box.y < view.y + view.h &&
+    box.y + box.h > view.y
+  );
+}
+
+/**
+ * The board text the plan says is fully written by `t` **and framed by the camera**.
+ *
+ * The camera clause is plan 5.2, and it is the difference between a check and a nuisance.
+ * This feeds `ocrDiff`, which asks a model to read a *frame* and then reports every word
+ * the board is supposed to carry that the model could not find. On an accumulating board
+ * the board is a 4448×2908 canvas and the frame is one panel of it at zoom 4.44, so almost
+ * every word on the board is legitimately off-screen — and the check was reporting all of
+ * them as unreadable. Measured on `projects/deb81002b073`, a strict-clean film: five
+ * advisories, every one of them a word the camera was never pointed at.
+ *
+ * Under `wipe` this is close to a no-op, which is the honest description and not a reason
+ * to skip it: the studio default is `wipe` now, but the CLI's `standard` still accumulates,
+ * every film in `projects/` was made that way, and a check that only tells the truth about
+ * the current default is a check that starts lying the next time the default moves.
+ *
+ * A missing or degenerate camera falls back to the whole board — the previous behaviour
+ * exactly. This function must not be the reason a report goes quiet.
+ */
 export function textAt(plan: RenderPlan, t: number): string[] {
+  const view = cameraRect(plan, t);
   const out: string[] = [];
   for (const item of plan.items) {
     if (item.start + item.dur > t) continue;
     if (item.sceneEnd < t && !item.persist) continue;
     if (item.fadeAt !== undefined && item.fadeAt <= t) continue;
     for (const prim of item.prims) {
-      if (prim.kind === 'text' && prim.text.trim()) out.push(prim.text.trim());
+      if (prim.kind !== 'text' || !prim.text.trim()) continue;
+      // The text prim's own box, not the item's: an element can reserve a wide cell and
+      // letter one label at the edge of it, and it is the label that is or is not on
+      // screen. `motion` moves an item after it is drawn — ignored here on purpose, since
+      // a moving element is not what the OCR diff is about and the offsets are per frame.
+      if (view && !intersects(prim.box, view)) continue;
+      out.push(prim.text.trim());
     }
   }
   return out;

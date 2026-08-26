@@ -143,7 +143,27 @@ image for**. That is a prompt and a brief, not an architecture.
 
 ## What to build, in the order a viewer notices it
 
+> **Statuses below were written on 2026-08-25**, at the end of `docs/PLAN-WATCHABILITY.md`.
+> That plan was a second, independent dissection — of `projects/deb81002b073` rather than
+> `cardiac5` — and it reached four of the six items here from a different direction, so the
+> ones it closed are marked in place rather than left for a reader to rediscover. A status
+> line says which commit did it and what is still open under the same heading; nothing that
+> is only partly done is marked done.
+
 ### 1. Wipe the board, or frame one card. This is the biggest single win and it is free.
+
+**Status: done** — `e6ba0cf` (plan 3.1, 3.2). The local studio applies `explainer` (which
+is `board: 'wipe'`) unconditionally instead of only under `INKCAST_HOSTED`, and the create
+form's **Length** control chooses between it and a new `deepdive` preset, which is
+`standard`'s budget wiped. Every studio-reachable shape now holds one card for the whole
+film, the recap included, and the accumulate-only 1.3s pull-back is unreachable by
+construction under `wipe`. The CLI still defaults to `standard` on purpose — both shipped
+lessons pin byte-identical compiles to it.
+
+_Still open:_ the `fillcheck` half of the "done when" below, which needs the acceptance
+render. Note that the zoom number in that clause does not transfer: under `wipe` the canvas
+is 1280×895 and every scene sits at zoom ≈ 1.62, which is _more_ pixels per unit than
+`standard`'s 4.44 on a 4448-wide board. Judge it by `fillcheck`, not by the zoom.
 
 `projects/cardiac5/storyboard.json` is a 6572×2908 canvas, every element `persist: true`,
 camera `zoom: 5.64` for ten scenes and **`zoom: 1.04` for the recap**. At 5.64 the shot is
@@ -160,6 +180,22 @@ _Done when:_ `fillcheck` on a cardiac render reads 45%+ instead of 21.6%, and th
 does not contain eleven cards.
 
 ### 2. Ask the image model for the figure, not the object
+
+**Status: done, and by a mechanism this item did not propose** — `8f73ff4` (plan 4.1).
+The prompt change below is right and was not enough on its own: `STAGE_CODE_VERSION.lesson`
+records versions 10, 11 and 12 as three successive attempts to make the lesson author ask
+for a figure _via the brief_, and `projects/deb81002b073` — nine `draw` intents and zero
+underlays on a topic full of bowling balls, feathers and vacuum tubes — is the fourth data
+point that a rule stated in a brief is a suggestion. So it is a **pass** now, not a
+sentence: `packages/planner/src/artdirect.ts` runs one forced tool call per lesson after
+authoring, routes every beat `figure | form | marks`, and writes the figure intent straight
+into the lesson's `underlay` without asking the author's consent. Budget four figures a
+film, hook and worked example first. `routecheck.mts` is the harness.
+
+The two sub-points were both already closed: colour survives (a figure is never traced, so
+`illustrationPrompt`'s binary constraint does not apply to it), and the letterbox and the
+white-card-on-warm-paper seam are fixed (`figureImageRect`; `mix-blend-mode: multiply` on
+light paper, alpha keying on dark).
 
 Change `VisualIntent.underlay.prompt` from "the object as an illustrator would draw it
 before anyone wrote on it" to **the beat's whole teaching figure**: the view, the internal
@@ -196,6 +232,20 @@ already carry the machinery.
 
 ### 4. Cut the runtime in half, and start with the subject
 
+**Status: done** — `e6ba0cf` (plan 3.1) for the runtime, and the trimmer change of plan 5.1
+for the question this item asks about the last three beats. The studio's default film is
+now `explainer`: ~165 words, at most eight beats, 60–100s, against `standard`'s 150s. The
+"look hard at whether `worked`, `misconception` and `recap` all earn their beats" clause is
+answered, and the answer is not the one the item expected — **the misconception earns it,
+and the trimmer was deleting it.** On `projects/deb81002b073` it is derived from the worked
+example, which makes it the correction to the error that beat's own arithmetic creates, and
+QC's `stages` check called its cut the film's worst wound. `adaptLesson` now drops a
+misconception derived from `worked` **last** of everything droppable rather than first, and
+cutting it fails the gate at `strict` (`misconception-cut`). Length comes out of the preset;
+it does not come out of the payload.
+
+_Still open:_ "the brief should let the audience cancel the anchor". Untouched.
+
 We spend 25 seconds on an analogy and 2:45 total. They spend 0 and 59s. Our lesson brief's
 CONCRETE BEFORE ABSTRACT rule is good pedagogy in general and wrong for an exam-prep
 audience who already has the vocabulary — and the `--audience` string said exactly that:
@@ -204,6 +254,18 @@ audience cancel the anchor.** Also look hard at whether `worked`, `misconception
 `recap` all earn their beats; their film has none of the three and loses nothing.
 
 ### 5. Titles that look like titles
+
+**Status: partly done** — `e6ba0cf` (plan 3.3, 3.4). Two of the three things here landed,
+and a third defect this item had not noticed was fixed with them. The hand-drawn double
+underline is in (one pass out, one shorter pass back), and the heading role is two steps
+heavier. The defect: the title was `shorten(idea, captionWords)`, a word count applied to a
+sentence, which produced "Falling is a tug of war between bigger pull" — a board promising a
+noun it never writes. Beats now carry an authored `LessonStep.title` (≤ 6 words, a name),
+`captionFor` prefers it, and the fallback cuts at a clause boundary and refuses to orphan a
+correlative.
+
+_Still open:_ **multicoloured word by word**, and letter-by-letter lettering before anything
+else. Both are palette/type work, both are unstarted.
 
 We now write a title per card — the last session's "a beat is a card" — but it is small dark
 text with a thin blue rule. Theirs is large, hand-lettered, **multicoloured word by word**,

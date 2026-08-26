@@ -1,0 +1,186 @@
+/**
+ * The trimmer's pedagogical priority (plan 5.1).
+ *
+ * `adaptLesson` optimises seconds. Given a lesson that overruns it deletes beats until
+ * the estimate fits, and until this landed the first thing it reached for was always the
+ * misconception — a caveat on the argument, by the old comment's reasoning, and therefore
+ * the cheapest thing to lose.
+ *
+ * That reasoning is right about a footnote and wrong about a payload. On
+ * `projects/deb81002b073` ("why do heavy and light objects fall at the same time") the
+ * misconception is *derived from the worked example*: the arithmetic beat shows that
+ * double the mass gets double the pull, and the misconception is the correction to the
+ * belief that arithmetic just created — "gravity doesn't pull equally, it pulls harder,
+ * and that's the whole point". The trimmer cut it to reach 150s and QC's `stages` check
+ * then reported that the film never names the wrong belief it creates. A film that plants
+ * an error and ends is worse than a film that runs eight seconds long.
+ *
+ * So two things are pinned here: the payload survives everything else that may legally
+ * go, and a misconception that is *not* the payload keeps its old place at the front of
+ * the queue — because that is what keeps the six pinned storyboard hashes still.
+ */
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import test from 'node:test';
+import type { Lesson, LessonStep } from '@inkcast/core';
+import { Lesson as LessonSchema, lessonBeats } from '@inkcast/core';
+import { readLessonFile } from '../src/lesson-io.js';
+import {
+  MISCONCEPTION_CUT_PREFIX,
+  PRESETS,
+  adaptLesson,
+  misconceptionCutProblems,
+  misconceptionIsPayload,
+} from '../src/presets.js';
+
+/**
+ * A beat with enough narration that a handful of them overrun any preset.
+ *
+ * The words are real sentences rather than filler because `lessonSeconds` counts spoken
+ * letters — see `DELIVERED_LPS` — so "lorem ipsum" would measure a length no film has.
+ */
+function step(idea: string, derivedFrom: string[] = []): LessonStep {
+  return {
+    idea,
+    because: 'because the previous beat established it and this one follows from that',
+    from: derivedFrom.length ? 'derived' : 'given',
+    derivedFrom,
+    emphasis: [],
+    terms: [],
+    narration:
+      `${idea} Think about what that means for a moment, because it is the part that ` +
+      'people skip over and then wonder why the rest of the explanation stops making ' +
+      'any sense at all when they try to use it on a real problem of their own.',
+    hold: 0.4,
+    visuals: [{ describe: idea, kind: 'draw' }],
+  };
+}
+
+/**
+ * A lesson that overruns every preset, with a worked example and a misconception.
+ *
+ * `misconceptionFrom` is the only variable: it is what decides whether the beat is the
+ * payload or a caveat, and therefore which end of the queue it sits at.
+ */
+function overlongLesson(misconceptionFrom: string[]): Lesson {
+  // Through the schema rather than cast: a fixture that is not a `Lesson` measures a
+  // lesson nothing can produce, and `insightArrival` reads fields a hand-written literal
+  // is easy to forget (`coreInsight` was one).
+  return LessonSchema.parse({
+    version: 1,
+    topic: 'why heavy and light objects fall at the same time',
+    title: 'Why heavy and light things fall together',
+    objective: 'A learner can say why mass cancels out of free fall',
+    coreInsight: 'A bigger pull and a bigger reluctance cancel, so mass drops out.',
+    audience: 'a curious adult',
+    kind: 'stem',
+    strategy: 'first-principles',
+    terms: [],
+    cast: [],
+    hook: step('A bowling ball and an apple hit the ground at the same moment.'),
+    anchor: step('Everyone has felt that a heavy box is harder to shove.'),
+    // Deliberately not one long chain. `droppableIds` only offers beats no surviving beat
+    // derives from, so a strict chain leaves exactly one legal victim and the priority
+    // this file is about never gets to express itself. Steps 3, 4 and 6 are leaves — the
+    // elaborations a real lesson can spare — and they are what has to go before the
+    // payload does.
+    steps: [
+      step('Heavy things are also harder to get moving.', ['anchor']),
+      step('That stubbornness has a name, and the name is inertia.', ['step1']),
+      step('You can feel the same reluctance in a shopping trolley.', ['step1']),
+      step('A loaded lorry needs far more road to stop than an empty one.', ['step1']),
+      step('Falling is a tug of war between a bigger pull and a bigger reluctance.', ['step2']),
+      step('Air resistance is the only thing that makes a feather lose.', ['step5']),
+    ],
+    worked: step('Ten kilograms gets ten times the pull and ten times the resistance.', ['step5']),
+    misconception: step(
+      "Gravity doesn't pull equally — it pulls harder, and that's the whole point.",
+      misconceptionFrom,
+    ),
+    recap: step('Bigger pull, bigger reluctance, same fall.'),
+  });
+}
+
+const idsOf = (l: Lesson): string[] => lessonBeats(l).map((b) => b.id);
+
+test('a misconception derived from the worked example is the payload', () => {
+  assert.equal(misconceptionIsPayload(overlongLesson(['worked'])), true);
+
+  // Derived, but from a step: a caveat on the argument rather than the correction to the
+  // error the worked example just invited. This is what all three shipped lessons look
+  // like, and it is why the condition is not simply `from === 'derived'`.
+  assert.equal(misconceptionIsPayload(overlongLesson(['step1'])), false);
+  assert.equal(misconceptionIsPayload(overlongLesson([])), false);
+
+  // No worked example at all: there is nothing for the beat to be the payload *of*, even
+  // if an author writes `derivedFrom: ['worked']` by hand.
+  const orphan = overlongLesson(['worked']);
+  delete orphan.worked;
+  assert.equal(misconceptionIsPayload(orphan), false);
+});
+
+test('the payload survives a trim that has anything else left to cut', () => {
+  const problems: string[] = [];
+  const lesson = overlongLesson(['worked']);
+  const shaped = adaptLesson(lesson, PRESETS.short, { onProblem: (p) => problems.push(p) });
+
+  // The premise of the test: this lesson really is over budget at `short`, so beats
+  // really were dropped. Without this the assertion below passes vacuously.
+  assert.ok(
+    idsOf(shaped).length < idsOf(lesson).length,
+    'the fixture is meant to overrun the short preset',
+  );
+  assert.ok(shaped.misconception, 'the payload was cut while steps were still droppable');
+  assert.equal(
+    misconceptionCutProblems(problems).length,
+    0,
+    'nothing should have reported the payload as cut',
+  );
+});
+
+test('a misconception that is not the payload still goes first', () => {
+  const lesson = overlongLesson(['step1']);
+  const shaped = adaptLesson(lesson, PRESETS.short);
+
+  // The old order, unchanged and deliberately so: this is the path all three shipped
+  // lessons take, and moving it would move the pinned hashes for lessons nobody has
+  // looked at frames of. See `misconceptionIsPayload`.
+  assert.equal(shaped.misconception, undefined);
+});
+
+test('the cut payload is reported on the channel the blocking check reads', () => {
+  // A budget so small that even the payload has to go: every step but one is droppable,
+  // and when they are gone the misconception is all that is left.
+  const problems: string[] = [];
+  const tiny = { ...PRESETS.short, maxSeconds: 20, maxBeats: 4 };
+  const shaped = adaptLesson(overlongLesson(['worked']), tiny, {
+    onProblem: (p) => problems.push(p),
+  });
+
+  assert.equal(shaped.misconception, undefined, 'the fixture is meant to run out of steps');
+  const cuts = misconceptionCutProblems(problems);
+  assert.equal(cuts.length, 1, `expected one cut line, got ${JSON.stringify(problems)}`);
+  assert.ok(cuts[0]!.startsWith(MISCONCEPTION_CUT_PREFIX));
+  // The line has to name what was lost, not which id went: "misconception" means nothing
+  // to the person reading `qc.json` a week later.
+  assert.match(cuts[0]!, /pulls harder/);
+
+  // And it must not also appear in what is left for the advisory `stages` check — the
+  // two lists are partitioned in `cast.ts` on exactly this predicate.
+  assert.equal(
+    problems.filter((p) => !cuts.includes(p)).some((p) => /misconception/.test(p)),
+    false,
+  );
+});
+
+test('the shipped lessons are unaffected, which is what keeps the hashes still', async () => {
+  const dir = path.resolve(import.meta.dirname, '../../../examples/lessons');
+  for (const name of ['gradient-descent', 'longitude', 'hash-map']) {
+    const lesson = await readLessonFile(path.join(dir, `${name}.lesson.json`));
+    assert.equal(
+      misconceptionIsPayload(lesson),
+      false,
+      `${name} would take the new branch — re-pin the hashes deliberately, with frames`,
+    );
+  }
+});

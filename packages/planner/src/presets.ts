@@ -789,6 +789,60 @@ function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>, spared?: stri
 }
 
 /**
+ * Whether the misconception is the thing this lesson is *for* (plan 5.1).
+ *
+ * The trimmer's original order — the misconception loses to every step — is right about
+ * the usual case and wrong about a whole class of lesson. A misconception written as a
+ * caveat ("people sometimes think X") is a footnote and should go first. A misconception
+ * **derived from the worked example** is the opposite: the worked example is where
+ * understanding consolidates, and a correction earned from it is the specific wrong belief
+ * the film's own arithmetic just created. Cutting that leaves a video that plants an error
+ * and then ends.
+ *
+ * Measured, on the film this rule was written for (`projects/deb81002b073`, "why do heavy
+ * and light objects fall at the same time"): `misconception.from === 'derived'`,
+ * `derivedFrom: ['worked']`, idea "Gravity doesn't pull equally — it pulls harder, and
+ * that's the whole point." The trimmer cut it to reach 150s and QC's `stages` check then
+ * reported that the film "never names the wrong belief it creates" — the worst wound in an
+ * otherwise strict-clean run.
+ *
+ * ## Why it is not simply `from === 'derived'`
+ *
+ * Two reasons, and only one of them is about cache hygiene.
+ *
+ * The pedagogical one: `derived` alone says the beat follows from *something*, which is
+ * true of almost every misconception any author writes (all three shipped lessons declare
+ * it, citing steps). It does not distinguish a caveat that follows from step 1 from the
+ * correction to the error the worked example just invited. Citing `worked` is what makes
+ * the beat the payload rather than an aside, and it is the condition `docs/PLAN-
+ * WATCHABILITY.md` 5.1 states.
+ *
+ * The other: `examples/lessons/*.json` all have `from: 'derived'` misconceptions citing
+ * steps, so the broad reading would reorder the trim on the shipped lessons and move the
+ * pinned hashes — for lessons nobody has looked at frames of under the new order. See
+ * `test/pinned-hashes.test.ts` on why that bar is high.
+ */
+export function misconceptionIsPayload(lesson: Lesson): boolean {
+  const m = lesson.misconception;
+  return !!m && m.from === 'derived' && m.derivedFrom.includes('worked') && !!lesson.worked;
+}
+
+/**
+ * The lead-in of the problem line `adaptLesson` reports a cut misconception with.
+ *
+ * Exported because the pipeline has to tell that one cut apart from every other thing on
+ * the `onProblem` channel in order to give it its own blocking QC check (plan 5.1's second
+ * half), and a string matched in two files is a string that drifts. Owned here, beside the
+ * line it prefixes; read by `misconceptionCutProblems` and by `cast.ts` through it.
+ */
+export const MISCONCEPTION_CUT_PREFIX = 'the misconception beat';
+
+/** The cut-misconception lines out of a stage's problem list, in order. */
+export function misconceptionCutProblems(problems: readonly string[]): string[] {
+  return problems.filter((p) => p.startsWith(MISCONCEPTION_CUT_PREFIX));
+}
+
+/**
  * Fit a lesson to a preset: trim each beat, then drop beats until the estimate
  * lands inside the target runtime.
  *
@@ -797,6 +851,20 @@ function droppableIds(lesson: Lesson, doomed: ReadonlySet<string>, spared?: stri
  * core insight arrives are the spine of the lesson and are never dropped. Steps that
  * do the least for that insight go first, then the misconception, and only then a
  * step that matters.
+ *
+ * **Unless the misconception is the payload** (plan 5.1). When it is derived from the
+ * worked example it is not a caveat on the argument, it is the correction to the error
+ * the argument just invited, and it goes *last* of everything droppable — every step the
+ * dependency rule permits is cut before it. See `misconceptionIsPayload` for the measured
+ * film this rule was written for, and for why the condition is narrower than `derived`.
+ *
+ * This does **not** make the anchor or the worked example droppable, which is where this
+ * departs from the letter of plan 5.1's preference list. `droppableIds` refuses them for a
+ * reason a shipped render paid for: a video that skips the beat turning the hillside into
+ * a graph is unfollowable, and the fix was to stop cutting antecedents, not to reorder
+ * which antecedent goes first. Moving the misconception to the back of the queue achieves
+ * what 5.1 is actually asking for — the payload survives the trim — without reopening
+ * that.
  *
  * **Every cut is now recorded, not logged** (plan item 5.3; audit S1-c). A dropped beat
  * used to be a `log.debug` line, which meant the single most consequential thing this
@@ -823,12 +891,16 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
    * preset's word budget cannot move where the thesis is.
    */
   const spared = insightArrival(lesson);
+  /** Whether this lesson's misconception is the payload rather than a caveat. */
+  const payload = misconceptionIsPayload(lesson);
   /** Insight score for a beat id, so one comparator covers steps and the misconception. */
   const scoreOf = (id: string): number => {
     const m = /^step(\d+)$/.exec(id);
-    // The misconception loses to every step: it is a caveat on the argument rather than a
-    // link in it, which is the same order the previous implementation used.
-    return m ? (scores[Number(m[1]) - 1] ?? 0) : -1;
+    if (m) return scores[Number(m[1]) - 1] ?? 0;
+    // The misconception normally loses to every step: it is a caveat on the argument
+    // rather than a link in it, which is the order this function has always used. When it
+    // is the *payload* it wins against every step instead — see `misconceptionIsPayload`.
+    return payload ? Infinity : -1;
   };
 
   /** Ids cut so far, in original-lesson id space — `derivedFrom` refers to those. */
@@ -879,7 +951,7 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
     noteProblem(
       opts,
       victim === 'misconception'
-        ? `the misconception beat — "${lesson.misconception?.idea ?? ''}" — was cut to fit the ` +
+        ? `${MISCONCEPTION_CUT_PREFIX} — "${lesson.misconception?.idea ?? ''}" — was cut to fit the ` +
             `${preset.maxSeconds}s ${preset.name} budget, so this film never names the wrong ` +
             'belief it creates. Ask for shorter beats, or cast it at a longer preset.'
         : `beat ${victim} ("${beatIdea(lesson, victim)}") was cut to fit the ` +

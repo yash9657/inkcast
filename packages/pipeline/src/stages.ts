@@ -238,6 +238,12 @@ type LessonStageModule = {
    * it, one line each (plan 3.4). Optional and read defensively — see `versionOf`.
    */
   lessonDrawingDefects?: unknown;
+  /**
+   * The cut-payload lines out of a stage's problem list (plan 5.1). Optional and read
+   * defensively — see `versionOf` — and the planner owns it because the planner owns the
+   * sentence it matches. See `misconceptionIsPayload` in `planner/src/presets.ts`.
+   */
+  misconceptionCutProblems?: unknown;
   /** Version constants, read defensively — see `versionOf`. */
   LESSON_VERSION?: unknown;
   COMPILER_VERSION?: unknown;

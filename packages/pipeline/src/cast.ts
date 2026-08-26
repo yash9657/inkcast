@@ -1098,6 +1098,13 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
 
   /* --------------------------------------------------------------- 6. check */
 
+  // One line on the stage channel is not like the others — see the two `inherited`
+  // entries below. Partitioned here rather than inline so the two lists are provably
+  // disjoint and nothing is reported twice.
+  const misconceptionCuts = misconceptionCuts_(stageProblems, planner);
+  const cutSet = new Set(misconceptionCuts);
+  const otherStageProblems = stageProblems.filter((p) => !cutSet.has(p));
+
   // The quality gate (plan 3.1). Deliberately not cache-checked: it is arithmetic
   // over a board this function already holds, it costs milliseconds, and a cached
   // "it was fine last time" is the one answer a gate must never give — a
@@ -1138,7 +1145,28 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // What earlier stages told us they degraded this run: the planner minting an
         // asset it never declared, a lane that could not draw what was asked for, a
         // correction the critic rejected.
-        { id: 'stages', findings: stageProblems },
+        //
+        // The cut payload is lifted out of this list, below: it is the one entry that
+        // has to *block*, and severity is a property of a check rather than of a
+        // finding.
+        { id: 'stages', findings: otherStageProblems },
+        // The film planted an error and then ended (plan 5.1).
+        //
+        // Its own id rather than a severity on `stages`, because a `qcCheck` id is a
+        // contract — the same reason `dwell-text` exists — and because everything else
+        // on that channel is a degradation the run survived, while this is a lesson
+        // with its point removed. It fails at `strict` and stays a warning under
+        // `--degrade`, which is the posture every blocking check here takes.
+        //
+        // The trimmer now cuts this beat last of everything droppable, so reaching this
+        // line at all means the budget was too small for the argument. That is a real
+        // answer and the message says it: cast at a longer preset, or ask for shorter
+        // beats — do not silently ship the version that never names the wrong belief.
+        {
+          id: 'misconception-cut',
+          findings: misconceptionCuts,
+          severity: 'fail',
+        },
         // Length, measured against the budget the film was planned to (plan 4.3).
         // Blocking, at `critiqueLesson`'s own 1.25× tolerance: the trimming already
         // ran, so a film still over it is one the estimate would have refused to
@@ -1586,6 +1614,32 @@ function drawingDefects(
     return Array.isArray(out) ? out.filter((x): x is string => typeof x === 'string') : [];
   } catch (err) {
     log.warn("could not re-audit this lesson's drawings", err);
+    return [];
+  }
+}
+
+/**
+ * The cut-payload lines out of the stage channel, asked of the planner (plan 5.1).
+ *
+ * Read defensively through the module, exactly as `drawingDefects` above is and for the
+ * same reason (`versionOf`): a planner build without the function is a planner that never
+ * cut a payload in a way this pipeline can name, and the check reports nothing rather than
+ * the run failing to start.
+ *
+ * The planner owns the predicate because it owns the string. Matching the prose here would
+ * be a second copy of a sentence that is edited for readability, and the failure mode is
+ * silent — the blocking check quietly stops finding anything.
+ */
+function misconceptionCuts_(
+  problems: readonly string[],
+  planner: { misconceptionCutProblems?: unknown },
+): string[] {
+  if (typeof planner.misconceptionCutProblems !== 'function') return [];
+  try {
+    const out = (planner.misconceptionCutProblems as (p: readonly string[]) => unknown)(problems);
+    return Array.isArray(out) ? out.filter((x): x is string => typeof x === 'string') : [];
+  } catch (err) {
+    log.warn('could not tell whether this film lost its misconception', err);
     return [];
   }
 }

@@ -124,6 +124,15 @@ const log = logger('planner:compile');
  * picture. Every cached storyboard whose recap triggered recall has the overlap baked in
  * and only a recompile removes it.
  *
+ * 6: the trimmer stopped cutting the payload (plan 5.1). A misconception derived from the
+ * worked example is now the *last* droppable beat rather than the first, so a lesson that
+ * overruns loses a step it can spare instead of the correction to the error it just made.
+ * The bump is needed because `adaptLesson` runs inside `compileLesson`: a cached
+ * storyboard for an over-budget lesson has the wrong beat already deleted, and no later
+ * stage can put it back. Boards that were never trimmed, and boards whose misconception
+ * cites steps rather than `worked`, compile byte-identically — which is why the six pinned
+ * hashes below do not move for this one.
+ *
  * The constant is a cache key and nothing else — it is never written into the storyboard —
  * so bumping it may not itself move a pinned hash. What moves a hash is the change the
  * bump exists to ship, and version 4 is the first that did:
@@ -156,7 +165,7 @@ const log = logger('planner:compile');
  * shortened exactly one caption. The reasoning and the frame evidence for every re-pin
  * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
-export const COMPILER_VERSION = 5;
+export const COMPILER_VERSION = 6;
 
 /* ------------------------------------------------------------------ assets */
 

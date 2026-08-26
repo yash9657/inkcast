@@ -145,10 +145,13 @@ export type { Ink } from './draw-geom.js';
 export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';
 export {
   PRESETS,
+  MISCONCEPTION_CUT_PREFIX,
   adaptLesson,
   clampNarration,
   critiqueFor,
   lessonSeconds,
+  misconceptionCutProblems,
+  misconceptionIsPayload,
   pickVisuals,
   resolvePreset,
 } from './presets.js';

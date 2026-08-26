@@ -12,7 +12,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { lessonStoryboard, planWithVisuals, wipeStoryboard } from './fixture.js';
-import { inkFloorViolations, ocrDiff, sampleTimes, MIN_INK_SHARE } from './tier2.js';
+import type { Rect } from './types.js';
+import { inkFloorViolations, ocrDiff, sampleTimes, textAt, MIN_INK_SHARE } from './tier2.js';
 
 test('one sample per beat on a short film, spanning the whole film on a long one', async () => {
   const plan = await planWithVisuals(lessonStoryboard());
@@ -88,6 +89,68 @@ test('the ink floor names the beat and the number, and passes a drawn board', ()
     inkFloorViolations([{ index: 2, at: 0, sceneId: 's', png: new Uint8Array(), text: [] }]),
     [],
   );
+});
+
+test('the board the OCR diff expects is the board the camera is pointed at', async () => {
+  const plan = await planWithVisuals(lessonStoryboard());
+  /** What the old, camera-blind rule expected: everything still standing on the canvas. */
+  const standing = (at: number): { text: string; box: Rect }[] => {
+    const out: { text: string; box: Rect }[] = [];
+    for (const item of plan.items) {
+      if (item.start + item.dur > at) continue;
+      if (item.sceneEnd < at && !item.persist) continue;
+      if (item.fadeAt !== undefined && item.fadeAt <= at) continue;
+      for (const prim of item.prims) {
+        if (prim.kind === 'text' && prim.text.trim())
+          out.push({ text: prim.text.trim(), box: prim.box });
+      }
+    }
+    return out;
+  };
+  const base = Math.min(plan.frame.w / plan.canvas.w, plan.frame.h / plan.canvas.h);
+
+  let excluded = 0;
+  for (const scene of plan.scenes) {
+    // Where the sampler looks: a quarter second before the beat lets go of the screen.
+    const at = scene.start + scene.dur - 0.25;
+    const framed = textAt(plan, at);
+    const all = standing(at);
+    excluded += all.length - framed.length;
+
+    // Everything reported as on screen really is, judged against `seek()`'s own framing
+    // arithmetic in `page/runtime.js` rather than against this file's opinion of it.
+    const px = base * scene.camera.zoom;
+    const vw = plan.frame.w / px;
+    const vh = plan.frame.h / px;
+    const view = { x: scene.camera.x - vw / 2, y: scene.camera.y - vh / 2, w: vw, h: vh };
+    for (const { text, box } of all) {
+      const inside =
+        box.x < view.x + view.w &&
+        box.x + box.w > view.x &&
+        box.y < view.y + view.h &&
+        box.y + box.h > view.y;
+      assert.equal(
+        framed.includes(text),
+        inside,
+        `"${text}" at ${scene.id}: on screen ${inside}, expected by the check ` +
+          `${framed.includes(text)}`,
+      );
+    }
+  }
+
+  // The fixture pans across a 3200x1800 board at zoom 1.5–2.1, so most beats have earlier
+  // ink standing outside the frame. Without this the assertion above passes on a check
+  // that scopes nothing.
+  assert.ok(
+    excluded > 0,
+    'no word was ever off-camera — the scoping is inert and this test would not notice',
+  );
+
+  // And the beat that legitimately sees the whole board still expects the whole board:
+  // the recap pulls back to zoom 1.0, and scoping must not start hiding what is there.
+  const recap = plan.scenes[plan.scenes.length - 1]!;
+  const recapAt = recap.start + recap.dur - 0.25;
+  assert.equal(textAt(plan, recapAt).length, standing(recapAt).length);
 });
 
 test('the OCR diff forgives case, punctuation and short words, and nothing else', () => {
