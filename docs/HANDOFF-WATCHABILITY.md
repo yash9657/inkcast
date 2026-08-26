@@ -1,29 +1,65 @@
-# Handoff — PLAN-WATCHABILITY, phases 0–5 landed except the keyed run
+# Handoff — PLAN-WATCHABILITY, phases 0–5 landed; the acceptance test fails on one gate
 
 Written 2026-08-25 at the end of the session that implemented `docs/PLAN-WATCHABILITY.md`.
 Read the plan first; this says only what is **done**, what is **not**, and the handful of
 things a fresh session would otherwise re-derive or get wrong.
 
-**Revised 2026-08-25 (later)** by the session that did the audit this file asked for and
-then wrote Phase 5. What changed at the top of the file: the audit is done and its findings
-are in "The audit, and what it found" below; 5.1 and 5.2 are written and tested; **5.3 and
-the acceptance test are all that is left, and both need a keyed cast that spends money.**
+**Revised 2026-08-25 (later)** by the session that did the audit this file asked for, wrote
+Phase 5, and ran the acceptance test. Phases 0–5 are all landed. The film was cast, and
+**seven of the nine gates pass and two do not.** The full record, with the numbers, is the
+last section of `docs/STATUS.md`; this file says what to do about it.
 
-## What is left
+## What is left, and it is one problem
 
-Only the two things that cannot be done offline, and they are the same run:
+**Gate 1: `fillcheck` reads 27.8% against a 45% bar.** Everything else about gate 1 is
+right — one card a beat, wiped, and a recap that redraws at card scale instead of pulling
+back. The number splits cleanly by lane and that is the finding:
 
-1. **5.3 — re-measure and pin.** `ELEVENLABS_BASELINE_WPM` (185, stale) and
-   `DELIVERED_LPS_BY_PROVIDER.elevenlabs` (10.87, stale), then `fillcheck`/`inkstat` on the
-   acceptance film, then `STATUS.md` with frame grabs.
-2. **The acceptance test**, stated at the top of the plan and restated below. Four of its
-   nine gates need the film.
+| beats                     | mean fill |
+| ------------------------- | --------- |
+| the 3 figure/plot beats   | **48.2%** |
+| the 5 mark-composed beats | **15.5%** |
 
-All three provider keys are in the macOS keychain and `inkcast keys list` finds them.
-Budget ≈ $0.70 for the cast, plus a re-render if a gate fails.
+**The figure lane clears the bar; the mark lane composes to a third of the card it is
+handed.** Frame-vision independently reports "a mostly empty board" on one of them. That is
+the defect, and it is a real one.
 
-`docs/HANDOFF-PARITY.md` item statuses are updated (5.3's last bullet), so that half of 5.3
-is already done.
+The threshold is also weaker than it looks, and the two facts must not be conflated.
+Compiling the three shipped lessons at `explainer` (free, no keys — see `STATUS.md` for the
+table) gives gradient-descent 60.9%, longitude 35.8%, hash-map 38.0%. Wipe genuinely buys
+9–16 points on every one of them, so `presets.ts`'s claim is sound — but the "55.5% → 62.3%"
+that 45% was drawn from is **gradient-descent alone**, and two of three shipped lessons miss
+45% under the very preset the plan mandates.
+
+So there are two pieces of work and only the first is this plan's:
+
+1. **Make the mark lane fill its card.** This film's mark beats sit at 14–19%. That is
+   below the other shipped lessons, so it is not only a threshold question.
+2. **Then re-derive the bar from more than one lesson**, and do it after 1, not before.
+   Moving it now would stop measuring the thing in 1.
+
+**Gate 6 is not re-verified rather than failing.** It failed as cast (+12%), 5.3 re-pinned
+the constant to the measured 12.16, and the constant now equals this film's own rate — which
+makes the gate true for this film by construction. Whether a _second_ film lands within ±5%
+of 12.16 needs another keyed cast (~$0.70). That is the cheapest remaining piece of real
+information about this plan.
+
+## What the acceptance run established
+
+Beyond the gate table, three things this repo had never observed:
+
+- **The figure seam works against a real provider.** `no figure board for` appears zero
+  times and `assets/illustrations/` holds exactly three rasters for three figure prompts —
+  so the seam and the compiler agree on id, prompt, seed, kind and aspect, and the film did
+  not pay for a second set of pictures the marks were not aimed at. This was the piece "the
+  last edit" below warns has never been run.
+- **The 402 substitution is recorded end to end.** `pipeline.json` carries
+  `voiceId: EXAVITQu4vr4xnSDxMaL` (Sarah, who spoke) and
+  `substitutedFrom: 21m00Tcm4TlvDq8ikWAM` (Rachel, who was asked for), with a problem line
+  saying why. Plan 0.3, on a real free-plan refusal.
+- **Plan 5.1 fired on a live lesson.** The author wrote 9 beats, `explainer` caps at 8, and
+  the trimmer cut `step4` and kept the misconception. Before this session it would have cut
+  the misconception first.
 
 ## The audit, and what it found
 
@@ -219,28 +255,41 @@ npx tsx packages/pipeline/src/figuresheet.mts   # the lane on the real board
   beat 4 of 6, and the recap — which really does pull back to zoom 1.0 — still expects all 8. The last of those is the assertion worth keeping: scoping must not start hiding ink
   that is genuinely on screen.
 
-- **5.3 NOT DONE — this is the keyed run.** One bullet of it is done: `docs/HANDOFF-PARITY.md`
-  item statuses are updated (1 → done via 3.1/3.2, 2 → done via 4.1, 4 → done via 3.1 + 5.1,
-  and 5 is marked _partly_ done, because the double underline landed and the multicoloured
-  word-by-word lettering did not). The rest:
-  - `ELEVENLABS_BASELINE_WPM` (185, stale — flash+clause)
-  - `DELIVERED_LPS_BY_PROVIDER.elevenlabs` (10.87, stale — one film, flash+clause)
-  - `fillcheck` / `inkstat` on the acceptance film
-  - record the acceptance-test results in `STATUS.md` with frame grabs
+- **5.3 done.** `DELIVERED_LPS_BY_PROVIDER.elevenlabs` 10.87 → **12.16**, measured on the
+  acceptance film over 54.6s of narration (158 words, 2.89 words a second, 4.20 letters a
+  word) under multilingual + sentence split. `ELEVENLABS_BASELINE_WPM` 185 → **193**, and
+  that one changes no audio: the film delivered 173.6 wpm at `speed 0.9`, 173.6/0.9 = 192.9,
+  and the ±10% clamp floors both 150/185 and 150/193 to 0.9 — so the constant only starts
+  affecting what is spoken when it comes within 10% of the target. Both still rest on **one
+  film**, which is what the old number's own comment complained about; pool them the moment
+  there is a second. `fillcheck` and `inkstat` are run and recorded, `STATUS.md` carries the
+  acceptance record with the contact sheet at
+  `renders/acceptance-f3ac9c760194/contact-sheet.png`, and `docs/HANDOFF-PARITY.md` item
+  statuses are updated (1 → done via 3.1/3.2, 2 → done via 4.1, 4 → done via 3.1 + 5.1, and
+  5 marked _partly_ done — the double underline landed, the multicoloured word-by-word
+  lettering did not).
 
-## The acceptance test has not been run
+## The acceptance test, as run
 
-`docs/PLAN-WATCHABILITY.md` states it at the top and it is the bar. Cast
+It has been run — `projects/f3ac9c760194`, 78.65s, 8 scenes, `qc.json` `ok: true` at
+`gates: strict`, seven of nine gates clear. The gate table and every number behind it are
+in the last section of `docs/STATUS.md`. What follows is the original note, kept because
+its last paragraph is still the right warning about how to read gate 1.
+
+To repeat it: cast
 
 > Why do heavy and light objects fall at the same time
 
-through the local studio with no flags, and check all nine gates. Everything measurable
-without a render has been checked and passes; **1 (fill ≥ 45%), 6 (the delivered pace),
-7 (two figures on the finished board) and 8 (runtime 60–90s, misconception survives) need
-the film.** Note that gate 1's "no scene with `zoom < 2`" was written against the
-mega-canvas: under `wipe` the canvas is 1280×895 and every scene sits at zoom ≈ 1.62,
-which is _more_ pixels per unit than `standard`'s 4.44 on a 4448-wide board. Judge that
-gate by `fillcheck`, not by the zoom number.
+through the local studio with no flags. Of the four gates that needed the film, **7 (two
+figures) and 8 (runtime and the misconception) passed**, 6 was re-pinned rather than
+re-verified, and 1 failed.
+
+The zoom warning was right and is worth keeping. Gate 1's "no scene with `zoom < 2`" was
+written against the mega-canvas; under `wipe` this film's canvas is 1280×895 and every
+scene sits at **zoom 1.37** — which is _more_ pixels per unit than `standard`'s 4.44 on a
+4448-wide board, because the canvas is a quarter the width. Judging that gate by the zoom
+number would have failed a film whose board is correct. Judge it by `fillcheck`, which is
+what caught the real defect.
 
 ## Traps this session hit, so nobody hits them twice
 

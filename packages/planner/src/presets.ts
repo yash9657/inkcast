@@ -187,20 +187,29 @@ export const DELIVERED_LPS = 9.65;
  *
  * ## What is measured and what is not
  *
- * `kokoro` is the pooled four-film figure and is solid. `elevenlabs` is **one film**,
- * and it was spoken by `eleven_flash_v2_5` splitting at clauses — this repo now
- * defaults to `eleven_multilingual_v2` splitting at sentences, which changes the
- * number again (fewer inter-fragment gaps alone makes a scene faster). It is recorded
- * as measured-but-stale rather than adjusted by guesswork, and re-measuring it is
- * `docs/PLAN-WATCHABILITY.md` §5.3. A stale measurement beats the *wrong engine's*
- * measurement by 13 points, which is the whole of this item.
+ * `kokoro` is the pooled four-film figure and is solid.
+ *
+ * `elevenlabs` was **10.87 until 2026-08-25**, and that number was measured on one film
+ * (`projects/deb81002b073`) spoken by `eleven_flash_v2_5` splitting at clauses. This repo
+ * now defaults to `eleven_multilingual_v2` splitting at sentences, and both change the
+ * rate — fewer inter-fragment gaps alone makes a scene faster. Re-measured under the
+ * current engine on `projects/f3ac9c760194`, the acceptance film of
+ * `docs/PLAN-WATCHABILITY.md`: **12.16 spoken letters a second over 54.6s of narration**
+ * across eight scenes, which is 158 words at 2.89 words a second and 4.20 letters a word.
+ * QC's `pace-calibration` reported it as +12% against the old constant, which is exactly
+ * what that advisory exists to do.
+ *
+ * **It is still one film**, and it should be pooled the moment there is a second. What it
+ * is not any more is a measurement of a different engine. The honest confidence interval
+ * here is "the engine's rate, ±the variation between two lessons", and this corpus has
+ * never measured that for a paid provider.
  *
  * `say` and `silence` have no measurement at all and take the local figure: `say` is
  * not for publishing (`SAY_NOT_FOR_PUBLISHING`) and `silence` speaks nothing.
  */
 export const DELIVERED_LPS_BY_PROVIDER: Readonly<Record<string, number>> = {
   kokoro: DELIVERED_LPS,
-  elevenlabs: 10.87,
+  elevenlabs: 12.16,
   say: DELIVERED_LPS,
   system: DELIVERED_LPS,
   silence: DELIVERED_LPS,

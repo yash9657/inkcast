@@ -176,20 +176,37 @@ export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string
  * still far better than the 1.0 it replaces, and the stage keeps warning when the
  * delivered rate misses the band — so a voice this is wrong for reports itself.
  */
-export const ELEVENLABS_BASELINE_WPM = 185;
+export const ELEVENLABS_BASELINE_WPM = 193;
 
 /*
- * **Measured under the old engine and the old split, and not yet re-measured.**
- * 185 came off `eleven_flash_v2_5` splitting at clauses; this adapter now speaks
- * `eleven_multilingual_v2` in whole sentences, and both change the delivered rate —
- * fewer inter-fragment gaps alone makes a scene faster. Re-measuring costs a keyed
- * run of a real film, which is `docs/PLAN-WATCHABILITY.md` §5.3's job, and it is
- * recorded here rather than guessed at because a number invented to look re-measured
- * is worse than a stale one that says it is stale.
+ * **Re-measured 2026-08-25 under multilingual + sentence split, and read the caveat.**
  *
- * What makes the staleness survivable in the meantime is the clamp below: a baseline
- * wrong by 20% used to become a 20% stretch on every phrase, and now becomes at most
- * 10% with the delivered rate reported against the teaching band on every run.
+ * 185 came off `eleven_flash_v2_5` splitting at clauses. This adapter now speaks
+ * `eleven_multilingual_v2` in whole sentences, and both change the delivered rate — fewer
+ * inter-fragment gaps alone makes a scene faster. `projects/f3ac9c760194`, the acceptance
+ * film of `docs/PLAN-WATCHABILITY.md`, delivered **158 words over 54.6s = 173.6 wpm**
+ * across eight scenes (per scene: 168, 209, 173, 188, 174, 152, 178, 176).
+ *
+ * ## Why the constant is 193 and not 173.6
+ *
+ * Because 173.6 is what came back at `speed 0.9`, not at 1.0. This constant means "the
+ * engine's rate when it is not being pushed", and the whole film ran at the clamp: the
+ * teaching target is ~150 wpm, 150/185 is 0.81, and `elevenLabsSpeed` floors that at 0.9.
+ * 173.6 / 0.9 = 192.9, so 193 — **on the assumption that ElevenLabs `speed` scales the
+ * delivered rate linearly**, which is plausible, is what the parameter claims to do, and
+ * has not been verified here. A clean measurement wants one run with `speed` pinned to
+ * 1.0; nothing in this repo currently asks for that, so it has not been done.
+ *
+ * ## Which is why moving it changes no audio today, and that is worth knowing
+ *
+ * The clamp binds either way: 150/185 = 0.81 and 150/193 = 0.78 both floor to 0.9. This
+ * constant only starts affecting what is spoken when it comes within 10% of the target
+ * rate — a much slower voice, or a much faster target. So this edit is truth-in-reporting,
+ * not a change to the film, and a re-cast should sound byte-identical.
+ *
+ * What makes the residual uncertainty survivable is that same clamp: a baseline wrong by
+ * 20% used to become a 20% stretch on every phrase, and now becomes at most 10% with the
+ * delivered rate reported against the teaching band on every run.
  */
 
 /**

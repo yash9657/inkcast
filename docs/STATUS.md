@@ -2352,3 +2352,157 @@ one. Filed as a keyed gate.
   so a user still meets the cap as a bare error. Plan B2's share surface (captions `<track>`,
   a "Made with Inkcast" plate, a Remix CTA) is unbuilt, and the project DTO carries no
   `thumbnailPath`, so `/library` posters fall back to downloading the mp4.
+
+---
+
+# The PLAN-WATCHABILITY acceptance test, run 2026-08-25
+
+`docs/PLAN-WATCHABILITY.md` states its acceptance test before anything else and says "do
+not ship 'improved'; ship 'passes'". This is that run, and **it does not pass: seven of
+nine gates clear and two do not.** The film is `projects/f3ac9c760194`, contact sheet at
+`renders/acceptance-f3ac9c760194/contact-sheet.png`.
+
+## How it was cast
+
+Through the local studio, no flags, the way the plan specifies:
+
+```
+POST http://localhost:3000/api/generate
+{"text":"Why do heavy and light objects fall at the same time"}
+```
+
+against a **`next dev` process started seconds earlier**, whose settings page had never
+been opened in any browser — which is gate 9's whole point. All three keys came from the
+macOS keychain. Clerk was unset for the run so the request could be made without a browser
+sign-in; nothing else about the path differs, and identity is not what any gate is about.
+
+Result: `ready`, **78.65s, 8 scenes**, `qc.json` `ok: true` at `gates: strict`.
+
+## The nine gates
+
+| #   | gate                                                              | result           | measured                                |
+| --- | ----------------------------------------------------------------- | ---------------- | --------------------------------------- |
+| 1   | board: one card per beat, wiped; recap redraws; `fillcheck` ≥ 45% | **FAIL**         | board and recap correct; **fill 27.8%** |
+| 2   | pen: never two elements mid-draw                                  | **PASS**         | `pen` check, 0 findings                 |
+| 3   | dwell: ≥ 1.5s after the last element; nothing starts after 88%    | **PASS**         | `dwell` gate, 0 findings                |
+| 4   | draw time scales with ink, not a flat 0.8s                        | **PASS**         | see below                               |
+| 5   | no card title is a mid-phrase truncation                          | **PASS**         | 8 authored titles, 0 shortened          |
+| 6   | multilingual v2, sentence split, spoken voice recorded, pace ±5%  | **FAIL as cast** | +12% — see below                        |
+| 7   | ≥ 2 beats carry a generated figure                                | **PASS**         | 3 figures                               |
+| 8   | 60–90s, misconception survives                                    | **PASS**         | 78.65s; misconception kept, `step4` cut |
+| 9   | works in a freshly restarted `next dev`                           | **PASS**         | `elevenlabs` on a virgin process        |
+
+## Gate 1, which is the real finding
+
+The board half is right and is a visible change: `board: wipe`, a 1280×895 canvas, one card
+per beat, every scene at zoom 1.37, and a recap that redraws its chain at card scale
+instead of pulling back to show eleven thumbnails. Nothing in this film resembles the
+mega-canvas frame `docs/HANDOFF-PARITY.md` calls indefensible.
+
+`fillcheck` reads **27.8% (min 14%, max 65%)** against a 45% bar. Split by lane it stops
+being one number and becomes a diagnosis:
+
+| beats                                                                   | mean fill |
+| ----------------------------------------------------------------------- | --------- |
+| the 3 figure/plot beats (s0 44.0%, s5 64.9%, s6 35.8%)                  | **48.2%** |
+| the 5 mark-composed beats (s1 14.6, s2 19.0, s3 13.6, s4 14.6, s7 15.6) | **15.5%** |
+
+**The figure lane clears the bar and the mark lane is a third of it.** Frame-vision agrees
+independently — "at 13.6s (scene s1), a vision pass reports a mostly empty board" — and so
+does the contact sheet: "A tug of war" is one hatched circle and two arrows on an otherwise
+blank card. The generated pictures fill about half the frame each, which is what
+`FIGURE_AREA` was widened for and it worked; composed marks do not fill the card they were
+given.
+
+**And 45% is a bar the corpus does not meet either.** Compiling the three shipped lessons
+at `explainer` (free, no keys) gives the comparison nobody had made:
+
+| lesson           | `standard` | `explainer` (wipe) |
+| ---------------- | ---------- | ------------------ |
+| gradient-descent | 51.4%      | **60.9%**          |
+| longitude        | 20.3%      | 35.8%              |
+| hash-map         | 22.1%      | 38.0%              |
+| this film        | —          | 27.8%              |
+
+Two things follow, and they are different things. Wipe really does buy fill — +9.5, +15.5
+and +15.9 points on the three lessons — so `presets.ts`'s "55.5% → 62.3%" claim is sound.
+But **that pair of numbers is gradient-descent alone**, the densest lesson we ship, and 45%
+was drawn from it. Two of three shipped lessons miss it under the very preset the plan
+mandates. So gate 1 is failing for two reasons at once: this film is genuinely sparser than
+the corpus (27.8% against 35.8 and 38.0), _and_ the threshold was set from a sample of one.
+
+Untangling those is the next piece of work and it is not a threshold edit. The mark lane
+composing to 15% of the card it is handed is the defect; moving the bar to fit it would
+just stop measuring it.
+
+## Gate 6, and what was re-pinned (5.3)
+
+Everything except the pace clears outright: `pipeline.json` records
+`model: eleven_multilingual_v2`, the sidecars carry whole sentences with
+`endsSentence: true` (sentence split, live), and the **spoken** voice is recorded rather
+than the requested one —
+
+```
+"voiceId": "EXAVITQu4vr4xnSDxMaL",          <- Sarah, who actually spoke
+"substitutedFrom": "21m00Tcm4TlvDq8ikWAM",  <- Rachel, who was asked for
+```
+
+with a problem line saying the plan cannot use Rachel via the API. That is plan 0.3 working
+end to end on a real 402, and it is the fact the dissection said was recorded nowhere.
+
+The pace failed: **12.16 delivered spoken letters a second against the 10.87 the planner
+budgeted with, +12%**, so every scene was shorter than planned. 10.87 was one film under
+`eleven_flash_v2_5` at clause split; this repo now speaks multilingual in sentences.
+`DELIVERED_LPS_BY_PROVIDER.elevenlabs` is re-pinned to **12.16** — measured over 54.6s of
+narration, 158 words at 2.89 words a second and 4.20 letters a word.
+
+`ELEVENLABS_BASELINE_WPM` moves 185 → **193**, and it is worth knowing that this changes no
+audio. The film delivered 173.6 wpm at `speed 0.9`; 173.6 / 0.9 = 192.9. But the ±10% clamp
+binds either way — 150/185 and 150/193 both floor to 0.9 — so the constant only starts
+affecting what is spoken when it comes within 10% of the target rate. It is a
+truth-in-reporting fix. A clean measurement wants a run with `speed` pinned to 1.0, which
+nothing currently asks for.
+
+**Gate 6 is not re-verified.** The constant now equals this film's own rate, which makes
+the gate true for this film by construction; whether a _second_ film lands within ±5% of
+12.16 is the real question and needs another keyed cast.
+
+## Gates that pass, briefly
+
+- **4 (draw time)** — `pen` and `dwell` both clear as gates, which they could not before
+  1.2 and 1.3. Durations are ink-proportional via `durationFor`; the flat 0.8s is gone.
+- **5 (titles)** — every one of the eight cards carries an authored `LessonStep.title`:
+  "The drop test", "The pull", "The stubbornness", "A tug of war", "Growing together",
+  "Ten each second", "The feather", "The whole chain". None is a shortened `idea`.
+- **7 (figures)** — `art direction: 8 beats routed · 3 figure, 5 marks`. The router put
+  figures on the hook (the drop), the bricks step and the misconception (feather vs
+  hammer). The plan's §4.3 predicted the feather beat would be a figure and it is; it
+  predicted vacuum tubes, and this lesson wrote the beat as a misconception instead.
+- **8 (misconception survives)** — the lesson authored 9 beats and `explainer` caps at 8, so
+  one had to go. The trimmer cut **`step4`** ("Two bricks glued together must fall like one
+  brick") and kept the misconception, whose `derivedFrom` is `['step3','worked']`. Before
+  plan 5.1 the misconception was the first thing it reached for. `misconception-cut`, the
+  new blocking check, reports 0 findings.
+- **9 (reliability)** — the run that proves it: a `next dev` started seconds before, no
+  settings page ever loaded, and the voice stage reported `elevenlabs` on scene 1. That is
+  the silent Kokoro fallback of §E3 fixed.
+
+## The figure seam met a real provider for the first time
+
+`docs/HANDOFF-WATCHABILITY.md` flagged `drawFigure` as wired, typechecking, tested, and
+never once run against an image provider — with a silent failure mode: if the seam and the
+compiler disagree on any cache input, the film pays for a _second_ picture and the marks
+are aimed at the first.
+
+They agree. `no figure board for` appears **zero** times in the run log, so the seam fired
+for all three figures, and `assets/illustrations/` holds **exactly three** rasters, one per
+prompt. The visuals stage resolved the seam's own pictures out of cache rather than
+generating alternates.
+
+## Standing advisories on this film
+
+Strict-clean, so these are advisories and not failures, and the sparseness ones corroborate
+gate 1: four `drawing` label-on-ink defects (marks written across a figure's own ink — the
+composed layer still crowds the picture it was shown), six `frame-vision` findings
+including one "mostly empty board" and two clipped labels, and one `lesson` note that the
+untrimmed lesson estimated 112s against a 75s target.
