@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { MAX_FIGURES, applyRoutes, routeFigures } from '../src/artdirect.js';
+import { MAX_FIGURES, applyRoutes, readVerdicts, routeFigures } from '../src/artdirect.js';
 
 function step(idea: string, describe: string): LessonStep {
   return {
@@ -128,6 +128,39 @@ test('a verdict for a beat that was never offered is ignored, and so is a repeat
     ['hook:figure'],
   );
   assert.equal(hook.intent.underlay?.kind, 'figure');
+});
+
+test('a null in a field this ignores does not throw away every other verdict', () => {
+  // How the figure lane went missing from a whole film. The parse is all-or-nothing, so
+  // one `null` where the model could have written nothing at all dropped ten verdicts on
+  // the floor and every beat fell back to marks. `projects/df62ce29a563`, cast 2026-08-27:
+  // "beats.2.prompt: Expected string, received null", 0 figures where the same prompt had
+  // given 3, gate 7 failed, and the only trace was one `warn` in a 300-line log.
+  //
+  // A model told a field is optional says "not applicable" both ways, and for a `marks`
+  // beat this code ignores the field either way. So both readings mean absent.
+  const answer = {
+    beats: [
+      { id: 'hook', route: 'figure', prompt: 'a person dropping two things', why: 'a scene' },
+      { id: 'anchor', route: 'marks', prompt: null, why: 'a relation' },
+      { id: 'recap', route: 'marks', prompt: null, why: null },
+    ],
+  };
+  const verdicts = readVerdicts(answer);
+  assert.ok(verdicts, 'one ignorable null made the whole answer unreadable');
+  assert.deepEqual(
+    verdicts.map((v) => `${v.id}:${v.route}`),
+    ['hook:figure', 'anchor:marks', 'recap:marks'],
+  );
+  // Absent, not `null` — nothing downstream should have to know the wire allowed it.
+  assert.equal('prompt' in (verdicts[1] as object), false);
+  assert.equal('why' in (verdicts[2] as object), false);
+  assert.equal(verdicts[0]?.prompt, 'a person dropping two things');
+
+  // An answer that really cannot be read is still `undefined`, and the caller still
+  // degrades to ink rather than throwing.
+  assert.equal(readVerdicts({ beats: [{ id: 'hook', route: 'sculpture' }] }), undefined);
+  assert.equal(readVerdicts('not an answer at all'), undefined);
 });
 
 test('with no image provider the router does not spend a call', async () => {

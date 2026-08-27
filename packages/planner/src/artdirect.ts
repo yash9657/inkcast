@@ -102,10 +102,20 @@ const RouteAnswer = z.object({
       /**
        * The picture, as an image generator should be asked for it. Required for
        * `figure` and `form`, ignored for `marks`.
+       *
+       * `nullish`, not `optional`, and it is the difference between the lane working
+       * and the lane silently not existing. A model told a field is optional answers a
+       * `marks` beat either by leaving it out or by writing `null`, and both mean the
+       * same thing — but `z.string().optional()` rejects the second. The parse is
+       * all-or-nothing, so one `null` in a field this code goes on to ignore threw away
+       * every verdict in the answer and dropped the whole film back to marks. Measured
+       * on `projects/df62ce29a563`, cast 2026-08-27: "beats.2.prompt: Expected string,
+       * received null", 0 figures where the same prompt had produced 3, gate 7 failed,
+       * and the only trace was one `warn` line in a 300-line log.
        */
-      prompt: z.string().optional(),
-      /** Why, in one clause. */
-      why: z.string().optional(),
+      prompt: z.string().nullish(),
+      /** Why, in one clause. Nullish for the reason `prompt` is. */
+      why: z.string().nullish(),
     }),
   ),
 });
@@ -244,13 +254,35 @@ export async function routeFigures(lesson: Lesson, opts: LessonOptions = {}): Pr
     return [];
   }
 
+  const verdicts = readVerdicts(raw);
+  if (!verdicts) return [];
+  return applyRoutes(work, verdicts, opts);
+}
+
+/**
+ * The model's answer as verdicts, or `undefined` if it cannot be read at all.
+ *
+ * Exported because this is where the lane was lost once and no test could see it: the
+ * budget rule below is driven directly by the tests, and the *parse* in front of it was
+ * only ever exercised by a paid call. `undefined` and an empty array are the same thing
+ * to the caller — every beat keeps its own lane — but they are not the same thing to
+ * read, so this returns the first and `routeFigures` turns it into the second.
+ *
+ * Nulls become absent here rather than downstream: `applyRoutes` should be handed the
+ * same values a lesson on disk would carry.
+ */
+export function readVerdicts(raw: unknown): BeatRoute[] | undefined {
   const parsed = RouteAnswer.safeParse(raw);
   if (!parsed.success) {
     log.warn('the art director answered in a shape this cannot read', errorDetail(parsed.error));
-    return [];
+    return undefined;
   }
-
-  return applyRoutes(work, parsed.data.beats, opts);
+  return parsed.data.beats.map((b) => ({
+    id: b.id,
+    route: b.route,
+    ...(b.prompt ? { prompt: b.prompt } : {}),
+    ...(b.why ? { why: b.why } : {}),
+  }));
 }
 
 /**
