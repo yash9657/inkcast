@@ -30,6 +30,7 @@ import {
   adaptLesson,
   clampNarration,
   lessonSeconds,
+  remapDerivations,
   resolvePreset,
 } from '../src/presets.js';
 import { wordCount } from '../src/text.js';
@@ -346,6 +347,90 @@ test('a beat something derives from is never dropped', () => {
       `${name}: the surviving links are not contiguous from the start`,
     );
   }
+});
+
+/**
+ * The drop-rule canary fires for every beat but the recap, which is the one beat whose
+ * reference the rule deliberately lets dangle.
+ *
+ * `droppableIds` builds its `needed` set from every surviving beat *except* the recap, on
+ * the stated grounds that a recap retraces the whole chain and honouring its references
+ * would leave nothing legal to cut. `remapDerivations` then splices the recap onto what
+ * the cut beat followed from. Both halves are intended; what was not intended is that the
+ * canary in between iterated every beat and so announced the cut as the regression that
+ * shipped an unfollowable video. Measured on `projects/f6978912f741`, whose recap is the
+ * only beat citing `step5`.
+ *
+ * A canary that fires on the design's own intended cut is one the next reader learns to
+ * scroll past, so both directions are pinned here: silent for the recap, loud for anything
+ * else.
+ */
+test('the drop canary is silent for a spliced recap and loud for anything else', () => {
+  /** Warnings written to stderr while `run` executes. */
+  const warningsFrom = (run: () => void): string[] => {
+    const written: string[] = [];
+    const real = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: unknown): boolean => {
+      written.push(String(chunk));
+      return true;
+    };
+    try {
+      run();
+    } finally {
+      process.stderr.write = real;
+    }
+    return written.filter((l) => /should have refused this cut/.test(l));
+  };
+
+  /** A lesson whose recap is the only beat citing its last step. */
+  const recapOnly = {
+    ...shipped,
+    steps: [0, 1, 2, 3, 4, 5, 6, 7].map((k) => ({
+      ...shipped.steps[Math.min(k, shipped.steps.length - 1)]!,
+      idea: `Link ${k + 1}`,
+      narration:
+        `Link number ${k + 1} of the argument, stated at enough length that this lesson ` +
+        `cannot possibly fit inside the runtime target of any preset. It exists only to ` +
+        `be measured, and it says nothing that a learner would want or would remember.`,
+      from: k === 0 ? ('given' as const) : ('derived' as const),
+      derivedFrom: k === 0 ? [] : [`step${k}`],
+    })),
+    recap: {
+      ...shipped.recap,
+      from: 'derived' as const,
+      derivedFrom: [0, 1, 2, 3, 4, 5, 6, 7].map((k) => `step${k + 1}`),
+    },
+  };
+
+  const quiet = warningsFrom(() => adaptLesson(recapOnly, PRESETS.short));
+  assert.deepEqual(quiet, [], 'the recap being re-pointed at a shortened chain is not a defect');
+
+  // Non-vacuous: the same run really did cut beats the recap was citing, so the splice
+  // this test claims ran silently is a splice that actually happened.
+  const shaped = adaptLesson(recapOnly, PRESETS.short);
+  assert.ok(shaped.steps.length < 8, 'nothing was dropped, so nothing was spliced');
+  const ids = new Set(lessonBeats(shaped).map((b) => b.id));
+  for (const ref of shaped.recap.derivedFrom) {
+    assert.ok(ids.has(ref), `the recap still cites "${ref}", which was dropped`);
+  }
+
+  // And the canary still speaks when a *step* loses an antecedent. `remapDerivations` is
+  // reached directly here because `droppableIds` is what stops this happening upstream —
+  // going through `adaptLesson` would test that rule instead of this one.
+  const loud = warningsFrom(() => {
+    // The misconception is neutralised so that step2 is the *only* beat left citing a
+    // dropped antecedent — otherwise this counts the shipped lesson's own references and
+    // stops being a statement about the canary.
+    const original = Lesson.parse({
+      ...recapOnly,
+      misconception: { ...shipped.misconception!, from: 'given', derivedFrom: [] },
+    });
+    // step1 gone, step2 kept: the survivor cites an antecedent that no longer exists.
+    const shapedStep = { ...original, steps: [original.steps[1]!] };
+    remapDerivations(shapedStep, original, new Set(['step1']));
+  });
+  assert.equal(loud.length, 1, 'a step left citing a dropped antecedent must still warn');
+  assert.match(loud[0]!, /step1/);
 });
 
 test('an explicit aspect overrides the preset it implies', () => {

@@ -1015,13 +1015,28 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
  * from step1" reads as a logic bug rather than the renumbering artefact it is.
  *
  * The splice below — if B follows from A and A is cut, B now follows from whatever A
- * followed from — **should now be unreachable**, and that is a stronger guarantee than
- * the splice ever was. `droppableIds` only offers beats no surviving beat derives from,
- * so no reference can dangle in the first place. It is kept as a canary rather than
- * deleted: if it ever fires, the drop rule has been loosened and a lesson is being
- * rewired to make a broken cut validate, which is exactly the failure that shipped.
+ * followed from — **should be unreachable from every beat but the recap**, and that is a
+ * stronger guarantee than the splice ever was. `droppableIds` only offers beats no
+ * surviving beat derives from, the recap excepted, so no reference can dangle in the
+ * first place. It is kept as a canary rather than deleted: if it fires anywhere other
+ * than the recap, the drop rule has been loosened and a lesson is being rewired to make a
+ * broken cut validate, which is exactly the failure that shipped.
+ *
+ * The recap is the documented exception at both ends — `droppableIds` leaves its
+ * references out of `needed` so that a lesson which retraces its whole chain still has
+ * something legal to cut — so for the recap this splice is load-bearing rather than a
+ * canary, and it runs silently. See `resolve`.
+ *
+ * Exported only so the canary can be tested in the direction that matters. Firing on a
+ * non-recap beat is unreachable through `adaptLesson` by construction — that is the whole
+ * guarantee `droppableIds` provides — so a test that went the long way round would be
+ * asserting the drop rule again and could not tell a working canary from a disabled one.
  */
-function remapDerivations(shaped: Lesson, original: Lesson, doomed: ReadonlySet<string>): void {
+export function remapDerivations(
+  shaped: Lesson,
+  original: Lesson,
+  doomed: ReadonlySet<string>,
+): void {
   /** Antecedents of every beat in the *original* lesson, by its original id. */
   const antecedents = new Map<string, string[]>();
   for (const { step, id } of lessonBeats(original)) antecedents.set(id, step.derivedFrom);
@@ -1034,15 +1049,30 @@ function remapDerivations(shaped: Lesson, original: Lesson, doomed: ReadonlySet<
     if (!doomed.has(`step${k + 1}`)) rename.set(`step${k + 1}`, `step${next++}`);
   });
 
-  /** Surviving ids a reference resolves to, following dropped beats through. */
-  const resolve = (id: string, seen: Set<string>): string[] => {
+  /**
+   * Surviving ids a reference resolves to, following dropped beats through.
+   *
+   * `canary` is off for the recap, and that is the one asymmetry here. `droppableIds`
+   * builds its `needed` set from every surviving beat **except** the recap, on the stated
+   * grounds that the recap retraces the whole chain and citing everything would leave
+   * nothing droppable. So a recap reference to a dropped beat is not a loosened drop rule,
+   * it is the drop rule working: the splice re-points the recap at what the cut beat
+   * followed from, which is exactly what retracing a shortened chain means.
+   *
+   * Without this the canary fired on a legal cut — measured on
+   * `projects/f6978912f741`, whose recap is the only beat citing `step5` — and announced
+   * a regression that had not happened, in the words of the one that had. A canary that
+   * cries wolf on the design's own intended cut is a canary the next reader learns to
+   * scroll past, which costs the real signal.
+   */
+  const resolve = (id: string, seen: Set<string>, canary: boolean): string[] => {
     const kept = rename.get(id);
     if (kept) return [kept];
     if (seen.has(id)) return [];
-    // The canary. Reaching here means a beat that something derives from was dropped,
-    // which `droppableIds` exists to prevent — and rewiring the survivor is precisely how
-    // an incoherent cut used to end up passing validation.
-    if (!seen.size) {
+    // The canary. Reaching here means a beat that something *other than the recap*
+    // derives from was dropped, which `droppableIds` exists to prevent — and rewiring the
+    // survivor is precisely how an incoherent cut used to end up passing validation.
+    if (canary && !seen.size) {
       log.warn(
         `a beat "${id}" that another beat derives from was dropped`,
         'splicing the reference so the lesson still validates, which is the behaviour that ' +
@@ -1050,14 +1080,14 @@ function remapDerivations(shaped: Lesson, original: Lesson, doomed: ReadonlySet<
       );
     }
     seen.add(id);
-    return (antecedents.get(id) ?? []).flatMap((ref) => resolve(ref, seen));
+    return (antecedents.get(id) ?? []).flatMap((ref) => resolve(ref, seen, canary));
   };
 
-  for (const { step, id } of lessonBeats(shaped)) {
+  for (const { step, id, role } of lessonBeats(shaped)) {
     if (!step.derivedFrom.length) continue;
     const mapped = new Set<string>();
     for (const ref of step.derivedFrom) {
-      for (const r of resolve(ref, new Set())) if (r !== id) mapped.add(r);
+      for (const r of resolve(ref, new Set(), role !== 'recap')) if (r !== id) mapped.add(r);
     }
     step.derivedFrom = [...mapped];
     // A beat left deriving from nothing is no longer deriving. Saying so keeps the
