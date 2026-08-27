@@ -96,12 +96,12 @@ test('a name may not be written on the generated picture', () => {
   );
 
   // Told about the picture, the repair moves it clear.
-  const seeing = prepareMarks(marks, ink);
+  const seeing = prepareMarks(marks, { box: ink, traced: true });
   const moved = seeing.find((m) => m.id === 'av-label');
   assert.ok(moved);
   const inside = (moved.x ?? 0) > ink.x && (moved.x ?? 0) < ink.x + ink.w;
   assert.equal(inside, false, 'the name is off the picture');
-  assert.deepEqual(auditDrawing(seeing, ink), []);
+  assert.deepEqual(auditDrawing(seeing, { box: ink, traced: true }), []);
 });
 
 test('an underlay asset is derived identically wherever it is derived', () => {

@@ -15,7 +15,9 @@
  * 1. **Are two names written on top of each other?** Never intended, always unreadable.
  * 2. **Is a name written across the ink?** Not the ink it sits *inside* — a label in the
  *    middle of a heart outline is normal on a whiteboard — but ink it crosses, which is
- *    what `draw-geom.ts` exists to tell the difference between.
+ *    what `draw-geom.ts` exists to tell the difference between. Asked of a *traced*
+ *    picture, never of a generated figure: see `underlayInk`, which is the `leader-misses`
+ *    argument below applied to the check it was hiding in.
  * 3. **Will the board break a word in half?** The planner estimates text width and the
  *    renderer wraps again against the real handwriting metrics, so a word wider than its
  *    box comes out as `Cartil / age`. That is arithmetic, not judgement.
@@ -62,10 +64,12 @@ import { DRAW_H, DRAW_W } from '@inkcast/core';
 import { prepareMarks } from './drawing.js';
 import type { Box } from './elements.js';
 import { handMeasure } from './elements.js';
-import { readInkBox } from './underlay.js';
+import { readUnderlay } from './underlay.js';
+import type { Underlay } from './draw-geom.js';
 import {
   ADRIFT,
   LABEL_SIZE,
+  OFF_CANVAS_SLACK,
   TYPICAL_FIT,
   cardFill,
   contentBounds,
@@ -90,8 +94,14 @@ import {
  * at the fit a beat is really laid out at rather than at unit scale (`TYPICAL_FIT`).
  * It went to v4 when `thin-card` was added: a correction made when a card covering a
  * seventh of the frame was not a defect is an answer to a question this file no longer asks.
+ * It went to v5 when a figure stopped being ink (`underlayInk`) and the repair stopped
+ * being allowed to push a name off the canvas (`OFF_CANVAS_SLACK`) — the first changes what
+ * is reported and the second changes the marks that are audited, and a correction cached
+ * under either is a correction to a drawing this file now measures differently. On the
+ * figure lane it is the sharpest case the constant has had: those cached corrections are
+ * answers to a list of ten defects that no longer exists.
  */
-export const AUDIT_VERSION = 'audit/v4';
+export const AUDIT_VERSION = 'audit/v5';
 
 /** What kind of thing is wrong. Ordered by how much a viewer notices it. */
 export type DefectKind =
@@ -152,7 +162,7 @@ const at = (b: Box): string => `(${round(b.x + b.w / 2)},${round(b.y + b.h / 2)}
  * range: measured against each beat's own fit, that read 10 of the 41 dirty beats in
  * `projects/` as clean — under-reporting, in a gate whose whole job is to notice.
  */
-export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Defect[] {
+export function auditDrawing(marks: Mark[], underlay?: Underlay, scale = TYPICAL_FIT): Defect[] {
   const out: Defect[] = [];
   const labels = marks.filter((m) => m.kind === 'label');
   // The words' real footprint, not `labelBox`'s one unwrapped line. Measuring the wrong
@@ -162,7 +172,9 @@ export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
   // The hybrid lane's generated picture is ink the audit has to know about, or a name
   // written across the middle of a traced heart measures perfectly clean. It is also what
   // stops `label-adrift` firing on the names this lane deliberately puts out at the sides:
-  // they are near the picture, which is the thing they name.
+  // they are near the picture, which is the thing they name. A *figure* is in this list
+  // for the second reason and not the first — it is an unmeasured box, not ink. See
+  // `underlayInk`, which is where the two lanes part.
   const ink = [...(underlay ? [underlayInk(underlay)] : []), ...inkOf(marks)];
 
   // 1. Labels on each other.
@@ -219,12 +231,13 @@ export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
   //    turns a good drawing into a small one in the corner of a cell.
   const content = contentBounds(marks);
   if (content) {
+    const slack = OFF_CANVAS_SLACK;
     const over: string[] = [];
-    if (content.x < -8) over.push(`${round(-content.x)} left of x=0`);
-    if (content.y < -8) over.push(`${round(-content.y)} above y=0`);
-    if (content.x + content.w > DRAW_W + 8)
+    if (content.x < -slack) over.push(`${round(-content.x)} left of x=0`);
+    if (content.y < -slack) over.push(`${round(-content.y)} above y=0`);
+    if (content.x + content.w > DRAW_W + slack)
       over.push(`${round(content.x + content.w - DRAW_W)} past x=${DRAW_W}`);
-    if (content.y + content.h > DRAW_H + 8)
+    if (content.y + content.h > DRAW_H + slack)
       over.push(`${round(content.y + content.h - DRAW_H)} below y=${DRAW_H}`);
     if (over.length) {
       const outside = marks
@@ -238,7 +251,10 @@ export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
           const bb = b ?? contentBounds([m]);
           return (
             bb !== undefined &&
-            (bb.x < -8 || bb.y < -8 || bb.x + bb.w > DRAW_W + 8 || bb.y + bb.h > DRAW_H + 8)
+            (bb.x < -slack ||
+              bb.y < -slack ||
+              bb.x + bb.w > DRAW_W + slack ||
+              bb.y + bb.h > DRAW_H + slack)
           );
         })
         .map((m) => m.id);
@@ -332,7 +348,11 @@ const GOOD_SHAPE = 0.75;
  * a tenth of the card; the picture underneath is what fills it, and it is not measurable from
  * here. Reporting those would spend a correction call asking a model to undo its own brief.
  */
-function thinCard(marks: Mark[], underlay: Box | undefined, scale: number): Defect | undefined {
+function thinCard(
+  marks: Mark[],
+  underlay: Underlay | undefined,
+  scale: number,
+): Defect | undefined {
   if (underlay || marks.length < CARD_MARKS) return undefined;
   const card = cardFill(marks, scale);
   if (!card || card.fill >= THIN_CARD) return undefined;
@@ -421,7 +441,7 @@ export function lessonDrawingDefects(lesson: Lesson): string[] {
   for (const step of steps) {
     for (const intent of step.visuals) {
       if (intent.kind !== 'draw' || !intent.marks?.length) continue;
-      const under = readInkBox(intent.underlay?.inkBox);
+      const under = readUnderlay(intent.underlay);
       const defects = auditDrawing(prepareMarks(intent.marks, under), under);
       if (!defects.length) continue;
       out.push(

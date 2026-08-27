@@ -49,6 +49,7 @@ import { round } from './curves.js';
 import { prepareMarks } from './drawing.js';
 import type { Box } from './elements.js';
 import type { DrawPreview } from './types.js';
+import { isTraced } from './underlay.js';
 
 const log = logger('planner:drawing:critic');
 
@@ -129,8 +130,13 @@ export type CriticOptions = {
    * heart measures perfectly clean and is never corrected. And the model has to be shown
    * it, or it is being asked to move marks off an obstacle it cannot see — the render it
    * is handed carries the marks alone, because that is all the drawing lane draws.
+   *
+   * `kind` was missing from this type until 2026-08-27 while `drawOne` was passing it
+   * through all along, so the critic audited a figure as though it were a traced form —
+   * which is how it came to be told, on the acceptance film, to move ten names out of the
+   * only place `FIGURE_BRIEF` says they can go. See `underlayInk`.
    */
-  underlay?: { png: Uint8Array; box: Box };
+  underlay?: { png: Uint8Array; box: Box; kind?: 'form' | 'figure' };
   /**
    * Look at the drawing even when nothing was measured wrong (`INKCAST_DRAW_FIX=all`).
    * The gate is arithmetic and geometry is not arithmetic — see `revisesEverything`.
@@ -166,7 +172,7 @@ export async function reviseDrawing(
   // The marks that will actually be drawn, not the ones the author placed: the free
   // repair pass has already moved what it could, and a correction call spent on a defect
   // that no longer exists is a call spent on nothing.
-  const under = opts.underlay?.box;
+  const under = opts.underlay && { box: opts.underlay.box, traced: isTraced(opts.underlay.kind) };
   const shown = prepareMarks(marks, under);
   const defects = auditDrawing(shown, under);
   // **A thin card is told, never bought.** It rides along on a call some other defect has

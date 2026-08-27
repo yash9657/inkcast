@@ -44,7 +44,7 @@ import { auditDrawing } from './draw-audit.js';
 import { fixTag, reviseDrawing } from './draw-critic.js';
 import { prepareMarks } from './drawing.js';
 import type { Box } from './elements.js';
-import { figureBox, readInkBox } from './underlay.js';
+import { figureBox, isTraced, readInkBox, readUnderlay } from './underlay.js';
 import { drawingJsonSchema } from './schema.js';
 import type { DrawFigure, DrawPreview, LessonOptions } from './types.js';
 
@@ -499,7 +499,7 @@ async function correct(
   opts: DrawOneOptions,
 ): Promise<Mark[] | undefined> {
   if (!revisionEnabled(opts)) return undefined;
-  const under = opts.underlay?.box;
+  const under = opts.underlay && { box: opts.underlay.box, traced: isTraced(opts.underlay.kind) };
   if (!revisesEverything() && !auditDrawing(prepareMarks(marks, under), under).length)
     return undefined;
   const c = await anthropicClient();
@@ -823,7 +823,7 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, work.length) }, worker));
   const wrong = work.filter((job) => {
     if (!job.intent.marks?.length) return false;
-    const under = readInkBox(job.intent.underlay?.inkBox);
+    const under = readUnderlay(job.intent.underlay);
     return auditDrawing(prepareMarks(job.intent.marks, under), under).length > 0;
   }).length;
   log.info(

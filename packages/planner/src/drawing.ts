@@ -51,8 +51,10 @@ import { cueMarks } from './draw-cues.js';
 import {
   ADRIFT,
   LABEL_SIZE,
+  OFF_CANVAS_SLACK,
   TYPICAL_FIT,
   type Ink,
+  type Underlay,
   clipToBox,
   contentBounds,
   inkDistance,
@@ -357,10 +359,12 @@ const RINGS = [
  * `TYPICAL_FIT` — the middle of the range beats are really laid out at, not unit scale,
  * which is the roomy end of it (see `TYPICAL_FIT`).
  */
-export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Mark[] {
-  // The generated picture counts as ink, and as the one kind that cannot be written on.
+export function repairLabels(marks: Mark[], underlay?: Underlay, scale = TYPICAL_FIT): Mark[] {
+  // A *traced* picture counts as ink, and as the one kind that cannot be written on.
   // Without it a name landing in the middle of the organ scores as free space and is left
-  // exactly where it was — `inkOf` knows about marks and nothing else. See `underlayInk`.
+  // exactly where it was — `inkOf` knows about marks and nothing else. A figure is in this
+  // list as an enclosure only: it is an unmeasured box and there is no seat outside it to
+  // move a name to. See `underlayInk`, which is where the two lanes part.
   // A typeset equation is the other kind of ink `inkOf` cannot report — `markInk` has no
   // case for `math`, so an equation would be free space to write across. See `mathInk`.
   const ink: Ink[] = [
@@ -386,10 +390,31 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
   const seats = marks.map((m) => (m.kind === 'label' ? labelFootprint(m, scale) : undefined));
   const taken: Box[] = [];
   let ahead = seats.filter((b): b is Box => b !== undefined);
-  // A label may sit slightly outside the canvas — the drawing is fitted by its content,
-  // so a name just over the edge only makes the picture slightly smaller — but not far
-  // outside, which is a caption drifting away from its own drawing.
-  const margin = 0.04;
+  /**
+   * How far outside the canvas this box hangs, past what the audit tolerates. 0 is clean.
+   *
+   * A label may sit slightly outside — the drawing is fitted by its content, so a name
+   * just over the edge only makes the picture slightly smaller — but this pass used to
+   * decide "slightly" for itself, at 4% of each axis, which is 40 units of the width
+   * against `OFF_CANVAS_SLACK`'s 8. Every seat in the gap between the two numbers is a
+   * seat where the repair puts a name and the audit then bills a correction call to take
+   * it out again: measured over the 238 cached drawings, 76 were off-canvas after the
+   * repair and **35 of them were on-canvas as authored**.
+   *
+   * The rule is not "obey `OFF_CANVAS_SLACK`", because the two passes measure a label in
+   * two different boxes on purpose — `labelFootprint` here, `markBounds` in the audit's
+   * `contentBounds` — so a shared threshold would still not make them agree. It is **do
+   * not leave a name further out than you found it**, which holds whatever the boxes are,
+   * and never strands a label whose authored seat was already over the edge.
+   */
+  const overhang = (b: Box): number =>
+    Math.max(
+      0,
+      -OFF_CANVAS_SLACK - b.x,
+      -OFF_CANVAS_SLACK - b.y,
+      b.x + b.w - (DRAW_W + OFF_CANVAS_SLACK),
+      b.y + b.h - (DRAW_H + OFF_CANVAS_SLACK),
+    );
 
   /**
    * The regions a name can be *in the middle of* and still be naming something.
@@ -439,14 +464,18 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     const onLabels = [...taken, ...ahead].reduce((n, o) => n + (overlapArea(b, o) > 0 ? 1 : 0), 0);
     const hit = ink.filter((k) => inkHitsBox(k, b, 6));
     const onInk = hit.filter((k) => !k.solid).length;
-    // A generated picture is priced eight times a crossed stroke, and the difference is
+    // A traced picture is priced eight times a crossed stroke, and the difference is
     // the difference between the two obstacles. Crossing one arrow is untidy and a name
     // written across a traced organ is illegible, full stop — but escaping a picture that
     // occupies a third of the board costs 200-odd units of displacement, and at the ink
     // rate the arithmetic says a collision is the cheaper of the two. It is not. This is
     // the only obstacle worth crossing the board to avoid, so it is the only one priced
-    // to. Escaping is always possible: the picture is placed inside `UNDERLAY_AREA`
-    // precisely so there is clear board on either side for the names to reach.
+    // to. Escaping is always possible, and that is a fact about the *traced* lane only:
+    // the picture is placed inside `UNDERLAY_AREA` precisely so there is clear board on
+    // either side for the names to reach. A figure is placed in `FIGURE_AREA` instead,
+    // leaving 80 units a side — narrower than one word — so there is nowhere to escape to
+    // and this price would buy a search that can only fail. It is not charged for one:
+    // `underlayInk` hands a figure over as `fill`, which never reaches `hit`.
     const onSolid = hit.filter((k) => k.solid).length;
     const centre = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     const nearest = ink.reduce((d, k) => Math.min(d, inkDistance(k, centre)), Infinity);
@@ -465,6 +494,11 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     ahead = ahead.filter((b) => b !== home);
     let best = home;
     let bestCost = cost(home, home);
+    // The seat the author chose is always admissible, however far out it is — this pass
+    // moves names off each other and off ink, and a name it refused to place anywhere
+    // would be a name left on top of another one. `overhang` bounds where it may go
+    // *instead*, and this is the bound.
+    const homeOverhang = overhang(home);
     if (bestCost > 0) {
       const step = Math.max(20, home.h * 0.8);
       // How far out to search, from the weights rather than from a count. Every candidate
@@ -486,12 +520,7 @@ export function repairLabels(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
         searched += 1;
         for (const [dx, dy] of RINGS) {
           const moved = { ...home, x: home.x + dx * step * ring, y: home.y + dy * step * ring };
-          const inside =
-            moved.x >= -DRAW_W * margin &&
-            moved.y >= -DRAW_H * margin &&
-            moved.x + moved.w <= DRAW_W * (1 + margin) &&
-            moved.y + moved.h <= DRAW_H * (1 + margin);
-          if (!inside) continue;
+          if (overhang(moved) > homeOverhang) continue;
           admissible += 1;
           const c = cost(moved, home);
           if (c < bestCost) {
@@ -592,7 +621,7 @@ export function cleanMarks(marks: Mark[]): Mark[] {
  * through it: cleaning keeps what it kept, and a label already clear of everything is
  * scored zero and left alone.
  */
-export function prepareMarks(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT): Mark[] {
+export function prepareMarks(marks: Mark[], underlay?: Underlay, scale = TYPICAL_FIT): Mark[] {
   return repairLabels(cleanMarks(marks), underlay, scale);
 }
 

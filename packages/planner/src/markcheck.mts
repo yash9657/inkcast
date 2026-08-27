@@ -36,10 +36,9 @@ import type { Mark } from '@inkcast/core';
 import { Lesson, Mark as MarkSchema, lessonBeats } from '@inkcast/core';
 import { z } from 'zod';
 import { auditDrawing, defectScore, defectSummary } from './draw-audit.js';
-import { cardFill } from './draw-geom.js';
+import { type Underlay, cardFill } from './draw-geom.js';
 import { cleanMarks, prepareMarks } from './drawing.js';
-import type { Box } from './elements.js';
-import { readInkBox } from './underlay.js';
+import { readUnderlay } from './underlay.js';
 
 /**
  * `underlay` is the picture these marks are composed over, and it has to travel with them.
@@ -48,7 +47,7 @@ import { readInkBox } from './underlay.js';
  * sheet that dropped it reported the figure lane's four-mark cards as thin boards and the
  * hybrid lane's cleanest names as clean.
  */
-type Drawing = { name: string; marks: Mark[]; underlay?: Box };
+type Drawing = { name: string; marks: Mark[]; underlay?: Underlay };
 
 const args = process.argv.slice(2);
 if (!args.length) {
@@ -81,7 +80,7 @@ async function fromLesson(file: string): Promise<Drawing[]> {
         out.push({
           name: `${base} b${b}v${v}`,
           marks: intent.marks,
-          underlay: readInkBox(intent.underlay?.inkBox),
+          underlay: readUnderlay(intent.underlay),
         });
     });
   });

@@ -129,7 +129,12 @@ const el: AssetElement = {
 // `prepareMarks` seeing the underlay, which is what keeps a name off the picture.
 const elements: Element[] = [
   el,
-  ...buildDrawing(prepareMarks(marks, ink), { id: 'd', box: BOX, underlay: true }),
+  // `traced: true` — this sheet is the form lane, and the trace is the point of it.
+  ...buildDrawing(prepareMarks(marks, { box: ink, traced: true }), {
+    id: 'd',
+    box: BOX,
+    underlay: true,
+  }),
 ];
 
 const sb = parseStoryboard({

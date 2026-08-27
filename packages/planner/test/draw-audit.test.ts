@@ -9,7 +9,7 @@ import {
   lessonDrawingDefects,
 } from '../src/draw-audit.js';
 import { cardFill, inkHitsBox, inkOf, markInk } from '../src/draw-geom.js';
-import { prepareMarks } from '../src/drawing.js';
+import { cleanMarks, prepareMarks } from '../src/drawing.js';
 import { CARDIAC } from './cardiac-lesson.js';
 
 const mark = (m: Partial<Mark> & { id: string; kind: Mark['kind'] }): Mark => ({
@@ -136,6 +136,45 @@ test('ink off the canvas is reported, and names the marks that left', () => {
   assert.ok(off, 'a mark 180 units off the canvas was not reported');
   assert.deepEqual(off.ids, ['stray']);
   assert.match(off.note, new RegExp(`${DRAW_W}x${DRAW_H}`));
+});
+
+test('the repair does not leave a name further off the canvas than it found it', () => {
+  // The other half of the same contradiction as `label-on-ink`: the repair had its own
+  // idea of how far outside was acceptable — 4% of the axis, 40 units of the width, five
+  // times `OFF_CANVAS_SLACK` — so it could slide a name into a seat the audit then billed
+  // a correction call to undo. Measured over the 238 cached drawings before the rule
+  // changed: 76 ended off-canvas after the repair and 35 of those were on-canvas as
+  // authored. Here the name at x=90 has its own leader's tail through it, so the repair
+  // has a reason to move, and left is the near escape — and left is off the canvas.
+  const crowded: Mark[] = [
+    mark({ id: 'edge-name', kind: 'label', x: 90, y: 300, text: 'same height', size: 26 }),
+    mark({
+      id: 'edge-leader',
+      kind: 'arrow',
+      points: [
+        [180, 296],
+        [420, 200],
+      ],
+    }),
+    mark({ id: 'body', kind: 'ellipse', x: 400, y: 160, w: 200, h: 200 }),
+  ];
+  const before = auditDrawing(cleanMarks(crowded)).some((d) => d.kind === 'off-canvas');
+  const after = auditDrawing(prepareMarks(crowded)).some((d) => d.kind === 'off-canvas');
+  assert.equal(before, false, 'the authored marks are on the canvas');
+  assert.equal(after, false, 'the repair pushed a name off the canvas the author kept on it');
+
+  // And a name the author already put over the edge is still placeable — the rule is "no
+  // further out", not "inside", so this pass never refuses to move a name it should move.
+  const authoredOut: Mark[] = [
+    mark({ id: 'a', kind: 'label', x: -60, y: 300, text: 'one', size: 26 }),
+    mark({ id: 'b', kind: 'label', x: -60, y: 306, text: 'two', size: 26 }),
+    mark({ id: 'body', kind: 'ellipse', x: 400, y: 160, w: 200, h: 200 }),
+  ];
+  assert.equal(
+    auditDrawing(prepareMarks(authoredOut)).some((d) => d.kind === 'label-on-label'),
+    false,
+    'two names stacked outside the canvas were left on top of each other',
+  );
 });
 
 test('a label with nothing near it is reported as naming nothing', () => {
@@ -377,7 +416,7 @@ test('a drawing composed over a picture is never reported thin', () => {
   // else: its marks are meant to be a tenth of the card, and the picture underneath — which
   // is not measurable from here — is what fills it. Reporting these would spend a correction
   // call asking a model to undo its own brief.
-  const box = { x: 80, y: 0, w: 840, h: 560 };
+  const box = { box: { x: 80, y: 0, w: 840, h: 560 }, traced: false };
   const names: Mark[] = [
     mark({ id: 'feather-name', kind: 'label', x: 200, y: 30, text: 'feather', size: 28 }),
     mark({ id: 'hammer-name', kind: 'label', x: 700, y: 30, text: 'hammer', size: 28 }),
@@ -416,6 +455,45 @@ test('a drawing composed over a picture is never reported thin', () => {
     auditDrawing(prepareMarks(names)).some((d) => d.kind === 'thin-card'),
     true,
   );
+});
+
+test('a name written on a figure is not written on ink', () => {
+  // The contradiction this pins, and it stood for the whole life of the figure lane.
+  // `FIGURE_BRIEF` tells the author that the 80-unit flanks are "narrower than one word —
+  // so the flanks are not where the names live", and to write on the pale paper inside the
+  // picture. `underlayInk` called the whole figure box solid, so every name that obeyed was
+  // a `label-on-ink` defect and the only clean drawing was a disobedient one. Measured on
+  // `projects/f3ac9c760194`: ten findings, all ten on its three figure beats.
+  //
+  // A figure's box is not a measurement — a figure is never traced, so `figureBox()` is a
+  // constant handed out before the picture exists. It is the same "a box is not ink"
+  // argument that took `leader-misses` out of this file; see `underlayInk`.
+  const figure = { box: { x: 80, y: 0, w: 840, h: 560 }, traced: false };
+  const named: Mark[] = [
+    mark({ id: 'heavy-ball', kind: 'label', x: 300, y: 300, text: 'heavy ball', size: 28 }),
+    mark({
+      id: 'ball-leader',
+      kind: 'arrow',
+      points: [
+        [300, 330],
+        [380, 420],
+      ],
+    }),
+  ];
+  assert.deepEqual(auditDrawing(prepareMarks(named, figure), figure), []);
+
+  // The traced lane keeps the check, and that is the half worth keeping: `underlayInkBox`
+  // measures a form's box from a trace of its own raster, so ink really is there.
+  const form = { box: { x: 300, y: 30, w: 400, h: 500 }, traced: true };
+  assert.equal(
+    auditDrawing(named, form).some((d) => d.kind === 'label-on-ink'),
+    true,
+  );
+
+  // And the repair reads the same distinction: it does not spend the 400-unit escape price
+  // hunting for a seat in a margin one word wide.
+  const [name] = prepareMarks(named, figure);
+  assert.equal(name?.x, 300, 'the name stays where the brief asked for it');
 });
 
 test('a stub of two or three marks is a beat’s problem, not a card’s', () => {

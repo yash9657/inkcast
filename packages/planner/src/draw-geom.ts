@@ -39,6 +39,24 @@ import { FONT, handMeasure, measureText } from './elements.js';
  */
 export const ADRIFT = DRAW_W / 7;
 
+/**
+ * How far ink may hang off the canvas before the audit calls the drawing off-canvas.
+ *
+ * Small: the drawing is fitted by its content, so a name a few units over the edge only
+ * makes the picture slightly smaller, and reporting that would be reporting rounding.
+ *
+ * Shared for the same reason `ADRIFT` is, and it was not, which cost something measurable.
+ * `repairLabels` had its own allowance — 4% of each axis, so 40 units of the width — five
+ * times this one, and every candidate seat in the gap between the two is a seat where the
+ * repair puts a name and the audit then bills a correction call to take it out again.
+ * Measured over the 238 cached drawings on 2026-08-27: 76 drawings ended off-canvas after
+ * the repair, and **35 of them were on-canvas as authored**. The repair does not read this
+ * number directly — it and the audit measure a label in two different boxes on purpose
+ * (see the `off-canvas` check) — but it may no longer leave a name further out than it
+ * found it, which is the rule that makes the two halves agree whatever the boxes are.
+ */
+export const OFF_CANVAS_SLACK = 8;
+
 /* ---------------------------------------------------------------- primitives */
 
 /**
@@ -365,27 +383,68 @@ export type Ink = {
   kind: Mark['kind'] | 'underlay';
   /** The pen's path. An obstacle: words across it are words on the picture. */
   segs: [Point, Point][];
-  /** A shaded area (`hatch`, `dots`). Not an obstacle — see above. */
+  /** A shaded area (`hatch`, `dots`), or an untraced figure. Not an obstacle — see above. */
   fill?: Box;
-  /** A filled region that IS an obstacle. Only the hybrid lane's underlay — see below. */
+  /** A filled region that IS an obstacle. Only a *traced* underlay — see below. */
   solid?: Box;
 };
 
 /**
- * The generated picture a drawing is annotating, as ink a label must keep off.
+ * The generated picture a drawing is annotating: where it lands, and whether its ink
+ * has been measured.
  *
- * The one region on the board that is dense the whole way through. Our own shading is
- * deliberately writable-on and that decision is load-bearing — the version of the audit
- * that treated hatching as an obstacle moved `N` and `S` out of a bar magnet and into the
- * field lines, which is worse — but the argument does not carry over. A traced anatomical
- * drawing is not a light wash behind a name; it is interior detail at the density of the
- * thing itself, and a name written on it is unreadable however good the paper halo is.
- *
- * So the whole box is an obstacle, and the labels go where the brief already tells the
- * author to put them: the clear board on either side, with a leader reaching in.
+ * `traced` is the whole of the distinction `underlayInk` turns on, and it is the
+ * lesson's own `underlay.kind` read the honest way round: a `form` is traced and a
+ * `figure` never is (`underlay.ts`). Not a styling flag — it is the difference between
+ * a box that is known to be full of ink and a box nobody has looked inside.
  */
-export function underlayInk(box: Box): Ink {
-  return { id: 'underlay', kind: 'underlay', segs: [], solid: box };
+export type Underlay = { box: Box; traced: boolean };
+
+/**
+ * The generated picture a drawing is annotating, as the region a label has to reckon with.
+ *
+ * ## A traced picture is an obstacle
+ *
+ * On the `form` lane the box is the one region on the board that is dense the whole way
+ * through. Our own shading is deliberately writable-on and that decision is load-bearing —
+ * the version of the audit that treated hatching as an obstacle moved `N` and `S` out of a
+ * bar magnet and into the field lines, which is worse — but the argument does not carry
+ * over. A traced anatomical drawing is not a light wash behind a name; it is interior
+ * detail at the density of the thing itself, and a name written on it is unreadable
+ * however good the paper halo is. So it is `solid`, and the labels go where
+ * `UNDERLAY_BRIEF` already tells the author to put them — "NAMES GO IN THE CLEAR SPACE …
+ * there is empty canvas to the left and to the right of it" — with a leader reaching in.
+ * That box is also honest about its extent — `underlayInkBox` measures it
+ * from a trace of the raster, so it is tight around ink that really is there.
+ *
+ * ## A figure is presence, not ink
+ *
+ * On the `figure` lane none of that holds, and it fails the same way `leader-misses` did
+ * (`draw-audit.ts`'s header): a box is not ink. A figure is **never traced** — a binary
+ * trace erases the hues that carry its teaching — so nothing has measured where its ink
+ * is, and its box is not a measurement at all. It is the constant `figureBox()`,
+ * `{x:80,y:0,w:840,h:560}`, 84% of the canvas, handed out before the picture exists.
+ *
+ * Calling that solid makes the check unfalsifiable rather than strict. `FIGURE_BRIEF`
+ * tells the author in as many words that the 80-unit flanks are "narrower than one word —
+ * so the flanks are not where the names live", and to write on the pale paper *inside* the
+ * picture. Every name that obeys is then reported as a defect, and the only way to score
+ * clean is to disobey the brief. Measured on `projects/f3ac9c760194`: ten `label-on-ink`
+ * findings, all ten on the three figure beats, every one of them a name placed exactly
+ * where it was asked for. It cost the repair too — `repairLabels` prices escaping a solid
+ * at 400, which bought a search for a seat that does not exist.
+ *
+ * So a figure is `fill`: a name may be inside it and near it (which is what stops
+ * `label-adrift` firing on names the lane deliberately puts in the picture), and nothing
+ * here claims to know what it crosses. Making the check real again needs what
+ * `leader-misses` needs — a measurement of where the picture's ink actually is — and it is
+ * the same one lane that has no trace to measure.
+ */
+export function underlayInk(u: Underlay): Ink {
+  const segs: [Point, Point][] = [];
+  return u.traced
+    ? { id: 'underlay', kind: 'underlay', segs, solid: u.box }
+    : { id: 'underlay', kind: 'underlay', segs, fill: u.box };
 }
 
 /** How finely an ellipse's perimeter is walked. Enough that a label cannot slip through. */

@@ -23,6 +23,7 @@
  * the repair and the audit being unable to hold different opinions about what ink is.
  */
 import { DRAW_H, DRAW_W, hash } from '@inkcast/core';
+import type { Underlay } from './draw-geom.js';
 import type { Box } from './elements.js';
 
 /**
@@ -92,6 +93,35 @@ export function readInkBox(box: number[] | undefined): Box | undefined {
   const [x, y, w, h] = box as [number, number, number, number];
   if (![x, y, w, h].every((v) => Number.isFinite(v)) || w <= 0 || h <= 0) return undefined;
   return { x, y, w, h };
+}
+
+/**
+ * Whether a picture of this kind has ink anyone has measured.
+ *
+ * One line, and it is here rather than inlined at its three call sites because the
+ * defaulting is the load-bearing half: `kind` is optional in the schema and means `form`
+ * when it is absent, so every lesson written before the figure lane existed is traced.
+ * A copy of this that got the default the other way round would quietly declare every
+ * old form drawing unmeasured.
+ */
+export function isTraced(kind: 'form' | 'figure' | undefined): boolean {
+  return kind !== 'figure';
+}
+
+/**
+ * An intent's recorded underlay as the audit and the repair need it: the box, and
+ * whether anything traced it.
+ *
+ * One reader rather than `readInkBox` at six call sites, because the box alone is what
+ * let a figure be mistaken for a traced form for the life of the figure lane — see
+ * `underlayInk`. `kind` defaults to `form` in the schema and defaults to traced here, so
+ * a lesson written before the figure lane existed reads exactly as it always did.
+ */
+export function readUnderlay(
+  underlay: { kind?: 'form' | 'figure'; inkBox?: number[] } | undefined,
+): Underlay | undefined {
+  const box = readInkBox(underlay?.inkBox);
+  return box ? { box, traced: isTraced(underlay?.kind) } : undefined;
 }
 
 /**
