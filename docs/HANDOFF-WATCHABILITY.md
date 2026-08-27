@@ -327,7 +327,10 @@ what caught the real defect.
 
 ## What is left now — 2026-08-26
 
-Read the 2026-08-26 section of `docs/STATUS.md` first; it carries every number below.
+**`docs/HANDOFF-GATE-ONE.md` is the self-contained version of this section**, written for a
+session starting cold: the same three tasks with the commands, the costs and the traps. Read
+that one to do the work; this one for how the plan got here. The numbers behind both are in
+the 2026-08-26 section of `docs/STATUS.md`.
 
 **Gate 1 is now a gate this repo can act on.** The bar is 35% mean with no scene under 14%
 (`docs/PLAN-WATCHABILITY.md` item 1), the acceptance film reads **29.5%** after its drawings
