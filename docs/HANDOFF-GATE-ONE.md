@@ -1,5 +1,14 @@
 # Handoff — gate 1's tail: three tasks, in order, with what each costs
 
+> **DONE, 2026-08-27. Continue from `docs/HANDOFF-THREE-GATES.md` instead.** All three
+> tasks below were executed and two came back negative. **Task 1's lever does not exist** —
+> the router was measured to be right on all five mark beats of this film, and the brief
+> edit it proposes changed no route on either lesson it was tested against; do not redo it.
+> Task 2 was settled in favour of the audit being wrong (`eb71d4b`). Task 3 was cast three
+> times: it closed gate 6, produced gate 1's real number (30.8%), and turned up a null-
+> handling bug that had been silently costing films their whole figure lane (`b33daca`).
+> Everything below is kept for its reasoning and its measurements, both of which still hold.
+
 Written 2026-08-27 for a session starting with no context. It is self-contained: read this,
 then `docs/STATUS.md`'s last section (2026-08-26) if you want the arithmetic behind a number.
 `docs/HANDOFF-WATCHABILITY.md` is the wider plan's handoff and everything in it still stands.
