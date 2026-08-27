@@ -3288,3 +3288,141 @@ Three things worth having written down:
   against, so no provider call is involved and the raster tiers stay style-blind. A fresh
   project id is enough to pick it up. `isDarkSurface` stays load-bearing in `image.ts` — it
   now chooses what the _fallback_ costs, and the problem note says which of the two it is.
+
+# 2026-08-27 (Phase 4) — the blueprint pack is written and parked on one asset decision
+
+`docs/PLAN-GOLPO-CLOSE.md` 4.1 was authored, validated against the pack schema, and then
+**not landed**, because it collides with a pinned invariant the plan did not know about.
+Everything below is finished work; what is missing is one file nobody may fetch unasked.
+
+## The blocker: five packs, four faces
+
+`packages/core/test/fontmetrics.test.ts:30`, "every ink style asks for its own handwriting
+face", asserts over **every pack in `styles/`** that no two letter in the same family —
+"a fifth style that letters in the marker's face is a fifth style nobody can tell from the
+marker". It is written to hold for a pack it has never heard of, which is exactly this one.
+
+The plan's DECIDED font choice is to reuse a vendored hand face, `Gaegu` unless another
+fits better. There is no other: `assets/fonts/hand/` holds exactly four — Gaegu,
+PatrickHand, Caveat, ShantellSans — and the four shipped packs claim one each. So the
+decision as written fails that test on the first run, which is what it did.
+
+The obvious substitute does not work either. JetBrains Mono **is** vendored and a technical
+mono is what this board wants, but it lives in `assets/fonts/code/`, and `codeFontDirs()`
+is documented as "where the code lane's monospace face lives, **and nothing else**" —
+`defaultFontDirs()` deliberately does not reach it. Crossing that boundary to dress a
+hand-drawn board in a machine face is two mistakes, not one.
+
+**What it actually needs is a fifth vendored OFL hand face.** That is cheaper than the plan
+assumed — `findFontFile` already recognises `kalam`, `indie`, `architects`, `handlee` and
+`gloria` as known stems, and `handMetricsFor` parses whatever TTF it finds, so no
+`fontmetrics.ts` work is involved. It is a file: download the TTF and its `OFL-*.txt` from
+`google/fonts`, commit both, add the row to `assets/fonts/README.md`. Not done here because
+committing a licensed binary to someone's repo, against the plan's own stated scope, is
+theirs to say yes to.
+
+## Everything else about the pack is finished and measured
+
+The palette clears the contrast bar on all four inks — computed, not eyeballed, and note
+that **only `ink` is actually checked** by anything: `MIN_INK_CONTRAST` in `stylepack.ts`
+guards `ink` against `paper` and nothing else in the palette, so these three were hand-run.
+`inkSoft`, which the plan flagged as the tight one, has 2 points of headroom.
+
+| against `paper` `#14304a` | ratio | bar   |
+| ------------------------- | ----- | ----- |
+| `ink` `#eef4f8`           | 12.20 | 4.5:1 |
+| `inkSoft` `#9db8cc`       | 6.55  | 4.5:1 |
+| `accent` `#53c8e8`        | 6.96  | 4.5:1 |
+| `contrast` `#ff8a3d`      | 5.77  | 4.5:1 |
+
+Paper luminance is 0.028, far under the 0.5 that routes a figure to `keyFigureToSurface` —
+though as of Phase 5 every board takes that path anyway, so the dark-board figure lane
+engages here without needing the switch.
+
+The pack itself, schema-valid at 380 of 400 description characters, ready to drop into
+`styles/blueprint.json` the moment a face is chosen (replace `hand` with the new family):
+
+```json
+{
+  "id": "blueprint",
+  "name": "Blueprint",
+  "description": "Drafting-table navy: white ink on deep blue, cyan for the thing being explained and warm orange for the thing it must not be confused with. The cleanest line of the five — a blueprint is drawn against a straight edge. The hand is Gaegu, borrowed from chalk and a placeholder: this board wants a technical mono, and vendoring one means new metrics. See docs/PLAN-GOLPO-CLOSE.md §5.",
+  "hand": {
+    "fontFamily": "Gaegu",
+    "fontFiles": ["gaegu"],
+    "tracking": 0.018,
+    "textOpacity": 0.94
+  },
+  "pen": {
+    "width": 4.0,
+    "weight": 1.15,
+    "inkSpeed": 2000,
+    "art": {
+      "unit": 84,
+      "baseAngle": 154,
+      "follow": 0.35,
+      "parts": [
+        {
+          "d": "M -10 0 L 10 -2 L 11 -78 Q 11 -82 7 -82 L -7 -82 Q -11 -82 -11 -78 Z",
+          "fill": "#f7f5f0",
+          "stroke": "#c9c6bf",
+          "strokeWidth": 2
+        },
+        { "d": "M -5 -8 L -1 -8 L -1 -76 L -5 -76 Z", "fill": "rgba(255,255,255,0.75)" }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 1.15,
+    "bowing": 1.1,
+    "multiStroke": true,
+    "curveFitting": 0.96,
+    "maxRandomnessOffset": 2.2,
+    "strokeOpacity": 0.94,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "hachure", "weight": 2.0, "hachureAngle": -30, "hachureGap": 10 }
+  },
+  "sketch": { "roughness": 1.1, "bowing": 1.0, "passes": 2, "cap": "round", "opacity": 0.92 },
+  "palette": {
+    "paper": "#14304a",
+    "ink": "#eef4f8",
+    "inkSoft": "#9db8cc",
+    "grid": "rgba(255,255,255,0.06)",
+    "accent": "#53c8e8",
+    "contrast": "#ff8a3d",
+    "highlight": "rgba(83,200,232,0.18)"
+  }
+}
+```
+
+## 4.2 and 4.3 are untouched
+
+4.2 (the lesson stage emits a `style` field and routes topics to packs) needs a keyed cast
+to verify the router picked `blueprint` without a flag, and the key is dry. It also needs
+4.1 landed to have anything to route to. 4.3 was already out of scope and stays there:
+painterly/parchment packs, textured grounds, new pen sprites.
+
+One thing 4.2 will need that is worth knowing now: `apps/web/components/studio/options.ts`
+says `INK_STYLES` is only the offline fallback, so a new pack has to appear in whatever
+serves `/api/providers`' `caps.styles` or the studio will not offer it. Not chased here.
+
+# 2026-08-27 — where PLAN-GOLPO-CLOSE stands
+
+| phase                              | state                      |
+| ---------------------------------- | -------------------------- |
+| 1 — stop the blank paper           | **done, measured**         |
+| 2 — accumulate by default          | **done, measured**         |
+| 3.1 — fat-ink brief rule           | blocked: Anthropic key     |
+| 3.2 — shapes that can fill, fill   | **done**; buys 0.03 points |
+| 3.3 — tone distribution            | measured; lever is 3.1     |
+| 4.1 — the blueprint pack           | written, parked on a font  |
+| 4.2 — the lesson picks a pack      | blocked: key, and on 4.1   |
+| 5 — figures keyed on every board   | **done, measured**         |
+| 6 — re-derive the gates, close out | blocked: needs 3.1 and 4.2 |
+
+Phase 6's head-to-head is the one that answers "are we there yet", and it cannot run: it
+wants the competitor's own topic cast with everything on — accumulate (have it), blueprint
+routed by the lesson (blocked twice), keyed figures (have them) — and measured against
+their 5.7% mean. What can be said today is that the same topic went **1.81% → 4.43%** mean
+frame ink across Phases 1 and 2, with blank paper at 52% → 0%.
