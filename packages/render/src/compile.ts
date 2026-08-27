@@ -837,14 +837,29 @@ function fadeSpan(dur: number): number {
 }
 
 /**
- * Where a wiping board's ink goes out: the instant the narration stops.
+ * Where a wiping board's ink goes out: the fade **lands on the beat's end**.
+ *
+ * The hold is reading time for the *finished* board, so the paper is blank only for
+ * the fade itself. This used to start the fade the instant the narration stopped,
+ * which spent the whole of the rest of the hold on an empty board — and the voice
+ * stage buys that hold precisely so the card can be read. The two mechanisms were each
+ * correct in isolation and incoherent together: `projects/c5caa09eb153` is 96.9s of
+ * film against 44.3s of speech, with 25 of 48 sampled frames under 0.5% ink and a
+ * median frame coverage of 0.0%. See `docs/PLAN-GOLPO-CLOSE.md` §2 and `docs/STATUS.md`
+ * (2026-08-27, "half the film is blank paper").
+ *
+ * The value is still written even where it equals `sceneEnd` — which, for an item
+ * anchored to its own scene, it now always does. It is no longer an override that says
+ * something `sceneEnd` does not; it is the one field that tells a reader of the plan
+ * *when this ink leaves*, and `sampleTimes` in `tier2.ts` needs it to know that the
+ * fullest moment of a wiping beat is before the fade rather than inside it. A wiping
+ * board with no `fadeAt` anywhere is photographed mid-fade.
  *
  * The anchor is the item's own scene, or the one `persistUntil` names when several
  * beats draw one card. One case cannot be honoured: an anchor whose `hold` is shorter
- * than the fade, where starting at the last word would mean finishing after the next
- * card has already cut in. Hand-authored boards default `Scene.hold` to 0 and land
- * there; both shipped lessons hold 0.6–2.55s against a 0.55s ceiling on the fade, and
- * never do.
+ * than the fade, where landing on the beat's end would mean beginning before the last
+ * word. Hand-authored boards default `Scene.hold` to 0 and land there; both shipped
+ * lessons hold 0.6–2.55s against a 0.55s ceiling on the fade, and never do.
  *
  * That case falls back to the **anchor's** end, not to `undefined`. Undefined leaves
  * `item.sceneEnd`, which `baseItem` takes from the item's own scene — so a card held
@@ -871,7 +886,11 @@ function wipeFadeAt(
     // for when it is not — a field that repeats what it overrides says nothing.
     return anchor === scenes[item.scene] ? undefined : anchor.start + anchor.dur;
   }
-  return anchor.start + anchor.speech + span;
+  // The beat's end, floored at "not before the narration has finished". The floor never
+  // binds while the branch above holds (`hold >= span` makes `dur >= speech + span`), and
+  // it is written rather than assumed because the two are the whole rule: the ink lasts as
+  // long as the beat does, and it never dies mid-sentence.
+  return Math.max(anchor.start + anchor.speech + span, anchor.start + anchor.dur);
 }
 
 /* ------------------------------------------------------------- one pen, in turn */

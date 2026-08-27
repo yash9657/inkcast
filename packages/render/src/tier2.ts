@@ -5,7 +5,7 @@
  * IR can only ever find the defects somebody thought to compute. The audit's finding was
  * that nothing in this pipeline had ever *looked at a frame* — not one automated check
  * ran against a pixel — and that Golpo's four measured defects are all things you see
- * immediately and compute with difficulty. So this tier samples the film and asks two
+ * immediately and compute with difficulty. So this tier samples the film and asks three
  * questions of the pixels themselves:
  *
  *  - **How much ink is on the board?** Free, deterministic, no key. This is the
@@ -13,6 +13,11 @@
  *    satisfied by inflating one, and the two measures disagreeing is a signal rather
  *    than noise (plan 2.6's own trap note). Measured with `./ink.ts`, the same
  *    instrument `inkstat.mts` scores a finished film with.
+ *  - **For how long is there nothing on it?** The same instrument, sampled the opposite
+ *    way — evenly along the clock instead of once at each beat's fullest. Added
+ *    2026-08-27, because the question above cannot answer this one: a film can pass
+ *    `ink-floor` on every sample and still be half blank paper, and one was. See
+ *    `timelineTimes` and `docs/PLAN-GOLPO-CLOSE.md` §2.
  *  - **What does a model see?** Keyed, and injected rather than imported — see
  *    `VisionPass`. Clipped text, ink written through ink, a region too small to read, a
  *    board that is mostly empty: the spec's four fixed questions, plus reading the text
@@ -131,14 +136,14 @@ const MAX_FADE = 0.55;
  * where the ink measurement means something.
  *
  * **The fade is what decides it, not the scene's end.** On an accumulating board nothing
- * leaves, so the fullest moment is just before the cut. On a *wiping* board every card
- * goes out the instant its narration stops, which is `hold` seconds before the scene
- * ends — so a sample taken before the cut lands in the gap after the wipe, on a blank
- * board. Measured, before this read the fade schedule: `cardiac9` and `cardiac10` — two
- * reviewed wipe-mode films — both reported a sampled frame at **0.00% ink**, which is
- * not a defect in the film, it is a photograph of the space between two cards. Reading
- * `item.fadeAt` (which the compiler sets only where ink really leaves early) is what
- * makes one rule serve both modes.
+ * leaves, so the fullest moment is just before the cut. On a *wiping* board the card goes
+ * out over the fade, and a sample taken at the cut is a photograph of ink at half alpha —
+ * or, under the schedule this had until 2026-08-27, of the blank gap after it. Measured
+ * then: `cardiac9` and `cardiac10` — two reviewed wipe-mode films — both reported a
+ * sampled frame at **0.00% ink**, which was not a defect in the film. Reading
+ * `item.fadeAt` — the second the fade *completes*, so `MAX_FADE` before it is the second
+ * it begins — is what makes one rule serve both modes, and it still does now that
+ * `wipeFadeAt` lands the fade on the beat's end rather than starting it at the last word.
  *
  * A film with more scenes than samples is sampled evenly across them, so the set always
  * spans the whole film rather than its first eight beats.
@@ -297,6 +302,166 @@ export function inkFloorViolations(samples: readonly FrameSample[]): BoardViolat
     });
   }
   return out;
+}
+
+/* ------------------------------------------------------ how long the paper stays blank */
+
+/**
+ * Ink share below which a frame is blank paper rather than a sparse board.
+ *
+ * Half of `MIN_INK_SHARE`, and the two are different questions. `MIN_INK_SHARE` (1%) asks
+ * whether a *finished beat* carries a board worth looking at, and it is sampled at each
+ * beat's fullest moment. This asks whether the viewer is looking at **nothing**, sampled
+ * evenly through the film, and it wants a floor low enough that nobody argues about it:
+ * on `projects/c5caa09eb153` the blank stretches measured 0.0% and the sparsest real board
+ * in the corpus measures 0.8%, so anything in that gap does. Drawn at 0.5%.
+ */
+export const BLANK_INK_SHARE = 0.005;
+
+/**
+ * How long the paper may be blank before it is a defect, in seconds.
+ *
+ * A fade is 0.2–0.55s and a card change is punctuation; two full seconds of nothing is
+ * the viewer waiting. `projects/c5caa09eb153` held 10.5s on one beat.
+ */
+export const MIN_BLANK_RUN = 2;
+
+/** Seconds of the film to ignore at the top: the first card is still being drawn. */
+const BLANK_SKIP_HEAD = 1;
+
+/** The cadence this samples at, and the most frames it will spend to do it. */
+const BLANK_CADENCE = 1;
+const MAX_TIMELINE = 150;
+
+/**
+ * When to look, for the other question: **evenly**, right through the film.
+ *
+ * `sampleTimes` above is deliberately the opposite — one frame a beat, at the moment that
+ * beat is fullest — because it is answering "is this board any good". It is structurally
+ * incapable of finding blank paper: it looks exactly where the board is most drawn, and a
+ * film can be half empty with every one of its samples full. That is not hypothetical.
+ * `projects/c5caa09eb153` passed `ink-floor` and was 52% blank paper.
+ *
+ * So this walks the clock instead. Each sample stands for `cadence` seconds of film, which
+ * is what makes a run of them a *duration* rather than a count. The head of the film is
+ * skipped because the first card is still being drawn there, and the outro because it is
+ * a deliberate held frame that belongs to no beat.
+ */
+export function timelineTimes(
+  plan: RenderPlan,
+  outroSec: number,
+): { cadence: number; times: number[] } {
+  const from = Math.min(BLANK_SKIP_HEAD, plan.duration);
+  const to = plan.duration - Math.max(0, outroSec);
+  const span = to - from;
+  if (!(span > 0)) return { cadence: BLANK_CADENCE, times: [] };
+  const n = Math.min(MAX_TIMELINE, Math.max(1, Math.ceil(span / BLANK_CADENCE)));
+  const cadence = span / n;
+  // Mid-window, so a sample speaks for the seconds either side of it rather than for the
+  // instant a card happens to change.
+  const times = Array.from({ length: n }, (_, i) => from + (i + 0.5) * cadence);
+  return { cadence, times };
+}
+
+/**
+ * Capture the even-cadence set. Same instrument as `captureSamples`, different question.
+ *
+ * `text` is left empty: this set exists to be measured, never to be read back or shown to
+ * a model, and `textAt` is the expensive part of building a sample.
+ */
+export async function captureTimeline(
+  browser: Browser,
+  plan: RenderPlan,
+  html: string,
+  outroSec: number,
+): Promise<{ cadence: number; samples: FrameSample[] }> {
+  const { cadence, times } = timelineTimes(plan, outroSec);
+  if (times.length === 0) return { cadence, samples: [] };
+  const cap = await openCapture(browser, plan.frame, html);
+  const samples: FrameSample[] = [];
+  try {
+    for (const [index, at] of times.entries()) {
+      await cap.seek(at);
+      const png = await cap.frame();
+      samples.push({
+        index,
+        at,
+        sceneId: sceneIdAt(plan, at),
+        png,
+        ...{ ink: await inkShare(png, plan.frame) },
+        text: [],
+      });
+    }
+  } finally {
+    await cap.close();
+  }
+  return { cadence, samples };
+}
+
+/** The scene a moment belongs to. */
+function sceneIdAt(plan: RenderPlan, t: number): string {
+  let id = plan.scenes[0]?.id ?? '?';
+  for (const s of plan.scenes) {
+    if (t >= s.start) id = s.id;
+  }
+  return id;
+}
+
+/**
+ * Stretches of the film with nothing on the paper (plan `blank-run`).
+ *
+ * A run is consecutive samples all under `BLANK_INK_SHARE`; its length is how much film
+ * they stand for, which is why the cadence has to come in with them. A frame that could
+ * not be decoded ends the run rather than joining it — a gate that failed to measure must
+ * never report the frame as empty, which is the same posture `inkFloorViolations` takes by
+ * skipping it.
+ */
+export function blankRunViolations(
+  samples: readonly FrameSample[],
+  cadence: number,
+): BoardViolation[] {
+  const out: BoardViolation[] = [];
+  let run: FrameSample[] = [];
+  const flush = (): void => {
+    const len = run.length * cadence;
+    const head = run[0];
+    if (head && len >= MIN_BLANK_RUN) {
+      const from = Math.max(0, head.at - cadence / 2);
+      const scenes = [...new Set(run.map((s) => s.sceneId))].join(', ');
+      out.push({
+        kind: 'blank-run',
+        message:
+          `${len.toFixed(1)}s of blank paper from ${from.toFixed(1)}s (scene${
+            run.length === 1 ? '' : 's'
+          } ${scenes}): ${run.length} consecutive frame${run.length === 1 ? '' : 's'} under ` +
+          `${(BLANK_INK_SHARE * 100).toFixed(1)}% ink, against a ${MIN_BLANK_RUN.toFixed(1)}s ` +
+          'ceiling — the board went out and the film kept running',
+      });
+    }
+    run = [];
+  };
+  for (const s of samples) {
+    if (s.ink !== undefined && s.ink < BLANK_INK_SHARE) run.push(s);
+    else flush();
+  }
+  flush();
+  return out;
+}
+
+/** What the even-cadence pass measured, for the report's note. */
+export function blankNote(samples: readonly FrameSample[], cadence: number): string | undefined {
+  const shares = samples.map((s) => s.ink).filter((v): v is number => v !== undefined);
+  if (shares.length === 0) return undefined;
+  const sorted = [...shares].sort((a, b) => a - b);
+  const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2]! : 0;
+  const median =
+    sorted.length % 2 ? mid : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
+  const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
+  const blank = shares.filter((v) => v < BLANK_INK_SHARE).length;
+  return (
+    `${shares.length} frames every ${cadence.toFixed(1)}s: mean ink ${(mean * 100).toFixed(2)}%, ` +
+    `median ${(median * 100).toFixed(2)}%, ${blank} blank`
+  );
 }
 
 /** A one-line summary of what the ink measurement found, for the report's note. */

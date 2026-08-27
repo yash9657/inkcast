@@ -1078,10 +1078,11 @@
       if (!item.persist) {
         // `fadeSpan` in compile.ts computes this same number — see the note there.
         var fadeDur = Math.min(0.55, Math.max(0.2, item.dur * 0.6));
-        // Where the ink goes out. `sceneEnd` keeps it up through the deliberate
-        // silence, which is what an accumulating board wants. A wiping board sends
-        // `fadeAt` instead: the fade lands inside the silence rather than after it,
-        // so the pause is a blank board the next card cuts into.
+        // Where the ink goes out, as the second the fade *completes*. `sceneEnd` keeps
+        // it up through the deliberate silence, which is what an accumulating board
+        // wants. A wiping board sends `fadeAt` instead, which `wipeFadeAt` in
+        // compile.ts lands on the beat's end — same shape, but anchored to the scene
+        // `persistUntil` names where a card outlives the beat that drew it.
         var fadeEnd = item.fadeAt === undefined ? item.sceneEnd : item.fadeAt;
         var fadeStart = fadeEnd - fadeDur;
         if (t > fadeStart) alpha *= 1 - easeInOutSine(c01((t - fadeStart) / fadeDur));

@@ -13,7 +13,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { lessonStoryboard, planWithVisuals, wipeStoryboard } from './fixture.js';
 import type { Rect } from './types.js';
-import { inkFloorViolations, ocrDiff, sampleTimes, textAt, MIN_INK_SHARE } from './tier2.js';
+import {
+  blankRunViolations,
+  inkFloorViolations,
+  ocrDiff,
+  sampleTimes,
+  textAt,
+  timelineTimes,
+  MIN_INK_SHARE,
+  type FrameSample,
+} from './tier2.js';
 
 test('one sample per beat on a short film, spanning the whole film on a long one', async () => {
   const plan = await planWithVisuals(lessonStoryboard());
@@ -173,4 +182,66 @@ test('the OCR diff forgives case, punctuation and short words, and nothing else'
   // A model that read nothing is not evidence that the board is blank.
   assert.deepEqual(ocrDiff([{ index: 0, read: [] }], [sample]), []);
   assert.deepEqual(ocrDiff([{ index: 0 }], [sample]), []);
+});
+
+/* ------------------------------------------------------------------- blank-run */
+
+/** A synthetic timeline: one sample a second, each with the ink share given. */
+function timeline(shares: readonly (number | undefined)[], from = 1.5): FrameSample[] {
+  return shares.map((ink, i) => ({
+    index: i,
+    at: from + i,
+    sceneId: `s${Math.floor(i / 3)}`,
+    png: new Uint8Array(),
+    ...(ink === undefined ? {} : { ink }),
+    text: [],
+  }));
+}
+
+test('a held scene whose ink has all faded is reported, with where and for how long', () => {
+  // Two beats of drawn board, then four seconds of nothing, then a beat that draws
+  // again. This is the shape of `projects/c5caa09eb153`: the wipe took the card out and
+  // the reading-time extension kept the film running over the empty paper.
+  const runs = blankRunViolations(timeline([0.04, 0.03, 0, 0, 0.001, 0, 0.05]), 1);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.kind, 'blank-run');
+  // From 3.0s (the first blank sample stands for the second either side of it) for 4.0s.
+  assert.match(runs[0]?.message ?? '', /^4\.0s of blank paper from 3\.0s /);
+  assert.match(runs[0]?.message ?? '', /4 consecutive frames under 0\.5% ink/);
+
+  // A drawn board of any density is not a run, however sparse.
+  assert.deepEqual(blankRunViolations(timeline([0.006, 0.006, 0.006, 0.006]), 1), []);
+  // Nor is a fade: one sample under the floor stands for one second, and the ceiling is
+  // two. A card change has to be allowed to be punctuation.
+  assert.deepEqual(blankRunViolations(timeline([0.04, 0, 0.04, 0, 0.04]), 1), []);
+  // The run's length is what the samples stand for, so a coarser cadence finds it sooner.
+  assert.equal(blankRunViolations(timeline([0.04, 0, 0.04]), 2.5).length, 1);
+
+  // A frame that could not be decoded ends the run rather than joining it — the same
+  // posture `inkFloorViolations` takes. Two blanks either side of one unmeasured frame
+  // are two two-second runs, not one five-second one.
+  const split = blankRunViolations(timeline([0, 0, undefined, 0, 0]), 1);
+  assert.equal(split.length, 2);
+  assert.match(split[0]?.message ?? '', /^2\.0s of blank paper from 1\.0s /);
+  assert.match(split[1]?.message ?? '', /^2\.0s of blank paper from 4\.0s /);
+});
+
+test('the timeline skips the first second and the whole outro', async () => {
+  const plan = await planWithVisuals(lessonStoryboard());
+  const outroSec = 1.2;
+  const { cadence, times } = timelineTimes(plan, outroSec);
+  assert.ok(times.length > 0);
+  const first = times[0] as number;
+  const last = times[times.length - 1] as number;
+  // Inside the window at both ends, by half a sample — every sample stands for the
+  // seconds around it and none of them may stand for film outside the window.
+  assert.ok(first - cadence / 2 >= 1 - 1e-9, `first sample at ${first.toFixed(2)}s`);
+  assert.ok(
+    last + cadence / 2 <= plan.duration - outroSec + 1e-9,
+    `last sample at ${last.toFixed(2)}s of a ${plan.duration.toFixed(2)}s film`,
+  );
+  // The outro is a deliberate held frame belonging to no beat, so a blank one is not a
+  // finding: with the whole film excluded there is nothing to sample and nothing to say.
+  assert.deepEqual(timelineTimes(plan, plan.duration).times, []);
+  assert.deepEqual(blankRunViolations([], cadence), []);
 });

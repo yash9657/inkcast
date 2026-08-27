@@ -71,7 +71,10 @@ import { compileBoard } from './compile.js';
 import { resolveFont } from './font.js';
 import { buildPageHtml } from './html.js';
 import {
+  blankNote,
+  blankRunViolations,
   captureSamples,
+  captureTimeline,
   inkFloorViolations,
   inkNote,
   ocrDiff,
@@ -234,9 +237,10 @@ export async function check(
 
 /**
  * Everything that needs the page open: the realized-layout sweep (plan 2.7) and Tier 2
- * (plan 3.3). One Chromium launch for all of it, because launching is the whole cost.
+ * (plan 3.3, plus `blank-run`). One Chromium launch for all of it, because launching is
+ * the whole cost — the two frame passes each open their own page on that one browser.
  *
- * All three checks skip rather than fail when the page cannot be opened, and each skip
+ * Every check here skips rather than fails when the page cannot be opened, and each skip
  * carries its reason — a report that could not look must never read as one that looked
  * and found nothing. The board that would be lettered by an unmeasured system face is a
  * skip too: sizes measured against a face the film will not use describe a different
@@ -252,6 +256,7 @@ async function lookAtFrames(
     checks: [
       qcSkip('realized-layout', why),
       qcSkip('ink-floor', why, 2),
+      qcSkip('blank-run', why, 2),
       qcSkip('frame-vision', why, 2),
       qcSkip('ocr-diff', why, 2),
     ],
@@ -286,12 +291,23 @@ async function lookAtFrames(
     // The pixel half: free, so it always runs. This is the ungameable measure beside
     // the bbox fill gate, and the two disagreeing is a signal rather than noise.
     const samples = await captureSamples(browser, plan, html);
+    // The second pass, and it is a second pass on purpose: `captureSamples` looks where
+    // each beat is fullest, which is exactly where blank paper cannot be. See
+    // `timelineTimes`. Advisory for now — it has never run over a corpus, and the plan
+    // promotes it once it has (`docs/PLAN-GOLPO-CLOSE.md` §7).
+    const timeline = await captureTimeline(browser, plan, html, sb.meta.outroSec);
+    const blank = blankNote(timeline.samples, timeline.cadence);
     const checks: QcCheck[] = [
       realized,
       qcCheck(
         'ink-floor',
         inkFloorViolations(samples).map((v) => v.message),
         { tier: 2, ...(inkNote(samples) === undefined ? {} : { note: inkNote(samples) }) },
+      ),
+      qcCheck(
+        'blank-run',
+        blankRunViolations(timeline.samples, timeline.cadence).map((v) => v.message),
+        { tier: 2, severity: 'warn', ...(blank === undefined ? {} : { note: blank }) },
       ),
     ];
 

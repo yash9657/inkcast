@@ -597,12 +597,43 @@ const MAX_READING_EXTRA = 5;
  * ordering is deliberate and cannot be swapped — the renderer needs measured scene
  * durations, which only exist after this stage. See `pipeline/src/progress.ts`.
  *
+ * ## Why not `wanted` — reversed 2026-08-27
+ *
+ * This used to lengthen the beat against `PenSchedule.wanted`, the uncompressed pen
+ * time, on the argument recorded there: `lastFinish` is bounded by the beat, so a beat
+ * that is too short reports a comfortable-looking schedule. The argument is sound about
+ * *pen* time and wrong about *policy*, because `wanted` is `estimateInkCost` over
+ * authored boxes and that estimator has never been validated against the renderer's
+ * real pace. On `projects/c5caa09eb153` it demanded 45s of silence across ten beats —
+ * on a preset whose `maxHold` is 0.8 — for a compile that authored 6.3s of hold, and
+ * the film came out 96.9s against 44.3s of speech. An unbounded film budget must not
+ * stand on an unvalidated estimator.
+ *
+ * `lastFinish` is bounded by the scene's own length, so estimator error cannot blow the
+ * budget. What is left to extend by is `tail` — `readingTail`, derived from exact word
+ * counts and already capped at `MAX_READ_SHARE` of the scene. The uncompressed-pen goal
+ * is met elsewhere now: `wipeFadeAt` makes the held time show the *finished* board
+ * rather than an empty one, and `board: 'accumulate'` removes the wipe deadline
+ * altogether. The reference product's pen is visibly compressed and it reads fine. See
+ * `docs/PLAN-GOLPO-CLOSE.md` §2.
+ *
+ * The function stays, and must: the reading tail it guarantees is exactly the dwell the
+ * gate-1 dissection found missing on six of ten scenes.
+ *
  * ## Idempotence
  *
- * The extension is appended to a clip that may already carry one. A second run
- * recomputes the same `need`, finds the beat already that long, and appends
- * nothing — which is what makes this safe to do after the freshness marker has been
- * written. `authoredHold` keeps the *cache key* stable across the same two runs.
+ * The extension is appended to a clip that may already carry one, so everything below
+ * is measured against the beat the **compiler** wrote (`ctx.authoredHold`) and never
+ * against the beat this stage has already lengthened. `wanted` got that for free by
+ * being independent of the beat's length; `lastFinish` and `readingTail` are not —
+ * both grow with the length they are handed, so a second run measuring the extended
+ * beat finds it wanting again and extends it again, every run. Measured: a 0.65s
+ * authored hold went 2.15s → 3.65s on the second pass before this was anchored.
+ *
+ * So the arithmetic computes a *target* length for the beat and appends only the
+ * difference. Run two computes the same target, finds the clip already there, and
+ * appends nothing — which is what makes this safe to do after the freshness marker has
+ * been written. `authoredHold` keeps the *cache key* stable across the same two runs.
  */
 async function allowReadingTime(
   scene: Scene,
@@ -626,18 +657,25 @@ async function allowReadingTime(
     .filter((slot) => slot.ink > 0);
   if (slots.length === 0) return timing;
 
-  const length = timing.narrationSec + timing.holdSec;
+  // The beat as the compiler wrote it, and the beat as it stands. They differ by
+  // exactly this stage's own earlier extension — see "Idempotence" above.
+  const authored = timing.narrationSec + ctx.authoredHold;
+  const standing = timing.narrationSec + timing.holdSec;
   // The last two marks by cue are the last two to finish — the schedule only ever
   // delays, never reorders — so the reader's floor can be computed before it exists.
   const last = [...slots].sort((a, b) => a.at - b.at).slice(-2);
   const words = last.reduce((n, slot) => n + wordsOfElement(scene, slot.id), 0);
-  const tail = readingTail(words, length);
+  const tail = readingTail(words, authored);
 
-  // `wanted`, not `lastFinish`: the beat is already bounded by its own length, so
-  // the schedule inside it always *looks* comfortable. What this needs is the time
-  // the marks would take if nothing were compressed. See `PenSchedule.wanted`.
-  const need = serializePen(slots, { length, speech: timing.narrationSec }).wanted + tail;
-  const extra = Math.min(MAX_READING_EXTRA, need - length);
+  // `lastFinish`, not `wanted` — reversed 2026-08-27, see the "Why not `wanted`"
+  // section above. This buys reading time and nothing else; estimated pen time is not
+  // its business. `serializePen` bounds `lastFinish` by the length it is given, so the
+  // only thing that can grow the beat here is `tail`, and `tail` is capped at
+  // `MAX_READ_SHARE` of it — `MAX_READING_EXTRA` is now an outer bound rather than the
+  // number that binds.
+  const finish = serializePen(slots, { length: authored, speech: timing.narrationSec }).lastFinish;
+  const want = Math.min(authored + MAX_READING_EXTRA, finish + tail);
+  const extra = round3(want - standing);
   if (!(extra > 0.02)) return timing;
 
   await appendSilence(ctx.abs, extra);

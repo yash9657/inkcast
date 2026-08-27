@@ -138,16 +138,20 @@ export type PlanItem = {
    * Absolute second at which this item's fade **completes**, when it is not
    * `sceneEnd`. Set only on a wiping board (`meta.board: 'wipe'`).
    *
-   * The card is finished and static for the whole narration; the fade begins the
-   * instant the narration stops and runs 0.2–0.55s, so the rest of `Scene.hold` is a
-   * blank board the next card cuts into — the benchmark's blank frame at 41s. Fading
-   * at `sceneEnd` instead spends the deliberate pause watching the card die, which
-   * reads as a mistake rather than a beat.
+   * The card is finished and static for the whole narration *and* for the hold that
+   * follows it, and the fade lands on the beat's end — so the paper is blank for the
+   * 0.2–0.55s of the fade and no longer. It used to begin the instant the narration
+   * stopped, which made the rest of `Scene.hold` an empty board; that is coherent only
+   * if the hold is punctuation, and the voice stage buys it as *reading time for the
+   * finished card*. Half of `projects/c5caa09eb153` was the resulting blank paper.
    *
-   * Undefined when the mode is `accumulate`, and also when the anchor scene's hold
-   * is shorter than the fade would be: there is nowhere to put the fade that is not
-   * over spoken words, so today's schedule stands. Anchored to the scene named by
-   * `persistUntil` where a card outlives its own beat.
+   * So on an item anchored to its own scene this is now exactly `sceneEnd`, and it is
+   * still written: it is what tells `sampleTimes` (`tier2.ts`) that a wiping beat's
+   * fullest moment is before the fade, and what tells `textAt` when a card's words stop
+   * being on the board. Undefined when the mode is `accumulate`, and also when the
+   * anchor scene's hold is shorter than the fade would be: there is nowhere to put the
+   * fade that is not over spoken words, so today's schedule stands. Anchored to the
+   * scene named by `persistUntil` where a card outlives its own beat.
    */
   fadeAt?: number;
   /** Transform origin for `pop` / `grow`. */

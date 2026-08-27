@@ -39,7 +39,18 @@ import { rectContains } from './geom.js';
 
 export type BoardViolation = {
   kind:
-    'ink-on-ink' | 'off-frame' | 'overrun' | 'illegible' | 'vacant' | 'crowded' | 'dwell' | 'pen';
+    | 'ink-on-ink'
+    | 'off-frame'
+    | 'overrun'
+    | 'illegible'
+    | 'vacant'
+    // Not a sparser `vacant`: that one asks whether a finished beat is worth looking at,
+    // and this one asks whether the viewer is looking at nothing at all, for how long.
+    // See `blankRunViolations` in `tier2.ts`.
+    | 'blank-run'
+    | 'crowded'
+    | 'dwell'
+    | 'pen';
   message: string;
 };
 

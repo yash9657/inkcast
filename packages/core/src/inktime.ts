@@ -438,10 +438,20 @@ export type PenSchedule = {
   /**
    * When the last mark would have finished if nothing had been compressed.
    *
-   * The number the voice stage lengthens a beat against: `lastFinish` is already
-   * bounded by the beat, so a beat that is too short reports a comfortable-looking
-   * `lastFinish` and a wrecked schedule. This is what the marks actually asked for,
-   * and therefore what "how long does this beat need to be" means.
+   * What the marks actually asked for, as opposed to what they were given —
+   * `lastFinish` is bounded by the beat, so a beat that is too short reports a
+   * comfortable-looking `lastFinish` and a wrecked schedule. Read it to answer "was
+   * this beat's drawing compressed, and by how much", which is what `compressed` and
+   * the dwell gate are about.
+   *
+   * **It is no longer what the voice stage lengthens a beat against** (reversed
+   * 2026-08-27; this comment used to say the opposite). It is `estimateInkCost` over
+   * authored boxes, an estimator never validated against the renderer's real pace, and
+   * an unbounded film budget must not stand on one: on `projects/c5caa09eb153` it asked
+   * for 45s of extra silence on a compile that authored 6.3s of hold, and the film came
+   * out 52% blank paper. `allowReadingTime` in `voice/src/narrate.ts` now extends
+   * against `lastFinish + readingTail`, which the scene's own length bounds. See
+   * `docs/PLAN-GOLPO-CLOSE.md` §2.
    */
   wanted: number;
   /** Marks that ended up starting after the narration stopped. See `serializePen`. */
@@ -576,8 +586,9 @@ export function serializePen(slots: readonly PenSlot[], opts: PenOptions): PenSc
 
   let durs = scaled(1);
   // What the beat asks for, before any of the compressions below. Recorded now
-  // because this is the only moment it is knowable, and the voice stage lengthens
-  // beats against it — see `PenSchedule.wanted`.
+  // because this is the only moment it is knowable — it is how much the schedule
+  // below had to take away. See `PenSchedule.wanted`, including what stopped
+  // lengthening beats against it on 2026-08-27.
   const asked = place(durs).end;
 
   // 1. The subject's guard. Only the marks *before* it are compressed — shortening
