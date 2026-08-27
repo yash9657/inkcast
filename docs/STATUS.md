@@ -2853,3 +2853,83 @@ the real per-scene timings from `audio/scene-*.timing.json` — s3's beat is **2
 last element enters at 62% of the scene and completes at 2.75s of 2.97s. The ink fits. The
 unfinished panel was an artifact of a storyboard compiled with no voice stage, where 12 enter
 cues fall back to `enter.at`; those frames cannot be used to judge timing, only composition.
+
+# 2026-08-27 (later) — half the film is blank paper, and the estimator never saw it
+
+A fresh cast on a competitor's own topic — "How does day and night happen in your town",
+`projects/c5caa09eb153`, the same prompt as their 89.5s film — was rendered and measured
+against theirs. It is the first end-to-end render since 2026-08-25 and it invalidates a
+claim made earlier the same day.
+
+## The number
+
+**52% of the film is blank paper.** 48 frames sampled evenly across 96.9s; 25 of them carry
+under 0.5% ink. Content coverage mean 1.9%, **median 0.0%**. Against the same measurement on
+their film: **5.7%** mean, no blank runs.
+
+## The cause, and it is arithmetic rather than art
+
+|                              | seconds  |
+| ---------------------------- | -------- |
+| speech (10 scenes, measured) | 44.3     |
+| **hold**                     | **51.6** |
+| outro                        | 1.0      |
+| **total**                    | **96.9** |
+
+The silence is larger than the film's speech. Individual holds run 1.89, 4.56, 3.80, 5.42,
+6.78, 3.87, **10.50**, 5.32, 4.53, 4.92 — on a preset whose `maxHold` is **0.8**.
+
+`explainer.maxHold` is not broken; it is **overwritten**. `holdFor` caps the compiled hold
+correctly and a fresh `sbjson.mts` compile of this same lesson gives holds summing to
+**6.3s**. Then `narrate.ts:1193` does `scene.hold = round3(timing.holdSec)`, the voice
+stage's reading-time arithmetic (plan item 1.3, "lengthens a beat so its finished board can
+be read before it is wiped"), derived from `boardMetrics` + `inkPaceFor` — the ink drawing
+pace. A card with much ink and short narration therefore gets a very long hold.
+
+So `Preset.maxHold`'s own comment — "a cap applied to the estimate but not to the film is a
+cap that only makes the estimate wrong" — describes the state of the code again. It fixed
+the planner's half; a later stage re-broke it from the other side. Whatever the fix is, the
+two mechanisms have to be reconciled rather than each left correct in isolation.
+
+Worth checking before fixing: whether that silence lands _before_ the wipe (a finished card
+held, which is what 1.3 intends) or _after_ it (blank paper held, which is what the frame
+sampling looks like). The timeline of per-frame coverage runs in long zero stretches, which
+suggests the latter.
+
+## What this invalidates
+
+**Gate 8 was verified against `lessonSeconds`, and `lessonSeconds` does not model this
+silence.** It estimated **62.7s** for this film; the render is **96.9s**, 55% over. Every
+"60–90s" reading taken on 2026-08-27 — including the ones recorded above as closing gate 8 —
+was taken on that estimate. The band is a claim about the _film_, so it is unverified on
+anything but `f3ac9c760194`, and this film **fails** it at 96.9s.
+
+Gate 6 is not affected and is the reason this is diagnosable: delivered rate measured 11.27
+to 14.00 letters a second across the ten scenes, averaging ~12.2 against the 12.16 pin. The
+speech arithmetic is right. It is the non-speech arithmetic that is not, and `lessonSeconds`
+sums `step.hold` — the _authored_ hold, capped — so it cannot see what the voice stage will
+later write there.
+
+The lesson: an estimator is not a measurement, and no gate about runtime should be reported
+closed without an `out.mp4`.
+
+## What the same cast got right
+
+Not everything. The lesson is real teaching — card titles came back "One turn, one day",
+"Quarter turns", "The ball spins", "The whole chain" — and the misconception survived the
+trim, which is what `e60b9bf` was for. The film's length is in the same class as theirs
+(96.9s against 89.5s). The defect is entirely in what the viewer looks at during it.
+
+## Ink density, separately from the blankness
+
+Excluding the blank frames does not close the gap: ours reads ~4% on its best frames against
+their 5.7% mean and a 10% ceiling. Their explainer films are **line art too** — thin
+white/cyan strokes on dark navy, not colour illustration — so the earlier reading of the
+parity doc ("a different purpose-drawn figure per beat") does not describe these samples.
+What their frames have that ours do not is a **dark ground**, several inks at once, and a
+textured rather than flat paper. Sparse line art reads as luminous on navy and as empty on
+white.
+
+They also select a visual template per topic — navy blueprint, neon-on-black accumulating
+board, painterly colour, flat vector — across the four samples in `~/Downloads`. We have one
+look on every topic. That is a larger gap than any single metric on this page.
