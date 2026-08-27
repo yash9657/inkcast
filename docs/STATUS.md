@@ -2788,3 +2788,68 @@ the only beat citing step5, the trimmer reported "nothing surviving derives from
 canary simultaneously reported that something did. Same reference; only one of them was
 counting the recap. The canary now skips the recap and nothing else, and fires zero times
 across the three casts and the three shipped lessons at three presets.
+
+## Gate 1, looked at rather than computed — and the second lever is dead too
+
+The two beats the arithmetic above blames were rendered and opened. `sbjson.mts` compiles the
+board, `frames.mts` draws it, and because the marks are already authored only the generated
+figures degrade to placeholders — so the mark beats render for real, free.
+
+**s5 ("The perfect trade", the balance scale) is a good card.** It spans the full frame, it
+is balanced, every part is legible, and it teaches the beat. It scores `cover` 29%, fill
+19–20%, and `markcheck` flags it `thin-card` with "draw every part bigger where it stands".
+Looking at it, that advice is wrong: there is no part of that drawing which wants to be
+bigger, and the white in it is composed rather than left over.
+
+**Why the number disagrees with the frame.** `cover` is a union of **bounding boxes**, and
+the lane's own docs already record the diagonal-line weakness. The axis-aligned case is the
+same artifact from the other side and it is worse:
+
+```
+balance-beam   560x1 units   = 0.2% of the span
+balance-post     1x80        = 0.0%
+pull-arrow       1x65        = 0.0%
+```
+
+Those are among the most visually prominent strokes on the card and they measure nothing. Of
+s5's 29% `cover`, **18 points are labels** — two thirds of the measured content is
+handwriting, not drawing. On s3 it is 12 points of 24. A drawing whose subject is a
+_relation_ is drawn in lines and arrows, and those are exactly the marks with degenerate
+boxes.
+
+**What the corpus says.** `markcheck cache` over 269 drawings: mean fill **27%**, median
+**25%**, and `thin-card` is the single commonest defect at **108 of 269**. So this is the
+lane's dominant systematic reading, not this film's accident. It is also not a ceiling —
+drawings in the same cache reach `cover` 95% and 100% — but the ones that do are the ones
+built from area marks (`hatch`, `dots`, filled forms), not from arrows.
+
+**So the drawing-lane lever is dead as well, and for a reason worth writing down.**
+`DRAW_BRIEF` already contains the definitive statement of exactly this instruction —
+"cards whose marks span the whole board and cover a fifth of it, which read as an empty
+board with specks on it… It is the _ratio_ that matters and not the size you draw at" — and
+the correction pass built on it was measured over eight subjects and improved nothing while
+making two drawings worse. A fifth restatement of a paragraph the brief already has in its
+strongest form is the persuasion the measured pass replaced.
+
+**What is actually true of the two beats, separately:**
+
+- **s5 is fine and its score is an artifact.** Pushing it fuller would trade a good card for
+  two points of a metric.
+- **s3 ("Weight is the pull") is genuinely the weaker card.** It is a two-panel comparison
+  whose panels are unbalanced — the left panel carries a stick figure, a ball, three labels
+  and two arrows, and the right panel carries a hand, an apple and its labels in
+  significantly less ink. There is real room in it, and it is the one beat where
+  `thin-card`'s advice would be taken honestly.
+
+s3 alone does not close the gate: at 30% the mean reaches 34.2%. s3 to 30% **and** s5 to 25%
+reaches 35.2% and passes. So on the current bar, closing gate 1 requires improving a card
+that does not need improving.
+
+### One claim withdrawn
+
+A first pass at this read the no-audio render as showing s3's right panel never finishing
+before the wipe, which would have been a far worse defect than low fill. It is not true. With
+the real per-scene timings from `audio/scene-*.timing.json` — s3's beat is **2.97s** — the
+last element enters at 62% of the scene and completes at 2.75s of 2.97s. The ink fits. The
+unfinished panel was an artifact of a storyboard compiled with no voice stage, where 12 enter
+cues fall back to `enter.at`; those frames cannot be used to judge timing, only composition.
