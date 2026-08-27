@@ -114,7 +114,18 @@ export {
 /* The hybrid lane's placement rules. Exported because the pipeline's seam has to generate
  * an underlay under exactly the id, prompt, seed and box the compiler will place it at —
  * see `./underlay.ts` for what a disagreement between the two would look like. */
-export { readInkBox, underlayAsset, underlayInkBox, UNDERLAY_AREA } from './underlay.js';
+export {
+  isTraced,
+  readInkBox,
+  readUnderlay,
+  underlayAsset,
+  underlayInkBox,
+  UNDERLAY_AREA,
+} from './underlay.js';
+/* `prepareMarks` and `auditDrawing` both take one, and which lane it came from decides
+ * whether it is an obstacle — see `underlayInk`. Exported with them, so a caller outside
+ * this package cannot end up building one by hand and guessing `traced`. */
+export type { Underlay } from './draw-geom.js';
 export { assetSeed } from './compile.js';
 export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
 export {
