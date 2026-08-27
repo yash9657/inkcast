@@ -180,7 +180,14 @@ and was **not** landed. An unmeasured brief edit is the persuasion that pass rep
 Restoring the cut misconception does not close this either: it was a 36%-fill scene on the
 old film, and adding one to eight scenes averaging 30.8% gives ~31.4%.
 
-**The gap is `cover` and `shape` on relation beats.** s3 and s5 sit at 15–16% with `held`
+**The gap is `cover`, not `shape` — this paragraph is wrong.** Measured with `markcheck`
+2026-08-27: on the two worst beats `shape` is 86% and 93%, the _healthiest_ numbers on the
+film, against 64–68% on the two beats that pass. They already span the board. `cover` is
+24% and 29% against 44–45% on the passing beats — they spread wider and got thinner doing
+it. And only these two beats matter: raising s3 and s5 alone to 30% fill closes the gate.
+See `docs/STATUS.md`'s 2026-08-27 section. Original claim follows.
+
+s3 and s5 sit at 15–16% with `held`
 ~50%, meaning both factors are down at once. `thin-card` already tells the author exactly
 this and **must not be allowed to open the critic's gate** — the first eight measured
 correction calls it would have paid for improved nothing and made two drawings worse.

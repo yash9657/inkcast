@@ -2719,11 +2719,47 @@ the 36% the old film's version measured, and it moves the mean 30.8% → 32.4%.
  8 s8  recap         fill 24%  held 71%  cover 34%
 ```
 
-The gap is `cover` and `shape` on the relation beats: s3 and s5 sit at 15–16% with `held`
-~50%, both factors down at once. `thin-card` already tells the author exactly this and must
-not be allowed to open the critic's gate — see the section above, where the first eight
-measured correction calls it would have paid for improved nothing and made two drawings
-worse. `INKCAST_DRAW_FIX=all` is how to test a `FIX_BRIEF` that claims to earn them.
+### Which scenes have to move, and by how much
+
+Only two. Raising **s3 and s5 alone to 30%** takes the mean to 35.8% and closes the gate;
+nothing else needs to touch. At 25% it reaches 34.7% and does not. This is the whole of
+gate 1's remaining arithmetic.
+
+### And it is `cover`, not `shape` — the previous handoff had this backwards
+
+`markcheck` on the same lesson, per beat (`b3` is s3, `b5` is s5):
+
+```
+b1 anchor  cover 44%  shape 68%  fill 23%
+b2 step1   cover 45%  shape 64%  fill 22%
+b3 step2   cover 24%  shape 86%  fill 16%   thin-card
+b4 step3   cover 35%  shape 75%  fill 20%   thin-card
+b5 step4   cover 29%  shape 93%  fill 20%   thin-card
+b8 recap   cover 30%  shape 97%  fill 22%
+```
+
+`docs/HANDOFF-THREE-GATES.md` says these beats have "both factors down at once". They do
+not. **`shape` is the healthiest number on the two worst beats** — 86% and 93%, against 64%
+and 68% on the two beats that pass. The drawing already spans nearly the whole board. What
+is missing is ink _inside_ that span: `cover` 24% and 29%, against 44–45% on the beats that
+clear the bar.
+
+So the two are inversely related here, and that is the finding: these beats spread wider
+and got thinner doing it. The lever is **not** more canvas — they already have it — and it
+is not a bigger drawing either. `markcheck`'s own `thin-card` line says the right thing and
+says it precisely: "draw every part bigger where it stands until the ink fills the space
+between the parts — scaling the whole drawing up changes nothing, because the board fits it
+to the card either way."
+
+Sizing the target: at `shape` 86%, b3 needs `cover` ≈ 35% to reach 30% fill, from 24% now.
+The beats that pass sit at 44%, so the number being asked for is one the same author already
+produces on other beats of the same film — which is the strongest available evidence that
+this is reachable rather than a bar the lane cannot meet.
+
+`thin-card` must still not be allowed to open the critic's gate — see the section above,
+where the first eight measured correction calls it would have paid for improved nothing and
+made two drawings worse. `INKCAST_DRAW_FIX=all` is how to test a `FIX_BRIEF` that claims to
+earn them, and the two beats above are the ones to measure it on.
 
 ## Two bugs of the same shape, one fixed and one still open
 
