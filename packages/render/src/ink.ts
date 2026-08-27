@@ -30,6 +30,42 @@ import { spawn } from 'node:child_process';
  */
 export const DARK_ENOUGH = 225;
 export const SATURATED_ENOUGH = 30;
+
+/**
+ * Luminance of the default light paper, and the gap from it that makes a pixel ink.
+ *
+ * **This used to be the whole rule, as `lum < DARK_ENOUGH`, and on a dark board it made
+ * the instrument meaningless.** `statFrame` is what `inkstat.mts` scores a film with, what
+ * `MIN_INK_SHARE` (`ink-floor`) gates on, and what `blank-run` counts — and all three were
+ * asking "is this pixel dark", which on slate or navy is true of the *paper*. Measured
+ * 2026-08-27: `projects/qc92-chalk`, a reviewed chalk film, reads **99.2% ink**, and its
+ * light-board sibling `cardiac9` reads 4.4%. So `ink-floor` passed vacuously on every dark
+ * board ever rendered, and `blank-run` could not have fired on one however empty it was.
+ *
+ * The rule is now a *distance* from the board’s own paper — in luminance and in chroma both —
+ * on a dark board the ink is lighter than the ground rather than darker. `INK_LUMA_GAP` is
+ * exactly `PAPER_LUMA - DARK_ENOUGH`, so on the default paper the comparison reduces to
+ * `lum < 225` term for term and no light-board number in this repo moves — including the
+ * corpus derivation behind `MIN_INK_SHARE`, which was taken with the old rule.
+ */
+export const PAPER_LUMA = 0.299 * 0xfc + 0.587 * 0xfb + 0.114 * 0xf9;
+export const INK_LUMA_GAP = PAPER_LUMA - DARK_ENOUGH;
+/** Chroma of the default light paper — `#fcfbf9` is very nearly neutral. */
+export const PAPER_CHROMA = 0xfc - 0xf9;
+
+/** The board's ground as the two numbers `statFrame` compares against. */
+export function groundOf(hex: string | undefined): { luma: number; chroma: number } {
+  const m = hex ? /^#?([0-9a-f]{6})$/i.exec(hex.trim()) : null;
+  if (!m) return { luma: PAPER_LUMA, chroma: PAPER_CHROMA };
+  const v = parseInt(m[1] as string, 16);
+  const r = (v >> 16) & 255;
+  const g = (v >> 8) & 255;
+  const b = v & 255;
+  return {
+    luma: 0.299 * r + 0.587 * g + 0.114 * b,
+    chroma: Math.max(r, g, b) - Math.min(r, g, b),
+  };
+}
 /** A hue has to be this saturated before it is a hue rather than a grey with a cast. */
 export const HUE_SATURATION = 45;
 /** Hues holding less than this share of the ink are noise — anti-aliasing, mostly. */
@@ -37,9 +73,17 @@ export const HUE_FLOOR = 0.01;
 
 export type FrameStat = { ink: number; hues: Map<number, number> };
 
-/** Ink pixels and hue buckets in one rgb24 frame. */
-export function statFrame(buf: Buffer, w: number, h: number): FrameStat {
+/**
+ * Ink pixels and hue buckets in one rgb24 frame.
+ *
+ * `paper` is the board's own ground as `#rrggbb`; omitted, it is the default light paper
+ * and every number this returns is what it returned before `INK_LUMA_GAP` existed. Pass
+ * it wherever the board is known — a dark pack measured against the light default reports
+ * its own paper as ink and reads ~99%.
+ */
+export function statFrame(buf: Buffer, w: number, h: number, paper?: string): FrameStat {
   const hues = new Map<number, number>();
+  const ground = groundOf(paper);
   let ink = 0;
   for (let i = 0; i < w * h * 3; i += 3) {
     const r = buf[i] as number;
@@ -49,7 +93,12 @@ export function statFrame(buf: Buffer, w: number, h: number): FrameStat {
     const min = Math.min(r, g, b);
     const chroma = max - min;
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum >= DARK_ENOUGH && chroma <= SATURATED_ENOUGH) continue;
+    // Both clauses measured *against the board*, not against absolutes. The second one is
+    // why a navy pack still read 99.9% after the first was made relative: `#14304a` has a
+    // chroma of 54, so "meaningfully coloured" was true of every pixel of the paper.
+    if (Math.abs(lum - ground.luma) <= INK_LUMA_GAP && chroma <= ground.chroma + SATURATED_ENOUGH) {
+      continue;
+    }
     ink++;
     if (chroma <= HUE_SATURATION) continue;
     const deg =
@@ -125,6 +174,7 @@ export async function* rawFrames(
 export async function inkShare(
   png: Uint8Array,
   size: { w: number; h: number },
+  paper?: string,
 ): Promise<number | undefined> {
   const child = spawn(
     'ffmpeg',
@@ -139,5 +189,5 @@ export async function inkShare(
   const code: number = await new Promise((res) => child.on('close', (c) => res(c ?? -1)));
   const buf = Buffer.concat(chunks);
   if (code !== 0 || buf.length < size.w * size.h * 3) return undefined;
-  return statFrame(buf, size.w, size.h).ink / (size.w * size.h);
+  return statFrame(buf, size.w, size.h, paper).ink / (size.w * size.h);
 }

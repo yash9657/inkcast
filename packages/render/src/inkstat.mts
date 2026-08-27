@@ -30,9 +30,16 @@ import { ensureFfmpeg, probeMedia } from './ffmpeg.js';
 // point of scoring both films with the same tool is that they cannot.
 import { HUE_FLOOR, rawFrames, statFrame, type FrameStat } from './ink.js';
 
-const [file, perMinuteArg] = process.argv.slice(2);
+const [file, perMinuteArg, paperArg] = process.argv.slice(2);
 if (!file) {
-  console.error('usage: inkstat.mts <video.mp4> [samplesPerMinute]');
+  console.error('usage: inkstat.mts <video.mp4> [samplesPerMinute] [paper #rrggbb]');
+  process.exit(2);
+}
+// The board's own ground. Without it a dark pack is scored against the light default and
+// reports its *paper* as ink — `projects/qc92-chalk` reads 99.2% that way. See `statFrame`.
+// A project directory's `storyboard.json` names the pack; `stylePacks()` has its palette.
+if (paperArg !== undefined && !/^#?[0-9a-f]{6}$/i.test(paperArg)) {
+  console.error(`paper must be #rrggbb, got "${paperArg}"`);
   process.exit(2);
 }
 
@@ -50,7 +57,7 @@ const still = !(info.duration && info.duration > 0);
 const fps = still ? undefined : `${perMinute}/60`;
 
 const stats: FrameStat[] = [];
-for await (const frame of rawFrames(file, w, h, fps)) stats.push(statFrame(frame, w, h));
+for await (const frame of rawFrames(file, w, h, fps)) stats.push(statFrame(frame, w, h, paperArg));
 if (stats.length === 0) throw new Error(`no frames decoded from ${file}`);
 
 const px = w * h;
@@ -58,7 +65,10 @@ const shares = stats.map((s) => s.ink / px);
 const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
 const pct = (v: number): string => `${(v * 100).toFixed(1)}%`;
 
-console.log(`${basename(file)}  ${w}x${h}  ${stats.length} frames sampled`);
+console.log(
+  `${basename(file)}  ${w}x${h}  ${stats.length} frames sampled` +
+    (paperArg ? `  against paper ${paperArg}` : ''),
+);
 console.log(
   `mean ink ${pct(mean)}  (min ${pct(Math.min(...shares))}, max ${pct(Math.max(...shares))})`,
 );

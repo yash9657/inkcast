@@ -277,7 +277,7 @@ export async function captureSamples(
         at,
         sceneId,
         png,
-        ...{ ink: await inkShare(png, plan.frame) },
+        ...{ ink: await inkShare(png, plan.frame, plan.paper) },
         text: textAt(plan, at),
       });
     }
@@ -388,7 +388,7 @@ export async function captureTimeline(
         at,
         sceneId: sceneIdAt(plan, at),
         png,
-        ...{ ink: await inkShare(png, plan.frame) },
+        ...{ ink: await inkShare(png, plan.frame, plan.paper) },
         text: [],
       });
     }
