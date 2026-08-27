@@ -19,8 +19,12 @@
  * 3. **Will the board break a word in half?** The planner estimates text width and the
  *    renderer wraps again against the real handwriting metrics, so a word wider than its
  *    box comes out as `Cartil / age`. That is arithmetic, not judgement.
- * Plus two whole-drawing checks: ink that has run off the canvas, and a label sitting far
- * enough from every mark that it names nothing.
+ * Plus three whole-drawing checks: ink that has run off the canvas, a label sitting far
+ * enough from every mark that it names nothing, and — the one that is about the card rather
+ * than about a mark — a drawing that will reach the frame as mostly paper (`thinCard`). That
+ * last one is arithmetic for the same reason as the rest: under `wipe` the frame is fitted to
+ * the ink, so what a card will cover is decided by the drawing's shape and how solidly its
+ * marks fill it, and both are knowable before a pixel is drawn. See `cardFill`.
  *
  * ## What is deliberately not measured
  *
@@ -63,6 +67,7 @@ import {
   ADRIFT,
   LABEL_SIZE,
   TYPICAL_FIT,
+  cardFill,
   contentBounds,
   inkDistance,
   inkHitsBox,
@@ -83,12 +88,14 @@ import {
  * the change that stopped `N` being moved out of its magnet. It went to v3 when labels
  * started being measured at the footprint the board draws them at (`labelFootprint`),
  * at the fit a beat is really laid out at rather than at unit scale (`TYPICAL_FIT`).
+ * It went to v4 when `thin-card` was added: a correction made when a card covering a
+ * seventh of the frame was not a defect is an answer to a question this file no longer asks.
  */
-export const AUDIT_VERSION = 'audit/v3';
+export const AUDIT_VERSION = 'audit/v4';
 
 /** What kind of thing is wrong. Ordered by how much a viewer notices it. */
 export type DefectKind =
-  'label-on-label' | 'label-on-ink' | 'broken-word' | 'off-canvas' | 'label-adrift';
+  'label-on-label' | 'label-on-ink' | 'broken-word' | 'off-canvas' | 'label-adrift' | 'thin-card';
 
 export type Defect = {
   kind: DefectKind;
@@ -259,14 +266,100 @@ export function auditDrawing(marks: Mark[], underlay?: Box, scale = TYPICAL_FIT)
     });
   }
 
+  // 6. A card that will reach the frame as mostly paper. Last, because it is the one
+  //    defect here about the drawing as a whole rather than about a mark, and a model
+  //    given a list fixes the top of it first.
+  const thin = thinCard(marks, underlay, scale);
+  if (thin) out.push(thin);
+
   const rank: Record<DefectKind, number> = {
     'label-on-label': 0,
     'label-on-ink': 1,
     'broken-word': 2,
     'off-canvas': 3,
     'label-adrift': 4,
+    'thin-card': 5,
   };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
+}
+
+/**
+ * The share of the frame below which a card reads as an empty board with marks on it.
+ *
+ * Not a fresh opinion: `reportFill` in `core/src/camera.ts` already calls a film whose mean
+ * content fill is under 25% "mostly whitespace", and counts a scene under 14% as empty. This
+ * sits between them, and it is the per-card statement of the same standard.
+ *
+ * Calibrated on the 217 drawings in the machine cache (2026-08-26): predicted fill runs p25
+ * 17%, p50 27%, p75 38%, so this reports 79 of them — a third, which is the same order as
+ * the label defects the audit already reports and well short of a check that fires on
+ * everything. The good end of that corpus reaches 50–67%, which is what says the lane can
+ * draw a full card when it draws one; the acceptance film's five blank-board beats came in
+ * at 10–17% and all five are reported.
+ */
+const THIN_CARD = 0.22;
+
+/**
+ * The fewest marks a drawing must have before its fill is worth a sentence.
+ *
+ * A two-mark drawing is a stub or a fixture, not a card, and "your three marks cover a fifth
+ * of their box" is a sentence about the beat rather than about the drawing — the brief's own
+ * answer to it is that under eight marks is too crude to teach at all. Every real drawing in
+ * the cache is above this; every fixture in `draw-audit.test.ts` is below it.
+ */
+const CARD_MARKS = 5;
+
+/**
+ * What the two factors reach on a card that does fill its frame, so the note can name the
+ * one that is short. From the same 217-drawing corpus: `cover` runs a median of 44% and an
+ * upper quartile of 62%, and the drawings that predict 50–67% of the frame are the ones
+ * above a half. `GOOD_SHAPE` is a span within a third of the board's own proportions —
+ * 1.2:1 to 2.4:1 — which is as far as a drawing can wander from 16:9 and still be framed
+ * without a quarter of the shot going to paper.
+ */
+const GOOD_COVER = 0.5;
+const GOOD_SHAPE = 0.75;
+
+/**
+ * The card that will reach the frame as mostly paper, and which of its two factors is thin.
+ *
+ * Reported as one defect and not two, for the reason `whyThin` gives on the board's own
+ * version of this number: fill is a product, and naming the smaller factor is the difference
+ * between "draw the parts bigger", which is a fix, and "fill the frame", which is a wish.
+ *
+ * **Not reported on a drawing composed over a picture.** `FIGURE_BRIEF` asks that lane for
+ * names and the leaders that reach them and for nothing else, so its marks are *meant* to be
+ * a tenth of the card; the picture underneath is what fills it, and it is not measurable from
+ * here. Reporting those would spend a correction call asking a model to undo its own brief.
+ */
+function thinCard(marks: Mark[], underlay: Box | undefined, scale: number): Defect | undefined {
+  if (underlay || marks.length < CARD_MARKS) return undefined;
+  const card = cardFill(marks, scale);
+  if (!card || card.fill >= THIN_CARD) return undefined;
+  const pct = (v: number): string => `${Math.round(v * 100)}%`;
+  const span = `${round(card.span.w)}x${round(card.span.h)}`;
+  const head =
+    `this card will carry about ${pct(card.fill)} of the frame: the marks cover ${pct(card.cover)} ` +
+    `of the ${span} box they span, and a ${span} box holds ${pct(card.shape)} of a ${DRAW_W}x${DRAW_H} board`;
+  // Which factor to name, and it cannot be decided by comparing them: they are shares of
+  // different things. A card of the board's own shape scores 1 where a good `cover` is about
+  // a half — the cache's median is 44% and its upper quartile 62% — so each is measured
+  // against what a card that fills its frame actually reaches, and when both fall short the
+  // note says both, because fixing either one alone would leave this card thin.
+  const thinCover = card.cover < GOOD_COVER;
+  const wrongShape = card.shape < GOOD_SHAPE;
+  const grow =
+    `draw every part bigger where it stands until the ink fills the space between the parts — ` +
+    `scaling the whole drawing up changes nothing, because the board fits it to the card either way`;
+  const spread =
+    `use the whole ${DRAW_W}x${DRAW_H} canvas, so the drawing comes out the shape of the board ` +
+    `rather than a ${card.span.w > card.span.h * 2 ? 'strip across it' : 'block in the middle of it'}`;
+  const advice = thinCover && wrongShape ? `${grow}; and ${spread}` : wrongShape ? spread : grow;
+  return {
+    kind: 'thin-card',
+    ids: marks.map((m) => m.id).slice(0, 4),
+    note: `${head} — ${advice}`,
+  };
 }
 
 /**
@@ -283,6 +376,12 @@ export function defectScore(defects: Defect[]): number {
     'label-on-ink': 4,
     'broken-word': 3,
     'off-canvas': 2,
+    // Deliberately light, and it is the veto in `draw-critic.ts` that decides how light.
+    // A revision that fills the card and writes one name across an arrow must lose, because
+    // an unreadable name is worse than an airy board; a revision that fixes the name and
+    // leaves the card as thin as it found it must win. At 2 against `label-on-ink`'s 4 both
+    // of those fall out of the arithmetic.
+    'thin-card': 2,
     'label-adrift': 1,
   };
   return defects.reduce((n, d) => n + weight[d.kind], 0);

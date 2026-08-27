@@ -207,3 +207,48 @@ test('a clean drawing is looked at when the caller insists', async () => {
   assert.ok(text && text.type === 'text');
   assert.match(text.text, /NOTHING MEASURED WRONG/);
 });
+
+test('a thin card is told, never bought', async () => {
+  // The economics half of `thin-card`. A third of the drawings in the machine cache are
+  // thin, so letting one open the gate would spend a vision call on every third picture —
+  // and the first run under this check spent two of them, on the knee joint and the neuron,
+  // and got a worse drawing back both times. So a thin card alone buys nothing…
+  const thin: Mark[] = [
+    mark({ id: 'left', kind: 'ellipse', x: 60, y: 220, w: 90, h: 90 }),
+    mark({ id: 'right', kind: 'ellipse', x: 860, y: 240, w: 60, h: 60 }),
+    mark({
+      id: 'left-pull',
+      kind: 'arrow',
+      points: [
+        [105, 340],
+        [105, 470],
+      ],
+    }),
+    mark({
+      id: 'right-pull',
+      kind: 'arrow',
+      points: [
+        [890, 320],
+        [890, 420],
+      ],
+    }),
+    mark({ id: 'left-name', kind: 'label', x: 105, y: 90, text: 'ball', size: 28 }),
+    mark({ id: 'right-name', kind: 'label', x: 890, y: 100, text: 'apple', size: 28 }),
+  ];
+  const quiet = stub(thin);
+  assert.equal(await reviseDrawing(thin, opts(quiet.client)), undefined);
+  assert.equal(quiet.calls.length, 0, 'a thin card bought a call on its own');
+
+  // …but a drawing that is paying for a call anyway is told about it, so the model can fix
+  // it for free while it is looking at the picture.
+  const alsoDirty = [...thin, ...DIRTY];
+  const loud = stub(alsoDirty);
+  await reviseDrawing(alsoDirty, opts(loud.client));
+  assert.equal(loud.calls.length, 1);
+  const text = JSON.stringify(loud.calls[0]?.messages ?? []);
+  assert.match(
+    text,
+    /carry about \d+% of the frame/,
+    'the call that was bought did not mention the thin card',
+  );
+});

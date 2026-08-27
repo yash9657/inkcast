@@ -24,7 +24,26 @@ and the film must clear ALL of these, measured, not eyeballed:
 
 1. **Board**: one card per beat, wiped between beats. No frame ever shows more than one
    beat's ink. The recap redraws its 3 summary items large — it never zooms out. (Check:
-   no scene with `zoom < 2`; `fillcheck` mean ≥ 45%.)
+   ~~no scene with `zoom < 2`~~; `fillcheck` mean ≥ **35%**, and no scene under 14%.)
+
+   **Both numbers here were wrong when they were written, and each was corrected by a
+   measurement rather than an argument.** The zoom clause was written against the
+   mega-canvas: under `wipe` this film's canvas is 1280×895 and every scene sits at zoom
+   1.37, which is _more_ pixels per unit than `standard`'s 4.44 on a 4448-wide board, so
+   judging the gate by the zoom number would fail a film whose board is correct.
+
+   And 45% was taken from `gradient-descent`, which is the plot lane. Measured at
+   `explainer` + `wipe` across everything the repo can cast (2026-08-26, by compiling each
+   lesson with `sbjson.mts` at that preset and reading `fillcheck.mts`, which now prints a
+   per-scene table with fill split into the two factors behind it): gradient-descent
+   60.9%, hash-map with its real drawings 43.2%, longitude 35.8%, this film 29.5%. One of
+   four clears 45%. **35% is what the corpus supports**, it is cleared by the plot lane, by
+   the illustration lane and by the mark lane on a lesson with structure in its beats, and
+   this film still fails it — which is the point, because its cards really are thin. The
+   per-scene floor is `reportFill`'s own definition of an empty frame and catches what a
+   mean hides. See the 2026-08-26 section of `docs/STATUS.md` for the arithmetic behind
+   fill and why a card of line art cannot reach 45% by being drawn larger.
+
 2. **Pen**: at no instant are two elements mid-draw. (Check: new `pencheck` assertion in
    the plan rows — see Phase 1.4.)
 3. **Dwell**: every scene has ≥ 1.5s between its last element finishing and the wipe;

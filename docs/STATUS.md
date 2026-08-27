@@ -2506,3 +2506,115 @@ gate 1: four `drawing` label-on-ink defects (marks written across a figure's own
 composed layer still crowds the picture it was shown), six `frame-vision` findings
 including one "mostly empty board" and two clipped labels, and one `lesson` note that the
 untrimmed lesson estimated 112s against a 75s target.
+
+# 2026-08-26 — gate 1, taken apart: the mark lane is not the defect, the beat is
+
+The session after the acceptance test, working the two pieces of work its handoff named:
+make the mark lane fill its card, and then re-derive the bar from more than one lesson.
+Both are answered below, and the answer to the first is not the one the handoff expected.
+
+## Fill is a product of three things, and only two of them are anybody's choice
+
+Under `wipe` the camera is fitted to the ink — `fitDrawing` is a content fit and
+`resolveFraming` frames the union of what is on the board — so what a card carries reduces
+exactly to
+
+    fill = safe area (76.5%) x shape match x cover
+
+where **shape match** is how close the drawing's own bounding box is to 16:9 and **cover**
+is how much of that box the marks' boxes fill. The size a drawing is authored at cannot
+appear in that product: scale everything up and the camera pulls back by the same ratio.
+That is why every previous attempt to "make the drawings bigger" would have moved nothing,
+and it is the sentence the correction brief now carries.
+
+Two consequences worth stating plainly. A card of line art on a 16:9 board **cannot** reach
+45% by drawing the same parts larger; it gets there only by having more parts, or by being a
+picture. And the whole calculation is available from the marks, before a pixel is drawn —
+`cardFill` in `packages/planner/src/draw-geom.ts`, reported per drawing by `markcheck.mts`
+and as the `thin-card` defect in the audit. Predicted against the board on this film's own
+eight beats it runs about two points pessimistic (it does not know about the caption the
+board writes above the card).
+
+## What the corpus says, now that it can be measured
+
+The 217 drawings in the machine-wide cache, at 50ms and no key: **cover median 44%, p25 32%,
+p75 62%; predicted fill median 26%**, with the good end of the corpus reaching 50–67%. So
+the lane can compose a full card. 79 of the 217 predict under 22% of the frame, which is the
+`thin-card` threshold — chosen to sit between `reportFill`'s two existing statements of the
+same standard (a film under 25% is "mostly whitespace", a scene under 14% is empty).
+
+## The finding: a thin card is a thin _beat_
+
+`hash-map` is the second lesson whose beats are hand-placed marks, and it is the comparison
+that was missing. Its six drawings, authored 2026-08-26 (`drawsheet.mts`, ~$0.12) and
+compiled at `explainer`:
+
+| lesson                     | mean fill | its mark beats          |
+| -------------------------- | --------- | ----------------------- |
+| gradient-descent (plots)   | 60.9%     | — (plot lane)           |
+| **hash-map (real marks)**  | **43.2%** | **39.3%** (30.6 – 49.5) |
+| longitude (asset boxes)    | 35.8%     | — (illustration lane)   |
+| this film (marks + 2 figs) | 29.5%     | 18.2% (13.4 – 22.7)     |
+
+The mark lane draws a full card for a beat that has structure in it — a grid of
+pigeonholes, two tables of buckets, three keys converging on one slot — and a fifth of a
+card for a beat that is two objects side by side, which is what every mark beat of the
+falling film is. 5 of hash-map's 6 drawings measure clean and **not one is a thin card**.
+
+That also corrects a number this file published yesterday. Compiling `hash-map` without keys
+gives 38.0%, and that figure is an artifact: its six `draw` intents have no marks on disk, so
+the compiler falls back to an `asset` box per beat and measures the illustration lane's
+geometry. Cast for real it is 43.2%. `longitude`'s 35.8% is _not_ an artifact — its beats
+really are illustration intents — but neither number was ever a measurement of the mark lane,
+which is what "this film is sparser than the corpus" was comparing it against.
+
+## What the brief change bought, measured on the same beats
+
+`DRAW_BRIEF` gained two lines: use the whole canvas _shape_, and draw every part big — with
+the note that the ratio is what counts because the board scales the drawing either way. The
+five failing beats, re-authored under it (`drawsheet.mts`, ~$0.15) and spliced back into the
+film's own lesson:
+
+| beat           | old fill  | new fill  | what moved                  |
+| -------------- | --------- | --------- | --------------------------- |
+| anchor (hands) | 14.6%     | 13.4%     | shape 70→94%, cover 24→21%  |
+| trolleys       | 19.0%     | 18.2%     | shape 49→73%, cover 36→24%  |
+| tug of war     | 13.6%     | 17.2%     | cover 27→42%, shape 72→49%  |
+| bricks         | 14.6%     | 22.7%     | cover 16→36%, and now clean |
+| recap chain    | 15.6%     | 19.3%     | cover 26→31%, and now clean |
+| **the film**   | **27.8%** | **29.5%** |                             |
+
+**+2.7 points on the mark lane, +1.7 on the film**, two drawings that were dirty now clean,
+and three control subjects redrawn under the same lines came back at 27 / 21 / 13% predicted
+fill against 22 / 22 / 14% before (binary search better, knee joint and neuron unchanged), so
+the lines do not cost the drawings that were already full. It is a real
+improvement and it is a small one: the ceiling on those beats is the beats.
+
+## The correction pass cannot fix a thin card, and no longer pays to try
+
+`FIX_BRIEF` gained a paragraph telling the model that a thin card is the one case where it
+should change the picture — grow the parts where they stand, not the drawing. Measured over
+eight subjects: **zero improved**. Two calls that existed only because `thin-card` had opened
+the gate came back worse and were vetoed (the knee joint 2 → 8, the neuron 2 → 4). So the
+gate is now explicit: a thin card is told, never bought. It rides along on a call some other
+defect has already paid for, and the veto lets a fuller card through, but it never opens the
+gate itself. `INKCAST_DRAW_FIX=all` is how to find out whether a future brief earns those
+calls.
+
+## So: the bar, re-derived
+
+Measured at `explainer` + `wipe` on everything the repo can cast, gate 1's 45% is met by one
+lesson of four, and the four sit at 60.9 / 43.2 / 35.8 / 29.5 — a mean of 42.4%. **45% is
+the plot lane's number.** Two things replace it in `docs/PLAN-WATCHABILITY.md`:
+
+- **≥ 35% mean**, which the plot lane, the mark lane on a structural lesson and the
+  illustration lane all clear, and which this film still fails — as it should, because its
+  cards really are thin.
+- **no scene under 14%**, which is `reportFill`'s own definition of an empty frame and is
+  the check that catches the failure a mean can hide.
+
+And the lever for a film like this one is **not** the drawing lane. Its two figure beats
+carry 44% and 36% of the frame against its mark beats' 18%, and `MAX_FIGURES` is 4 with 3
+used. A beat that is two objects being compared is a beat that should be routed to a
+picture; that is a change to `artdirect.ts`'s brief, it costs one image per beat, and it is
+the next thing worth measuring.

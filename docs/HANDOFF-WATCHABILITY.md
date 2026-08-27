@@ -9,7 +9,18 @@ Phase 5, and ran the acceptance test. Phases 0–5 are all landed. The film was 
 **seven of the nine gates pass and two do not.** The full record, with the numbers, is the
 last section of `docs/STATUS.md`; this file says what to do about it.
 
-## What is left, and it is one problem
+**Revised 2026-08-26** by the session that took gate 1 apart. Both pieces of work below —
+make the mark lane fill its card, then re-derive the bar — have been done, and the first has
+a different answer than this file expected: **the mark lane is not the defect.** The lane
+draws a full card (39% of the frame, mean) for hash-map's beats and a fifth of one for this
+film's, because this film's mark beats are two objects side by side and there is nothing else
+in them to draw. The bar has moved to 35% with a per-scene floor of 14%, on measurements from
+four lessons rather than one, and this film still fails it. Everything is in the 2026-08-26
+section of `docs/STATUS.md`; what is left is at the end of this file under **What is left
+now**. The section immediately below is the original note, kept because it is what the
+measurements were made against.
+
+## What was left, and it looked like one problem
 
 **Gate 1: `fillcheck` reads 27.8% against a 45% bar.** Everything else about gate 1 is
 right — one card a beat, wiped, and a recap that redraws at card scale instead of pulling
@@ -311,3 +322,41 @@ what caught the real defect.
 - **`docs/PLAN-FIGURE-LANE.md` item 6 proposes a brief for the router.** It is right about
   the test and wrong about the mechanism; the brief had already failed four times
   (`STAGE_CODE_VERSION.lesson` 10, 11, 12 and `deb81002b073`). It is a pass now.
+
+---
+
+## What is left now — 2026-08-26
+
+Read the 2026-08-26 section of `docs/STATUS.md` first; it carries every number below.
+
+**Gate 1 is now a gate this repo can act on.** The bar is 35% mean with no scene under 14%
+(`docs/PLAN-WATCHABILITY.md` item 1), the acceptance film reads **29.5%** after its drawings
+were re-authored, and the beats that fail are named: its five mark cards, at 13–23%.
+
+Three pieces of work follow, in the order they are worth doing.
+
+1. **Route a two-object beat to a picture, and measure it.** This is the lever, and it is
+   arithmetic from the film's own numbers rather than a hope: its two figure beats carry 44%
+   and 36% of the frame where its mark beats carry 18%, and `MAX_FIGURES` is 4 with 3 used.
+   The change is one paragraph in `artdirect.ts`'s brief — a beat whose whole content is two
+   things being compared is a beat for `figure`, not for `marks` — and the harness is
+   `routecheck.mts` (~$0.02 a run) followed by a keyed cast. It costs one image per beat it
+   moves.
+2. **The figure lane's names measure as defects and its brief puts them there.** Now that
+   `markcheck.mts` passes the underlay through, this film's three figure beats report **ten**
+   `label-on-ink` findings — every name written inside `figureBox()`, which the audit treats
+   as ink end to end. `FIGURE_BRIEF` tells the author to put names in the picture's clear
+   areas; `auditDrawing` says every one of them is a defect; the critic is being paid to move
+   marks its own brief asked for. One of the two is wrong and neither is obviously the one.
+   Nothing here regressed — `lessonDrawingDefects` and the critic have always passed the
+   underlay, and `STATUS.md` records four of these as standing advisories on the film — but
+   the sheet can see it now, which is what makes it fixable.
+3. **Then re-cast, and look at frames.** Every number in this session's write-up comes from
+   compiling `lesson.json` (free, no keys) and from `drawsheet.mts` (~$0.30 all told). The
+   film on disk at `projects/f3ac9c760194` is still the one cast on 2026-08-25 with the old
+   drawings; nothing has re-rendered. `sbjson.mts <lesson> <dir> explainer` then
+   `fillcheck.mts` is the free half, and `frames.mts` is the half that shows whether a
+   fuller card is also a better one.
+
+**Gate 6 is unchanged and still the cheapest real information about this plan**: whether a
+second keyed film lands within ±5% of the re-pinned 12.16 letters a second (~$0.70).

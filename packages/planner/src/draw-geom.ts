@@ -24,7 +24,7 @@
  * turns undoing each other.
  */
 import type { Mark, TextElement } from '@inkcast/core';
-import { DRAW_W } from '@inkcast/core';
+import { DRAW_W, frameSize, safeInsets, unionArea } from '@inkcast/core';
 import type { Box, Point } from './elements.js';
 import { FONT, handMeasure, measureText } from './elements.js';
 
@@ -192,6 +192,97 @@ export function union(boxes: Box[]): Box | undefined {
 /** The bounds of everything drawable in a drawing. */
 export function contentBounds(marks: Mark[]): Box | undefined {
   return union(marks.map(markBounds).filter((b): b is Box => b !== undefined));
+}
+
+/* ------------------------------------------------------------- how full a card is */
+
+/**
+ * The frame a card is composed for, and the share of it the platforms leave alone.
+ *
+ * Derived rather than quoted: `safeInsets` is the one place that decides how much of a
+ * frame is title-safe, and a second copy of 76.5% here would be a number to keep in step
+ * with it by hand. 16:9 because that is the board `DRAW_W`x`DRAW_H` is shaped for — the
+ * drawing canvas is 1000x560, which is 16:9 to within a percent — and because it is the
+ * format every gate in `docs/KEYED-GATES.md` is written against. A film cast 9:16 fits the
+ * same drawing into a tall card and `cardFill` below is then indicative rather than exact.
+ */
+const CARD_FRAME = frameSize('16:9');
+const CARD_INSETS = safeInsets('16:9', CARD_FRAME);
+const SAFE_SHARE =
+  ((CARD_FRAME.w - CARD_INSETS.left - CARD_INSETS.right) *
+    (CARD_FRAME.h - CARD_INSETS.top - CARD_INSETS.bottom)) /
+  (CARD_FRAME.w * CARD_FRAME.h);
+
+export type CardFill = {
+  /** The bounds the marks span, in authoring units. */
+  span: Box;
+  /** Union of the marks' own boxes over the box they span: how solid the drawing is. */
+  cover: number;
+  /** How much of the frame a span of this *shape* can hold. 1 is the board's own shape. */
+  shape: number;
+  /** The share of the frame this card is predicted to carry: `SAFE_SHARE * shape * cover`. */
+  fill: number;
+};
+
+/**
+ * How much of the film's frame this drawing will cover, measured before anything is drawn.
+ *
+ * ## Why this can be known from the marks alone
+ *
+ * `contentFill` in `core/src/camera.ts` is the number gate 1 reads, and under `wipe` — one
+ * card a beat — it reduces to three factors and nothing else. The camera is fitted to the
+ * ink (`fitDrawing` is a *content* fit, and `resolveFraming` frames the union of what is on
+ * the board), so **the size a drawing is authored at cannot change its fill**: scale the
+ * whole thing up and the camera simply pulls back by the same ratio. What survives the fit
+ * is the drawing's *shape* against the frame's and how solidly its marks fill the box they
+ * span. Multiply those by the safe area, which the platforms take whatever anyone draws:
+ *
+ *     fill = safe area (76.5%) x shape match x cover
+ *
+ * That is why this lives here rather than in the renderer, and why the drawing lane can be
+ * held to the board's own number without rendering a frame.
+ *
+ * ## What it was checked against
+ *
+ * The eight beats of `projects/f3ac9c760194`, predicted here from the marks against what
+ * `fillcheck.mts` measured on the compiled storyboard (2026-08-26):
+ *
+ *     beat   predicted   board
+ *     b1       12.8%     14.6%
+ *     b2       12.4%     19.0%
+ *     b3       14.2%     13.6%
+ *     b4        9.8%     14.6%
+ *     b8       17.1%     15.6%
+ *
+ * Pessimistic by about two points, and for a reason worth knowing: the board writes the
+ * beat's own name above the card, so the target the camera really holds is the drawing
+ * *plus a caption*, which adds ink and — on a very wide drawing like b2 — pulls the shot
+ * back towards the frame's own proportions. This function measures the drawing it is given
+ * and claims nothing about the caption above it.
+ *
+ * The one thing that does not survive the fit is a name. The board writes labels in its own
+ * hand and will not write below `caption` size, so a drawing authored small reaches the board
+ * with relatively *larger* words on it — which is why `labelFootprint` exists and why this
+ * takes the same `scale` every other measurement in the lane does. On a card that is mostly
+ * words the number moves with the fit; on a card that is mostly ink it does not move at all.
+ *
+ * `cover` is a union of **bounding boxes**, exactly as `contentFill` is, so it inherits that
+ * metric's one weakness: a long diagonal `line` covers its whole box here and a few units of
+ * ink on the board. That is a reason to look at frames, and a reason never to treat this
+ * number as a target to be maximised — see `markcheck.mts`, which prints it beside the
+ * defect score for that reason.
+ */
+export function cardFill(marks: Mark[], scale = TYPICAL_FIT): CardFill | undefined {
+  const span = contentBounds(marks);
+  if (!span || !(span.w > 0) || !(span.h > 0)) return undefined;
+  const boxes = marks
+    .map((m) => (m.kind === 'label' ? labelFootprint(m, scale) : markBounds(m)))
+    .filter((b): b is Box => b !== undefined);
+  const cover = Math.min(1, unionArea(boxes) / (span.w * span.h));
+  const aspect = span.w / span.h;
+  const frame = CARD_FRAME.w / CARD_FRAME.h;
+  const shape = Math.min(aspect, frame) / Math.max(aspect, frame);
+  return { span, cover, shape, fill: SAFE_SHARE * shape * cover };
 }
 
 /** How much of `a` and `b` share, in square units. 0 when they are clear of each other. */

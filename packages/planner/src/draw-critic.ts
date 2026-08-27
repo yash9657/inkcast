@@ -18,7 +18,10 @@
  * drawing with nothing measurably wrong never pays. Across the 41 cached drawings that is
  * about half of them, and the arithmetic in front of the gate fixes 82% of the defect
  * score for free (`markcheck.mts`). A loop that revised everything would double the cost
- * of the lane to improve the drawings that were already fine.
+ * of the lane to improve the drawings that were already fine. One defect is deliberately
+ * **not** allowed through that gate — a thin card, which a third of the corpus has and
+ * which the first eight measured attempts made worse rather than better; see the note at
+ * the top of `reviseDrawing`.
  *
  * **A revision cannot regress.** The model is being asked to move two labels, and a model
  * asked to move two labels will sometimes redraw a third thing worse. So the revision is
@@ -70,6 +73,7 @@ HOW TO FIX IT
 - CHANGE AS LITTLE AS POSSIBLE. Keep every id. Keep every part. Keep the coordinates of everything you are not fixing, exactly. This is a correction, not a second attempt: the drawing was good enough to be worth repairing.
 - MOVE THE WORDS, NOT THE PICTURE. A label in the wrong place is almost always fixed by moving the label into nearby empty space — and if the part is small or crowded, by adding a short arrow from the words to the part. Redrawing the structure to make room for a name is the wrong trade.
 - A NAME HAS TO STAY WITH WHAT IT NAMES. Moving it a little is a fix; moving it somewhere it now sits beside a different part is worse than the problem it solved, and moving it off the picture altogether is worst of all. If the only clear space is far away, leave the words near their part and draw an arrow instead.
+- IF THE LIST SAYS THE CARD IS THIN, that is the one item where the answer is to change the picture, and it is the one thing "change as little as possible" does not cover. Grow the parts where they stand — every shape bigger, until the ink fills the space between the parts — and keep every id, every part and every relation. Scaling the whole drawing up is not a fix and changes nothing: the board fits your drawing to the card either way, so what counts is the size of the parts against the gaps between them. Do not add parts to fill space, and never stretch: a stretched drawing of anything looks wrong in a way a viewer cannot name but can always see.
 - The canvas is still ${DRAW_W} wide and ${DRAW_H} tall and everything must be inside it.
 - STILL NO TITLE. No name for the picture as a whole. Labels name parts.
 
@@ -165,7 +169,17 @@ export async function reviseDrawing(
   const under = opts.underlay?.box;
   const shown = prepareMarks(marks, under);
   const defects = auditDrawing(shown, under);
-  if (!defects.length && !opts.always) return undefined;
+  // **A thin card is told, never bought.** It rides along on a call some other defect has
+  // already paid for — the list handed to the model includes it, and the veto below lets a
+  // fuller card through — but it does not open the gate on its own, and that is a measured
+  // decision rather than a cautious one. The first run under `thin-card` (2026-08-26, eight
+  // subjects through `drawsheet.mts`) bought two calls that nothing else would have: the knee
+  // joint came back at 8 against 2 and the neuron at 4 against 2, both rejected, both paid
+  // for. Nothing was improved by a call this check created. If a later `FIX_BRIEF` earns
+  // those calls, the way to find out is `INKCAST_DRAW_FIX=all` on the sheet, not a gate that
+  // spends on every third drawing in the corpus.
+  const buys = defects.filter((d) => d.kind !== 'thin-card');
+  if (!buys.length && !opts.always) return undefined;
 
   const before = defectScore(defects);
   const short = opts.instruction.slice(0, 60);

@@ -69,6 +69,15 @@ const TOOL = 'emit_drawing';
  * nothing that did — the machine's cached blank-board and form drawings are still every
  * bit of work they always were. Bumping this would throw them all away to ship a lane
  * that never used any of them.
+ *
+ * It did **not** move for the two lines `DRAW_BRIEF` gained about how full a card has to be,
+ * and the reason is the same argument from the other side. This constant is hashed for all
+ * three lanes at once (`drawKey`), so bumping it would throw away the form and figure
+ * drawings as well — and those briefs did not change. The blank-board drawings *are* thrown
+ * away, by the only thing that should throw them away: their own brief's text, which is in
+ * the key — `packages/planner/test/draw-anthropic.test.ts` pins both halves of that. Bump
+ * this one only for something no brief says out loud, such as the mark vocabulary the
+ * schema accepts.
  */
 const BRIEF_VERSION = 'draw/v2';
 
@@ -106,7 +115,8 @@ WHAT MAKES A DRAWING TEACH, in the order it matters
 LEGIBILITY IS PART OF BEING CORRECT
 A drawing where everything is in the right place and nothing can be told apart has failed. This is the most common way an intricate subject — an orbital diagram, charges moving between layers, a cell in cross-section, two interfering waves — comes out unreadable: not because a mark is wrong, but because every mark is on top of every other one. The picture is in there and nobody can see it.
 
-- **SPREAD OUT. USE THE WHOLE CANVAS.** It is ${DRAW_W}x${DRAW_H} and it will be shown large. The commonest mistake by far is drawing a detailed structure inside a small part of it and leaving three quarters empty. If you have six things to show, they get a sixth of the canvas each — not a corner each, with the middle empty.
+- **SPREAD OUT. USE THE WHOLE CANVAS.** It is ${DRAW_W}x${DRAW_H} and it will be shown large. The commonest mistake by far is drawing a detailed structure inside a small part of it and leaving three quarters empty. If you have six things to show, they get a sixth of the canvas each — not a corner each, with the middle empty. The canvas is the shape of the screen, so a drawing that comes out square, or a thin strip across the middle, is one the film has to frame with paper down the sides: end up spanning most of the ${DRAW_W} AND most of the ${DRAW_H}.
+- **DRAW EVERY PART BIG.** Spreading small marks apart is not the same as filling the canvas, and this is the failure measured most often on this lane: cards whose marks span the whole board and cover a fifth of it, which read as an empty board with specks on it. It is the *ratio* that matters and not the size you draw at — the board scales your drawing to the space it gets either way, so a picture of small parts far apart stays a picture of small parts far apart. Size each part as though it were the only thing on the board and then make room for the others: a ball 200 across and not 60, a box 300 wide, a figure 400 tall, an arrow that spans the gap it crosses. Two things compared get a third of the width each.
 - **NOTHING OVERLAPS UNLESS IT MEANS "INSIDE".** Two parts sharing coordinates is a claim that one contains the other. If that is not what you mean, move them apart. Leave a real channel of blank canvas between separate parts — 30 units at the very least, and more between the big ones.
 - **A GAP THAT MATTERS IS DRAWN WIDE.** If the beat is about something crossing a gap, that gap needs to be 100+ units, not 15. The learner has to see the crossing, and a 15-unit gap with an arrow through it is one thick line.
 - **HATCHING IS DENSE. NEVER WRITE INSIDE IT.** A name written on top of shading is unreadable — this is a measured defect, seen on \`electron stuck\`, \`cathode\` and \`graphite\` in a shipped film. Put the label in clear canvas OUTSIDE the shaded region and run an arrow to it. Do not hatch a strip narrower than about 70 units and then try to name it from within.

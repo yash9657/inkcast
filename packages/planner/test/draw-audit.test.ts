@@ -8,7 +8,7 @@ import {
   defectSummary,
   lessonDrawingDefects,
 } from '../src/draw-audit.js';
-import { inkHitsBox, inkOf, markInk } from '../src/draw-geom.js';
+import { cardFill, inkHitsBox, inkOf, markInk } from '../src/draw-geom.js';
 import { prepareMarks } from '../src/drawing.js';
 import { CARDIAC } from './cardiac-lesson.js';
 
@@ -276,4 +276,162 @@ test('a drawing intent with no marks is not audited — there is nothing on the 
   const lesson = structuredClone(CARDIAC);
   lesson.hook.visuals = [{ kind: 'draw', describe: 'a picture nobody drew' }] as never;
   assert.deepEqual(lessonDrawingDefects(lesson), []);
+});
+
+/* ------------------------------------------- the card's own fill (gate 1's half) */
+
+/**
+ * A card of small marks strewn across the board: the shape is right and the ink is not.
+ * These are the proportions of the acceptance film's thinnest beats — 15 marks whose boxes
+ * cover a sixth of the box they span — reproduced at round numbers.
+ */
+const strewn: Mark[] = [
+  mark({ id: 'ball', kind: 'ellipse', x: 120, y: 230, w: 90, h: 90 }),
+  mark({ id: 'apple', kind: 'ellipse', x: 800, y: 250, w: 60, h: 60 }),
+  mark({
+    id: 'big-pull',
+    kind: 'arrow',
+    points: [
+      [165, 360],
+      [165, 500],
+    ],
+  }),
+  mark({
+    id: 'small-pull',
+    kind: 'arrow',
+    points: [
+      [830, 330],
+      [830, 470],
+    ],
+  }),
+  mark({ id: 'ball-name', kind: 'label', x: 165, y: 70, text: 'ball', size: 28 }),
+  mark({ id: 'apple-name', kind: 'label', x: 830, y: 80, text: 'apple', size: 28 }),
+];
+
+test('a card that will reach the frame as mostly paper is reported, with both its factors', () => {
+  const [defect] = auditDrawing(prepareMarks(strewn));
+  assert.equal(defect?.kind, 'thin-card');
+  // The note carries the number gate 1 will read, the two shares it is made of, and the box
+  // they were measured on — a model cannot act on "your drawing is thin".
+  assert.match(defect?.note ?? '', /carry about \d+% of the frame/);
+  assert.match(defect?.note ?? '', /marks cover \d+% of the \d+x\d+ box they span/);
+  assert.match(defect?.note ?? '', /holds \d+% of a 1000x560 board/);
+  // Here the ink is the thin factor, not the shape, so the advice is about the parts.
+  assert.match(defect?.note ?? '', /bigger where it stands/);
+  assert.doesNotMatch(defect?.note ?? '', /use the whole 1000x560 canvas/);
+});
+
+test('the fill a card will reach cannot be changed by drawing it larger', () => {
+  // The fact the whole check rests on. `fitDrawing` is a *content* fit and the camera is
+  // fitted to the ink, so a drawing scaled up is a camera pulled back by the same ratio —
+  // which is why the advice says to grow the parts against the gaps and not the drawing.
+  //
+  // Measured on the ink alone, because the one thing that does not scale with a drawing is
+  // its names: the board writes those in its own hand and will not write below caption size,
+  // so a drawing authored small reaches the board with relatively *larger* words on it. That
+  // is real, and `cardFill` says so; it is not what this test is about.
+  const ink = strewn.filter((m) => m.kind !== 'label');
+  const scaled = ink.map((m) => ({
+    ...m,
+    x: m.x === undefined ? undefined : m.x * 0.5 + 200,
+    y: m.y === undefined ? undefined : m.y * 0.5 + 100,
+    w: m.w === undefined ? undefined : m.w * 0.5,
+    h: m.h === undefined ? undefined : m.h * 0.5,
+    points: m.points?.map(([x, y]) => [(x as number) * 0.5 + 200, (y as number) * 0.5 + 100]),
+  })) as Mark[];
+  const before = cardFill(ink);
+  const after = cardFill(scaled);
+  assert.ok(before && after);
+  assert.ok(
+    Math.abs(before.fill - after.fill) < 0.005,
+    `halving the drawing moved its fill from ${before.fill} to ${after.fill}`,
+  );
+});
+
+test('a card drawn big, in the board’s own shape, is not a defect', () => {
+  const full: Mark[] = [
+    mark({ id: 'left-stack', kind: 'rect', x: 60, y: 60, w: 380, h: 440 }),
+    mark({ id: 'right-stack', kind: 'rect', x: 560, y: 60, w: 380, h: 440 }),
+    mark({ id: 'gap-shading', kind: 'hatch', x: 450, y: 60, w: 100, h: 440, angle: 45 }),
+    mark({
+      id: 'crossing',
+      kind: 'arrow',
+      points: [
+        [440, 280],
+        [560, 280],
+      ],
+    }),
+    mark({ id: 'left-name', kind: 'label', x: 250, y: 30, text: 'anode', size: 30 }),
+    mark({ id: 'right-name', kind: 'label', x: 750, y: 30, text: 'cathode', size: 30 }),
+  ];
+  const card = cardFill(prepareMarks(full));
+  assert.ok((card?.fill ?? 0) > 0.5, `a full card measured ${card?.fill}`);
+  assert.equal(
+    auditDrawing(prepareMarks(full)).some((d) => d.kind === 'thin-card'),
+    false,
+  );
+});
+
+test('a drawing composed over a picture is never reported thin', () => {
+  // `FIGURE_BRIEF` asks that lane for names and the leaders that reach them and for nothing
+  // else: its marks are meant to be a tenth of the card, and the picture underneath — which
+  // is not measurable from here — is what fills it. Reporting these would spend a correction
+  // call asking a model to undo its own brief.
+  const box = { x: 80, y: 0, w: 840, h: 560 };
+  const names: Mark[] = [
+    mark({ id: 'feather-name', kind: 'label', x: 200, y: 30, text: 'feather', size: 28 }),
+    mark({ id: 'hammer-name', kind: 'label', x: 700, y: 30, text: 'hammer', size: 28 }),
+    mark({
+      id: 'feather-leader',
+      kind: 'arrow',
+      points: [
+        [200, 60],
+        [240, 200],
+      ],
+    }),
+    mark({
+      id: 'hammer-leader',
+      kind: 'arrow',
+      points: [
+        [700, 60],
+        [660, 200],
+      ],
+    }),
+    mark({
+      id: 'floor',
+      kind: 'line',
+      points: [
+        [120, 520],
+        [880, 520],
+      ],
+    }),
+  ];
+  assert.equal(
+    auditDrawing(prepareMarks(names, box), box).some((d) => d.kind === 'thin-card'),
+    false,
+  );
+  // And the same marks on a blank board are a thin card, so the guard is the underlay and
+  // not the marks.
+  assert.equal(
+    auditDrawing(prepareMarks(names)).some((d) => d.kind === 'thin-card'),
+    true,
+  );
+});
+
+test('a stub of two or three marks is a beat’s problem, not a card’s', () => {
+  const stub: Mark[] = [
+    mark({ id: 'cell', kind: 'rect', x: 420, y: 240, w: 120, h: 80 }),
+    mark({ id: 'name', kind: 'label', x: 480, y: 200, text: 'the cell', size: 28 }),
+  ];
+  assert.deepEqual(auditDrawing(prepareMarks(stub)), []);
+});
+
+test('a thin card never outranks a name nobody can read', () => {
+  // The veto in `draw-critic.ts` keeps a revision only when it scores no worse, so these
+  // weights decide what a correction is allowed to trade. Filling the card at the price of
+  // writing a name across an arrow has to lose; fixing the name and leaving the card as thin
+  // as it was found has to win.
+  const thin = defectScore([{ kind: 'thin-card', ids: [], note: '' }]);
+  const onInk = defectScore([{ kind: 'label-on-ink', ids: [], note: '' }]);
+  assert.ok(thin < onInk, `thin-card ${thin} must weigh less than label-on-ink ${onInk}`);
 });

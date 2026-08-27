@@ -61,9 +61,19 @@ const intentFor = (kind: 'form' | 'figure', inkBox?: number[]): VisualIntent =>
  * drawing was composed under instructions that omitted typeset mathematics, so throwing
  * the machine cache away is the change working, not collateral. Previous pins:
  * 844b9e3932d9a716 / cc912d96bf0d4df3.
+ *
+ * Re-pinned 2026-08-26, and **only the blank-board key moved**: `DRAW_BRIEF` gained the two
+ * lines about how full a card has to be (`thin-card` in `draw-audit.ts`), while
+ * `UNDERLAY_BRIEF` is untouched — so every form drawing on the machine is still served from
+ * cache, and the second assertion below is what proves it. That separation is the whole
+ * reason `BRIEF_VERSION` was left alone: it is hashed for all three lanes at once, so
+ * bumping it would have thrown away two lanes that did not change. The blank-board drawings
+ * are thrown away on purpose — they are the corpus that measured a median predicted card
+ * fill of 26%, and serving them would be serving the defect the new lines exist to fix.
+ * Previous blank-board pin: 9a1f337a8ecd8a07.
  */
 test('the draw keys moved with the math-mark brief change, and only then', () => {
-  assert.equal(drawKey(HEART), '9a1f337a8ecd8a07');
+  assert.equal(drawKey(HEART), '6f842b7a19191a08');
   assert.equal(drawKey(HEART, PNG), '3d94a24a9cc2b943');
   // `form` is the default the lane has always had, so naming it has to be free.
   assert.equal(drawKey(HEART, PNG, 'form'), drawKey(HEART, PNG));
