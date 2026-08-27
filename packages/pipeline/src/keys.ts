@@ -211,7 +211,15 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // point: a lesson about bowling balls, feathers and vacuum tubes with zero underlays
   // in it. `routeFigures` now writes the `underlay` into the lesson itself, so a
   // cached lesson from before it existed has pictures nothing asked for.
-  lesson: 14,
+  // 15: the art director's answer is read where it used to be dropped. Its `prompt` and
+  // `why` were `z.string().optional()`, which rejects the `null` a model writes for a
+  // field that does not apply — and the parse being all-or-nothing, one null in a field
+  // `applyRoutes` goes on to ignore threw away every verdict in the answer and returned
+  // the lesson untouched. So a cached lesson from before this may be a lesson the router
+  // *did* rule on and whose ruling was discarded: `projects/df62ce29a563` is one, cast
+  // 2026-08-27, zero underlays on the topic that had produced three. Same document, same
+  // options, different lesson — which is exactly what this constant is for.
+  lesson: 15,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
