@@ -639,7 +639,50 @@ function arcs(cx: number, cy: number, r: number): string {
  * cue, a reveal and a row in every downstream table, and they are one gesture of the
  * hand, not forty.
  */
-function buildMark(m: Mark, id: string, fit: Fit): Element[] {
+/**
+ * The `rect`/`ellipse` marks that are **bodies** rather than frames, by id.
+ *
+ * `makeShape` defaults `fill: false` and `buildMark` never passed anything else, so every
+ * shape this lane has ever produced is an empty outline and `hachurePolygon` — which
+ * `render/src/sketch.ts` documents as "used for `fill: true` shapes" — has been dead code
+ * for it. That is half of why our ink is spindly where the reference product's is fat:
+ * their solids are shaded regions and ours are rings (`docs/PLAN-GOLPO-CLOSE.md` §4.2).
+ *
+ * The test is deliberately the conservative one — **nothing else is drawn inside it**,
+ * measured by whether another mark's centre falls in its box:
+ *
+ *  - a container gets its label's centre and is left an outline, which is right: a box
+ *    around words is a frame, and shading it would put ink under handwriting and trip the
+ *    no-writing-inside-hatching rule the brief is measured on;
+ *  - a circle the author has already shaded with `hatch` gets that hatch's centre and is
+ *    left alone, so the two fills cannot fight;
+ *  - an arrow *pointing at* a body keeps its centre outside and does not suppress it.
+ *
+ * Suppressing wrongly costs nothing — it is the behaviour of every drawing built before
+ * this — so the predicate errs that way on purpose.
+ *
+ * This changes no QC arithmetic: `boardcheck`'s overlap sweep already counts `shape` as
+ * solid whether or not it is filled, so what moves here is pixels and nothing else.
+ */
+function solidBodies(marks: readonly Mark[]): Set<string> {
+  const bodies = new Set<string>();
+  const boxes = marks.map((m) => markBounds(m));
+  marks.forEach((m, i) => {
+    if (m.kind !== 'rect' && m.kind !== 'ellipse') return;
+    const b = boxes[i];
+    if (!b) return;
+    const inside = boxes.some((o, k) => {
+      if (k === i || !o) return false;
+      const cx = o.x + o.w / 2;
+      const cy = o.y + o.h / 2;
+      return cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
+    });
+    if (!inside) bodies.add(m.id);
+  });
+  return bodies;
+}
+
+function buildMark(m: Mark, id: string, fit: Fit, solid = false): Element[] {
   const P = (x: number, y: number): Point => at(fit, x, y);
   const pts = waypoints(m).map((p) => P(p.x, p.y));
 
@@ -649,7 +692,9 @@ function buildMark(m: Mark, id: string, fit: Fit): Element[] {
       const b = markBounds(m);
       if (!b) return [];
       const tl = P(b.x, b.y);
-      const el: ShapeElement = makeShape(id, m.kind, round(b.w * fit.s, 2), round(b.h * fit.s, 2));
+      const el: ShapeElement = makeShape(id, m.kind, round(b.w * fit.s, 2), round(b.h * fit.s, 2), {
+        fill: solid,
+      });
       el.at = { x: tl.x, y: tl.y, w: el.at.w, h: el.at.h };
       return [el];
     }
@@ -843,11 +888,20 @@ export function buildDrawing(
   const clean = repairLabels(cleaned, undefined, first.s);
   const fit = ctx.underlay ? first : fitDrawing(clean, ctx.box);
   const cues = ctx.narration ? cueMarks(clean, ctx.narration) : [];
+  // Decided over the whole drawing, because "is anything inside this" is not a question
+  // one mark can answer about itself. See `solidBodies`.
+  //
+  // Never on a figure beat. `FIGURE_BRIEF`'s NEVER SHADE rule is a measured defect fix
+  // for marks drawn *over* a raster picture, and a filled shape is shading by another
+  // name: the first cast with this wiring on put a solid disc across the ball in "A ball
+  // and a lamp". The underlay is the whole signal — if there is a picture behind these
+  // marks, the marks annotate it and do not colour it in.
+  const bodies = ctx.underlay ? new Set<string>() : solidBodies(clean);
   const out: Element[] = [];
   clean.forEach((m, i) => {
     const slug = m.id.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || `m${i}`;
     const cue = cues[i];
-    for (const el of buildMark(m, `${ctx.id}_${slug}`, fit)) {
+    for (const el of buildMark(m, `${ctx.id}_${slug}`, fit, bodies.has(m.id))) {
       el.enter = {
         ...el.enter,
         at: round(0.06 + (i / Math.max(1, clean.length)) * 0.66, 3),

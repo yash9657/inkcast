@@ -3164,3 +3164,91 @@ channel — unaudited as of this writing.
   no misconception and must not be read as a measurement.
 
 Tests 1248 → 1249. `pnpm typecheck`, `pnpm lint`, auditcheck 111/111 all clean.
+
+# 2026-08-27 (Phase 3, partial) — the fill path was dead, and reviving it buys 0.03 points
+
+`docs/PLAN-GOLPO-CLOSE.md` Phase 3 is **partly blocked and partly answered**. 3.1 cannot
+be attempted at all; 3.2 and 3.3 were both investigated to their stated bounds and both
+came back with a measured negative. Recorded here so nobody re-derives them.
+
+## 3.1 is blocked, and it is the phase's real lever
+
+Editing `DRAW_BRIEF` changes `BRIEF_VERSION`'s hash input, so every drawing decaches and
+`drawsheet.mts` has to re-author them — which needs the Anthropic key, and the key is out
+of credit (section above). The brief edit is written and unlanded. Nothing else in Phase 3
+substitutes for it: 3.2 below measures precisely how little the alternatives buy.
+
+## 3.2 — `fill` was never set on a shape, ever
+
+`makeShape` defaults `fill: false` and `buildMark` never passed anything else, so **every
+`rect`/`ellipse` the drawing lane has ever produced is an empty outline**, and
+`hachurePolygon` — which `render/src/sketch.ts:719` documents as "used for `fill: true`
+shapes" — has been dead code for that lane since it was written.
+
+The plan made the wiring conditional on the body-vs-frame ambiguity being reducible. It is:
+the call site holds the whole mark list, and "is anything drawn inside this" answers it —
+measured by whether another mark's _centre_ falls in the shape's box. A container gets its
+label's centre and stays an outline; a circle the author already shaded with `hatch` gets
+that hatch's centre and is left alone so the two fills cannot fight; an arrow pointing at a
+body keeps its centre outside and does not suppress it. Figure beats are excluded outright,
+because `FIGURE_BRIEF`'s NEVER SHADE rule is a measured defect fix and a filled shape is
+shading by another name.
+
+**So it is wired. It buys 0.03 percentage points.** Measured in isolation — the same board
+compiled both ways, rendered by `frames.mts`, eight frames each, so the fill is the only
+variable:
+
+|                   | frames | mean ink  |
+| ----------------- | ------ | --------- |
+| fill on           | 8      | **3.77%** |
+| fill off (before) | 8      | 3.74%     |
+
+Per-frame the two never differ by more than 0.1 points. Seven of fourteen shapes on the
+day/night board fill, and the reason the number does not move is visible in the frames:
+they are a stick figure's head, three small suns, a travelling dot and two small circles.
+**The large regions on these boards are `stroke` and `path` marks and `hatch`, none of
+which `fill` touches.** The pack is not the constraint either — `marker`'s `rough.fill` is
+already hachure at weight 2.4, gap 9.
+
+Kept rather than reverted, because the plan's fallback was conditioned on the ambiguity
+being irreducible and it was not, and because a sun drawn as a ring is wrong whatever the
+pixel count says. But nobody should expect density from it. **`hatch` — that is, 3.1 — is
+the fill path**, and this is the measurement that says so rather than the assumption.
+
+## 3.3 — tone has two assignment sites, and neither can be widened from here
+
+Measured on the Phase-2 film (`projects/gclose3-accum`): `ink` 121 elements, `accent` 28,
+`muted` 3, **`contrast` zero**. Three tones film-wide but only **3 of 10 scenes** carry
+three, against the plan's bar of half.
+
+The planner assigns `tone` in exactly two places:
+
+- `compile.ts:866` — `titleRule` paints the underline under each card title `accent`. One
+  per scene, which is where nearly all 28 come from.
+- `drawing.ts:859` — passes through whatever the _drawing author_ chose.
+
+So tone is starved at the model, not at a rule that could be widened. And it is starved
+**deliberately**: `DRAW_BRIEF` states "if the drawing reads correctly in one ink, use one
+ink" and names "a box drawn in `accent` because it looked plain" as the failure it guards.
+That is the same brief 3.1 needs and the same key.
+
+The plan's own mapping — titles/headings → `accent` — was checked and **not** applied, for
+two measured reasons:
+
+- `palette.ts:31` states the design position in the file: "Exactly one accent for the whole
+  film… the accent only ever marks things up." Painting every heading `accent` would make
+  it the most common ink on the board, which is that position reversed, not widened.
+- The shipped light accent `#2f6fed` is **4.40:1 on paper**, under the 4.5:1 the repo picked
+  as its own readability bar. Nothing currently checks it: `MIN_INK_CONTRAST` in
+  `stylepack.ts` guards `ink` against `paper` and **nothing else in the palette**. Worth
+  knowing before Phase 4.1 writes a new pack — its `inkSoft` and `accent` will be unchecked
+  too, so they have to be computed by hand.
+
+## Provider state moved again
+
+**ElevenLabs' free-tier quota is now exhausted as well.** The cast at 15:45 hit
+`quota_exceeded` and re-narrated the whole film with Kokoro, which is the adapter behaving
+correctly. It also makes runtimes non-comparable across that boundary: the same lesson
+measured 43.9s of speech on ElevenLabs and **59.6s** on Kokoro, so `gclose4-fatink` is 81.2s
+against `gclose3-accum`'s 66.1s with holds unchanged at 21.2s and 20.6s. Compare films cast
+on the same engine, or compare per-frame ink rather than runtime.
