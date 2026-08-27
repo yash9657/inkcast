@@ -267,6 +267,44 @@ test('a nine-beat lesson that fits the runtime keeps its misconception, payload 
   );
 });
 
+/**
+ * On a wiping board the beat count is not a reason to delete a beat; on an accumulating
+ * one it still is.
+ *
+ * `planBoard` sends `wipe` to `oneCardBoard`, which lays one cell per beat and never
+ * consults `maxBeats`, so there an extra beat costs seconds and nothing else — and seconds
+ * are the other half of `overBudget`. Enforcing the count as well deleted pedagogy from
+ * films that fitted their runtime: `projects/c5caa09eb153` clamped to **62.7s**, well
+ * inside the 60–90s band, and still lost its misconception because it had 10 beats and the
+ * ceiling said 9.
+ *
+ * The two halves are asserted against the same numbers with **only the board mode
+ * differing**, because that is the whole claim. It is also what keeps the pinned hashes
+ * still: `standard`, `short` and `square` all accumulate.
+ */
+test('the beat count binds on an accumulating board and not on a wiping one', () => {
+  const lesson = nineBeatLesson(['step4']);
+  // A ceiling of 8 against 9 authored beats, on a lesson that comfortably fits 75s — so
+  // the count is the only thing over, and the board mode is the only variable below.
+  const wiping = { ...PRESETS.explainer, board: 'wipe' as const, maxBeats: 8 };
+  const piling = { ...PRESETS.explainer, board: 'accumulate' as const, maxBeats: 8 };
+
+  const wiped = adaptLesson(lesson, wiping);
+  assert.equal(lessonBeats(wiped).length, 9, 'a wiping board keeps the beat the count would cut');
+  assert.ok(wiped.misconception, 'and therefore keeps the misconception');
+  assert.ok(
+    lessonSeconds(wiped, wiping) <= wiping.maxSeconds,
+    'non-vacuous: the kept film really does fit its runtime',
+  );
+
+  const piled = adaptLesson(lesson, piling);
+  assert.equal(
+    lessonBeats(piled).length,
+    8,
+    'an accumulating board still enforces the count — the cells are regions on one canvas',
+  );
+});
+
 test('the shipped lessons are unaffected, which is what keeps the hashes still', async () => {
   const dir = path.resolve(import.meta.dirname, '../../../examples/lessons');
   for (const name of ['gradient-descent', 'longitude', 'hash-map']) {

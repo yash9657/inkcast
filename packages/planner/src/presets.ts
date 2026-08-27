@@ -955,8 +955,41 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
     return out;
   };
 
+  /**
+   * Whether exceeding `maxBeats` is by itself a reason to delete a beat.
+   *
+   * It is on an **accumulating** board, where the count is structural: every beat is a
+   * region laid on one canvas and the camera tours them, so an extra beat shrinks every
+   * cell and lengthens the tour. That is a real limit on what the film can show and the
+   * trimmer has to enforce it.
+   *
+   * It is **not** on a wiping board. `planBoard` dispatches `wipe` to `oneCardBoard`,
+   * which lays one frame-shaped cell per beat and never consults `maxBeats` — so on this
+   * board an extra beat costs seconds and nothing else, and seconds are already the other
+   * half of this predicate. Enforcing the count as well means deleting pedagogy from a
+   * film that fits its runtime, which is exactly what happened twice:
+   *
+   *  - `projects/df62ce29a563` clamped to 9 beats at 75.5s against a 75s target, and lost
+   *    its misconception to save 0.5s of a 90s band.
+   *  - `projects/c5caa09eb153` ("how does day and night happen") authored 10 beats and
+   *    clamped to **62.7s** — comfortably inside the band — and still lost its
+   *    misconception, because 10 > 9. Nothing about that cut bought anything.
+   *
+   * `maxBeats` keeps both of its other jobs on a wiping preset: `teachingBrief` states it
+   * to the author as the beat ceiling, and `maxWordsPerBeat` is derived from it. What it
+   * stops being is scissors. The runaway case it used to backstop — a great many tiny
+   * beats — is bounded from the other side, since each beat is clamped to
+   * `maxWordsPerBeat` and their sum still has to fit `maxSeconds`.
+   *
+   * Scoped by board mode rather than by preset name, and that keeps the pinned storyboard
+   * hashes still: `standard`, `short` and `square` all accumulate, so they take the same
+   * branch they always did.
+   */
+  const countBinds = preset.board !== 'wipe';
+
   const overBudget = (l: Lesson) =>
-    lessonBeats(l).length > preset.maxBeats || lessonSeconds(l, preset) > preset.maxSeconds;
+    (countBinds && lessonBeats(l).length > preset.maxBeats) ||
+    lessonSeconds(l, preset) > preset.maxSeconds;
 
   let shaped = withoutDoomed();
   while (overBudget(shaped)) {

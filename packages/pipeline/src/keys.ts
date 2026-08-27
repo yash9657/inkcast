@@ -279,7 +279,13 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // has not moved. Neither moves a pinned hash (the four shipped compiles carry no
   // titles and no orphaned correlative), which is exactly why the bump is needed:
   // nothing else would invalidate the storyboards on disk.
-  storyboard: 17,
+  // 18: on a wiping board the beat count no longer forces `adaptLesson` to delete a beat
+  // — one card per beat means the count costs seconds and nothing else, and seconds are
+  // already checked. Boards compiled under 17 dropped a beat to satisfy `maxBeats` even
+  // when the film fitted its runtime, so every `explainer` and `deepdive` storyboard on
+  // disk is a different artefact for identical inputs. `standard`/`short`/`square`
+  // accumulate and are byte-identical, but this constant is per stage, not per preset.
+  storyboard: 18,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never
