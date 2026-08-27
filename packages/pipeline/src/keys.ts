@@ -219,7 +219,13 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // *did* rule on and whose ruling was discarded: `projects/df62ce29a563` is one, cast
   // 2026-08-27, zero underlays on the topic that had produced three. Same document, same
   // options, different lesson — which is exactly what this constant is for.
-  lesson: 15,
+  // 16: the `explainer` beat ceiling is nine, not eight, and the per-beat word ceiling
+  // eighteen, not twenty. `teachingBrief` states both to the author off the preset —
+  // "${words} words for the whole lesson, across AT MOST ${beats} BEATS", and the ~words
+  // a beat it derives from them — so the brief this stage sends is different text for
+  // identical inputs, which is the test this constant applies. Without the bump a re-cast
+  // of any prompt already on disk is briefed at eight beats and twenty words from cache.
+  lesson: 16,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.

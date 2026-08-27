@@ -29,6 +29,7 @@ import {
   MISCONCEPTION_CUT_PREFIX,
   PRESETS,
   adaptLesson,
+  lessonSeconds,
   misconceptionCutProblems,
   misconceptionIsPayload,
 } from '../src/presets.js';
@@ -103,6 +104,59 @@ function overlongLesson(misconceptionFrom: string[]): Lesson {
 
 const idsOf = (l: Lesson): string[] => lessonBeats(l).map((b) => b.id);
 
+/**
+ * A beat short enough that nine of them fit the `explainer` runtime.
+ *
+ * One sentence, about fifteen words, so `clampNarration` has nothing to take: the point
+ * of the fixture below is a lesson that overruns the beat *count* and nothing else, and a
+ * beat the clamp shortens would confound the two rules this file has to tell apart.
+ */
+function briefStep(idea: string, derivedFrom: string[] = []): LessonStep {
+  return {
+    ...step(idea, derivedFrom),
+    narration: idea,
+    hold: 0.3,
+  };
+}
+
+/**
+ * Nine beats, every one inside its word ceiling, together inside the 75s target.
+ *
+ * This is the shape all three casts of the falling-objects prompt actually produced —
+ * hook, anchor, four steps, worked, misconception, recap — and the shape `maxBeats: 8`
+ * had no way to accept.
+ */
+function nineBeatLesson(misconceptionFrom: string[]): Lesson {
+  return LessonSchema.parse({
+    version: 1,
+    topic: 'why heavy and light objects fall at the same time',
+    title: 'Why heavy and light things fall together',
+    objective: 'A learner can say why mass cancels out of free fall',
+    coreInsight: 'A bigger pull and a bigger reluctance cancel, so mass drops out.',
+    audience: 'a curious adult',
+    kind: 'stem',
+    strategy: 'first-principles',
+    terms: [],
+    cast: [],
+    hook: briefStep('A bowling ball and an apple hit the ground at the very same moment.'),
+    anchor: briefStep('Everyone has felt that a heavy box is much harder to shove along.'),
+    steps: [
+      briefStep('Heavy things are also harder to get moving in the first place.', ['anchor']),
+      briefStep('That stubbornness has a name, and the name for it is inertia.', ['step1']),
+      briefStep('Earth pulls harder on more stuff, exactly in step with the amount.', ['step1']),
+      briefStep('Falling is a tug of war between bigger pull and bigger reluctance.', ['step2']),
+    ],
+    worked: briefStep('Ten kilograms gets ten times the pull and ten times the resistance.', [
+      'step4',
+    ]),
+    misconception: briefStep(
+      'A feather falls slowly because of the air, not because it is light.',
+      misconceptionFrom,
+    ),
+    recap: briefStep('Bigger pull, bigger reluctance, and so exactly the same fall.'),
+  });
+}
+
 test('a misconception derived from the worked example is the payload', () => {
   assert.equal(misconceptionIsPayload(overlongLesson(['worked'])), true);
 
@@ -170,6 +224,46 @@ test('the cut payload is reported on the channel the blocking check reads', () =
   assert.equal(
     problems.filter((p) => !cuts.includes(p)).some((p) => /misconception/.test(p)),
     false,
+  );
+});
+
+/**
+ * The other half of plan gate 8, and the one `misconceptionIsPayload` cannot cover.
+ *
+ * The protection above only fires when the author cited `worked`, and the author is not
+ * consistent about it: three casts of one prompt declared `derivedFrom` as
+ * `['step3','worked']`, `['worked']` and `['step4']`, so the payload branch held on two
+ * of them by luck. The third (`projects/df62ce29a563`) lost its misconception — and the
+ * figure routed to that beat with it, which was the whole of gate 7's failure.
+ *
+ * The cause was not the word budget. After `clampNarration` those casts said 147, 151
+ * and 158 words against a 171-word budget; what did not fit was the *beat count*, 9, 9
+ * and 10 against `maxBeats: 8`. So this pins the fix at the level that matters — a
+ * nine-beat lesson that fits the runtime keeps all nine beats — rather than at the two
+ * preset numbers, which `presets.test.ts` asserts and which a future re-derivation may
+ * legitimately move. What must not come back is a beat being deleted for a count on a
+ * film that was already inside its runtime.
+ */
+test('a nine-beat lesson that fits the runtime keeps its misconception, payload or not', () => {
+  const lesson = nineBeatLesson(['step4']);
+  assert.equal(misconceptionIsPayload(lesson), false, 'this beat is not protected as payload');
+  assert.equal(lessonBeats(lesson).length, 9, 'nine authored beats, the count all three casts hit');
+
+  const problems: string[] = [];
+  const shaped = adaptLesson(lesson, PRESETS.explainer, { onProblem: (p) => problems.push(p) });
+
+  assert.ok(shaped.misconception, 'the misconception survived without needing the payload branch');
+  assert.equal(lessonBeats(shaped).length, 9, 'and nothing else was deleted to make room');
+  assert.deepEqual(
+    misconceptionCutProblems(problems),
+    [],
+    'so the blocking check has nothing to report',
+  );
+  // Non-vacuous in the direction that matters: the beat count was the only thing over, so
+  // a fixture that also overran the seconds would pass this test for the wrong reason.
+  assert.ok(
+    lessonSeconds(shaped, PRESETS.explainer) <= PRESETS.explainer.maxSeconds,
+    'the nine-beat film fits the runtime target, so only the count was ever over',
   );
 });
 

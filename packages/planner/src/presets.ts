@@ -300,19 +300,50 @@ export const PRESETS: Record<PresetName, Preset> = {
    * from that comparison rather than chosen.
    *
    * THE WORD BUDGET, IN WORDS, WHICH IS THE ONLY UNIT THE AUTHOR CAN COUNT.
-   * 75 seconds × 2.2 words a second (`DELIVERED_WPS`, measured, gaps included) = **165
+   * 75 seconds × 2.28 words a second (`DELIVERED_WPS`, measured, gaps included) = **171
    * words for the whole film** — the ~160 the comparison asks for, landing at 75s in the
    * 60–90s target band. `teachingBrief` states that number to the model directly; this
    * is where it comes from.
    *
+   * That number reads 171 rather than the 165 this block said until 2026-08-27, and
+   * nothing about the film changed: `DELIVERED_WPS` is derived from `DELIVERED_LPS`,
+   * which gate 6 re-pinned to the measured 12.16 letters a second. The prose here had
+   * kept the old 2.2. It is spelled out because the block below divides this budget by
+   * the beats, so a stale numerator would make that derivation look like an error.
+   *
    * `maxWordsPerBeat` is that budget divided by the beats, and the arithmetic has one
    * wrinkle worth writing down. `wordBudget` gives the hook and the worked example a
-   * 1.6× leash, so eight beats are 6 + 2×1.6 = **9.2 shares**, and 165 ÷ 9.2 = 18 words
-   * a share. It is set to 20 rather than 18 on purpose: `clampNarration` cuts whole
-   * sentences, so a ceiling pinned to the average would take the last sentence off
-   * nearly every beat and turn a backstop into scissors. At 20 the ceiling sums to
-   * 6×20 + 2×32 = 184 words, just inside the ≤190 the gate allows, and it only bites on
+   * 1.6× leash, so nine beats are 7 + 2×1.6 = **10.2 shares**, and 171 ÷ 10.2 = 16.8
+   * words a share. It is set to 18 rather than 17 on purpose: `clampNarration` cuts
+   * whole sentences, so a ceiling pinned to the average would take the last sentence off
+   * nearly every beat and turn a backstop into scissors. At 18 the ceiling sums to
+   * 7×18 + 2×29 = 184 words, just inside the ≤190 the gate allows, and it only bites on
    * a beat that has genuinely run away with the film.
+   *
+   * ## Why nine beats and eighteen words, 2026-08-27 (was eight and twenty)
+   *
+   * This pair is the same derivation re-run at nine beats, and it was measured rather
+   * than chosen. Three casts of one prompt authored **9, 9 and 10 beats** — never eight
+   * — so `maxBeats: 8` meant every cast entered the trimmer needing a beat deleted. The
+   * word budget was never the problem: after `clampNarration` the three casts said 147,
+   * 151 and 158 words, comfortably inside 165. **The beat count was the whole of it.**
+   *
+   * `overBudget` ORs the two rules, so relaxing either one alone changes nothing — at
+   * `maxBeats: 99` the seconds rule still cut a beat, and at `maxSeconds: 999` the beat
+   * rule still did. Measured on all three casts, only the pair moves the outcome.
+   *
+   * What the pair costs and buys, measured: an extra beat costs seconds, and tightening
+   * the per-beat clamp 20 → 18 pays for it. The three casts land at **68.6s, 69.3s and
+   * 67.5s on 145, 144 and 144 words** — the same argument in one more, slightly shorter
+   * beat, still inside the 60–90s band with the estimator's measured ±5% (gate 6) to
+   * spare. The 184-word ceiling and the 171-word budget are **byte-identical** to what
+   * eight-and-twenty gave, which is the check that says this is a re-derivation and not
+   * a loosening: `maxSeconds` is untouched, so the brief still asks for the same film.
+   *
+   * Why it mattered enough to move: the beat the trimmer reached was the misconception,
+   * and the figure routed to it went with it — plan gates 8 and 7 respectively. See
+   * `misconceptionIsPayload`, whose protection only fires when the author happens to
+   * cite `worked` and so held on two of the three casts by luck.
    *
    * THE SILENCE. `maxHold` 0.8 and `holdBonus` 0. Eight beats at the ceiling plus a 1.0s
    * outro is 7.4s of authored pause in a 75s film — 9.9% at the absolute ceiling, well
@@ -345,8 +376,8 @@ export const PRESETS: Record<PresetName, Preset> = {
     maxSeconds: 75,
     maxPerRegion: 3,
     visualsPerBeat: 2,
-    maxBeats: 8,
-    maxWordsPerBeat: 20,
+    maxBeats: 9,
+    maxWordsPerBeat: 18,
     captionRole: 'label',
     captionWords: 8,
     vertical: false,

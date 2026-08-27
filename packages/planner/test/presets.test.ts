@@ -2,8 +2,8 @@
  * The `explainer` preset: the format that was measured against a competitor.
  *
  * Two things are pinned here, and as in `board-mode.test.ts` they pull in opposite
- * directions. The first is that `explainer` really is a different film — 165 words, at
- * most eight beats, a hold ceiling, one card per idea — and that the two shipped lessons
+ * directions. The first is that `explainer` really is a different film — 171 words, at
+ * most nine beats, a hold ceiling, one card per idea — and that the two shipped lessons
  * actually fit inside it, which is the offline half of the A2 gate ("total words ≤ 190,
  * runtime 60–100s"). The second is that adding a fourth key to `PRESETS` changed nothing
  * about the other three, because four pinned storyboard hashes
@@ -50,7 +50,13 @@ test('the explainer preset is the measured shape, and its arithmetic is the stat
   const p = PRESETS.explainer;
   assert.equal(p.aspect, '16:9', 'landscape: it is the format the comparison was filmed in');
   assert.equal(p.board, 'wipe', 'A3 — content fill 55.5% to 62.3%, regions 4 to 1');
-  assert.equal(p.maxBeats, 8);
+  // Nine since 2026-08-27, was eight. Three casts of one prompt authored 9, 9 and 10
+  // beats and never eight, so every cast entered `adaptLesson` needing a beat deleted —
+  // and the beat it reached was the misconception, taking the figure routed to it with
+  // it (plan gates 8 and 7). See the `explainer` block in `src/presets.ts` for the
+  // measurement and for why `maxWordsPerBeat` moved with it rather than on its own.
+  assert.equal(p.maxBeats, 9);
+  assert.equal(p.maxWordsPerBeat, 18);
   assert.equal(p.visualsPerBeat, 2);
   assert.equal(p.outroSec, 1);
 
@@ -67,9 +73,13 @@ test('the explainer preset is the measured shape, and its arithmetic is the stat
   );
 
   // `wordBudget` gives the hook and the worked example a 1.6x leash, so the per-beat
-  // ceiling sums over eight beats as 6 + 2*1.6 shares. That total is what the A2 gate
-  // measures, so it is the number that has to stay under 190 — not `maxWordsPerBeat`.
-  const ceiling = 6 * p.maxWordsPerBeat + 2 * Math.round(p.maxWordsPerBeat * 1.6);
+  // ceiling sums over the beats as (maxBeats - 2) + 2*1.6 shares. That total is what the
+  // A2 gate measures, so it is the number that has to stay under 190 — not
+  // `maxWordsPerBeat`. The two leashed beats are read off `maxBeats` rather than written
+  // as a literal 6: with the count hardcoded, raising `maxBeats` to 9 left this checking
+  // an eight-beat film and the real ceiling went unmeasured in exactly the change that
+  // moved it.
+  const ceiling = (p.maxBeats - 2) * p.maxWordsPerBeat + 2 * Math.round(p.maxWordsPerBeat * 1.6);
   assert.ok(ceiling <= 190, `a full lesson could reach ${ceiling} words, over the 190 gate`);
 
   assert.ok(
@@ -86,7 +96,7 @@ test('both shipped lessons fit the explainer budget, words and seconds', () => {
     const beats = lessonBeats(shaped).length;
 
     assert.ok(words <= 190, `${name} at explainer says ${words} words, over the 190 gate`);
-    assert.ok(beats <= 8, `${name} kept ${beats} beats`);
+    assert.ok(beats <= PRESETS.explainer.maxBeats, `${name} kept ${beats} beats`);
     assert.ok(
       seconds >= 55 && seconds <= 100,
       `${name} at explainer estimates ${seconds.toFixed(1)}s, outside the 60-100s gate`,
@@ -154,7 +164,7 @@ test('an explainer film is one card per idea, and the mode reaches the storyboar
   const sb = compileLesson(shipped['gradient-descent'], { preset: 'explainer' });
   assert.equal(sb.meta.board, 'wipe');
   assert.equal(sb.meta.aspect, '16:9');
-  assert.ok(sb.scenes.length <= 8, `${sb.scenes.length} scenes`);
+  assert.ok(sb.scenes.length <= PRESETS.explainer.maxBeats, `${sb.scenes.length} scenes`);
   assert.deepEqual([...new Set(sb.scenes.map((s) => s.region))], ['board'], 'one region');
   // The camera never moves, because there is nothing else on the board to move to. This
   // is the mechanism behind the 55.5% to 62.3% fill: one cell, framed to the frame.
