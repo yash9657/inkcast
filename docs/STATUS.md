@@ -3252,3 +3252,39 @@ correctly. It also makes runtimes non-comparable across that boundary: the same 
 measured 43.9s of speech on ElevenLabs and **59.6s** on Kokoro, so `gclose4-fatink` is 81.2s
 against `gclose3-accum`'s 66.1s with holds unchanged at 21.2s and 20.6s. Compare films cast
 on the same engine, or compare per-frame ink rather than runtime.
+
+# 2026-08-27 (Phase 5) — figures stop being stickers on light boards
+
+`docs/PLAN-GOLPO-CLOSE.md` Phase 5, landed and looked at. Every board now keys its
+generated figures to real alpha; `multiply` survives only as the fallback for when keying
+abstains.
+
+**The defect, before:** `renders/acceptance-f3ac9c760194/contact-sheet.png`, the drop-test
+and feather panels — each picture sits in a visible grey-white rectangle on warm paper.
+Plan 9.2 held light boards on `multiply` deliberately, on the argument that these rasters
+are drawn on white and multiplying by white is the identity. The argument is right and its
+premise is not: the generators return warm greys, so the identity never applied and the
+card back was there the whole time.
+
+**After:** `renders/golpo-close-gclose6-keyed/contact-sheet.png`, same lesson, fresh id.
+No rectangle behind either figure — the stick figure and the falling feather sit on the
+paper. Both figure elements now carry `mix-blend-mode:normal` against
+`projects/f3ac9c760194`'s `mix-blend-mode:multiply`; strict QC 25/25, `blank-run` clean,
+0 blank frames.
+
+Three things worth having written down:
+
+- **Dark boards are provably untouched.** The branch was
+  `surface && isDark(paper) ? surface : undefined` and is now `surface`; for a dark surface
+  those are the same value, so the `qc92-chalk` path is byte-identical and needed no cast
+  to confirm.
+- **`keyFigureToSurface` needed no light-surface path**, which was the open question in the
+  plan. An achromatic pixel comes out as `surface.ink` at `density` alpha; on light paper
+  that ink is near-black, so a mid-grey keys to near-black at ~50% alpha over near-white,
+  which is the mid-grey it started as. Chromatic pixels differ by being drawn at their own
+  hue rather than that hue multiplied into the paper.
+- **No cache bump was needed and none was made.** The keyed copy is derived from the cached
+  raster at composite time and written beside it, named for the surface it was keyed
+  against, so no provider call is involved and the raster tiers stay style-blind. A fresh
+  project id is enough to pick it up. `isDarkSurface` stays load-bearing in `image.ts` — it
+  now chooses what the _fallback_ costs, and the problem note says which of the two it is.

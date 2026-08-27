@@ -1452,23 +1452,36 @@ export async function figureRaster(args: {
   // The href is project-relative: the renderer resolves and inlines it against the project
   // directory, and keeping it relative is what lets a project stay self-describing.
   //
-  // **Two composites, chosen by the board** (plan 9.2, audit S5.6).
+  // **Every board keys** (2026-08-27; `docs/PLAN-GOLPO-CLOSE.md` §6). The raster is keyed
+  // to real alpha and composited normally, and `multiply` is what is left when keying
+  // abstains.
   //
-  // On light paper: `mix-blend-mode: multiply`, unchanged and untouched. Every one of
-  // these rasters is drawn on white, the board's paper is `#fcfbf9`, and multiplying by
-  // white is the identity — so the card disappears, the paper's warmth carries through the
-  // picture, and the grid dots read underneath it. The first render without it showed the
-  // card's edges plainly against the paper. Every film in the corpus is on this path and
-  // not one pixel of it moves.
+  // This used to branch on the board's luma, and plan 9.2 held light boards byte-identical
+  // deliberately: every one of these rasters is drawn on white, the board's paper is
+  // `#fcfbf9`, and multiplying by white is the identity, so the card disappears and the
+  // grid dots read underneath. That was a caution rather than a contract, and it was
+  // spent — because the identity only holds where the ground really is white, and the
+  // generators return warm greys. On `renders/acceptance-f3ac9c760194/contact-sheet.png`
+  // the drop-test and feather figures sit in visible grey-white rectangles on the paper.
+  // Keying does not care what the ground's colour is; it measures ink density and throws
+  // the rest away, which is the same job on both surfaces.
   //
-  // On a dark board: the raster is keyed to real alpha and composited normally, because
-  // multiply can only darken and there is nothing below the slate to darken *to*. The
-  // keyed copy is a derived artefact written beside the raster it came from — the original
-  // stays exactly as the provider sent it, which is what keeps both cache tiers style-blind
-  // and re-keyable. It is named for the surface it was keyed against, so two packs in one
-  // project do not overwrite each other's copy, and so a pack whose colours were edited
-  // gets a new file rather than yesterday's ink.
-  const keyed = args.surface && isDarkSurface(args.surface.paper) ? args.surface : undefined;
+  // The keyed copy is a derived artefact written beside the raster it came from — the
+  // original stays exactly as the provider sent it, which is what keeps both cache tiers
+  // style-blind and re-keyable. It is named for the surface it was keyed against, so two
+  // packs in one project do not overwrite each other's copy, and so a pack whose colours
+  // were edited gets a new file rather than yesterday's ink.
+  //
+  // The re-lighting inside `keyFigureToSurface` needs no light-surface path: an achromatic
+  // pixel comes out as `surface.ink` at `density` alpha, and on light paper that ink is
+  // near-black, so a mid-grey keys to near-black at ~50% alpha over near-white — which is
+  // the mid-grey it started as. It is the chromatic pixels that differ, and they differ by
+  // being drawn at their own hue instead of that hue multiplied into the paper.
+  const keyed = args.surface;
+  // Whether losing the keying costs the picture or only tidiness. On light paper `multiply`
+  // is what the whole corpus was composited with and is close to lossless; on a dark board
+  // it multiplies into a surface darker than the ink and the figure is not there at all.
+  const dark = args.surface !== undefined && isDarkSurface(args.surface.paper);
   let href = raster.rel;
   let blend = 'mix-blend-mode:multiply';
   if (keyed) {
@@ -1478,12 +1491,15 @@ export async function figureRaster(args: {
       await writeFile(path.resolve(args.dir, href), alpha);
       blend = 'mix-blend-mode:normal';
     } else {
-      // `readPng` abstained. Say so where the run can read it: on a dark board this is
-      // not a cosmetic miss, it is a picture the viewer will not see at all.
+      // `readPng` abstained. Say so where the run can read it, and say which of the two
+      // things it costs — on a dark board it is a picture the viewer will not see at all,
+      // on light paper it is the grey card back around the drawing.
       args.onProblem?.(
-        `the figure "${args.id}" could not be keyed for a dark board — its PNG is a shape ` +
-          'the decoder does not read (interlaced, or a sub-byte palette), so it is ' +
-          'composited with multiply and will be close to invisible on this surface',
+        `the figure "${args.id}" could not be keyed — its PNG is a shape the decoder does ` +
+          'not read (interlaced, or a sub-byte palette), so it is composited with multiply ' +
+          (dark
+            ? 'and will be close to invisible on this dark surface'
+            : "and will show its raster's own ground as a card behind the drawing"),
       );
     }
   }
