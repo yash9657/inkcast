@@ -162,6 +162,7 @@ export {
   critiqueFor,
   lessonSeconds,
   misconceptionCutProblems,
+  misconceptionCutInBoard,
   misconceptionIsPayload,
   pickVisuals,
   resolvePreset,

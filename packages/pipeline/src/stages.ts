@@ -244,6 +244,12 @@ type LessonStageModule = {
    * sentence it matches. See `misconceptionIsPayload` in `planner/src/presets.ts`.
    */
   misconceptionCutProblems?: unknown;
+  /**
+   * The same question asked of a compiled board rather than of a stage's problem list,
+   * for the resumed run where the trimmer never spoke (2026-08-27). Optional and read
+   * defensively, exactly as the line above is.
+   */
+  misconceptionCutInBoard?: unknown;
   /** Version constants, read defensively — see `versionOf`. */
   LESSON_VERSION?: unknown;
   COMPILER_VERSION?: unknown;

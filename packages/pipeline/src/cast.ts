@@ -1101,9 +1101,17 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
   // One line on the stage channel is not like the others — see the two `inherited`
   // entries below. Partitioned here rather than inline so the two lists are provably
   // disjoint and nothing is reported twice.
-  const misconceptionCuts = misconceptionCuts_(stageProblems, planner);
-  const cutSet = new Set(misconceptionCuts);
+  const fromChannel = misconceptionCuts_(stageProblems, planner);
+  const cutSet = new Set(fromChannel);
   const otherStageProblems = stageProblems.filter((p) => !cutSet.has(p));
+  // The channel is empty on a resumed run, so the board is asked too, and the two are
+  // not added together: the same cut reported twice is one defect and two findings.
+  // The channel's line wins when there is one — it is the trimmer's own account, taken
+  // at the moment the decision was made.
+  const misconceptionCuts =
+    fromChannel.length > 0
+      ? fromChannel
+      : misconceptionCutsOnBoard_(design.lesson, sb!, design.presetShape, planner);
 
   // The quality gate (plan 3.1). Deliberately not cache-checked: it is arithmetic
   // over a board this function already holds, it costs milliseconds, and a cached
@@ -1640,6 +1648,40 @@ function misconceptionCuts_(
     return Array.isArray(out) ? out.filter((x): x is string => typeof x === 'string') : [];
   } catch (err) {
     log.warn('could not tell whether this film lost its misconception', err);
+    return [];
+  }
+}
+
+/**
+ * The same question asked of the board on disk, for the run where the trimmer never ran.
+ *
+ * `misconceptionCuts_` above reads the stage channel, and the stage channel is silent on
+ * a resumed project: the storyboard stage is served from cache, `adaptLesson` is never
+ * called, and a check that reads only that channel reports **pass** on a film with its
+ * point cut out. Measured 2026-08-27 — the identical strict command run twice blocked and
+ * then passed — which made re-running a way through a strict gate.
+ *
+ * Read defensively through the module for the same reason its neighbours are (`versionOf`):
+ * a planner build without the function reports nothing rather than failing the run.
+ * See `misconceptionCutInBoard` in the planner for what it can and cannot see.
+ */
+function misconceptionCutsOnBoard_(
+  lesson: Lesson | undefined,
+  sb: Storyboard,
+  preset: { maxSeconds: number; name: string },
+  planner: { misconceptionCutInBoard?: unknown },
+): string[] {
+  if (!lesson || typeof planner.misconceptionCutInBoard !== 'function') return [];
+  try {
+    const fn = planner.misconceptionCutInBoard as (
+      l: Lesson,
+      s: readonly { role?: string }[],
+      p: { maxSeconds: number; name: string },
+    ) => unknown;
+    const out = fn(lesson, sb.scenes, preset);
+    return Array.isArray(out) ? out.filter((x): x is string => typeof x === 'string') : [];
+  } catch (err) {
+    log.warn('could not tell whether this board lost its misconception', err);
     return [];
   }
 }

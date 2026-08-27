@@ -30,6 +30,7 @@ import {
   PRESETS,
   adaptLesson,
   lessonSeconds,
+  misconceptionCutInBoard,
   misconceptionCutProblems,
   misconceptionIsPayload,
 } from '../src/presets.js';
@@ -286,8 +287,22 @@ test('the beat count binds on an accumulating board and not on a wiping one', ()
   const lesson = nineBeatLesson(['step4']);
   // A ceiling of 8 against 9 authored beats, on a lesson that comfortably fits 75s — so
   // the count is the only thing over, and the board mode is the only variable below.
-  const wiping = { ...PRESETS.explainer, board: 'wipe' as const, maxBeats: 8 };
-  const piling = { ...PRESETS.explainer, board: 'accumulate' as const, maxBeats: 8 };
+  // `countBinds` explicitly undefined on both, because this test is about the rule the
+  // board mode gives when nobody has overridden it — and `explainer`, whose shape these
+  // borrow, sets the override. Spreading it silently made this test assert its own
+  // negation, which is why the field is written out here rather than inherited.
+  const wiping = {
+    ...PRESETS.explainer,
+    board: 'wipe' as const,
+    maxBeats: 8,
+    countBinds: undefined,
+  };
+  const piling = {
+    ...PRESETS.explainer,
+    board: 'accumulate' as const,
+    maxBeats: 8,
+    countBinds: undefined,
+  };
 
   const wiped = adaptLesson(lesson, wiping);
   assert.equal(lessonBeats(wiped).length, 9, 'a wiping board keeps the beat the count would cut');
@@ -303,6 +318,21 @@ test('the beat count binds on an accumulating board and not on a wiping one', ()
     8,
     'an accumulating board still enforces the count — the cells are regions on one canvas',
   );
+
+  // …unless the preset has measured that it buys nothing. `explainer` accumulates and
+  // sets `countBinds: false` (2026-08-27): the same 10-beat lesson at `maxBeats` 9 and 10
+  // gave an identical canvas, zoom range and sparsest scene, so the cut bought 1.3 points
+  // of a bounding-box metric and cost the misconception. See `presets.ts`.
+  const overridden = adaptLesson(lesson, { ...piling, countBinds: false });
+  assert.equal(lessonBeats(overridden).length, 9, 'countBinds: false disarms the count');
+  assert.ok(overridden.misconception, 'and therefore keeps the misconception');
+  assert.equal(PRESETS.explainer.countBinds, false, 'which is the shipped explainer');
+
+  // Non-vacuous the other way: the presets whose hashes are pinned must not have acquired
+  // the override, or they take a branch nobody re-pinned them against.
+  for (const name of ['standard', 'short', 'square'] as const) {
+    assert.equal(PRESETS[name].countBinds, undefined, `${name} must decide by board mode`);
+  }
 });
 
 test('the shipped lessons are unaffected, which is what keeps the hashes still', async () => {
@@ -315,4 +345,40 @@ test('the shipped lessons are unaffected, which is what keeps the hashes still',
       `${name} would take the new branch — re-pin the hashes deliberately, with frames`,
     );
   }
+});
+
+test('the cut is visible in the board, not only in the run that made it', () => {
+  /*
+   * The check that blocks on a cut payload read the stage channel and nothing else, and
+   * the stage channel is silent on a resumed project: the storyboard comes from cache,
+   * `adaptLesson` is never called, and the gate reports pass on a film with its point
+   * removed. Measured 2026-08-27 on `projects/gclose2-accum` — the identical strict
+   * command blocked, then passed, with nothing changed but a warm cache. Re-running was
+   * a way through a strict gate.
+   *
+   * Same shape of fix as the `drawing` check's: ask the artefact, not the run.
+   */
+  const preset = { maxSeconds: 75, name: 'explainer' as const };
+  const lesson = nineBeatLesson(['step4']);
+  assert.ok(lesson.misconception, 'the fixture has one to lose');
+
+  const carried = [{ role: 'hook' }, { role: 'misconception' }, { role: 'recap' }];
+  const cut = [{ role: 'hook' }, { role: 'step' }, { role: 'recap' }];
+
+  assert.deepEqual(misconceptionCutInBoard(lesson, carried, preset), []);
+  const [line] = misconceptionCutInBoard(lesson, cut, preset);
+  assert.ok(line, 'a board with no misconception beat is a finding');
+  // The same prefix the channel's line carries, because the pipeline partitions the
+  // stage channel on it and a second spelling would be a finding nobody can classify.
+  assert.ok(line.startsWith(MISCONCEPTION_CUT_PREFIX));
+  assert.match(line, /75s explainer budget/);
+  assert.ok(line.includes(lesson.misconception.idea), 'it names the belief that was lost');
+
+  // A lesson with nothing to lose is not a finding, and neither is a board that never
+  // claimed a role — `Scene.role` is optional, so a hand-authored board carrying none of
+  // them has not said that the misconception is missing, it has said nothing at all.
+  assert.deepEqual(misconceptionCutInBoard({ misconception: undefined }, cut, preset), []);
+  assert.deepEqual(misconceptionCutInBoard(undefined, cut, preset), []);
+  assert.deepEqual(misconceptionCutInBoard(lesson, [{}, {}, {}], preset), []);
+  assert.deepEqual(misconceptionCutInBoard(lesson, [], preset), []);
 });

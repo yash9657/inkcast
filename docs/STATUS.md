@@ -3043,3 +3043,124 @@ ElevenLabs and fal both still work. Phases 2 and 3 can be measured the same way.
 number became `MIN_MEAN_FILL` in `21538fe`, alongside `MIN_SCENE_FILL`. The gate never
 moved. Split into two greps — the constant is still 0.18, and the comparison still reads
 it — rather than relaxed, because either half alone is weaker than what was there before.
+
+# 2026-08-27 (Phase 2) — the board tour is the default again, and it is denser
+
+`docs/PLAN-GOLPO-CLOSE.md` Phase 2. `explainer` goes back to `board: 'accumulate'`, the
+contract clause is re-amended, and the phase's central claim — that accumulation is
+_denser_ than wiping, not sparser — is measured and holds. Two blockers the plan did not
+anticipate turned up on the way, both real, both fixed with the owner's decision.
+
+## The A/B, same lesson, same day, same instrument
+
+`--lesson projects/c5caa09eb153/lesson.json --preset explainer` into fresh ids, so the
+lesson is held exactly constant and the only variable is the board mode.
+
+|                            | wipe (`gclose1-repro`) | accumulate (`gclose3-accum`) | bar        |
+| -------------------------- | ---------------------- | ---------------------------- | ---------- |
+| distinct cameras           | **1**                  | **10**                       | ≥ 3        |
+| regions                    | **1**                  | **5**                        | ≥ 2        |
+| canvas                     | 1280×895               | **6572×2908**                | > frame    |
+| blank runs                 | 0                      | **0**                        | none       |
+| frames under 0.5% ink      | 3 of 69                | **0 of 66**                  | —          |
+| mean frame ink             | 3.72%                  | **4.43%**                    | ≥ the wipe |
+| median frame ink           | 2.70%                  | **4.10%**                    | —          |
+| `ink-floor` (beat-fullest) | 4.60%                  | 4.39%                        | —          |
+| film                       | 68.6s                  | **66.1s**                    | 60–90s     |
+| strict QC                  | 25/25 ok               | **25/25 ok**                 | passes     |
+
+Contact sheets: `renders/golpo-close-gclose1-repro/contact-sheet.png` and
+`renders/golpo-close-gclose3-accum/contact-sheet.png`. The wipe sheet is eight single
+cards; the accumulate sheet is a board with three or four cards in frame at once and the
+camera moved between them. **Every acceptance criterion in plan 2.5 passes.**
+
+Against the competitor's 5.7% mean on this same topic we are at 4.43% — 78% of the way,
+from 32% where Phase 1 started. Phase 3 (fat ink) is the remaining lever.
+
+## What `fillcheck` says, recorded and not chased (plan 2.4)
+
+Under accumulate the bounding-box metric _falls_ on all five lessons measured:
+
+| lesson           | wipe mean | acc mean | wipe min | acc min | cameras w/a | regions w/a |
+| ---------------- | --------- | -------- | -------- | ------- | ----------- | ----------- |
+| gradient-descent | 61.3%     | 51.1%    | 42%      | 31%     | 1 / 7       | 1 / 4       |
+| hash-map         | 36.4%     | 23.8%    | 26%      | 12%     | 1 / 9       | 1 / 5       |
+| longitude        | 36.0%     | 20.6%    | 29%      | 14%     | 1 / 8       | 1 / 4       |
+| f3ac9c760194     | 28.0%     | 25.5%    | 14%      | 9%      | 1 / 8       | 1 / 3       |
+| c5caa09eb153     | 34.4%     | 28.0%    | 21%      | 15%     | 1 / 9       | 1 / 5       |
+
+That is the artifact, in one table: the metric that _falls_ is the one measuring boxes,
+and the metric that _rises_ is the one measuring pixels. Gate 1's 35% bar stays suspended
+per plan 2.4; re-deriving it waits for Phase 3, because fat ink moves it and deriving it
+twice is waste.
+
+`sbjson.mts` grew the `[board]` argument it never had. Handed `--board` it ignored it
+silently, so the first pass of the table above came back with both halves identical —
+which read as a finding rather than as a tool with no such flag.
+
+## Blocker A — flipping the board re-armed the scissors
+
+`adaptLesson`'s `countBinds` was `preset.board !== 'wipe'`. `e60b9bf`, landed one day
+earlier, disarmed the beat count as scissors **only under wipe**; the flip re-armed it,
+and the 10-beat day/night lesson lost its misconception — the exact case that commit's own
+comment names. Strict QC blocked on `misconception-cut`.
+
+Measured before deciding, because the comment's reason for binding under accumulate is a
+claim about geometry and geometry is measurable:
+
+| c5caa09eb153, accumulate | scenes | canvas    | sparsest scene | zoom range | misconception |
+| ------------------------ | ------ | --------- | -------------- | ---------- | ------------- |
+| `maxBeats` 9             | 9      | 6572×2908 | 15%            | 1.04–5.64  | **cut**       |
+| `maxBeats` 10            | 10     | 6572×2908 | 15%            | 1.04–5.64  | kept          |
+
+Identical canvas, identical zoom range, identical floor. "An extra beat shrinks every cell
+and lengthens the tour" is not true here — the board already had the room. The extra beat
+cost **1.3 points of `fillcheck`'s mean**, which is the metric this very phase reverses a
+decision made with. The cut cost the misconception.
+
+So `countBinds` is now a preset field, defaulting to the board-mode rule, and `explainer`
+sets it `false`. `standard`, `short` and `square` set nothing and take the branch they
+always took, which is what keeps the four pinned storyboard hashes still — asserted in
+`trim-priority.test.ts` rather than argued. Of the five lessons measured, only this one
+authors ten beats; the other four are unaffected either way.
+
+## Blocker B — the strict gate could be got through by re-running
+
+**`misconception-cut` reported `pass` on any resumed project, on a film that had the cut.**
+It read `stageProblems`, an in-memory array the storyboard stage pushes to while it runs;
+on a resumed run the stage is served from cache, `adaptLesson` is never called, nothing is
+pushed, and the check finds nothing to report. Reproduced on `projects/gclose2-accum` with
+the identical command twice:
+
+```
+$ … --project gclose2-accum          # StageError: 1 quality problem (misconception-cut)
+$ … --project gclose2-accum          # ok: true, misconception-cut: pass
+```
+
+Nothing about the film changed. The cache warmed. This was **not** a `--degrade` problem —
+`--degrade` was a red herring; the second run above is strict.
+
+Fixed the way the neighbouring `drawing` check already was, and its comment says why:
+_read it back off the artefacts rather than remember what the lane said while it ran._
+`misconceptionCutInBoard(lesson, scenes, preset)` asks the two files — the lesson declares
+a misconception, and no scene carries `role: 'misconception'`. It returns nothing when the
+board claims no roles at all (a hand-authored board, where `role` is optional), because a
+check that cannot see must not report that it looked. The channel's line still wins when
+there is one: it is the trimmer's own account, taken when the decision was made.
+
+**Worth carrying forward:** any blocking check whose evidence is a side effect of a stage
+goes quiet exactly when that stage is cached. `drawing` was fixed for it, this one was not,
+and nothing tests the class. `duration`, `lane-coverage` and `stages` all read the same
+channel — unaudited as of this writing.
+
+## Where the two evidence films stand
+
+- **`projects/gclose3-accum`** — the Phase 2 measurement film. Accumulate, strict-clean,
+  10 beats, misconception intact.
+- **`projects/gclose1-repro`** — the Phase 1 measurement film and the wipe half of the
+  pair above. Do not re-cast either.
+- **`projects/gclose2-accum`** — the blocked intermediate that produced Blocker B's repro.
+  Its `qc.json` is the laundered one and is kept as the evidence; it is a 9-beat film with
+  no misconception and must not be read as a measurement.
+
+Tests 1248 → 1249. `pnpm typecheck`, `pnpm lint`, auditcheck 111/111 all clean.

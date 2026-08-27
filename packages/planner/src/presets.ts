@@ -45,6 +45,16 @@ export type Preset = {
   visualsPerBeat: number;
   /** Hard cap on beats. */
   maxBeats: number;
+  /**
+   * Whether exceeding `maxBeats` is by itself a reason to delete a beat.
+   *
+   * Absent means "decide from the board mode", which is the rule `adaptLesson` has
+   * always used and which keeps `standard`, `short` and `square` — and their four
+   * pinned storyboard hashes — on exactly the branch they take today. Set it only
+   * where the count has been **measured** not to buy anything on that format; see
+   * `countBinds` in `adaptLesson` for what the measurement has to show.
+   */
+  countBinds?: boolean;
   /** Spoken words per beat before narration is trimmed at a sentence break. */
   maxWordsPerBeat: number;
   /** Type scale for the caption that names each cell. */
@@ -396,6 +406,10 @@ export const PRESETS: Record<PresetName, Preset> = {
     maxPerRegion: 3,
     visualsPerBeat: 2,
     maxBeats: 9,
+    // Measured false on this format — see `countBinds` in `adaptLesson`. It stays the
+    // ceiling the brief states to the author and the number `maxWordsPerBeat` is derived
+    // from; what it is not, here, is scissors.
+    countBinds: false,
     maxWordsPerBeat: 18,
     captionRole: 'label',
     captionWords: 8,
@@ -902,6 +916,43 @@ export function misconceptionCutProblems(problems: readonly string[]): string[] 
 }
 
 /**
+ * The same finding, read off the artefacts instead of off the run that produced them.
+ *
+ * The stage channel only says anything while the storyboard stage is actually running.
+ * On a resumed project it is served from cache, `adaptLesson` never runs, nothing is
+ * pushed, and a blocking check that reads only that channel reports **pass** on a film
+ * with its point removed. Measured 2026-08-27: the identical strict command, run twice
+ * against `projects/gclose2-accum`, blocked on `misconception-cut` and then passed —
+ * so re-running was a way through a strict gate. Nothing about the film changed; the
+ * cache warmed.
+ *
+ * This is the same fix and the same reasoning as the `drawing` check's, which reads
+ * `lesson.json` back rather than remembering what the lane said while it drew: a check
+ * whose evidence is a side effect of a stage is a check that goes quiet exactly when the
+ * stage is skipped.
+ *
+ * The predicate is the one the compiler already writes down — the lesson declares a
+ * misconception and no scene carries `role: 'misconception'` — so it needs no second
+ * copy of the trimmer's decision. `undefined` when the storyboard has no roles at all
+ * (a hand-authored board, where `role` is optional and absence means nothing was
+ * claimed), because a check that cannot see must not report that it looked.
+ */
+export function misconceptionCutInBoard(
+  lesson: Pick<Lesson, 'misconception'> | undefined,
+  scenes: readonly { role?: string }[],
+  preset: Pick<Preset, 'maxSeconds' | 'name'>,
+): string[] {
+  if (!lesson?.misconception) return [];
+  if (!scenes.some((s) => s.role !== undefined)) return [];
+  if (scenes.some((s) => s.role === 'misconception')) return [];
+  return [
+    `${MISCONCEPTION_CUT_PREFIX} — "${lesson.misconception.idea}" — is not on this board, ` +
+      `cut to fit the ${preset.maxSeconds}s ${preset.name} budget, so this film never names ` +
+      'the wrong belief it creates. Ask for shorter beats, or cast it at a longer preset.',
+  ];
+}
+
+/**
  * Fit a lesson to a preset: trim each beat, then drop beats until the estimate
  * lands inside the target runtime.
  *
@@ -977,10 +1028,20 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
   /**
    * Whether exceeding `maxBeats` is by itself a reason to delete a beat.
    *
-   * It is on an **accumulating** board, where the count is structural: every beat is a
-   * region laid on one canvas and the camera tours them, so an extra beat shrinks every
-   * cell and lengthens the tour. That is a real limit on what the film can show and the
-   * trimmer has to enforce it.
+   * It is normally so on an **accumulating** board, where the count looks structural:
+   * every beat is a region laid on one canvas and the camera tours them, so an extra
+   * beat shrinks every cell and lengthens the tour. Where that is true it is a real
+   * limit on what the film can show and the trimmer has to enforce it.
+   *
+   * **But it is an assumption, and on `explainer` it was measured false** (2026-08-27,
+   * when that preset went back to `accumulate`). The same 10-beat lesson compiled at
+   * `maxBeats` 9 and 10 gave an identical 6572x2908 canvas, an identical 1.04–5.64 zoom
+   * range and an identical 15% sparsest scene — nothing shrank, because the board it was
+   * laid on already had the room. What the extra beat cost was 1.3 points of
+   * `fillcheck`'s mean, which is the bounding-box metric this preset's own board
+   * decision was reversed for reading wrongly. What the cut cost was the misconception.
+   * So `explainer` carries `countBinds: false`, and any preset claiming it has to show
+   * the same three numbers rather than assert them.
    *
    * It is **not** on a wiping board. `planBoard` dispatches `wipe` to `oneCardBoard`,
    * which lays one frame-shaped cell per beat and never consults `maxBeats` — so on this
@@ -1000,11 +1061,11 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
    * beats — is bounded from the other side, since each beat is clamped to
    * `maxWordsPerBeat` and their sum still has to fit `maxSeconds`.
    *
-   * Scoped by board mode rather than by preset name, and that keeps the pinned storyboard
-   * hashes still: `standard`, `short` and `square` all accumulate, so they take the same
-   * branch they always did.
+   * Scoped by board mode, with a per-preset override, and that keeps the pinned storyboard
+   * hashes still: `standard`, `short` and `square` all accumulate and none of them sets
+   * `countBinds`, so they take the same branch they always did.
    */
-  const countBinds = preset.board !== 'wipe';
+  const countBinds = preset.countBinds ?? preset.board !== 'wipe';
 
   const overBudget = (l: Lesson) =>
     (countBinds && lessonBeats(l).length > preset.maxBeats) ||
