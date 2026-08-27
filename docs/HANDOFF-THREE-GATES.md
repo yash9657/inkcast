@@ -1,5 +1,23 @@
 # Handoff — the three gates still open, and the one chain that links them
 
+> **Superseded 2026-08-27, later the same day. Task A and Task D are done. Task B (gate 1)
+> and Task C (the `Mark` null hazard, still deliberately unfixed) remain open.** Gates 7
+> and 8 are closed — see `docs/STATUS.md`'s `2026-08-27` section, which is authoritative
+> where it disagrees with this file.
+>
+> **Task A's diagnosis below is wrong and is left standing only so the correction is
+> legible.** It says the lesson author's 60–100% word overrun is what drives the trimmer
+> into the misconception. The overrun is real and it causes nothing: `clampNarration`
+> already absorbs all of it, and the three casts say 147, 151 and 158 words after the
+> clamp, inside the budget. The cause was the **beat count** — 9, 9 and 10 authored beats
+> against `maxBeats: 8` — so every cast entered the trimmer needing a beat deleted. Fixed
+> in `0bc3397` by re-deriving the preset at nine beats (`maxBeats: 9`,
+> `maxWordsPerBeat: 18`, `maxSeconds` deliberately untouched). **A1's "make the word budget
+> bind" would have bought nothing, and A2 was not needed.**
+>
+> Do not spend a cast on Task A. Both gates were verified offline with `sbjson.mts`,
+> because the trim runs downstream of the lesson stage.
+
 Written 2026-08-27 for a session starting with no context. Self-contained: read this, then
 `docs/PLAN-WATCHABILITY.md`'s acceptance test (the nine gates) if you want the wording of a
 gate, and `docs/STATUS.md`'s last two sections for the arithmetic behind a number.
@@ -24,10 +42,14 @@ b9ecc82  STAGE_CODE_VERSION.lesson 14 -> 15
 
 ### The films on disk, and which one is which
 
-- **`projects/df62ce29a563`** — the current measurement film. `explainer` + `wipe`, 8
-  scenes, cast 2026-08-27 with everything above in. **It has no `out.mp4`**: it is blocked
-  at the `check` stage on `misconception-cut`, which is gate 8 failing, correctly. The
-  `storyboard.json` is written _before_ the check stage, so every measurement below is real.
+- **`projects/df62ce29a563`** — the current measurement film. `explainer` + `wipe`, cast
+  2026-08-27 with everything above in. **It has no `out.mp4`**: at the time of casting it
+  was blocked at the `check` stage on `misconception-cut`. That block is gone as of
+  `0bc3397` — the same `lesson.json` now compiles to **9 scenes with the misconception in
+  and zero problems** — but the `storyboard.json` in the directory is still the 8-scene one
+  from the blocked run. Recompile it with `sbjson.mts` before measuring, or re-cast. The
+  `storyboard.json` is written _before_ the check stage, so the measurements below are real
+  for the film as it was.
 - **`projects/f3ac9c760194`** — the 2026-08-25 acceptance film, 78.65s, strict-clean. Still
   the only one with a rendered `out.mp4`, but its marks are pre-`eb71d4b` drawings.
 - **`projects/f6978912f741`** — a mis-cast (CLI defaults, so `standard` + `accumulate`).
@@ -37,15 +59,19 @@ b9ecc82  STAGE_CODE_VERSION.lesson 14 -> 15
 
 | #   | gate                                    | status               | measured                          |
 | --- | --------------------------------------- | -------------------- | --------------------------------- |
-| 1   | fill ≥ 35% mean, no scene under 14%     | **FAIL** on the mean | mean **30.8%**, min 15%, max 66%  |
+| 1   | fill ≥ 35% mean, no scene under 14%     | **FAIL** on the mean | mean **32.4%**, min 15%, max 66%  |
 | 2   | pen: never two elements mid-draw        | PASS                 | unchanged since 2026-08-25        |
 | 3   | dwell                                   | PASS                 | unchanged                         |
 | 4   | draw time scales with ink               | PASS                 | unchanged                         |
 | 5   | no card title truncated mid-phrase      | PASS                 | unchanged                         |
 | 6   | delivered pace within ±5%               | **PASS — verified**  | **12.08** and **12.33** vs 12.16  |
-| 7   | ≥ 2 beats carry a generated figure      | **FAIL**             | 2 routed, **1 survived the trim** |
-| 8   | 60–90s, misconception survives          | **FAIL**             | est. **123s** vs 75s; it was cut  |
+| 7   | ≥ 2 beats carry a generated figure      | **PASS** (`0bc3397`) | **2** figure assets, s0 and s7    |
+| 8   | 60–90s, misconception survives          | **PASS** (`0bc3397`) | 9 beats, **68.6s**, it survives   |
 | 9   | works in a freshly restarted `next dev` | PASS                 | unchanged                         |
+
+Gate 1 is the only one left. Its number moved 30.8% → 32.4% because the restored
+misconception scene carries 46% fill, and that is all restoring it buys — the arithmetic in
+Task B still holds.
 
 **Gate 6 is closed and it was the last genuinely unknown thing in the plan.** Two different
 lessons of the same prompt were measured this session — 12.33 delivered letters a second
@@ -55,6 +81,10 @@ lines against `audio/scene-*.timing.json`: sum `narrationSec`, count `\p{L}` ove
 sidecar's `phrases[].text`, divide.
 
 ## The one thing to understand: 8 causes 7, and both drag 1
+
+> The chain is real and it is what `0bc3397` cut — but the link this section identifies as
+> the first one is the wrong link. It was the beat count, not the words. Read the banner at
+> the top before acting on the paragraph below.
 
 The lesson author overruns the `explainer` word budget, every time. The brief budgets **165
 words across 8 beats** (`STAGE_CODE_VERSION.lesson` 12 states it as its own block). Three
@@ -94,7 +124,13 @@ which cite steps and none of which cites `worked` — which moves the four pinne
 hashes for lessons nobody has looked at frames of. That bar is real; see
 `packages/planner/test/pinned-hashes.test.ts`.
 
-## Task A — gate 8, which also fixes gate 7 (the keystone)
+## Task A — gate 8, which also fixes gate 7 (the keystone) — **DONE, and misdiagnosed here**
+
+Closed in `0bc3397`, but not by either lever below. See the banner at the top of this file:
+the word overrun A1 targets is absorbed by `clampNarration` before the trimmer runs, and the
+real constraint was `maxBeats: 8` against 9–10 authored beats. A2 was not needed —
+`misconceptionIsPayload` is untouched, and the narrow `derivedFrom.includes('worked')`
+condition it documents at length is still exactly as narrow. The original task text follows.
 
 Two independent levers. They are not alternatives; the first is the cause and the second is
 the seatbelt.
@@ -166,7 +202,12 @@ and it is less severe because `drawOne` has a re-ask loop where `routeFigures` h
 If you fix it, fix it at the model boundary: making `Mark` itself nullish is wrong, because
 the same schema validates every `lesson.json` on disk.
 
-## Task D — two documents that will mislead you (free, do first)
+## Task D — two documents that will mislead you (free, do first) — **DONE**
+
+Both were corrected 2026-08-27. `docs/STATUS.md` gained a
+`# 2026-08-27 — gates 7 and 8 closed` section which opens by naming the dead lever its own
+previous paragraph asserts, and `docs/HANDOFF-GATE-ONE.md` keeps its banner. The original
+task text follows.
 
 - **`docs/STATUS.md` closes by asserting the dead lever.** Its final paragraph
   (~line 2616) says "the lever for a film like this one is **not** the drawing lane … A beat

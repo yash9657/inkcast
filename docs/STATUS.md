@@ -2618,3 +2618,137 @@ carry 44% and 36% of the frame against its mark beats' 18%, and `MAX_FIGURES` is
 used. A beat that is two objects being compared is a beat that should be routed to a
 picture; that is a change to `artdirect.ts`'s brief, it costs one image per beat, and it is
 the next thing worth measuring.
+
+# 2026-08-27 — gates 7 and 8 closed, and the last paragraph above is wrong
+
+The paragraph that closes the section above names the next thing worth measuring: route a
+beat that compares two objects to a picture. **It was measured, and it is not the lever.**
+That is recorded first because it is the one claim in this file that will send a reader
+down a dead end.
+
+## The routing lever, killed (`8cb712f`)
+
+`routecheck.mts` was pointed at two lessons — `projects/df62ce29a563` (the falling-objects
+film) and `projects/deb81002b073` (the six-recognisable-objects lesson) — with a sharpened
+`artdirect.ts` brief rule beside the old one. **Identical counts and identical beats, both
+times.** The router already answers 3 figures / 5 marks on this topic and it is right on
+all five marks: the anchor is two labelled pull arrows, step1 two motion arrows, step2 two
+opposing arrows on one ball, step3 the same arrows drawn twice as long beside an equals
+sign, the recap a chain of boxes. Every one is a *relation* whose meaning lives in the
+arrows, and a picture of two balls would carry less of it, not more. The brief edit was not
+landed; an unmeasured brief edit is the persuasion the measured pass replaced.
+
+`routecheck` also hydrates the keyvault now. Before `8cb712f` it printed "the router did
+not run — no key, or nothing routable in this lesson", which reads like a verdict about the
+lesson and was actually a missing key.
+
+## Gate 6 closed: the pace estimator is no longer true-by-construction
+
+Two different lessons of the same prompt, measured off `audio/scene-*.timing.json`:
+**12.33** delivered letters a second (+1.4%) and **12.08** (−0.7%), against the re-pinned
+`DELIVERED_LPS` of 12.16. Both inside the ±5% band, on two films rather than the one the
+constant was pinned from. There is no harness; it is ten lines — sum `narrationSec`, count
+`\p{L}` over each sidecar's `phrases[].text`, divide.
+
+This matters beyond its own gate: it is what makes `lessonSeconds` a number other decisions
+can be taken against, and the two below are taken against it.
+
+## Gates 8 and 7: the cause was the beat count, not the word budget
+
+Both gates were failing, and the previous handoff attributed it to the lesson author
+overrunning the word budget by 60–100% every cast. The overrun is real — three casts of one
+prompt authored **266, 294 and 337** narration words against a 171-word budget — but it is
+**not the cause of anything**, because `clampNarration` already absorbs all of it. After the
+clamp those three casts say **147, 151 and 158 words**. The budget binds.
+
+What did not fit was the **beat count**: **9, 9 and 10** authored beats against
+`explainer`'s `maxBeats: 8`. So every cast entered `adaptLesson` needing a beat deleted, and
+the beat it reached was the misconception — with the generated figure routed to that beat
+going with it, which was the whole of gate 7's failure. `misconceptionIsPayload` only
+protects that beat when the author happens to cite `worked`, and across the three casts
+`derivedFrom` came in as `['step3','worked']`, `['worked']` and `['step4']` — so the
+protection held twice by luck.
+
+`overBudget` ORs its two rules, which is why neither relaxes alone: at `maxBeats: 99` the
+seconds rule still cut a beat, and at `maxSeconds: 999` the beat rule still did. Measured on
+all three casts, only the pair moves the outcome.
+
+The pair that works is the preset's own derivation re-run at nine beats. Nine beats are
+7 + 2×1.6 = **10.2 shares**, and 171 ÷ 10.2 = 16.8 words a share, so **18** is the
+backstop-not-scissors ceiling exactly as 20 was at eight beats. The extra beat costs seconds
+and the tighter clamp pays for it:
+
+| cast           | authored     | as it now compiles      | misconception |
+| -------------- | ------------ | ----------------------- | ------------- |
+| `f3ac9c760194` | 9 beats 266w | 8 beats, 67.5s          | survives      |
+| `f6978912f741` | 10 beats 337w| 9 beats, 69.3s          | survives      |
+| `df62ce29a563` | 9 beats 294w | 9 beats, **68.6s** 145w | survives      |
+
+**`maxSeconds` is untouched, and that is the point.** It is what `teachingBrief` derives its
+word budget from, so raising it to buy trim headroom would have silently asked the author
+for a longer film — the failure mode `presets.test.ts` already warns about ("change
+`maxSeconds` and the brief silently starts asking for something else"). The 184-word ceiling
+and the 171-word budget both come out byte-identical to what eight-and-twenty gave.
+
+Verified on `df62ce29a563` without spending a cast, since the trim runs downstream of the
+lesson stage: `sbjson.mts` compiles **9 scenes**, the misconception among them, zero problems
+on the channel the blocking check reads, and **two figure assets** where one survived before
+— the hook's two open hands and the misconception's two glass tubes. Gate 8 closed, gate 7
+closed.
+
+The pinned hashes do not move: `explainer` is deliberately unpinned, and no shared code path
+changed. One thing did have to be fixed to keep that true — the ceiling assertion in
+`presets.test.ts` had the beat count written as a literal `6`, so it would have gone on
+measuring an eight-beat film through exactly the change that moved it.
+
+## Gate 1, with the new scene in
+
+**32.4% mean, min 15%**, against a bar of 35% mean and no scene under 14%. Still failing on
+the mean; the floor passes. The restored misconception came in at **46%** fill, better than
+the 36% the old film's version measured, and it moves the mean 30.8% → 32.4%.
+
+```
+ 0 s0  hook          fill 45%  held 50%  cover 90%   <- figure
+ 1 s1  anchor        fill 23%  held 73%  cover 31%
+ 2 s2  step          fill 29%  held 70%  cover 41%
+ 3 s3  step          fill 15%  held 52%  cover 29%
+ 4 s4  step          fill 29%  held 74%  cover 39%
+ 5 s5  step          fill 16%  held 50%  cover 33%
+ 6 s6  worked        fill 66%  held 75%  cover 88%   <- plot lane
+ 7 s7  misconception fill 46%  held 50%  cover 92%   <- figure, restored
+ 8 s8  recap         fill 24%  held 71%  cover 34%
+```
+
+The gap is `cover` and `shape` on the relation beats: s3 and s5 sit at 15–16% with `held`
+~50%, both factors down at once. `thin-card` already tells the author exactly this and must
+not be allowed to open the critic's gate — see the section above, where the first eight
+measured correction calls it would have paid for improved nothing and made two drawings
+worse. `INKCAST_DRAW_FIX=all` is how to test a `FIX_BRIEF` that claims to earn them.
+
+## Two bugs of the same shape, one fixed and one still open
+
+**`b33daca`, fixed.** In the art director, `prompt` and `why` were `z.string().optional()`,
+which accepts `undefined` and **rejects `null`** — and the parse is all-or-nothing, so one
+`null` in a field `applyRoutes` goes on to ignore threw away every verdict in the answer and
+returned the lesson untouched. Zero figures where the same prompt had produced three, with
+one `warn` in a 300-line log as the only trace.
+
+**`core/src/lesson.ts`'s `Mark`, still open.** Ten-odd `.optional()` fields (`x`, `y`, `w`,
+`h`, `points`, `text`, `tex`…) and `repairElements` in `draw-anthropic.ts` only mends a lost
+opening quote — it does not strip nulls, so a `"w": null` from the drawing author would lose
+a whole drawing the same way. It has **not been observed**, which is why it is left alone,
+and it is less severe because `drawOne` has a re-ask loop where `routeFigures` had no retry.
+If it is fixed, it must be fixed at the model boundary: making `Mark` itself nullish is
+wrong, because the same schema validates every `lesson.json` on disk.
+
+## The drop canary was crying wolf (`461e3db`)
+
+`remapDerivations` keeps a canary for the failure that shipped an unfollowable video — a
+beat something derives from is cut, the splice rewires the survivor, the wreckage validates.
+It was firing on a **legal** cut: `droppableIds` builds `needed` from every surviving beat
+*except* the recap, on its own documented grounds that a recap retraces the whole chain and
+honouring its references would leave nothing droppable. So on `f6978912f741`, whose recap is
+the only beat citing step5, the trimmer reported "nothing surviving derives from it" and the
+canary simultaneously reported that something did. Same reference; only one of them was
+counting the recap. The canary now skips the recap and nothing else, and fires zero times
+across the three casts and the three shipped lessons at three presets.
