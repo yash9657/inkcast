@@ -57,17 +57,17 @@ b9ecc82  STAGE_CODE_VERSION.lesson 14 -> 15
 
 ## The nine gates as of now
 
-| #   | gate                                    | status               | measured                          |
-| --- | --------------------------------------- | -------------------- | --------------------------------- |
-| 1   | fill ≥ 35% mean, no scene under 14%     | **FAIL** on the mean | mean **32.4%**, min 15%, max 66%  |
-| 2   | pen: never two elements mid-draw        | PASS                 | unchanged since 2026-08-25        |
-| 3   | dwell                                   | PASS                 | unchanged                         |
-| 4   | draw time scales with ink               | PASS                 | unchanged                         |
-| 5   | no card title truncated mid-phrase      | PASS                 | unchanged                         |
-| 6   | delivered pace within ±5%               | **PASS — verified**  | **12.08** and **12.33** vs 12.16  |
-| 7   | ≥ 2 beats carry a generated figure      | **PASS** (`0bc3397`) | **2** figure assets, s0 and s7    |
-| 8   | 60–90s, misconception survives          | **PASS** (`0bc3397`) | 9 beats, **68.6s**, it survives   |
-| 9   | works in a freshly restarted `next dev` | PASS                 | unchanged                         |
+| #   | gate                                    | status               | measured                         |
+| --- | --------------------------------------- | -------------------- | -------------------------------- |
+| 1   | fill ≥ 35% mean, no scene under 14%     | **FAIL** on the mean | mean **32.4%**, min 15%, max 66% |
+| 2   | pen: never two elements mid-draw        | PASS                 | unchanged since 2026-08-25       |
+| 3   | dwell                                   | PASS                 | unchanged                        |
+| 4   | draw time scales with ink               | PASS                 | unchanged                        |
+| 5   | no card title truncated mid-phrase      | PASS                 | unchanged                        |
+| 6   | delivered pace within ±5%               | **PASS — verified**  | **12.08** and **12.33** vs 12.16 |
+| 7   | ≥ 2 beats carry a generated figure      | **PASS** (`0bc3397`) | **2** figure assets, s0 and s7   |
+| 8   | 60–90s, misconception survives          | **PASS** (`0bc3397`) | 9 beats, **68.6s**, it survives  |
+| 9   | works in a freshly restarted `next dev` | PASS                 | unchanged                        |
 
 Gate 1 is the only one left. Its number moved 30.8% → 32.4% because the restored
 misconception scene carries 46% fill, and that is all restoring it buys — the arithmetic in

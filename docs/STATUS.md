@@ -2634,7 +2634,7 @@ film) and `projects/deb81002b073` (the six-recognisable-objects lesson) — with
 times.** The router already answers 3 figures / 5 marks on this topic and it is right on
 all five marks: the anchor is two labelled pull arrows, step1 two motion arrows, step2 two
 opposing arrows on one ball, step3 the same arrows drawn twice as long beside an equals
-sign, the recap a chain of boxes. Every one is a *relation* whose meaning lives in the
+sign, the recap a chain of boxes. Every one is a _relation_ whose meaning lives in the
 arrows, and a picture of two balls would carry less of it, not more. The brief edit was not
 landed; an unmeasured brief edit is the persuasion the measured pass replaced.
 
@@ -2678,11 +2678,11 @@ The pair that works is the preset's own derivation re-run at nine beats. Nine be
 backstop-not-scissors ceiling exactly as 20 was at eight beats. The extra beat costs seconds
 and the tighter clamp pays for it:
 
-| cast           | authored     | as it now compiles      | misconception |
-| -------------- | ------------ | ----------------------- | ------------- |
-| `f3ac9c760194` | 9 beats 266w | 8 beats, 67.5s          | survives      |
-| `f6978912f741` | 10 beats 337w| 9 beats, 69.3s          | survives      |
-| `df62ce29a563` | 9 beats 294w | 9 beats, **68.6s** 145w | survives      |
+| cast           | authored      | as it now compiles      | misconception |
+| -------------- | ------------- | ----------------------- | ------------- |
+| `f3ac9c760194` | 9 beats 266w  | 8 beats, 67.5s          | survives      |
+| `f6978912f741` | 10 beats 337w | 9 beats, 69.3s          | survives      |
+| `df62ce29a563` | 9 beats 294w  | 9 beats, **68.6s** 145w | survives      |
 
 **`maxSeconds` is untouched, and that is the point.** It is what `teachingBrief` derives its
 word budget from, so raising it to buy trim headroom would have silently asked the author
@@ -2746,7 +2746,7 @@ wrong, because the same schema validates every `lesson.json` on disk.
 `remapDerivations` keeps a canary for the failure that shipped an unfollowable video — a
 beat something derives from is cut, the splice rewires the survivor, the wreckage validates.
 It was firing on a **legal** cut: `droppableIds` builds `needed` from every surviving beat
-*except* the recap, on its own documented grounds that a recap retraces the whole chain and
+_except_ the recap, on its own documented grounds that a recap retraces the whole chain and
 honouring its references would leave nothing droppable. So on `f6978912f741`, whose recap is
 the only beat citing step5, the trimmer reported "nothing surviving derives from it" and the
 canary simultaneously reported that something did. Same reference; only one of them was
