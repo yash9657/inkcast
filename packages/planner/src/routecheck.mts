@@ -33,6 +33,18 @@ if (!file) {
   process.exit(2);
 }
 
+// Keys the way `drawsheet.mts` gets them: by path, so this tool adds no dependency.
+// Without this the vault is never opened and the only way to run this harness is to
+// export `ANTHROPIC_API_KEY` by hand — which reads, from here, exactly like "nothing
+// routable in this lesson".
+const vaultSpecifier = new URL('../../keyvault/src/index.ts', import.meta.url).href;
+try {
+  const kv = (await import(vaultSpecifier)) as { hydrateEnv(): Promise<{ injected: string[] }> };
+  console.log(`keys: injected ${(await kv.hydrateEnv()).injected.join(', ') || 'none'}`);
+} catch (err) {
+  console.log(`keys: the vault could not be read (${String(err)}) — using the environment`);
+}
+
 const lesson = Lesson.parse(JSON.parse(await readFile(file, 'utf8')));
 console.log(`${lesson.topic}\n  router: ${routerModel()}\n`);
 
