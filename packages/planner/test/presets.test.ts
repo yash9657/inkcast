@@ -49,7 +49,11 @@ const spokenWords = (lesson: Lesson): number =>
 test('the explainer preset is the measured shape, and its arithmetic is the stated one', () => {
   const p = PRESETS.explainer;
   assert.equal(p.aspect, '16:9', 'landscape: it is the format the comparison was filmed in');
-  assert.equal(p.board, 'wipe', 'A3 — content fill 55.5% to 62.3%, regions 4 to 1');
+  // A3 reversed 2026-08-27. The 55.5% -> 62.3% fill that bought `wipe` is `fillcheck`'s
+  // bounding-box union, which cannot see the lines and arrows a toured board is made of;
+  // and `wipe` plus the voice stage's bought silence produced a 52%-blank film. See the
+  // `explainer` block in `src/presets.ts`, `docs/CONTRACT.md`, and `docs/STATUS.md`.
+  assert.equal(p.board, 'accumulate', 'the board tour is the default again');
   // Nine since 2026-08-27, was eight. Three casts of one prompt authored 9, 9 and 10
   // beats and never eight, so every cast entered `adaptLesson` needing a beat deleted —
   // and the beat it reached was the misconception, taking the figure routed to it with
@@ -152,22 +156,43 @@ test('explainer is selectable by name only, and an explicit board still wins', (
   // must keep choosing `standard`: the CLI default is not allowed to move under anyone.
   assert.equal(resolvePreset({ aspect: '16:9' }).name, 'standard');
   assert.equal(resolvePreset({}).name, 'standard');
-  assert.equal(resolvePreset({ preset: 'explainer' }).board, 'wipe');
+  assert.equal(resolvePreset({ preset: 'explainer' }).board, 'accumulate');
   assert.equal(
-    resolvePreset({ preset: 'explainer', board: 'accumulate' }).board,
-    'accumulate',
+    resolvePreset({ preset: 'explainer', board: 'wipe' }).board,
+    'wipe',
     'an explicit --board must still override the preset default, both ways',
   );
+  assert.equal(resolvePreset({ preset: 'deepdive', board: 'accumulate' }).board, 'accumulate');
 });
 
-test('an explainer film is one card per idea, and the mode reaches the storyboard', () => {
+test('an explainer film tours a real board, and an override still wipes it', () => {
   const sb = compileLesson(shipped['gradient-descent'], { preset: 'explainer' });
-  assert.equal(sb.meta.board, 'wipe');
+  // `accumulate` is the absence of the key, not the string — see the mode test in
+  // `board-mode.test.ts`, which is what keeps the three pinned presets byte-identical.
+  assert.equal(sb.meta.board, undefined);
   assert.equal(sb.meta.aspect, '16:9');
   assert.ok(sb.scenes.length <= PRESETS.explainer.maxBeats, `${sb.scenes.length} scenes`);
-  assert.deepEqual([...new Set(sb.scenes.map((s) => s.region))], ['board'], 'one region');
-  // The camera never moves, because there is nothing else on the board to move to. This
-  // is the mechanism behind the 55.5% to 62.3% fill: one cell, framed to the frame.
+
+  // The three things `wipe` cost this format, and the reason 2026-08-27 took them back:
+  // more than one region on the canvas, more than one shot of it, and a canvas bigger
+  // than the frame for the camera to walk over. See `docs/PLAN-GOLPO-CLOSE.md` §3.3.
+  const regions = new Set(sb.scenes.map((s) => s.region));
+  assert.ok(regions.size > 1, `one region again: ${[...regions].join(', ')}`);
   const shots = new Set(sb.scenes.map((s) => `${s.camera.x},${s.camera.y},${s.camera.zoom}`));
-  assert.equal(shots.size, 1, 'every beat is the same shot of the same cell');
+  assert.ok(shots.size > 1, `the camera never moves: ${shots.size} distinct shot(s)`);
+
+  // And the mode still reaches the storyboard when it is asked for by name.
+  const wiped = compileLesson(shipped['gradient-descent'], { preset: 'explainer', board: 'wipe' });
+  assert.equal(wiped.meta.board, 'wipe');
+  // A wiping board's canvas *is* the frame — one cell, framed to it. So "bigger than the
+  // frame" is the same claim as "bigger than what the same lesson wipes to", and this
+  // way it is measured against a number in the file rather than against a derivation.
+  assert.ok(
+    sb.canvas.w > wiped.canvas.w || sb.canvas.h > wiped.canvas.h,
+    `canvas ${sb.canvas.w}x${sb.canvas.h} is no bigger than the wiped ` +
+      `${wiped.canvas.w}x${wiped.canvas.h} — there is nothing for the camera to walk`,
+  );
+  assert.deepEqual([...new Set(wiped.scenes.map((s) => s.region))], ['board'], 'one region');
+  const oneShot = new Set(wiped.scenes.map((s) => `${s.camera.x},${s.camera.y},${s.camera.zoom}`));
+  assert.equal(oneShot.size, 1, 'every beat is the same shot of the same cell');
 });

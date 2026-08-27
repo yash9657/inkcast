@@ -353,16 +353,35 @@ export const PRESETS: Record<PresetName, Preset> = {
    * opposite ends. `holdBonus` goes to zero because 0.15s a beat is a decision nobody
    * made, taken eight times.
    *
-   * `board: 'wipe'` is A3, and it is measured too: content fill 55.5% → 62.3%, regions
-   * 4 → 1. At 90 seconds or less there is no board tour worth taking — nobody re-reads
-   * beat four at a quarter size — so the film trades the accumulated summary for
-   * per-idea framing. `docs/CONTRACT.md` carries the amended clause and the date.
+   * `board: 'accumulate'`, and it was `'wipe'` from 2026-08-21 to 2026-08-27. **A3 is
+   * reversed**, for three reasons, in order of weight:
    *
-   * `maxPerRegion` 3 is dead under `wipe` (`planBoard` dispatches to `oneCardBoard`,
-   * which lays one frame-shaped cell per beat and never asks). It is a real number
-   * anyway because `resolvePreset` lets `--board accumulate` override the mode, and a 1
-   * there would silently lay eight regions and send the camera on the tour this preset
-   * exists to avoid.
+   *  1. **The measurement that bought `wipe` was taken with the wrong instrument.**
+   *     Content fill 55.5% → 62.3% is `fillcheck`'s number, and its `cover` term is a
+   *     union of *bounding boxes* — blind to lines, arrows and label-heavy cards, and
+   *     therefore blind to exactly the marks a toured board is made of. Measured since:
+   *     of one card's 29% `cover`, 18 points were handwriting, and a 560×1 balance beam
+   *     — one of the most prominent strokes on it — scored 0.2%. See
+   *     `docs/HANDOFF-GATE-ONE.md`. The number rewarded the thing it could see.
+   *  2. **"At 90 seconds or less there is no board tour worth taking" is contradicted by
+   *     the best evidence available.** The reference product's strongest film is its
+   *     *shortest* — 89.5s — and it is a board tour: one persistent canvas, zero hard
+   *     cuts, every scene change a pan or a zoom over ink that is still there.
+   *  3. **`wipe` and bought silence do not compose.** Under `wipe` every second the
+   *     voice stage buys so a board can be read is a second that board might not be
+   *     there for; that is `projects/c5caa09eb153`, 52% blank paper (`docs/STATUS.md`,
+   *     2026-08-27). Under `accumulate` the same second is free.
+   *
+   * What A3 was right about is unchanged and is now the *camera's* problem rather than
+   * the board's: nobody re-reads beat four at a quarter of the screen. `resolveFraming`
+   * walks the board beat by beat instead of framing all of it at once, which is what
+   * `MAX_VIEWS_PER_SEC` and `walkWindow` are for. `docs/CONTRACT.md` carries the
+   * re-amended clause and both dates.
+   *
+   * `maxPerRegion` 3 is a live number again — `planBoard` lays real regions under
+   * `accumulate` — and it stays at 3 rather than moving, because it was chosen against
+   * this preset's nine beats and nothing about that changed. `--board wipe` still
+   * overrides the mode (`resolvePreset`), and must keep working.
    *
    * `captionRole` and `captionWords` deliberately stay where `standard` has them. The
    * 62.3% fill above was measured with `--board wipe` at exactly these type roles, and
@@ -386,7 +405,7 @@ export const PRESETS: Record<PresetName, Preset> = {
     maxGestures: 10,
     wordsPerSecond: DELIVERED_WPS,
     outroSec: 1,
-    board: 'wipe',
+    board: 'accumulate',
   },
   /**
    * The long cut, with the board defects taken out — the studio's second length.

@@ -26,6 +26,21 @@ Read it before writing any code. Key ideas you must respect:
   later scenes can annotate them. Wiping the board every scene is the single
   biggest quality failure of competing tools — do not reintroduce it.
 
+  **Re-amended 2026-08-27: the amendment below is superseded and accumulation is
+  the default again, on every preset the studio ships.** The 55.5% → 62.3% fill
+  measurement that bought `wipe` was taken with `fillcheck`, whose `cover` term is
+  a union of bounding boxes and therefore cannot see lines, arrows or a
+  label-heavy card — it rewarded the shape of the thing it could measure
+  (`docs/HANDOFF-GATE-ONE.md`). And `wipe` composes badly with bought silence:
+  every second the voice stage buys so a finished board can be read is a second
+  that board may already have gone, which is `projects/c5caa09eb153` — 52% of the
+  film blank paper (`docs/STATUS.md`, 2026-08-27). `wipe` stays a documented,
+  supported mode, reachable by `--board wipe` and by a preset that asks for it; it
+  is no longer what anyone gets by not choosing. The amendment's own text is kept
+  below because its second claim — that a beat framed at a quarter of the screen
+  is a beat nobody re-reads — is still true, and is now answered by walking the
+  camera over the board rather than by wiping it.
+
   **Amended 2026-08-21, and the original rule still stands where it was aimed.**
   Accumulation remains the default and the right answer for a long lesson: at two
   minutes and up the finished board _is_ the summary, the recap's pull-back over
@@ -45,6 +60,10 @@ Read it before writing any code. Key ideas you must respect:
   slide. Wiping is now a per-preset decision backed by a number, never a global
   default — and re-defaulting an accumulating preset would move the four pinned
   storyboard hashes, which is its own reason not to.
+
+  _(End of the superseded amendment. Its closing sentence was checked when it was
+  reversed: the four pinned hashes are taken against `standard`, which never
+  wiped, so flipping `explainer` back does not move them.)_
 
 - **Timing is fractional, then measured.** Authors set `enter.at` as a fraction
   (0–1) of a scene. The voice stage measures real audio and writes

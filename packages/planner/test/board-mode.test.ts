@@ -233,10 +233,9 @@ test('a wiped recap draws its own summary, because there is no board behind it',
   );
 });
 
-test('every shape the studio can cast holds one card and never pulls back', () => {
+test('a wiping shape holds one card and never pulls back', () => {
   /*
-   * The studio's two lengths (`STUDIO_PRESETS` in `apps/web/lib/jobs.ts`), against
-   * the frame the whole of plan item 3.2 is about: `standard`'s recap zooms out to
+   * The frame the whole of plan item 3.2 is about: `standard`'s recap zooms out to
    * 1.2 over a 4448x2908 canvas and shows all ten beats at once, which QC's
    * frame-vision flagged as five sub-10px label groups. It is the widest shot in the
    * film and the least readable, and until the studio could name a preset it was the
@@ -245,9 +244,18 @@ test('every shape the studio can cast holds one card and never pulls back', () =
    * Asserted here rather than only in the web app because this is where it is *true*:
    * a wiping board has no board behind the card to pull back over, so the frame is
    * unreachable by construction rather than forbidden by a check.
+   *
+   * `explainer` reached this by its own default until 2026-08-27 and now reaches it by
+   * the `--board` override (`docs/PLAN-GOLPO-CLOSE.md` §3; `docs/CONTRACT.md` carries
+   * the re-amendment). The guarantee below is about the *mode*, not about which preset
+   * happens to select it, so it is asserted through both routes — a preset that asks
+   * for `wipe`, and a preset that is handed it.
    */
-  for (const preset of ['explainer', 'deepdive'] as const) {
-    const sb = compileLesson(gradient, { preset });
+  for (const [preset, board] of [
+    ['deepdive', undefined],
+    ['explainer', 'wipe'],
+  ] as const) {
+    const sb = compileLesson(gradient, { preset, ...(board ? { board } : {}) });
     assert.equal(sb.meta.board, 'wipe', `${preset} must wipe`);
 
     const zooms = sb.scenes.map((s) => s.camera.zoom ?? 1);
@@ -263,11 +271,22 @@ test('every shape the studio can cast holds one card and never pulls back', () =
     assert.equal(recap.camera.transition, 0.45, `${preset} recap takes the ordinary pan`);
   }
 
-  // Non-vacuous: the shape the studio can no longer select still does all of it.
+  // Non-vacuous: an accumulating board still does all of it.
   const recapKept = kept.scenes.at(-1) as Scene;
   assert.ok(
     (recapKept.camera.zoom ?? 1) < Math.max(...kept.scenes.map((s) => s.camera.zoom ?? 1)) / 2,
     'the accumulating recap really is the pull-back this format avoids',
+  );
+
+  // And `explainer` at its own default is on that side of the line now, which is the
+  // whole of the 2026-08-27 reversal: it tours the board rather than framing one cell
+  // nine times. Asserted here so the pair above cannot both be satisfied by a preset
+  // table that quietly stopped offering `accumulate` at all.
+  const toured = compileLesson(gradient, { preset: 'explainer' });
+  assert.equal(toured.meta.board, undefined, 'accumulate is the absence of the key');
+  assert.ok(
+    new Set(toured.scenes.map((s) => `${s.camera.x},${s.camera.y},${s.camera.zoom}`)).size > 1,
+    'an explainer film moves the camera',
   );
 });
 
