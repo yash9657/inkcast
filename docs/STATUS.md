@@ -2933,3 +2933,113 @@ white.
 They also select a visual template per topic — navy blueprint, neon-on-black accumulating
 board, painterly colour, flat vector — across the four samples in `~/Downloads`. We have one
 look on every topic. That is a larger gap than any single metric on this page.
+
+# 2026-08-27 (later still) — the blank paper is gone, and the key ran dry
+
+`docs/PLAN-GOLPO-CLOSE.md` Phase 1, executed and measured. The film that was 52% blank
+paper is 4% blank paper, and all four of that phase's blocking acceptance criteria pass.
+One advisory number falls short and is named below rather than rounded up.
+
+## The measurement, both films, one instrument
+
+Same lesson, same preset, same `inkstat.mts` at one sample a second over the finished
+`out.mp4`. The "before" row re-measures `projects/c5caa09eb153` from disk and reproduces
+the numbers recorded above it exactly, which is what makes the pair worth reading.
+
+|                          | before (`c5caa09eb153`) | after (`gclose1-repro`) | bar     |
+| ------------------------ | ----------------------- | ----------------------- | ------- |
+| film                     | 96.9s                   | **68.6s**               | 60–90s  |
+| speech                   | 44.3s                   | 46.4s                   | —       |
+| hold                     | **51.6s**               | **21.1s**               | —       |
+| authored hold (compiled) | 6.3s                    | 6.3s                    | —       |
+| frames under 0.5% ink    | 50 of 97 (**52%**)      | **3 of 69 (4%)**        | —       |
+| longest blank run        | **11s**                 | **1s**                  | none≥2s |
+| median frame ink         | 0.40%                   | **2.70%**               | >1.5%   |
+| mean frame ink           | 1.81%                   | **3.72%**               | ≥4%     |
+| strict QC                | —                       | **25/25 ok**            | passes  |
+
+Per-scene holds went from `1.89 4.56 3.80 5.42 6.78 3.87 10.50 5.32 4.53 4.92` to
+`1.97 2.30 2.00 2.00 2.00 2.00 2.25 2.30 2.30 2.02`. They are still over the preset's
+`maxHold: 0.8`, deliberately — `allowReadingTime` buys about 1.4s a beat of reading time
+— but the board is now **up** for all of it, which is what that silence was always for.
+
+**The three surviving blank frames are the fades, and they were checked rather than
+assumed.** They land at 11s, 16s and 37s against scene boundaries at 11.54s, 16.43s and
+37.53s: −0.54s, −0.43s, −0.53s, all inside the 0.2–0.55s fade window. That is the rule
+working, not a residue of the defect.
+
+**Gate 8 is re-verified on a rendered film**, which is what the section above withdrew it
+for: 68.6s is inside the band, and the misconception survives — s8 narrates "the spin
+gives you day and night, and nothing else", card titled "Not the seasons".
+
+## The one number that misses, and why it is not this phase's lever
+
+**Mean frame ink is 3.72% against the plan's 4%.** It is not a rounding matter and it is
+not being waived: what Phase 1 changed is _when_ there is ink on the board, not how much,
+and doubling the mean (1.81% → 3.72%) is the whole of what removing 30 seconds of blank
+paper can buy. The density levers are Phase 2 (`accumulate`, which puts more than one
+beat on screen) and Phase 3 (fat ink). Measured against the competitor's 5.7% on this
+same topic we are now two thirds of the way rather than a third.
+
+Note the three instruments disagree, as they are meant to: sampled at each beat's
+_fullest_ the same film reads **4.60%** (`ink-floor`), sampled evenly it reads 3.55–3.72%,
+and `contentFill` reads 34.4%. The even sample is the honest one for "what is the viewer
+looking at", and it is the one quoted above.
+
+## Two things the plan did not know
+
+**1. `lastFinish` is not idempotent where `wanted` was, and the plan's 1.2 would have
+regressed a pinned test.** `PenSchedule.wanted` is computed from authored boxes and is
+independent of the beat's length; `lastFinish` and `readingTail` both grow with the length
+they are handed. So a second run that measures an already-extended beat finds it wanting
+again and extends it again — measured on the pinned fixture, a 0.65s authored hold went
+2.15s on run one and **3.65s** on run two. The arithmetic now derives a _target_ length
+from `SceneTiming.authoredHold` and appends only the difference, so run two appends
+nothing. The append-only trap the plan names is real; this is a second one behind it.
+
+**2. `PlanItem.fadeAt` is the second the fade _completes_, not the second it starts.**
+The plan's 1.1 prose ("the fade lands on the beat's end") and its literal formula
+(`max(start + speech, start + dur - span)`) describe different schedules under those
+semantics, and the literal one makes its own `max` dead code and starts a fade before the
+narration ends whenever `span <= hold < 2*span` — which fails `page.test.ts`'s
+"nothing dies mid-sentence" assertion. The prose was implemented:
+`max(anchor.start + anchor.speech + span, anchor.start + anchor.dur)`. Consequence worth
+knowing: on an item anchored to its own scene `fadeAt` now equals `sceneEnd`, so a wiping
+board's fade timing is identical to an accumulating one's. The field is still written,
+because `sampleTimes` needs it to know a wiping beat's fullest moment is before the fade.
+
+## `blank-run`, and what it costs
+
+Advisory, tier 2, in `qc.json` on every cast from here. It samples **evenly along the
+clock** — the exact opposite of `sampleTimes`, which looks where each beat is fullest and
+is therefore structurally incapable of finding blank paper. `c5caa09eb153` passed
+`ink-floor` on every one of its samples while half the film was empty. One frame a second,
+capped at 150, skipping the first second and the outro; a run is consecutive samples under
+0.5% ink and the ceiling is 2.0s. It costs about **2s** of extra gate time on a 24s film
+and about 9s on a 69s one, which is a second Chromium page on the browser the gate has
+already launched.
+
+## The Anthropic key ran out of credit mid-phase
+
+`400 invalid_request_error: Your credit balance is too low to access the Anthropic API`.
+The first attempt at this phase's verification cast — `projects/gclose1-daynight`, a fresh
+`teach` on the competitor's prompt — therefore ran on a **heuristically derived** lesson
+(4 beats, no misconception, 23.9s) and is worthless as a measurement. It is kept only as
+the end-to-end smoke test that `blank-run` runs on a real cast, and must not be read as a
+film. `docs/PLAN-GOLPO-CLOSE.md` budgets 5–7 keyed casts; none of them can be run until
+the account is funded.
+
+What that does **not** block: this phase's verification, which was done the better way
+anyway — `--lesson projects/c5caa09eb153/lesson.json` re-casts the repro's _exact_ lesson
+with no model call, so the before/after difference is the code change and nothing else.
+The lesson author, the Tier-2 vision pass and `ocr-diff` are the only keyed lanes;
+ElevenLabs and fal both still work. Phases 2 and 3 can be measured the same way. Phase 4.2
+(the lesson routes a style pack) and Phase 6.4 (the head-to-head) genuinely need the key.
+
+## One audit check was stale, and is now honest
+
+`auditcheck` was **110/111**, not the 111/111 the plan expects, and has been since
+2026-08-25. `S4-e` greps `render/src/compile.ts` for the literal `fillMean < 0.18`; that
+number became `MIN_MEAN_FILL` in `21538fe`, alongside `MIN_SCENE_FILL`. The gate never
+moved. Split into two greps — the constant is still 0.18, and the comparison still reads
+it — rather than relaxed, because either half alone is weaker than what was there before.
