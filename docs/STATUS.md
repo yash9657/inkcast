@@ -3426,3 +3426,81 @@ wants the competitor's own topic cast with everything on — accumulate (have it
 routed by the lesson (blocked twice), keyed figures (have them) — and measured against
 their 5.7% mean. What can be said today is that the same topic went **1.81% → 4.43%** mean
 frame ink across Phases 1 and 2, with blank paper at 52% → 0%.
+
+# 2026-08-27 (Phase 6) — the head-to-head, and the instrument it needed first
+
+The comparison this plan was written to make, run at last. It needed two things that were
+not in the plan: a fifth vendored font, and a density instrument that works on a dark
+board. Both are landed. **The plan's 5.7% target was wrong** — it was measured with the
+broken instrument.
+
+## The instrument was measuring darkness, not ink
+
+`statFrame` counted a pixel as ink when it was darker than luminance 225 **or** more
+saturated than chroma 30. Both are absolutes taken from `#fcfbf9`. Navy paper `#14304a` is
+darker than 225 _and_ more saturated than 30, so every pixel of the board counted.
+
+| film                           | old   | fixed |
+| ------------------------------ | ----- | ----- |
+| `qc92-chalk` (reviewed, slate) | 99.2% | 4.6%  |
+| `gclose7-h2h` (navy)           | 99.9% | 4.0%  |
+| `c5caa09eb153` (light)         | 1.8%  | 1.8%  |
+| `cardiac9` (light)             | 4.2%  | 4.2%  |
+| `gclose3-accum` (light)        | 4.4%  | 4.3%  |
+
+So **`ink-floor` has passed vacuously on every dark board ever rendered**, and `blank-run`
+could not have fired on one however empty it was. Both clauses are now distances from the
+board's own paper. `INK_LUMA_GAP` is exactly `PAPER_LUMA - DARK_ENOUGH`, so the luma clause
+reduces to `lum < 225` on the default paper; the chroma clause moves from `> 30` to
+`> paperChroma + 30`, which is `> 33` on near-neutral paper. Light films re-measure within
+0.1 points — the rounding in the report — so `MIN_INK_SHARE`'s corpus derivation stands.
+
+## The head-to-head
+
+One instrument, one sample a second, **each film measured against its own paper**. Theirs
+are the files in `~/Downloads`; ours is the same lesson through the current tree.
+
+| film                           |   n |      mean | median |    max | blank frames | longest blank |
+| ------------------------------ | --: | --------: | -----: | -----: | -----------: | ------------: |
+| **THEIRS** — day/night (navy)  |  89 | **4.76%** |  4.80% |  8.60% |         0/89 |            0s |
+| **THEIRS** — quantum (black)   | 511 |     6.12% |  6.00% | 12.90% |       12/511 |        **6s** |
+| **OURS** — blueprint           |  81 | **3.97%** |  3.70% |  8.50% |         0/81 |            0s |
+| **OURS** — blueprint + fat ink |  82 |     4.00% |  3.70% |  8.10% |         0/82 |            0s |
+| **OURS** — marker (light)      |  66 | **4.31%** |  3.80% | 10.10% |         0/66 |            0s |
+| **OURS** — this morning        |  97 |     1.78% |  0.40% |  9.40% |    **50/97** |       **11s** |
+
+**On their own topic we are at 4.0–4.3% against their 4.76%** — 84–90% of their density,
+from 37% this morning. Hues: theirs 4 above the floor, ours 5. Our max frame is denser
+than theirs. And their _other_ film carries a 6-second blank run and 12 blank frames, so
+"never a blank held frame" — recorded in this plan's §1 as an observation about their
+product — is not true of the sample; ours has none.
+
+## Fat ink is worth 0.03 points on this lesson, measured twice
+
+Phase 3.1 is the one thing the dry Anthropic key really blocks, so it was measured from the
+other side instead: apply 3.1's rule _mechanically_ to the lesson — shade every solid body
+with no area mark, using the same conservative test 3.2 ships — and render it. Six hatch
+marks were added across two beats. **3.97% → 4.00%.**
+
+The reason is in the corpus, not in this one film. Across all 279 cached drawings:
+
+|                                                                                                                        | share |
+| ---------------------------------------------------------------------------------------------------------------------- | ----- |
+| already carry an area mark (`hatch`/`dots`)                                                                            | 42%   |
+| carry a `rect`/`ellipse` and no area mark                                                                              | 47%   |
+| pure relation — nothing to fill                                                                                        | 12%   |
+| mark census: `label` 1429, `arrow` 1012, `stroke` 778, `line` 651 vs `rect` 582, `ellipse` 422, `hatch` 206, `dots` 74 |       |
+
+The board is 79% line-and-label marks. The drawing author already shades where shading
+applies — on the day/night lesson, 5 of 10 beats — and the beats it does not shade are the
+relation diagrams 3.1's own rule exempts. **The density gap is not unshaded solids. It is
+that the subject matter is arrows and names**, which is the same finding
+`docs/HANDOFF-THREE-GATES.md` reached from the routing side and killed the routing lever
+for. Funding the key to land 3.1 should be expected to buy hundredths of a point.
+
+## Where that leaves the plan
+
+Phases 1, 2, 3.2, 4.1, 5 and 6's measurement are done. What is left is genuinely optional:
+**4.2** (the lesson routes its own pack — automation, since `--style` already works) and
+**3.1** (now measured to be worth ~0.03 points). Neither is between this pipeline and the
+comparison it was built to win.
