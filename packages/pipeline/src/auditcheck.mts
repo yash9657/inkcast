@@ -195,7 +195,13 @@ function check(name: string, ok: boolean, why: string): void {
   check(
     'S4-e: the fill floor blocks through the gate and lands in pipeline.json under degrade',
     /mostly whitespace/.test(renderCompile) &&
-      /fillMean < 0\.18 \|\| vacant\.length > 0/.test(renderCompile) &&
+      // Two halves, because the floor became a named constant on 2026-08-25 and this
+      // read the literal: the number itself is still 0.18, and it is still what the
+      // gate compares against. Grepping only for the comparison would pass on a
+      // silently loosened floor, and grepping only for the constant would pass on a
+      // floor nobody consults.
+      /MIN_MEAN_FILL = 0\.18/.test(renderCompile) &&
+      /fillMean < MIN_MEAN_FILL \|\| vacant\.length > 0/.test(renderCompile) &&
       /render\?: \{ problems: string\[\] \}/.test(state),
     'the fill gate is gone, or a --degrade override no longer leaves a record',
   );
