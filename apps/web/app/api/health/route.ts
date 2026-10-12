@@ -40,7 +40,7 @@ import path from 'node:path';
 
 import { json, unexpected } from '../_lib/http';
 import { limiterEnabled, sharedLimiter } from '../_lib/ratelimit';
-import { PROJECTS_DIR } from '@/lib/store';
+import { PROJECTS_DIR, blobStorage } from '@/lib/store';
 import { listJobs } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
@@ -62,6 +62,23 @@ const DEEP_QUEUE = 10;
 
 export async function GET() {
   try {
+    // A stateless deployment has no local disk or in-process queue to report on:
+    // films live in Blob and renders run in the render service. What can be wrong
+    // here is configuration, so that is what is reported.
+    if (blobStorage()) {
+      const renderService = Boolean(
+        process.env.INKCAST_RENDER_URL?.trim() && process.env.INKCAST_RENDER_TOKEN?.trim(),
+      );
+      const blob = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+      return json({
+        status: renderService && blob ? 'ok' : 'degraded',
+        storage: 'blob',
+        uptimeSec: Math.round(process.uptime()),
+        renderService: { configured: renderService },
+        blobStore: { configured: blob },
+        rateLimit: { enabled: limiterEnabled(), tracked: sharedLimiter().tracked() },
+      });
+    }
     const queue = queueDepth();
     const disk = await diskFree();
 

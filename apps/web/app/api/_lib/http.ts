@@ -128,6 +128,20 @@ export function offOnHostedBox(what: string) {
  * the request that caused it, so the conflict is reported here instead — with the
  * stream URL, so the client can wait for the run rather than guess.
  */
+/**
+ * 501 for an operation a Blob-storage deployment cannot perform.
+ *
+ * Edit and re-render resume from the stage outputs a project directory keeps —
+ * per-scene audio, the visuals sidecar, the stage caches — and a stateless
+ * deployment deliberately keeps only the finished film (see
+ * `KEPT_ARTEFACTS` in `@inkcast/cloud`). Saying so beats a 500 from a missing file.
+ */
+export const unavailableOnBlob = (what: string) =>
+  fail(
+    501,
+    `${what} is not available on this deployment: it keeps only the finished film, not the intermediate files ${what.toLowerCase()} resumes from. Generate the film again instead.`,
+  );
+
 export const conflictingJob = (id: string) =>
   json<ApiError & { projectId: string; streamUrl: string }>(
     {

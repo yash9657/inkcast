@@ -35,8 +35,9 @@
 import { badRequest } from '../../../_lib/http';
 import { requireOwner, resolveIdentity, sessionCookieHeader } from '../../../_lib/session';
 import type { Session } from '../../../_lib/session';
-import { getProject, isValidProjectId, projectExists } from '@/lib/store';
+import { blobStorage, getProject, isValidProjectId, projectExists } from '@/lib/store';
 import { isTerminal, subscribe } from '@/lib/jobs';
+import { remoteEventStream } from '@/lib/remote';
 import type { JobEvent } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
@@ -81,6 +82,15 @@ export async function GET(
 
   const verdict = await requireOwner(id, session);
   if (!verdict.ok) return oneShot({ error: verdict.message }, session);
+
+  // Stateless deployment: the run is on another machine and its progress is in
+  // Blob, so the events come from polling that rather than from this process.
+  if (blobStorage()) {
+    return new Response(remoteEventStream(id, request.signal), {
+      status: 200,
+      headers: sseHeaders(session),
+    });
+  }
 
   const encoder = new TextEncoder();
 

@@ -70,8 +70,27 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+
+import {
+  META_BLOB,
+  STALE_AFTER_MS,
+  blobPrefix,
+  blobStorageEnabled,
+  deletePrefix,
+  downloadBuffer,
+  isPreconditionFailed,
+  listPathnames,
+  projectKey,
+  projectPrefix,
+  readJob,
+  readJson,
+  settleStale,
+  writeJson,
+  type JobState,
+} from '@inkcast/cloud';
 
 import type * as CoreModule from '@inkcast/core';
 import type * as PipelineModule from '@inkcast/pipeline';
@@ -129,7 +148,12 @@ function bootstrap(): { repoRoot: string; projectsRoot: string } {
   const repoRoot = findRepoRoot(process.cwd());
   loadRootDotEnv(repoRoot);
   if (!process.env.INKCAST_PROJECTS) {
-    process.env.INKCAST_PROJECTS = path.join(repoRoot, 'projects');
+    // With Blob storage the deployment directory is read-only (a Vercel Function's
+    // `/var/task`), and nothing durable is written locally anyway — the scratch
+    // directory only exists so code that opens a project path has somewhere to put it.
+    process.env.INKCAST_PROJECTS = blobStorageEnabled()
+      ? path.join(tmpdir(), 'inkcast', 'projects')
+      : path.join(repoRoot, 'projects');
   }
   return { repoRoot, projectsRoot: path.resolve(process.env.INKCAST_PROJECTS) };
 }
@@ -164,6 +188,19 @@ export const PROJECTS_DIR = env.projectsRoot;
  */
 export function isHosted(): boolean {
   return process.env.INKCAST_HOSTED === '1';
+}
+
+/**
+ * True when project records, job progress and films live in Vercel Blob
+ * (`INKCAST_STORAGE=blob`) rather than in `PROJECTS_DIR`.
+ *
+ * Every exported store function below keeps its signature and branches on this at
+ * the top, so a route does not need to know which one it is talking to. The
+ * branch bodies are at the bottom of this file. Unset everywhere except a stateless
+ * deployment, so the CLI, `pnpm dev` and Docker are unaffected.
+ */
+export function blobStorage(): boolean {
+  return blobStorageEnabled();
 }
 
 /* -------------------------------------------------------- lazy workspace io */
@@ -509,6 +546,7 @@ function publicRecord(meta: ProjectMeta): ProjectRecord {
 
 /** Read one project's truth, ownership included. */
 export async function readProjectMeta(id: string): Promise<ProjectMeta | undefined> {
+  if (blobStorage()) return isValidProjectId(id) ? (await blobReadMeta(id))?.meta : undefined;
   const dir = projectDir(id);
   if (!dir) return undefined;
   return readMetaFile(dir);
@@ -526,6 +564,7 @@ export async function readProjectMeta(id: string): Promise<ProjectMeta | undefin
  * concurrency test asserts.
  */
 export async function upsertProject(id: string, patch: ProjectPatch): Promise<ProjectRecord> {
+  if (blobStorage()) return blobUpsert(id, patch);
   const dir = projectDir(id);
   if (!dir) throw new Error(`"${id}" is not a valid project id, so it has no metadata to write`);
 
@@ -609,6 +648,10 @@ export async function setProjectShared(
   id: string,
   shared: boolean,
 ): Promise<ProjectRecord | undefined> {
+  if (blobStorage()) {
+    if (!isValidProjectId(id) || !(await blobReadMeta(id))) return undefined;
+    return upsertProject(id, { shared });
+  }
   if (!projectExists(id)) return undefined;
   return upsertProject(id, { shared });
 }
@@ -621,6 +664,10 @@ export async function setProjectShared(
  * caller has usually already removed with the whole directory) and rebuild.
  */
 export async function removeProjectFromIndex(id: string): Promise<void> {
+  if (blobStorage()) {
+    if (isValidProjectId(id)) await deletePrefix(projectKey(blobPrefix(), id, META_BLOB));
+    return;
+  }
   const dir = projectDir(id);
   if (dir) await withMetaLock(id, () => rm(metaPathFor(dir), { force: true }));
   await rebuildIndex();
@@ -642,6 +689,8 @@ export async function removeProjectFromIndex(id: string): Promise<void> {
 let queuedRebuild: Promise<void> | undefined;
 
 export function rebuildIndex(): Promise<void> {
+  // There is no index in Blob: listing scans the per-project records directly.
+  if (blobStorage()) return Promise.resolve();
   if (queuedRebuild) return queuedRebuild;
   const task = indexLock.run(async () => {
     queuedRebuild = undefined;
@@ -686,7 +735,7 @@ function toDto(record: ProjectRecord): ProjectDto {
  * has to say so.
  */
 export async function listProjects(filter: ProjectFilter = {}): Promise<ProjectDto[]> {
-  const truth = await collectTruth();
+  const truth = blobStorage() ? await blobCollectTruth() : await collectTruth();
   const includeUnowned = filter.includeUnowned ?? !isHosted();
 
   return [...truth.values()]
@@ -696,7 +745,10 @@ export async function listProjects(filter: ProjectFilter = {}): Promise<ProjectD
       return ownerSession === filter.ownerSession;
     })
     .map(({ record }) => record)
-    .filter((r) => projectExists(r.id) || r.status === 'queued' || r.status === 'running')
+    .filter(
+      (r) =>
+        blobStorage() || projectExists(r.id) || r.status === 'queued' || r.status === 'running',
+    )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(toDto);
 }
@@ -874,6 +926,7 @@ export async function getProject(id: string): Promise<ProjectDto | undefined> {
  * the tag by accident and spread it into a response.
  */
 export async function readProjectTruth(id: string): Promise<ProjectTruth | undefined> {
+  if (blobStorage()) return isValidProjectId(id) ? blobTruth(id) : undefined;
   const dir = projectDir(id);
   if (!dir) return undefined;
 
@@ -898,6 +951,7 @@ export async function readProjectTruth(id: string): Promise<ProjectTruth | undef
 export async function readProjectStoryboard(
   id: string,
 ): Promise<CoreModule.Storyboard | undefined> {
+  if (blobStorage()) return isValidProjectId(id) ? blobStoryboard(id) : undefined;
   const dir = projectDir(id);
   if (!dir || !existsSync(path.join(dir, 'storyboard.json'))) return undefined;
   const core = await loadCore();
@@ -911,6 +965,10 @@ export async function readProjectStoryboard(
 
 /** Delete a project directory and its index entry. */
 export async function deleteProject(id: string): Promise<boolean> {
+  if (blobStorage()) {
+    if (!isValidProjectId(id)) return false;
+    return (await deletePrefix(projectPrefix(blobPrefix(), id))) > 0;
+  }
   const dir = projectDir(id);
   if (!dir) return false;
   const existed = existsSync(dir);
@@ -1012,5 +1070,155 @@ async function mtime(dir: string): Promise<string> {
     return (await stat(dir)).mtime.toISOString();
   } catch {
     return new Date(0).toISOString();
+  }
+}
+
+/* ------------------------------------------------------- blob-backed storage */
+
+/*
+ * The Blob layout mirrors the disk layout, under `<INKCAST_BLOB_PREFIX>/projects/<id>/`:
+ *
+ *  - `meta.json` — the same `ProjectMeta` document as on disk, and the same truth.
+ *  - `job.json`  — written by the render service while it works (see
+ *    `packages/cloud/src/job.ts`). It plays the part `pipeline.json` plays on disk:
+ *    the evidence a run finished, which a record still saying `running` is
+ *    reconciled against on read — exactly what `healMeta` does locally.
+ *  - `out.mp4`, `thumbnail.png`, `storyboard.json`, `captions.vtt` — the film.
+ *
+ * Writes are read-merge-write with an ETag precondition, retried on a lost race:
+ * there is no process-wide mutex across Function instances, and two requests
+ * touching one project (a share toggle while the dispatcher records completion)
+ * must not lose either write.
+ */
+
+const UPSERT_ATTEMPTS = 5;
+
+async function blobReadMeta(id: string): Promise<{ meta: ProjectMeta; etag: string } | undefined> {
+  const read = await readJson(projectKey(blobPrefix(), id, META_BLOB));
+  if (!read) return undefined;
+  const parsed = ProjectMetaSchema.safeParse(read.value);
+  return parsed.success ? { meta: parsed.data, etag: read.etag } : undefined;
+}
+
+async function blobUpsert(id: string, patch: ProjectPatch): Promise<ProjectRecord> {
+  if (!isValidProjectId(id)) {
+    throw new Error(`"${id}" is not a valid project id, so it has no metadata to write`);
+  }
+  const key = projectKey(blobPrefix(), id, META_BLOB);
+  for (let attempt = 1; ; attempt++) {
+    const current = await blobReadMeta(id);
+    const merged = mergeMeta(id, current?.meta, patch);
+    try {
+      await writeJson(key, merged, current ? { ifMatch: current.etag } : {});
+      return publicRecord(merged);
+    } catch (err) {
+      if (attempt >= UPSERT_ATTEMPTS || !(await isPreconditionFailed(err))) throw err;
+    }
+  }
+}
+
+/**
+ * A stored record, corrected by what the render service last reported.
+ *
+ * Only an in-flight record is ever corrected — a `ready` or `failed` record is the
+ * settled answer — and the correction is written back (best effort) so the next
+ * listing does not have to read `job.json` again.
+ */
+async function blobReconcile(id: string, meta: ProjectMeta): Promise<ProjectRecord> {
+  const record = publicRecord(meta);
+  if (record.status !== 'queued' && record.status !== 'running') return record;
+
+  const raw = await readJob(blobPrefix(), id).catch(() => undefined);
+  if (!raw) {
+    // No job document at all: the dispatcher never got as far as writing one. Give
+    // it the same grace a silent job gets before calling it lost.
+    if (Date.now() - Date.parse(record.updatedAt) < STALE_AFTER_MS) return record;
+    return blobHeal(id, record, { status: 'failed', error: 'This run never started.' });
+  }
+  const job = settleStale(raw);
+  if (job.status === 'queued' || job.status === 'running') {
+    return { ...record, status: job.status };
+  }
+  return blobHeal(id, record, patchFromJob(job));
+}
+
+/** What a finished `job.json` contributes to the project record. */
+export function patchFromJob(job: JobState): ProjectPatch {
+  if (job.status === 'done' && job.result) {
+    const r = job.result;
+    return {
+      status: 'ready',
+      videoPath: r.videoPath,
+      ...(r.title === undefined ? {} : { title: r.title }),
+      ...(r.scenes === undefined ? {} : { scenes: r.scenes }),
+      ...(r.durationSec === undefined ? {} : { durationSec: r.durationSec }),
+      ...(r.costUsd === undefined ? {} : { costUsd: r.costUsd }),
+      ...(r.aspect === undefined ? {} : { aspect: r.aspect }),
+      ...(r.grounding === undefined ? {} : { grounding: r.grounding }),
+      ...(r.lanes === undefined ? {} : { lanes: r.lanes }),
+    };
+  }
+  return {
+    status: 'failed',
+    error: job.failure?.error ?? 'the run failed for an unknown reason',
+  };
+}
+
+async function blobHeal(
+  id: string,
+  record: ProjectRecord,
+  patch: ProjectPatch,
+): Promise<ProjectRecord> {
+  try {
+    return await blobUpsert(id, patch);
+  } catch {
+    // A failed heal still answers truthfully for this request; the next read retries.
+    const { error: _error, ...rest } = record;
+    return { ...rest, ...(patch as Partial<ProjectRecord>) };
+  }
+}
+
+async function blobTruth(id: string): Promise<ProjectTruth | undefined> {
+  const found = await blobReadMeta(id);
+  if (!found) return undefined;
+  const record = await blobReconcile(id, found.meta);
+  return {
+    record,
+    ...(found.meta.ownerSession === undefined ? {} : { ownerSession: found.meta.ownerSession }),
+  };
+}
+
+/** How many `meta.json` reads a library listing makes at once. */
+const LIST_CONCURRENCY = 8;
+
+async function blobCollectTruth(): Promise<Map<string, ProjectTruth>> {
+  const root = `${blobPrefix()}/projects/`;
+  const ids = (await listPathnames(root))
+    .filter((name) => name.endsWith(`/${META_BLOB}`))
+    .map((name) => name.slice(root.length, -(META_BLOB.length + 1)))
+    .filter(isValidProjectId);
+
+  const out = new Map<string, ProjectTruth>();
+  for (let i = 0; i < ids.length; i += LIST_CONCURRENCY) {
+    const batch = ids.slice(i, i + LIST_CONCURRENCY);
+    const truths = await Promise.all(batch.map((id) => blobTruth(id).catch(() => undefined)));
+    batch.forEach((id, n) => {
+      const truth = truths[n];
+      if (truth) out.set(id, truth);
+    });
+  }
+  return out;
+}
+
+async function blobStoryboard(id: string): Promise<CoreModule.Storyboard | undefined> {
+  const bytes = await downloadBuffer(projectKey(blobPrefix(), id, 'storyboard.json')).catch(
+    () => undefined,
+  );
+  if (!bytes) return undefined;
+  const core = await loadCore();
+  try {
+    return core.parseStoryboard(JSON.parse(bytes.toString('utf8')));
+  } catch {
+    return undefined;
   }
 }

@@ -9,6 +9,31 @@ import type { NextConfig } from 'next';
  */
 const repoRoot = path.resolve(process.cwd(), '..', '..');
 
+/**
+ * A stateless build (`INKCAST_STORAGE=blob`, i.e. Vercel): no route in this app
+ * runs a pipeline stage — the render service (`apps/render-service`, a container)
+ * does — so the native and browser payloads those stages pull in are left out of
+ * every Function bundle. Without this each API route traces ~195 MB (onnxruntime
+ * alone is ~150 MB across its platform binaries), uncomfortably close to the
+ * 250 MB Function limit and all of it dead weight there. Local and Docker builds
+ * do not set the variable and trace exactly as before.
+ */
+const statelessBuild = process.env.INKCAST_STORAGE === 'blob';
+
+const STAGE_ONLY_FILES = [
+  '**/node_modules/onnxruntime-node/**',
+  '**/node_modules/onnxruntime-web/**',
+  '**/node_modules/onnxruntime-common/**',
+  '**/node_modules/@huggingface/**',
+  '**/node_modules/kokoro-js/**',
+  '**/node_modules/playwright/**',
+  '**/node_modules/playwright-core/**',
+  '**/node_modules/sharp/**',
+  '**/node_modules/@img/**',
+  '**/node_modules/@neplex/**',
+  '**/node_modules/lucide-static/**',
+];
+
 /*
  * ## Why the scripts pass `--webpack`
  *
@@ -41,6 +66,7 @@ const nextConfig: NextConfig = {
    * fails at request time with a module-resolution error.
    */
   transpilePackages: [
+    '@inkcast/cloud',
     '@inkcast/core',
     '@inkcast/keyvault',
     '@inkcast/pipeline',
@@ -80,6 +106,8 @@ const nextConfig: NextConfig = {
    * it so the vendored fonts in `<root>/assets/fonts` resolve.
    */
   outputFileTracingRoot: repoRoot,
+
+  ...(statelessBuild ? { outputFileTracingExcludes: { '*': STAGE_ONLY_FILES } } : {}),
 
   experimental: {
     /**

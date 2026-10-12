@@ -18,7 +18,8 @@
 import { badRequest, fail, json, unexpected } from '../../_lib/http';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../_lib/session';
 import { getJob } from '@/lib/jobs';
-import { isValidProjectId, mediaUrl } from '@/lib/store';
+import { remoteJob } from '@/lib/remote';
+import { blobStorage, isValidProjectId, mediaUrl } from '@/lib/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const verdict = await requireOwner(id, session);
     if (!verdict.ok) return setSessionCookie(fail(verdict.status, verdict.message), session);
 
-    const job = getJob(id);
+    const job = blobStorage() ? await remoteJob(id) : getJob(id);
     const record = verdict.project;
 
     return setSessionCookie(

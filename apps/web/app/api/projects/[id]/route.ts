@@ -31,9 +31,16 @@ import {
   resolveIdentity,
   setSessionCookie,
 } from '../../_lib/session';
-import { deleteProject, isValidProjectId, mediaUrl, readProjectStoryboard } from '@/lib/store';
+import {
+  blobStorage,
+  deleteProject,
+  isValidProjectId,
+  mediaUrl,
+  readProjectStoryboard,
+} from '@/lib/store';
 import type { ProjectDto, ProjectRecord } from '@/lib/store';
 import { getJob, isRunning } from '@/lib/jobs';
+import { remoteIsRunning, remoteJob } from '@/lib/remote';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,7 +78,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
     const mine = verdict.via === 'owner';
     const storyboard = await readProjectStoryboard(id);
-    const job = mine ? getJob(id) : undefined;
+    const job = mine ? (blobStorage() ? await remoteJob(id) : getJob(id)) : undefined;
 
     return setSessionCookie(
       json({
@@ -85,11 +92,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
          * Per-scene audio, as URLs the browser can play. Handy for scrubbing a
          * storyboard before the video exists.
          */
-        audioUrls: storyboard
-          ? storyboard.scenes.map((scene) =>
-              scene.audioPath ? mediaUrl(id, scene.audioPath) : null,
-            )
-          : [],
+        // Per-scene audio is not kept on a Blob deployment (only the film is), so
+        // there are no URLs to hand out there.
+        audioUrls:
+          storyboard && !blobStorage()
+            ? storyboard.scenes.map((scene) =>
+                scene.audioPath ? mediaUrl(id, scene.audioPath) : null,
+              )
+            : [],
         /**
          * The live run, for the owner only. A job snapshot carries the failure
          * message of the last attempt, which routinely contains a provider name
@@ -126,7 +136,9 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
 
     // Deleting the directory under a running render would make the pipeline fail
     // in a confusing place. Refuse instead, and say why.
-    if (isRunning(id)) return setSessionCookie(conflictingJob(id), session);
+    if (blobStorage() ? await remoteIsRunning(id) : isRunning(id)) {
+      return setSessionCookie(conflictingJob(id), session);
+    }
 
     const removed = await deleteProject(id);
     // `requireOwner` already found a record, so a false here means the directory

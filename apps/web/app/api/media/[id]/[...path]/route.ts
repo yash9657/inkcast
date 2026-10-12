@@ -42,9 +42,10 @@ import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 
 import { badRequest, fail, notFound } from '../../../_lib/http';
-import { contentTypeFor, parseRange, resolveMediaFile } from '../../../_lib/media';
+import { contentTypeFor, isSafeSegment, parseRange, resolveMediaFile } from '../../../_lib/media';
 import { requireViewable, resolveIdentity } from '../../../_lib/session';
-import { isValidProjectId, projectDir } from '@/lib/store';
+import { blobStorage, isValidProjectId, projectDir } from '@/lib/store';
+import { JOB_BLOB, META_BLOB, blobPrefix, download, projectKey } from '@inkcast/cloud';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -108,6 +109,8 @@ async function serve(request: Request, context: Context, headOnly: boolean): Pro
   const session = who.ok ? who.session : who.stranger;
   const verdict = await requireViewable(id, session);
   if (!verdict.ok) return fail(verdict.status, verdict.message);
+
+  if (blobStorage()) return serveFromBlob(request, id, segments ?? [], headOnly);
 
   const resolved = await resolveMediaFile(dir, segments ?? []);
   if (!resolved.ok) {
@@ -186,4 +189,50 @@ async function serve(request: Request, context: Context, headOnly: boolean): Pro
 
   const body = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
   return new Response(body, { status, headers });
+}
+
+/**
+ * The same route, when the project lives in Vercel Blob.
+ *
+ * Authorisation has already happened above, identically. The two bookkeeping
+ * documents are refused outright: `meta.json` carries the owner tag and `job.json`
+ * the raw failure text, and on disk neither is something a share link needs. A
+ * `Range` header is forwarded so a seek costs only the bytes after it; the
+ * response is streamed, so the 4.5 MB Function body cap does not apply.
+ */
+async function serveFromBlob(
+  request: Request,
+  id: string,
+  segments: string[],
+  headOnly: boolean,
+): Promise<Response> {
+  if (segments.length === 0 || segments.length > 16 || !segments.every(isSafeSegment)) {
+    return badRequest('invalid media path');
+  }
+  const rel = segments.join('/');
+  if (rel === META_BLOB || rel === JOB_BLOB) return notFound(`no such file in project "${id}"`);
+
+  const range = request.headers.get('range') ?? undefined;
+  const found = await download(projectKey(blobPrefix(), id, rel), {
+    ...(range ? { range } : {}),
+    signal: request.signal,
+  }).catch(() => undefined);
+  if (!found) return notFound(`no such file in project "${id}"`);
+
+  const headers: Record<string, string> = {
+    'Content-Type': contentTypeFor(rel),
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, no-cache',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  };
+  for (const name of ['content-length', 'content-range', 'etag', 'last-modified']) {
+    const value = found.headers.get(name);
+    if (value) headers[name] = value;
+  }
+  if (headOnly) {
+    await found.stream.cancel();
+    return new Response(null, { status: found.status, headers });
+  }
+  return new Response(found.stream, { status: found.status, headers });
 }

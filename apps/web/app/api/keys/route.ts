@@ -53,6 +53,7 @@
 import { z } from 'zod';
 
 import { badRequest, fail, isHosted, json } from '../_lib/http';
+import { blobStorage } from '@/lib/store';
 import { PROVIDER_IDS, judgeKeyShape, providerInfo } from '@/components/settings/catalog';
 import {
   accountKeyStatuses,
@@ -125,6 +126,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let key = '';
   try {
+    if (blobStorage()) return keysAreServerSide();
     // Identity first, and above `readJson`: a request that may not store a key
     // must not have one parsed out of its body, let alone sealed and written.
     const who = isHosted() ? await accountOwner(request) : undefined;
@@ -194,6 +196,7 @@ export async function POST(request: Request) {
  */
 export async function DELETE(request: Request) {
   try {
+    if (blobStorage()) return keysAreServerSide();
     const who = isHosted() ? await accountOwner(request) : undefined;
     if (who !== undefined && !who.ok) return who.response;
 
@@ -304,4 +307,19 @@ function oops(what: string, err: unknown, secret?: string) {
   );
   console.error(`[api:keys] ${what} failed: ${message}`);
   return fail(500, `Could not ${what} the key: ${message}`);
+}
+
+/**
+ * A Blob-storage (stateless) deployment has nowhere durable to keep a credential:
+ * both stores write files — the per-account store under `INKCAST_SECRETS_DIR`, the
+ * local vault under `~/.inkcast` — and a Function's filesystem does not outlive the
+ * instance. The render service uses the operator's provider keys from its own
+ * environment instead, so storing a key here would be accepted and then silently
+ * never used.
+ */
+function keysAreServerSide() {
+  return fail(
+    501,
+    "This deployment does not store API keys. Rendering uses the operator's server-side provider keys.",
+  );
 }

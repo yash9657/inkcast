@@ -22,13 +22,20 @@ import {
   json,
   parseJsonBody,
   tooManyRequests,
+  unavailableOnBlob,
   unexpected,
   unprocessable,
 } from '../../../_lib/http';
 import { admit } from '../../../_lib/ratelimit';
 import { RerenderBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
-import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
+import {
+  blobStorage,
+  isValidProjectId,
+  loadPipeline,
+  readProjectStoryboard,
+  upsertProject,
+} from '@/lib/store';
 import { hydrateEnv, withKeys } from '@/lib/keys';
 import { isRunning, startJob } from '@/lib/jobs';
 
@@ -39,6 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
+    if (blobStorage()) return unavailableOnBlob('Re-rendering');
 
     // Headers-only refusal first, then identity, then the charge — the same
     // order and the same reasoning as `/edit` and `/api/generate`.

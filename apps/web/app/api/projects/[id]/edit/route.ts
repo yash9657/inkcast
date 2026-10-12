@@ -23,13 +23,20 @@ import {
   json,
   parseJsonBody,
   tooManyRequests,
+  unavailableOnBlob,
   unexpected,
   unprocessable,
 } from '../../../_lib/http';
 import { admit } from '../../../_lib/ratelimit';
 import { EditBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
-import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
+import {
+  blobStorage,
+  isValidProjectId,
+  loadPipeline,
+  readProjectStoryboard,
+  upsertProject,
+} from '@/lib/store';
 import { hydrateEnv } from '@/lib/keys';
 import { isRunning } from '@/lib/jobs';
 
@@ -40,6 +47,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
+    if (blobStorage()) return unavailableOnBlob('Editing');
 
     /*
      * The order here is: cheapest refusal, then identity, then the charge.

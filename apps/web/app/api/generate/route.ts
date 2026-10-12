@@ -32,7 +32,7 @@ import {
   validate,
 } from '../_lib/http';
 import type { Parsed } from '../_lib/http';
-import { admit } from '../_lib/ratelimit';
+import { admit, type Allowed } from '../_lib/ratelimit';
 import { ownerTagFor, requireOwner, resolveIdentity, setSessionCookie } from '../_lib/session';
 import {
   GenerateFields,
@@ -46,13 +46,29 @@ import {
   safeUploadName,
   uploadExtension,
 } from '../_lib/schemas';
-import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
+import { REPO_ROOT, blobStorage, loadCore, loadPipeline, upsertProject } from '@/lib/store';
 import { hydrateEnv, withKeys } from '@/lib/keys';
 import { isRunning, startJob, studioFormat } from '@/lib/jobs';
+import { remoteIsRunning, startRemoteCast } from '@/lib/remote';
+import { blobPrefix, projectKey, putFile, type RenderInput } from '@inkcast/cloud';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * With Blob storage (`INKCAST_STORAGE=blob`) this invocation stays alive in
+ * `after()` for as long as the render service takes, so it needs the Pro plan's
+ * 800-second ceiling. Ignored by `next start`.
+ */
+export const maxDuration = 800;
+
+/**
+ * A Vercel Function's request body is capped at 4.5 MB, so an upload that would
+ * pass the local 32 MB limit cannot even reach this handler there. Refused here
+ * with a sentence rather than by the platform with a bare 413.
+ */
+const BLOB_UPLOAD_LIMIT = 4 * 1024 * 1024;
 
 type SourceRef = { kind: 'text' | 'url' | 'file'; ref: string };
 
@@ -154,9 +170,13 @@ export async function POST(request: Request) {
           'filePath must point inside the Inkcast repository (e.g. "examples/gradient-descent.md"). Upload the file instead to cast something from elsewhere.',
         );
       }
-      if (!existsSync(resolved)) return badRequest(`no such file: ${fields.filePath}`);
-      if (statSync(resolved).isDirectory()) {
-        return badRequest(`${fields.filePath} is a directory, not a document`);
+      // With Blob storage the repository checkout that matters is the render
+      // service's image, not this Function's bundle; it checks existence there.
+      if (!blobStorage()) {
+        if (!existsSync(resolved)) return badRequest(`no such file: ${fields.filePath}`);
+        if (statSync(resolved).isDirectory()) {
+          return badRequest(`${fields.filePath} is a directory, not a document`);
+        }
       }
       serverPath = resolved;
     }
@@ -243,8 +263,22 @@ export async function POST(request: Request) {
      * id is derived from the source, so "the same request twice" is exactly the
      * case that lands here.
      */
-    const admission = isRunning(id) ? probe : admit(request.headers, 'generation');
+    const busy = blobStorage() ? await remoteIsRunning(id) : isRunning(id);
+    const admission = busy ? probe : admit(request.headers, 'generation');
     if (!admission.allowed) return tooManyRequests(admission);
+
+    if (blobStorage()) {
+      return await startOnRenderService({
+        id,
+        fields,
+        meta,
+        source,
+        session,
+        admission,
+        ...(upload ? { upload } : {}),
+        ...(serverPath === undefined ? {} : { serverPath }),
+      });
+    }
 
     /* --------------------------------------------------------- the upload */
 
@@ -408,6 +442,88 @@ export async function POST(request: Request) {
   } catch (err) {
     return unexpected('generate', err);
   }
+}
+
+/* ---------------------------------------------------- the stateless path */
+
+/**
+ * The tail of `POST` when projects live in Blob (`INKCAST_STORAGE=blob`).
+ *
+ * Same contract as the local path — same record, same 202 body — but the run is
+ * handed to the render service (see `lib/remote.ts`) instead of the in-process
+ * job registry, and an upload goes to Blob instead of the project directory.
+ * Keys are not hydrated here: this Function never runs a stage, and the render
+ * service reads its own server-side provider keys.
+ */
+async function startOnRenderService(args: {
+  id: string;
+  fields: GenerateFields;
+  meta: ReturnType<typeof mergeMeta>;
+  source: SourceRef;
+  session: Parameters<typeof ownerTagFor>[0];
+  admission: Allowed;
+  upload?: { file: File; name: string };
+  serverPath?: string;
+}): Promise<Response> {
+  const { id, fields, meta, source, session, admission, upload, serverPath } = args;
+
+  let sourceBlob: RenderInput['sourceBlob'];
+  if (upload) {
+    if (upload.file.size > BLOB_UPLOAD_LIMIT) {
+      return fail(
+        413,
+        `uploads are limited to ${BLOB_UPLOAD_LIMIT / (1024 * 1024)} MB on this deployment — paste the text instead`,
+      );
+    }
+    const pathname = projectKey(blobPrefix(), id, `source/${upload.name}`);
+    await putFile(
+      pathname,
+      Buffer.from(await upload.file.arrayBuffer()),
+      upload.file.type || 'application/octet-stream',
+    );
+    sourceBlob = { pathname, name: upload.name };
+  }
+
+  await upsertProject(id, {
+    status: 'queued',
+    title: fields.title ?? titleFor(source),
+    source: indexSource(source),
+    ownerSession: ownerTagFor(session),
+    ...(meta?.aspect === undefined ? {} : { aspect: meta.aspect }),
+  });
+
+  const input: RenderInput = {
+    ...(fields.text === undefined ? {} : { text: fields.text }),
+    ...(fields.url === undefined ? {} : { url: fields.url }),
+    ...(serverPath === undefined || upload
+      ? {}
+      : { repoPath: path.relative(REPO_ROOT, serverPath) }),
+    ...(sourceBlob ? { sourceBlob } : {}),
+    ...(fields.title === undefined ? {} : { title: fields.title }),
+    ...(meta === undefined ? {} : { meta: meta as Record<string, unknown> }),
+    ...studioFormat(fields.preset),
+  };
+
+  const { snapshot, started } = await startRemoteCast(id, input, {
+    force: fields.force ?? false,
+  });
+
+  return setSessionCookie(
+    json(
+      {
+        projectId: id,
+        status: snapshot.status,
+        ...(snapshot.queue === undefined ? {} : { queue: snapshot.queue }),
+        started,
+        streamUrl: `/api/generate/${id}/stream`,
+        ...(Number.isFinite(admission.remaining)
+          ? { generationsLeftToday: admission.remaining }
+          : {}),
+      },
+      202,
+    ),
+    session,
+  );
 }
 
 /* ------------------------------------------------------------- body readers */

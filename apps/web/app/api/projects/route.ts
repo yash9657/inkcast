@@ -26,7 +26,7 @@
 
 import { fail, json, unexpected } from '../_lib/http';
 import { ownedProjectsFilter, resolveIdentity, setSessionCookie } from '../_lib/session';
-import { listProjects } from '@/lib/store';
+import { blobStorage, listProjects } from '@/lib/store';
 import { listJobs } from '@/lib/jobs';
 import type { JobSnapshot } from '@/lib/jobs';
 
@@ -55,7 +55,11 @@ export async function GET(request: Request) {
     // Explicit type arguments: inferring them from `map` would produce
     // `Map<string | JobSnapshot, …>`, because an array literal widens to an array
     // rather than the tuple the Map constructor wants.
-    const byId = new Map<string, JobSnapshot>(listJobs().map((job) => [job.projectId, job]));
+    // With Blob storage there is no registry in this process; `listProjects` has
+    // already reconciled each in-flight record against its `job.json`.
+    const byId = new Map<string, JobSnapshot>(
+      blobStorage() ? [] : listJobs().map((job) => [job.projectId, job]),
+    );
 
     return setSessionCookie(
       json({
