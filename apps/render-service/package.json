@@ -1,0 +1,23 @@
+{
+  "name": "@inkcast/render-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stateless HTTP render worker: one film per request, progress and output to Vercel Blob. Runs in Dockerfile.vercel.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@inkcast/cloud": "workspace:*",
+    "@inkcast/core": "workspace:*",
+    "@inkcast/keyvault": "workspace:*",
+    "@inkcast/pipeline": "workspace:*",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  }
+}
