@@ -62,7 +62,20 @@ const log = logger('render');
  */
 const RENDER_VERSION = 5;
 
+/**
+ * Capture workers when the caller does not say: `INKCAST_RENDER_WORKERS` if it is a
+ * positive integer, otherwise `min(4, cpus - 1)`.
+ *
+ * The variable has been documented in `.env.example` for a long time and read by
+ * nothing. It matters on a memory-capped container (a Vercel Performance instance is
+ * 4 GB / 2 vCPU), where `availableParallelism()` can report the *host's* cores and four
+ * 1080p Chromium contexts plus four encoders is the difference between headroom and the
+ * OOM killer. Segmentation does not depend on the worker count (see `segments.ts`), so
+ * changing it never invalidates a cached segment.
+ */
 function defaultConcurrency(): number {
+  const configured = Number(process.env.INKCAST_RENDER_WORKERS);
+  if (Number.isInteger(configured) && configured >= 1) return configured;
   const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
   return Math.max(1, Math.min(4, cpus - 1));
 }
