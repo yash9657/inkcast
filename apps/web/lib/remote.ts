@@ -117,7 +117,7 @@ const WAITING: QueueEvent = {
 export async function startRemoteCast(
   id: string,
   input: RenderInput,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; providerEnv?: Record<string, string>; isolated?: boolean } = {},
 ): Promise<{ snapshot: JobSnapshot; started: boolean }> {
   const prefix = blobPrefix();
   const existing = await readJob(prefix, id).catch(() => undefined);
@@ -132,6 +132,8 @@ export async function startRemoteCast(
     kind: 'cast',
     input,
     ...(options.force === undefined ? {} : { force: options.force }),
+    ...(options.providerEnv ? { providerEnv: options.providerEnv } : {}),
+    ...(options.isolated === undefined ? {} : { isolated: options.isolated }),
   };
   // `after` is `waitUntil` on Vercel: the invocation stays alive (and billed for
   // memory, not CPU, while it waits) until the render service answers or the

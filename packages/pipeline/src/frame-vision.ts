@@ -1,3 +1,4 @@
+import type { ModelText, ModelImage } from '@inkcast/core';
 /**
  * The keyed half of Tier 2: a model looks at the frames (plan item 3.3).
  *
@@ -136,6 +137,7 @@ export function openFrameVision(
     // stroke is a different question.
     const key = hash(
       VISION_VERSION,
+      planner.name,
       model,
       frames.map((f) => hash(Buffer.from(f.png).toString('base64'))),
     );
@@ -146,15 +148,11 @@ export function openFrameVision(
       return cached;
     }
 
-    // A literal specifier, for the reason `edit.ts` and `stages.ts` both insist on one:
-    // an `import()` of a variable is a context module a bundler cannot follow, and the
-    // studio's production build silently dropped the SDK the last time one was used.
-    const mod = (await import('@anthropic-ai/sdk')) as {
-      default: new (o?: unknown) => AnthropicLike;
-    };
-    const client = new mod.default({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const { anthropicClient } = await import('@inkcast/planner');
+    const client = await anthropicClient();
+    if (!client) throw new Error('No model provider is available for frame review');
 
-    const content: unknown[] = [];
+    const content: (ModelText | ModelImage)[] = [];
     for (const f of frames) {
       content.push({
         type: 'text',
@@ -188,7 +186,7 @@ export function openFrameVision(
     });
     opts.onSpend?.({
       lane: 'frame-vision',
-      provider: 'anthropic',
+      provider: client.provider ?? 'anthropic',
       model,
       inTokens: res.usage?.input_tokens ?? 0,
       outTokens: res.usage?.output_tokens ?? 0,

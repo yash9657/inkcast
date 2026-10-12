@@ -473,6 +473,8 @@ export type PenOptions = {
    * *can* — it owns the clip, so it can lengthen the hold. See plan item 1.3.
    */
   tail?: number;
+  /** Maximum requested cue delay before preceding ink is accelerated. */
+  cueSlack?: number;
 };
 
 /**
@@ -598,6 +600,31 @@ export function serializePen(slots: readonly PenSlot[], opts: PenOptions): PenSc
     const cue = order[dominant]!.s.at;
     const late = (d: readonly number[]) => place(d).starts[dominant]! - cue <= PEN_DOMINANT_SLACK;
     if (!late(durs)) durs = scaled(largestFactor(dominant, late), dominant);
+  }
+
+  // Protect every spoken cue, not only the largest picture. Compress just the
+  // uninterrupted queue delaying this cue; an earlier, already settled diagram
+  // must not speed up because of a dense cluster later in the paragraph.
+  if (opts.cueSlack !== undefined) {
+    const slack = Math.max(0, opts.cueSlack);
+    for (let j = 1; j < n; j++) {
+      const placed = place(durs).starts;
+      const deadline = order[j]!.s.at + slack;
+      if (placed[j]! <= deadline + 1e-6) continue;
+      let first = j - 1;
+      while (first > 0 && placed[first]! > order[first]!.s.at + 1e-6) first--;
+      const beforeCue = durs.slice();
+      const candidate = (factor: number) =>
+        beforeCue.map((d, i) => (i >= first && i < j ? Math.max(PEN_MIN_DUR, d * factor) : d));
+      let lo = 0,
+        hi = 1;
+      for (let k = 0; k < 24; k++) {
+        const mid = (lo + hi) / 2;
+        if (place(candidate(mid)).starts[j]! <= deadline) lo = mid;
+        else hi = mid;
+      }
+      durs = candidate(lo);
+    }
   }
 
   // 2. The beat's own length. Compressing everything together keeps the *relative*

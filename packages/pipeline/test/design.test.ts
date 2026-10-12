@@ -62,7 +62,7 @@ test('a bare topic needs no document, and reports the missing key honestly', asy
 
   const lessonNotice = result.degradations.find((d) => d.stage === 'lesson');
   assert.equal(lessonNotice?.severity, 'major');
-  assert.equal(lessonNotice?.fix, 'inkcast keys set anthropic');
+  assert.equal(lessonNotice?.fix, 'inkcast keys set fireworks');
   assert.equal(result.providers.planner.name, 'heuristic');
 });
 

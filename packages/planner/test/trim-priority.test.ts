@@ -371,7 +371,7 @@ test('the cut is visible in the board, not only in the run that made it', () => 
   // The same prefix the channel's line carries, because the pipeline partitions the
   // stage channel on it and a second spelling would be a finding nobody can classify.
   assert.ok(line.startsWith(MISCONCEPTION_CUT_PREFIX));
-  assert.match(line, /75s explainer budget/);
+  assert.match(line, /explainer board \(requested 75s\)/);
   assert.ok(line.includes(lesson.misconception.idea), 'it names the belief that was lost');
 
   // A lesson with nothing to lose is not a finding, and neither is a board that never

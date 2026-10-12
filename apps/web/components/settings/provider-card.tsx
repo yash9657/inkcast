@@ -71,6 +71,8 @@ const STAGE_ICON: Record<ProviderStage, React.ComponentType<{ className?: string
 
 export type ProviderCardProps = {
   provider: ProviderInfo;
+  account?: boolean;
+  disabled?: boolean;
   state: KeyState | undefined;
   /** Set when this provider's sibling image key is configured. */
   siblingConfigured?: boolean;
@@ -84,6 +86,8 @@ export type ProviderCardProps = {
 
 export function ProviderCard({
   provider,
+  account = false,
+  disabled = false,
   state,
   siblingConfigured = false,
   busy,
@@ -118,6 +122,7 @@ export function ProviderCard({
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (disabled) return;
     const key = draft.trim();
     const verdict = judgeKeyShape(provider.id, key);
     if (!verdict.ok) {
@@ -193,7 +198,9 @@ export function ProviderCard({
                   <>
                     {state?.source === 'keychain'
                       ? 'in your OS keychain'
-                      : 'sealed on this machine'}
+                      : account
+                        ? 'encrypted for your account'
+                        : 'encrypted on this machine'}
                     {savedAt ? ` · ${whenever(savedAt)}` : ''}
                   </>
                 )}
@@ -216,8 +223,8 @@ export function ProviderCard({
                   </>
                 ) : (
                   <>
-                    This key can no longer be decrypted, so it is not being used — the vault was
-                    modified since it was saved. Paste it again below.
+                    This key cannot be decrypted, so it cannot be used. Replace it below, or contact
+                    the server operator if the problem continues.
                   </>
                 )}
               </p>
@@ -259,12 +266,14 @@ export function ProviderCard({
                 // reveal never creates a second place the key exists.
                 type={revealed ? 'text' : 'password'}
                 value={draft}
+                disabled={disabled}
+                maxLength={8192}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck={false}
                 inputMode="text"
-                aria-describedby={problem ? undefined : hintId}
+                aria-describedby={problem ? `${fieldId}-error` : hintId}
                 aria-invalid={problem ? true : undefined}
                 placeholder={provider.looksLike.prefix ?? 'Paste the key'}
                 onChange={(event) => {
@@ -286,18 +295,18 @@ export function ProviderCard({
               </Button>
             </div>
 
-            <Button type="submit" disabled={draft.trim() === '' || busy !== undefined}>
+            <Button type="submit" disabled={draft.trim() === '' || disabled}>
               {busy === 'save' ? <Spinner /> : null}
               {busy === 'save' ? 'Saving…' : 'Save'}
             </Button>
           </div>
 
           {problem ? (
-            <LabelError>{problem}</LabelError>
+            <LabelError id={`${fieldId}-error`}>{problem}</LabelError>
           ) : (
             <LabelHint id={hintId}>
-              {provider.looksLike.describe}. Sealed with AES-256-GCM before it touches the disk, and
-              never sent anywhere but {provider.label}.
+              {provider.looksLike.describe}. Sent to Inkcast for secure storage and used to call{' '}
+              {provider.label} when selected.
             </LabelHint>
           )}
         </form>
@@ -309,23 +318,34 @@ export function ProviderCard({
             type="button"
             variant="outline"
             size="sm"
-            disabled={busy !== undefined || (!configured && draft.trim() === '')}
+            disabled={disabled || (!configured && draft.trim() === '')}
             onClick={() => onValidate(provider.id, draft.trim() === '' ? undefined : draft.trim())}
           >
             {busy === 'validate' ? <Spinner /> : <ShieldCheckIcon aria-hidden />}
             {busy === 'validate' ? 'Checking…' : 'Validate now'}
           </Button>
 
-          {configured && !fromEnv ? (
-            <DeleteButton provider={provider} busy={busy === 'delete'} onConfirm={onDelete} />
+          {(configured || state?.unreadable) && !fromEnv ? (
+            <DeleteButton
+              provider={provider}
+              disabled={disabled}
+              busy={busy === 'delete'}
+              onConfirm={onDelete}
+            />
           ) : null}
           {!configured && state?.unreadable ? (
-            <DeleteButton provider={provider} busy={busy === 'delete'} onConfirm={onDelete} />
+            <DeleteButton
+              provider={provider}
+              disabled={disabled}
+              busy={busy === 'delete'}
+              onConfirm={onDelete}
+            />
           ) : null}
 
           <Button
             variant="link"
             size="sm"
+            nativeButton={false}
             render={<a href={provider.console.href} target="_blank" rel="noreferrer noopener" />}
           >
             Get a key · {provider.console.label}
@@ -384,7 +404,13 @@ function StatusPill({ state }: { state: KeyState | undefined }) {
     return (
       <Badge variant="success">
         <StatusDot tone="success" />
-        {state.source === 'env' ? 'Set in environment' : 'Configured'}
+        {state.source === 'env'
+          ? 'Set in environment'
+          : state.validatedOk === false
+            ? 'Needs attention'
+            : state.validatedOk
+              ? 'Connected'
+              : 'Saved · unchecked'}
       </Badge>
     );
   }
@@ -399,15 +425,19 @@ function StatusPill({ state }: { state: KeyState | undefined }) {
 function DeleteButton({
   provider,
   busy,
+  disabled,
   onConfirm,
 }: {
   provider: ProviderInfo;
+  disabled: boolean;
   busy: boolean;
   onConfirm: (provider: ProviderId) => void;
 }) {
   return (
     <Dialog>
-      <DialogTrigger render={<Button type="button" variant="ghost" size="sm" disabled={busy} />}>
+      <DialogTrigger
+        render={<Button type="button" variant="ghost" size="sm" disabled={disabled} />}
+      >
         {busy ? <Spinner /> : <Trash2Icon aria-hidden />}
         Remove
       </DialogTrigger>
@@ -415,8 +445,9 @@ function DeleteButton({
         <DialogHeader>
           <DialogTitle>Remove the {provider.label} key?</DialogTitle>
           <DialogDescription>
-            It is deleted from this machine and cannot be recovered — {provider.label} only shows a
-            key once. {provider.without}
+            The saved key is removed from Inkcast. Queued videos that need it will ask you to add a
+            key; running videos may finish using it. This does not revoke the key at{' '}
+            {provider.label}.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

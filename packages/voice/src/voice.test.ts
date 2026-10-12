@@ -67,6 +67,7 @@ import {
   elevenLabsModel,
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_QUALITY_MODEL,
   elevenLabsSpeed,
   ELEVENLABS_USD_PER_CREDIT,
 } from './providers/elevenlabs.js';
@@ -241,7 +242,7 @@ test('character alignment folds into word timings', () => {
   });
   assert.deepEqual(
     words.map((w) => w.word),
-    ['Hi', 'there.'],
+    ['Hi', 'there'],
   );
   assert.equal(words[0]?.start, 0);
   assert.ok((words[1]?.end ?? 0) > (words[0]?.end ?? 0));
@@ -965,12 +966,12 @@ test('a run where nothing was synthesised does not claim anyone spoke', async ()
   });
 });
 
-test('the ElevenLabs engine is multilingual v2, and its id is inside the clip key', () => {
+test('the quality engine is v4 and changing models invalidates the clip key', () => {
   // Flash was chosen on price — half a credit a character — with a standing note that
   // no tool here can hear the difference and a person would have to. The person has
   // now listened, and the difference is the choppiness across concatenated fragments
   // the dissection called "no proper cadence". Fifteen cents a film.
-  assert.equal(elevenLabsModel({} as NodeJS.ProcessEnv), ELEVENLABS_MULTILINGUAL_MODEL);
+  assert.equal(elevenLabsModel({} as NodeJS.ProcessEnv), ELEVENLABS_QUALITY_MODEL);
   // The override still reaches the cheaper engine for anyone who wants it.
   assert.equal(
     elevenLabsModel({ ELEVENLABS_MODEL_ID: ELEVENLABS_FLASH_MODEL } as NodeJS.ProcessEnv),
@@ -988,13 +989,11 @@ test('the ElevenLabs engine is multilingual v2, and its id is inside the clip ke
   assert.equal(createKokoroProvider().modelId?.(), KOKORO_MODEL_ID);
 });
 
-test('the speed correction is a nudge, never a stretch', () => {
-  // The stage divides its 150 wpm target by the adapter's 185 baseline and asks for
-  // 0.81 — a fifth slower, on every phrase, for the whole film. That is not a calm
-  // delivery, it is a recording played back slowly, and it is half of what the
-  // dissection heard. Inside ±10% the engine's own prosody survives.
-  assert.equal(elevenLabsSpeed(0.81), 0.9);
-  assert.equal(elevenLabsSpeed(1.4), 1.1);
+test('provider rate requests stay within the teaching speed band', () => {
+  // Rate is requested from synthesis, without post-processing the finished waveform.
+  assert.equal(elevenLabsSpeed(0.81), 0.81);
+  assert.equal(elevenLabsSpeed(0.1), 0.7);
+  assert.equal(elevenLabsSpeed(1.4), 1.15);
   assert.equal(elevenLabsSpeed(0.97), 0.97);
   assert.equal(elevenLabsSpeed(1), 1);
   // A baseline the stage could not compute leaves the engine alone entirely.
@@ -1002,13 +1001,13 @@ test('the speed correction is a nudge, never a stretch', () => {
   assert.equal(elevenLabsSpeed(Number.NaN), 1);
 });
 
-test('ElevenLabs asks for whole sentences, like every other engine here', () => {
+test('ElevenLabs asks for one continuous scene utterance', () => {
   // Clause-level was chosen for cue precision, and the precision does not come from
   // the split: word timings come back from the timestamped endpoint whatever size the
   // request was. What the split decides is how much text the engine gets to shape a
   // contour across — and a scene delivered as ten separate generations is ten fresh
   // onsets concatenated. See `VoiceProvider.preferredSplit`.
-  assert.equal(createElevenLabsProvider().preferredSplit?.(), 'sentence');
+  assert.equal(createElevenLabsProvider().preferredSplit?.(), 'paragraph');
 });
 
 test('an exhausted balance is classified, not scraped out of the message', async () => {
@@ -2420,7 +2419,7 @@ test('cadence changes the audio, so it changes the cache key', async () => {
   });
 });
 
-test('an emphasised phrase is given more room than the same words unemphasised', async () => {
+test('visual emphasis never slows a sentence or adds an artificial pause', async () => {
   // Emphasis is time, not volume: no local voice takes SSML, so the phrase carrying
   // the weight is slowed and given a beat after it — which is what a person does.
   await withTempProject(async (dir) => {
@@ -2433,8 +2432,8 @@ test('an emphasised phrase is given more room than the same words unemphasised',
 
     const [plain = 0, stressed = 0] = out.scenes.map((s) => s.durationSec ?? 0);
     assert.ok(
-      stressed > plain,
-      `emphasised ${stressed.toFixed(2)}s must exceed plain ${plain.toFixed(2)}s`,
+      Math.abs(stressed - plain) < 0.01,
+      `emphasised ${stressed.toFixed(2)}s must match plain ${plain.toFixed(2)}s`,
     );
     // Small on purpose. This lands on a clause, so a heavy hand drags a sentence
     // rather than stressing a word.
@@ -2540,4 +2539,117 @@ test('the pause after a sentence is graduated by what the sentence was', () => {
   assert.ok(landing > ordinary, 'a long sentence has more to land');
   assert.ok(question > landing, 'a question gets the most room of all');
   assert.ok(short > PHRASE_GAP_SEC, 'a sentence end is still audible');
+});
+
+test('Fireworks selection keeps speech local even when another voice key is stored', () => {
+  assert.deepEqual(defaultChain({ FIREWORKS_API_KEY: 'fw', ELEVENLABS_API_KEY: 'el' }), [
+    'kokoro',
+    'system',
+    'silence',
+  ]);
+  assert.equal(pinnedProvider('elevenlabs:voice-id'), 'elevenlabs');
+});
+
+test('paragraph narration keeps natural punctuation and makes one synthesis call per scene', async () => {
+  const texts = [
+    'A signal takes time to travel. That time tells us a distance.',
+    'Several distances narrow the possible positions.',
+  ];
+  assert.deepEqual(
+    splitPhrases(texts[0]!, { mode: 'paragraph' }).map((p) => p.text),
+    [texts[0]],
+  );
+  await withTempProject(async (dir) => {
+    const requests: SynthesisRequest[] = [];
+    await narrate(storyboard(texts), dir, {
+      provider: 'elevenlabs',
+      align: 'off',
+      padSec: 0,
+      createProvider: (id) => ({
+        ...stubProvider(id, { words: true, onSpoke: (_, req) => requests.push(req) }),
+        preferredSplit: () => 'paragraph',
+      }),
+    });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0]!.text, texts[0]);
+    assert.equal(requests[0]!.nextText, texts[1]);
+    assert.equal(requests[1]!.previousText, texts[0]);
+  });
+});
+
+test('an early label stays on its word even when declared after a late shape', () => {
+  const text = 'First the receiver listens. Then the satellite sends another signal.';
+  const s = scene(
+    {
+      narration: text,
+      elements: [cuedText('late', 'satellite sends', 0), cuedText('early', 'receiver listens', 0)],
+    },
+    0,
+  );
+  resolveSceneCues(s, { phrases: timings([[text, 0, 10, 0, true]]), narrationSec: 10 });
+  assert.ok(s.elements[1]!.enter.at < s.elements[0]!.enter.at);
+  assert.ok(s.elements[1]!.enter.at < 0.3);
+});
+
+test('small word-timestamp rounding overruns are bounded; genuine clock errors remain visible', async () => {
+  const { boundWordTimings } = await import('./narrate.js');
+  assert.equal(boundWordTimings([{ word: 'off', start: 1.8, end: 2.03 }], 2)[0]!.end, 2);
+  const wrong = [{ word: 'off', start: 1.8, end: 2.3 }];
+  assert.equal(boundWordTimings(wrong, 2), wrong);
+});
+
+test('native character timings use the same word boundaries as compiler cues', () => {
+  const text = "A well-placed satellite's three-dimensional position.";
+  const words = alignmentToWords({
+    characters: [...text],
+    character_start_times_seconds: [...text].map((_, i) => i / 10),
+    character_end_times_seconds: [...text].map((_, i) => (i + 1) / 10),
+  });
+  assert.deepEqual(words.map((w) => matchTokens(w.word)).flat(), matchTokens(text));
+  assert.equal(
+    words.find((w) => w.word === 'dimensional')?.start,
+    text.indexOf('dimensional') / 10,
+  );
+});
+
+test('v4 does not advertise the rate control it does not support', () => {
+  const model = process.env.ELEVENLABS_MODEL_ID;
+  try {
+    process.env.ELEVENLABS_MODEL_ID = 'eleven_v4';
+    assert.equal(createElevenLabsProvider().naturalWpm?.('any'), undefined);
+    process.env.ELEVENLABS_MODEL_ID = 'eleven_multilingual_v2';
+    assert.ok(createElevenLabsProvider().naturalWpm?.('any'));
+  } finally {
+    if (model === undefined) delete process.env.ELEVENLABS_MODEL_ID;
+    else process.env.ELEVENLABS_MODEL_ID = model;
+  }
+});
+
+test('a worked equation waits for its explanation even when it is the main visual', () => {
+  const s = scene(
+    {
+      narration: 'First measure time. Then multiply the two numbers.',
+      elements: [
+        {
+          id: 'calculation',
+          type: 'equation',
+          display: true,
+          align: 'center',
+          persist: true,
+          tex: 'c \\times t = d',
+          at: { x: 0, y: 0, w: 1000, h: 400 },
+          enter: { at: 0.1, duration: 1, style: 'write', cue: 'Then multiply' },
+        },
+      ],
+    },
+    0,
+  );
+  resolveSceneCues(s, {
+    phrases: timings([
+      ['First measure time.', 0, 4],
+      ['Then multiply the two numbers.', 4, 10],
+    ]),
+    narrationSec: 10,
+  });
+  assert.equal(s.elements[0]!.enter.at, 0.4);
 });

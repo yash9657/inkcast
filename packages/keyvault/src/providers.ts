@@ -10,7 +10,7 @@
  * name.
  */
 
-export const PROVIDERS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+export const PROVIDERS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 export type Provider = (typeof PROVIDERS)[number];
 
@@ -30,6 +30,13 @@ export type ProviderSpec = {
 };
 
 export const PROVIDER_SPECS: Record<Provider, ProviderSpec> = {
+  fireworks: {
+    id: 'fireworks',
+    label: 'Fireworks (open-weight models)',
+    envVars: ['FIREWORKS_API_KEY'],
+    stage: 'planning',
+    console: 'https://app.fireworks.ai/settings/users/api-keys',
+  },
   anthropic: {
     id: 'anthropic',
     label: 'Anthropic (Claude)',

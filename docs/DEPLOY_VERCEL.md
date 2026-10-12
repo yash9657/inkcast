@@ -69,22 +69,22 @@ Why this shape:
 
 All studio routes are ordinary Node.js Functions (Fluid compute, Standard size).
 
-| Route                                | On Vercel                                                                                    |
-| ------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `POST /api/generate`                 | Function, `maxDuration = 800`. Writes records to Blob, dispatches to the render service.     |
-| `GET /api/generate/[id]`             | Function. Reads `job.json`.                                                                  |
-| `GET /api/generate/[id]/stream`      | Function, streams SSE for ≤ 270 s then closes; `EventSource` reconnects and is replayed.     |
-| `GET/HEAD /api/media/[id]/[...path]` | Function. Streams the blob (no 4.5 MB cap on streamed responses); refuses `meta`/`job.json`. |
-| `GET /api/projects`                  | Function. Lists `meta.json` blobs, reconciling in-flight ones against `job.json`.            |
-| `GET/DELETE /api/projects/[id]`      | Function. Delete removes every blob under the project.                                       |
-| `POST /api/projects/[id]/share`      | Function. Same as local.                                                                     |
-| `POST /api/projects/[id]/edit`       | **501** — needs the intermediate files a Blob deployment does not keep.                      |
-| `POST /api/projects/[id]/rerender`   | **501** — same reason.                                                                       |
-| `GET /api/providers`                 | Function. Reports providers from **this project's** env — see the env note below.            |
-| `GET /api/keys`, `POST .../validate` | Function. Same as hosted.                                                                    |
-| `POST/DELETE /api/keys`              | **501** — there is no durable place for a stored key; rendering uses server keys.            |
-| `GET /api/health`                    | Function. Reports configuration (Blob + render service), not disk.                           |
-| pages, `/share/[id]`, `proxy.ts`     | Function / Routing Middleware, unchanged.                                                    |
+| Route                                | On Vercel                                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `POST /api/generate`                 | Function, `maxDuration = 800`. Writes records to Blob, dispatches to the render service.       |
+| `GET /api/generate/[id]`             | Function. Reads `job.json`.                                                                    |
+| `GET /api/generate/[id]/stream`      | Function, streams SSE for ≤ 270 s then closes; `EventSource` reconnects and is replayed.       |
+| `GET/HEAD /api/media/[id]/[...path]` | Function. Streams the blob (no 4.5 MB cap on streamed responses); refuses `meta`/`job.json`.   |
+| `GET /api/projects`                  | Function. Lists `meta.json` blobs, reconciling in-flight ones against `job.json`.              |
+| `GET/DELETE /api/projects/[id]`      | Function. Delete removes every blob under the project.                                         |
+| `POST /api/projects/[id]/share`      | Function. Same as local.                                                                       |
+| `POST /api/projects/[id]/edit`       | **501** — needs the intermediate files a Blob deployment does not keep.                        |
+| `POST /api/projects/[id]/rerender`   | **501** — same reason.                                                                         |
+| `GET /api/providers`                 | Function. Reports providers from **this project's** env — see the env note below.              |
+| `GET /api/keys`, `POST .../validate` | Function. Same as hosted.                                                                      |
+| `POST/DELETE /api/keys`              | Function. With accounts on, sealed per-account keys are stored in Blob. Without accounts: 501. |
+| `GET /api/health`                    | Function. Reports configuration (Blob + render service), not disk.                             |
+| pages, `/share/[id]`, `proxy.ts`     | Function / Routing Middleware, unchanged.                                                      |
 
 ---
 
@@ -179,28 +179,29 @@ easiest as **team-level Shared Environment Variables** linked to both.
 
 ### `inkcast` (studio)
 
-| Variable                                                                                                        | Req.        | Secret   | Value / note                                                                                                                                                                                               |
-| --------------------------------------------------------------------------------------------------------------- | ----------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INKCAST_STORAGE`                                                                                               | required    | no       | `blob` — **must be present at build time too** (trace exclusions)                                                                                                                                          |
-| `BLOB_READ_WRITE_TOKEN`                                                                                         | required    | yes      | set by connecting the Blob store                                                                                                                                                                           |
-| `INKCAST_RENDER_URL`                                                                                            | required    | no       | `https://inkcast-render.vercel.app` (or `https://render.inkcast.video`)                                                                                                                                    |
-| `INKCAST_RENDER_TOKEN`                                                                                          | required    | yes      | `openssl rand -hex 32`; same value on `inkcast-render`                                                                                                                                                     |
-| `INKCAST_HOSTED`                                                                                                | required    | no       | `1` — per-IP limiter, 20k-char source cap, `explainer` preset only, operator-keys settings page                                                                                                            |
-| `INKCAST_SESSION_SECRET`                                                                                        | required    | yes      | `openssl rand -hex 32` (≥ 24 chars). Changing it orphans every film's ownership                                                                                                                            |
-| `INKCAST_SECRET_KEY`                                                                                            | required    | yes      | `openssl rand -hex 32`. Required by the hosted key module at import, even though keys are not stored                                                                                                       |
-| `ENABLE_EXPERIMENTAL_COREPACK`                                                                                  | recommended | no       | `1`                                                                                                                                                                                                        |
-| `NEXT_PUBLIC_INKCAST_BASE_URL`                                                                                  | recommended | no       | `https://inkcast.video` (absolute Open Graph / share URLs). Build-time                                                                                                                                     |
-| `INKCAST_BLOB_PREFIX`                                                                                           | optional    | no       | default `inkcast`; set `preview` on the Preview environment                                                                                                                                                |
-| `INKCAST_BLOB_ACCESS`                                                                                           | optional    | no       | `private` (default) or `public` — must match the store                                                                                                                                                     |
-| `INKCAST_RENDER_BYPASS_TOKEN`                                                                                   | optional    | yes      | only if `INKCAST_RENDER_URL` is behind Deployment Protection                                                                                                                                               |
-| `CLERK_SECRET_KEY`                                                                                              | optional    | yes      | accounts; set both Clerk keys or neither                                                                                                                                                                   |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                             | optional    | no       | accounts; build-time (the landing copy is prerendered from it)                                                                                                                                             |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL`                                                                                 | optional    | no       | `/sign-in` (default)                                                                                                                                                                                       |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL`                                                                                 | optional    | no       | `/sign-up` (default)                                                                                                                                                                                       |
-| `NEXT_PUBLIC_CLERK_ACCOUNT_URL`                                                                                 | optional    | no       | `https://accounts.inkcast.video/user` — the only sign-out path                                                                                                                                             |
-| `INKCAST_BYPASS_TOKEN`                                                                                          | optional    | yes      | team escape hatch past the per-IP limit (`X-Inkcast-Bypass` header)                                                                                                                                        |
-| `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `FAL_KEY`, `REPLICATE_API_TOKEN`, `INKCAST_PLANNER`, `INKCAST_VOICE` | optional    | keys yes | **mirror** of the render project's values. The studio never calls these providers here; `/api/providers` reads them so the form tells the truth about what the film will use. Easiest as shared variables. |
-| `INKCAST_LOG`                                                                                                   | optional    | no       | `info`                                                                                                                                                                                                     |
+| Variable                                                                                                                                       | Req.        | Secret | Value / note                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INKCAST_STORAGE`                                                                                                                              | required    | no     | `blob` — **must be present at build time too** (trace exclusions)                                                                                                                                              |
+| `BLOB_READ_WRITE_TOKEN`                                                                                                                        | required    | yes    | set by connecting the Blob store                                                                                                                                                                               |
+| `INKCAST_RENDER_URL`                                                                                                                           | required    | no     | `https://inkcast-render.vercel.app` (or `https://render.inkcast.video`)                                                                                                                                        |
+| `INKCAST_RENDER_TOKEN`                                                                                                                         | required    | yes    | `openssl rand -hex 32`; same value on `inkcast-render`                                                                                                                                                         |
+| `INKCAST_HOSTED`                                                                                                                               | required    | no     | `1` — per-IP limiter, 20k-char source cap, `explainer` preset only, and **per-account keys** (see below)                                                                                                       |
+| `INKCAST_SESSION_SECRET`                                                                                                                       | required    | yes    | `openssl rand -hex 32` (≥ 24 chars). Changing it orphans every film's ownership                                                                                                                                |
+| `INKCAST_SECRET_KEY`                                                                                                                           | required    | yes    | `openssl rand -hex 32`. Master key sealing every account's provider keys. Losing it makes stored keys unreadable                                                                                               |
+| `ENABLE_EXPERIMENTAL_COREPACK`                                                                                                                 | recommended | no     | `1`                                                                                                                                                                                                            |
+| `NEXT_PUBLIC_INKCAST_BASE_URL`                                                                                                                 | recommended | no     | `https://inkcast.video` (absolute Open Graph / share URLs). Build-time                                                                                                                                         |
+| `INKCAST_BLOB_PREFIX`                                                                                                                          | optional    | no     | default `inkcast`; set `preview` on the Preview environment                                                                                                                                                    |
+| `INKCAST_BLOB_ACCESS`                                                                                                                          | optional    | no     | `private` (default) or `public` — must match the store                                                                                                                                                         |
+| `INKCAST_RENDER_BYPASS_TOKEN`                                                                                                                  | optional    | yes    | only if `INKCAST_RENDER_URL` is behind Deployment Protection                                                                                                                                                   |
+| `CLERK_SECRET_KEY`                                                                                                                             | optional    | yes    | accounts; set both Clerk keys or neither                                                                                                                                                                       |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                                                            | optional    | no     | accounts; build-time (the landing copy is prerendered from it)                                                                                                                                                 |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL`                                                                                                                | optional    | no     | `/sign-in` (default)                                                                                                                                                                                           |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL`                                                                                                                | optional    | no     | `/sign-up` (default)                                                                                                                                                                                           |
+| `NEXT_PUBLIC_CLERK_ACCOUNT_URL`                                                                                                                | optional    | no     | `https://accounts.inkcast.video/user` — the only sign-out path                                                                                                                                                 |
+| `INKCAST_BYPASS_TOKEN`                                                                                                                         | optional    | yes    | team escape hatch past the per-IP limit (`X-Inkcast-Bypass` header)                                                                                                                                            |
+| `FIREWORKS_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `FAL_KEY`, `REPLICATE_API_TOKEN`                                               | optional    | yes    | **Operator keys — used only when accounts are off** (no `INKCAST_HOSTED`, no Clerk). With accounts on, they are ignored by design: every film runs on the signed-in account's own keys or the local providers. |
+| `INKCAST_FIREWORKS_MODEL`, `INKCAST_FIREWORKS_REASONING`, `ELEVENLABS_MODEL_ID`, `INKCAST_VOICE_*`, `INKCAST_DRAW_FIX`, `INKCAST_FIGURE_MODEL` | optional    | no     | model/delivery settings; forwarded to the render service with each film                                                                                                                                        |
+| `INKCAST_LOG`                                                                                                                                  | optional    | no     | `info`                                                                                                                                                                                                         |
 
 Do **not** set `INKCAST_PROJECTS` here (it defaults to a `/tmp` scratch directory in
 Blob mode) and do not set `INKCAST_TRUSTED_PROXY_HOPS` (the default `1` matches
@@ -208,18 +209,19 @@ Vercel's `X-Forwarded-For`).
 
 ### `inkcast-render` (render service)
 
-| Variable                          | Req.        | Secret | Value / note                                                                                       |
-| --------------------------------- | ----------- | ------ | -------------------------------------------------------------------------------------------------- |
-| `INKCAST_RENDER_TOKEN`            | required    | yes    | same value as the studio. Unset ⇒ `/run` answers 503                                               |
-| `BLOB_READ_WRITE_TOKEN`           | required    | yes    | set by connecting the Blob store                                                                   |
-| `ANTHROPIC_API_KEY`               | recommended | yes    | the lesson planner (Claude). Without it the heuristic planner runs                                 |
-| `INKCAST_PLANNER`                 | optional    | no     | e.g. `claude-sonnet-5` for the cheaper tier; default model `claude-opus-5`                         |
-| `ELEVENLABS_API_KEY`              | optional    | yes    | cloud voice; without it Kokoro (baked into the image) speaks                                       |
-| `INKCAST_VOICE`                   | optional    | no     | default `af_heart` (Kokoro)                                                                        |
-| `FAL_KEY` / `REPLICATE_API_TOKEN` | optional    | yes    | text-to-image figures; without them the built-in icon library and procedural diagrams are used     |
-| `INKCAST_BLOB_ACCESS`             | optional    | no     | must match the studio                                                                              |
-| `INKCAST_RENDER_WORKERS`          | optional    | no     | `2` (baked default). `1` halves capture parallelism for more headroom; `3`+ is not advised on 4 GB |
-| `INKCAST_LOG`                     | optional    | no     | `info` (baked default)                                                                             |
+| Variable                 | Req.     | Secret | Value / note                                                                                       |
+| ------------------------ | -------- | ------ | -------------------------------------------------------------------------------------------------- |
+| `INKCAST_RENDER_TOKEN`   | required | yes    | same value as the studio. Unset ⇒ `/run` answers 503                                               |
+| `BLOB_READ_WRITE_TOKEN`  | required | yes    | set by connecting the Blob store                                                                   |
+| `INKCAST_BLOB_ACCESS`    | optional | no     | must match the studio                                                                              |
+| `INKCAST_RENDER_WORKERS` | optional | no     | `2` (baked default). `1` halves capture parallelism for more headroom; `3`+ is not advised on 4 GB |
+| `INKCAST_LOG`            | optional | no     | `info` (baked default)                                                                             |
+
+**No provider keys belong on the render project.** The studio resolves the
+credential environment for every film (the account's keys, or the operator's when
+accounts are off) and sends it with the `/run` request; the render service runs the
+pipeline inside exactly that snapshot (`withProviderEnv`), strips any provider key
+from its own environment first, and never writes it to Blob or logs.
 
 Baked into the image and not to be overridden: `INKCAST_STORAGE=blob`,
 `INKCAST_PROJECTS=/tmp/inkcast/projects`, `INKCAST_HOME=/tmp/inkcast/state`,
@@ -228,14 +230,14 @@ Baked into the image and not to be overridden: `INKCAST_STORAGE=blob`,
 
 ### Which third-party keys a working demo needs
 
-**None.** With no provider keys the render service runs the heuristic planner,
-the Kokoro voice and the built-in figure library, offline, and produces a real
-film (this is what the [local measurement](#measured) used). Keys are quality
-upgrades:
+**None.** With no provider keys the pipeline runs the local planner, the Kokoro
+voice and the built-in figure library, offline, and produces a real film (this is
+what the [local measurement](#measured) used). That is also what a signed-in
+account with no saved keys gets by default. Keys are quality upgrades, chosen per
+film in the studio's provider controls:
 
-- `ANTHROPIC_API_KEY` — the one that matters most. The repository's own docs
-  call the keyed path "the product" and the no-key path a fixture: Claude writes
-  the lesson, the analogy mapping and the figure briefs.
+- `FIREWORKS_API_KEY` (now the preferred planner) or `ANTHROPIC_API_KEY` — the one
+  that matters most: the cloud lesson author, drawings and visual review.
 - `ELEVENLABS_API_KEY` — nicer voice; Kokoro is acceptable.
 - `FAL_KEY` / `REPLICATE_API_TOKEN` — bespoke illustrations; least important.
 
@@ -244,16 +246,20 @@ Clerk is optional too: without it the site uses signed anonymous cookies, and
 
 ### Keys and `packages/keyvault`
 
-`@inkcast/keyvault` stores keys in the macOS keychain or an encrypted
-`~/.inkcast/vault.json`; the hosted per-account store (`apps/web/app/api/_lib/
-secrets.ts`) writes encrypted files under the projects directory. Neither has a
-durable filesystem on Vercel, and on the hosted path stored per-account keys were
-never threaded into the pipeline anyway (the stages read `process.env`). So a
-Blob deployment is **server-keys only**: providers come from the render project's
-environment, the hosted settings page already says the operator pays, and
-`POST`/`DELETE /api/keys` answer 501 instead of accepting a key that would vanish
-with the instance. `INKCAST_SECRET_KEY` is still required because the hosted key
-module checks for it at import.
+Two models, decided by `accountKeys()` (`INKCAST_HOSTED=1` or Clerk configured):
+
+- **Accounts on (the public deployment).** Each account saves its own keys in
+  Settings. `apps/web/app/api/_lib/secrets.ts` seals them (AES-256-GCM envelope
+  under `INKCAST_SECRET_KEY`, bound to the owner) and, with `INKCAST_STORAGE=blob`,
+  stores the sealed document at `<prefix>/account-keys/<digest>.json` in the
+  private Blob store instead of on disk — the Function filesystem would lose it.
+  Operator keys in the environment are never used for an account's film.
+- **Accounts off.** `@inkcast/keyvault`'s keychain / `~/.inkcast/vault.json` has no
+  durable home on a Function, so `POST`/`DELETE /api/keys` answer 501 and the
+  operator's keys come from the studio project's environment.
+
+In both cases the studio resolves the provider environment per film and forwards
+it to the render service with the request (see the render project section).
 
 ## 5. Clerk for inkcast.video (optional)
 
@@ -356,5 +362,8 @@ its system libraries, is 340 MB (VCR limit: 500 MB per layer).
   Active CPU at Performance size for the render's duration; Blob for storage,
   operations (measured: 44 writes and ~160 reads per film, mostly progress) and
   transfer of each view.
-- **Provider keys are server-wide.** Every visitor's film bills the operator's
-  keys. That is the hosted product's existing model.
+- **Account keys are written per instance order only.** Two saves of different
+  providers by one account at the same instant on two instances can race (last
+  write wins); re-saving fixes it. Same-instance saves are serialised.
+- **Filesystem server paths are refused with accounts on** (`filePath` → 403,
+  upstream behaviour); pasted text, URLs and uploads ≤ 4 MB work.

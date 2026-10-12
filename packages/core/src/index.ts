@@ -15,3 +15,11 @@ export * from './inktime.js';
 export * from './gates.js';
 export * from './qc.js';
 export * from './project.js';
+
+export * from './model-provider.js';
+export * from './model-client.js';
+export { lessonReviewHash, lessonSourceCheck } from './lesson-review.js';
+
+export { providerEnv, withProviderEnv, redactProviderSecrets } from './provider-context.js';
+
+export { fetchPublicText, isPublicAddress, publicDestination } from './public-fetch.js';

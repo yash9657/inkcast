@@ -217,14 +217,19 @@ import { compileLesson } from '../src/compile.js';
  * the pin is a *compile* hash, so nothing had ever tried. It is written up as a finding in
  * `docs/HANDOFF-AUDIT-REMAINDER.md` rather than fixed here.
  */
+// 2026-10-12: complete narration and no runtime-only beat deletion.
+// Old short pins: e3a1f7338b26 (7), 01b682decdbd (6), 66cb5a33474b (6).
+// Resolved local visuals and inspected eight Chromium frames per affected film.
+// These are regression pins, not quality certification: legacy icon substitutions
+// and tiny code in portrait remain known limitations. Standard pins are unchanged.
 const PINNED = [
   { lesson: 'gradient-descent', preset: 'standard', hash: 'd3f35564b27b', scenes: 9 },
-  { lesson: 'gradient-descent', preset: 'short', hash: 'e3a1f7338b26', scenes: 7 },
+  { lesson: 'gradient-descent', preset: 'short', hash: '00c21ff3fd82', scenes: 8 },
   { lesson: 'longitude', preset: 'standard', hash: '417495edcde8', scenes: 8 },
-  { lesson: 'longitude', preset: 'short', hash: '01b682decdbd', scenes: 6 },
+  { lesson: 'longitude', preset: 'short', hash: '198b5df61ed4', scenes: 8 },
   { lesson: 'hash-map', preset: 'standard', hash: '6534c50131fa', scenes: 9 },
   // Re-pinned 2026-08-24 from `5a5362c4fd0a` / 5 scenes — see the section above.
-  { lesson: 'hash-map', preset: 'short', hash: '66cb5a33474b', scenes: 6 },
+  { lesson: 'hash-map', preset: 'short', hash: 'ab4637902595', scenes: 8 },
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');

@@ -1,3 +1,5 @@
+import { providerEnv } from '@inkcast/core';
+import { textProvider } from '@inkcast/core';
 /**
  * Revising the teaching, not just the drawing.
  *
@@ -250,14 +252,9 @@ export async function editLessonDetailed(
   opts: LessonOptions = {},
 ): Promise<{ lesson: Lesson; report: LessonEditReport }> {
   const preset = resolvePreset(opts);
-  const adapter =
-    opts.adapter && opts.adapter !== 'auto'
-      ? opts.adapter
-      : process.env.ANTHROPIC_API_KEY
-        ? 'anthropic'
-        : 'heuristic';
+  const adapter = textProvider(providerEnv(), opts.adapter);
 
-  if (adapter === 'anthropic') {
+  if (adapter !== 'heuristic') {
     const patched = await anthropicLessonEdit(lesson, instruction, opts, preset.maxSeconds);
     if (patched) {
       const problems = critiqueLesson(patched, { maxSeconds: preset.maxSeconds });
@@ -284,7 +281,7 @@ export async function editLessonDetailed(
 
   if (report.needsKey.length) {
     log.warn(
-      `set ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new teaching`,
+      `set FIREWORKS_API_KEY or ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new teaching`,
     );
   }
   if (report.unsupported.length) log.warn(`did not understand: ${report.unsupported.join(' | ')}`);

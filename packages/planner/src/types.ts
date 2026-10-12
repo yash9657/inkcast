@@ -116,7 +116,7 @@ export type IngestInput = {
   url?: string;
 };
 
-export type PlannerAdapter = 'auto' | 'anthropic' | 'heuristic';
+export type PlannerAdapter = 'auto' | 'anthropic' | 'fireworks' | 'heuristic';
 
 /** What the lesson stage will teach: a document, or a bare topic to teach cold. */
 export type LessonInput = SourceDoc | string;
@@ -216,6 +216,8 @@ export type LessonOptions = StageOptions &
      * Default `true`; `INKCAST_DRAW_FIX=0` turns it off for a whole run.
      */
     reviseDrawings?: boolean;
+    /** Persist review drafts and evidence without enabling the planner cache. */
+    diagnosticsDir?: string;
     /** Project directory. When given, `lesson.json` is cached there. */
     dir?: string;
     /**

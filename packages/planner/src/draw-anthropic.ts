@@ -1,3 +1,7 @@
+import { providerEnv } from '@inkcast/core';
+import { geometryConstraintProblems } from './geometry-constraints.js';
+import { labelTargetProblems } from './label-anchors.js';
+import { textModel } from '@inkcast/core';
 /**
  * The drawing author: one focused model call per picture, emitting marks.
  *
@@ -39,6 +43,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Message } from './anthropic.js';
+import { FIREWORKS_GENERATION_POLICY } from '@inkcast/core';
 import { anthropicClient, callTool, errorDetail, imagePart } from './anthropic.js';
 import { auditDrawing } from './draw-audit.js';
 import { fixTag, reviseDrawing } from './draw-critic.js';
@@ -81,15 +86,35 @@ const TOOL = 'emit_drawing';
  */
 const BRIEF_VERSION = 'draw/v2';
 
-export function drawModel(opts?: { drawModel?: string }): string {
-  return opts?.drawModel ?? process.env.INKCAST_DRAW_MODEL ?? DEFAULT_DRAW_MODEL;
+export function drawModel(opts?: { drawModel?: string; adapter?: string }): string {
+  return (
+    opts?.drawModel ??
+    providerEnv().INKCAST_DRAW_MODEL ??
+    textModel(DEFAULT_DRAW_MODEL, providerEnv(), opts?.adapter)
+  );
 }
 
 /* -------------------------------------------------------------------- brief */
 
+const SYNC_BRIEF = `
+Semantic timing matters as much as exact word matching. Keep a context/analogy disclaimer visible from the opening phrase when it qualifies the whole drawing. Reveal related alternatives together at the phrase that introduces them; never reveal a second alternative while the speaker describes a later constraint. A label, its target marker and every leader share one cue. If the script discusses a different dimensionality from the picture, keep the limitation visible.
+
+SPEECH AND PICTURE ARE ONE EXPLANATION
+- Give EVERY meaningful mark a cue copied EXACTLY from the supplied narration: the short phrase introducing its referent. Several strokes of one object share the same cue. Labels use the phrase naming their part, and connectors the phrase describing their relation. Do not invent cues or schedule by array order.
+- The opening object starts on the opening words. Background outlines may share that cue; later details must wait for their own explanation. Keep the picture to 8–20 meaningful marks, never more than 40. Decorations consume attention and drawing time.
+- In boxed mechanisms, give mathematics at least 8 canvas units of internal padding. Label leaders should target the nearest external edge of a box rather than crossing its contents.
+- Labels must be readable at 1080p: prefer 28–36 canvas units, short names, open space outside the geometry, and a semantic target for a part label. Never put text across a line, panel border, or overlapping ring.
+- Diagram geometry must demonstrate the actual claim. Equal distances, common intersections, arrows and axis directions must be mathematically consistent. Compute coordinates from the relation, not by eye. If circles must meet at a point, create a small point marker and set circleThrough to that marker id on EVERY circle; the compiler computes exact radii from their centres. Choose centres close enough that the resulting full circles fit inside the canvas. A flat schematic must be labelled as such; never imply a 2D drawing is the full 3D solution.
+- Worked calculations need separate math marks for each operand, operator and result, cued when that part is spoken. Do not reveal the answer before the calculation. Place labels above or below their values with spacing; avoid leader lines that strike equation glyphs.
+- A raster is an illustration, not a measurement. Exact geometry, arrows, values and all labels belong in editable vector marks. Keep key parts unobstructed.
+`;
+
 const DRAW_BRIEF = `You are drawing on a whiteboard, in a hand-drawn explainer video, by placing every mark yourself. You are not describing a picture for someone else to draw and you are not writing a caption: what you emit is exactly and only what appears on the board.
 
 THE CANVAS is ${DRAW_W} wide and ${DRAW_H} tall. x grows right, y grows DOWN, origin top-left. Fill it — the drawing is scaled to the space it gets, so use the whole canvas with a small margin and keep everything inside it.
+
+LABEL TARGETS
+When a label names a vector part, give that part a stable id and set the label's target to {partId: that id, anchor: "center" | "top" | "bottom" | "left" | "right"}. The compiler draws a leader to the actual geometry. Do not invent a target id or bind a label to a caption/arrow. For raster anatomy, only label a part you can identify in the supplied pixels; omit uncertain labels rather than guessing.
 
 THE MARKS, and there are only these nine:
 - rect {x,y,w,h} — a box. x,y is the TOP-LEFT corner.
@@ -168,6 +193,9 @@ STAY ON THE BOARD. Every x you emit is between 0 and ${DRAW_W}. Every y you emit
 DO NOT REDRAW THE SUBJECT. Its outline, its body, its overall form are already drawn and you cannot improve them. You are adding only what the image does not have and cannot have: internal structure, pathways, the relation between parts, and NAMES.
 
 AIM. An arrow pointing at a structure must point at where that structure IS in the picture in front of you, not where you would have put it. A mark that lands on blank board beside the subject is worse than no mark at all — it looks like a mistake, because it is one.
+
+LABEL TARGETS
+When a label names a vector part, give that part a stable id and set the label's target to {partId: that id, anchor: "center" | "top" | "bottom" | "left" | "right"}. The compiler draws a leader to the actual geometry. Do not invent a target id or bind a label to a caption/arrow. For raster anatomy, only label a part you can identify in the supplied pixels; omit uncertain labels rather than guessing.
 
 THE MARKS, and there are only these nine:
 - rect {x,y,w,h} — a box. x,y is the TOP-LEFT corner.
@@ -314,7 +342,12 @@ const DrawingSchema = z.object({
  * picture, so a second video about batteries reuses the first one's cross-section — free,
  * instant, and identical, which is the entity-consistency problem solving itself.
  */
-export function drawKey(instruction: string, underlay?: Uint8Array, kind?: UnderlayKind): string {
+export function drawKey(
+  instruction: string,
+  underlay?: Uint8Array,
+  kind?: UnderlayKind,
+  inputs: { model?: string; context?: string; box?: Box } = {},
+): string {
   // The brief itself is in the key, not just its version number. Every word of it
   // changes what comes back — the canvas dimensions most of all — and a cache that
   // survived a brief change would serve drawings composed for a canvas that no longer
@@ -335,8 +368,16 @@ export function drawKey(instruction: string, underlay?: Uint8Array, kind?: Under
   return hash(
     BRIEF_VERSION,
     briefFor(Boolean(underlay), kind),
-    instruction.trim().toLowerCase(),
+    instruction.trim(),
     underlay ? hash(Buffer.from(underlay).toString('base64')) : '',
+    {
+      reasoning: providerEnv().INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+      outputPolicy: FIREWORKS_GENERATION_POLICY,
+      model: inputs.model ?? drawModel(),
+      context: inputs.context ?? '',
+      syncBrief: SYNC_BRIEF,
+      box: inputs.box,
+    },
   ).slice(0, 16);
 }
 
@@ -400,6 +441,7 @@ async function writeFix(key: string, marks: Mark[]): Promise<void> {
 
 /** Options for one drawing. `preview` is what makes the correction pass a visual one. */
 export type DrawOneOptions = {
+  adapter?: string;
   model?: string;
   context?: string;
   preview?: DrawPreview;
@@ -434,7 +476,7 @@ export type DrawOneOptions = {
 };
 
 function revisionEnabled(opts: DrawOneOptions): boolean {
-  if (process.env.INKCAST_DRAW_FIX === '0') return false;
+  if (providerEnv().INKCAST_DRAW_FIX === '0') return false;
   return opts.revise !== false;
 }
 
@@ -453,7 +495,7 @@ function revisionEnabled(opts: DrawOneOptions): boolean {
  * both ways and compare the frames before deciding this should be the default.
  */
 function revisesEverything(): boolean {
-  return process.env.INKCAST_DRAW_FIX === 'all';
+  return providerEnv().INKCAST_DRAW_FIX === 'all';
 }
 
 /**
@@ -467,7 +509,11 @@ export async function drawOne(
   instruction: string,
   opts: DrawOneOptions = {},
 ): Promise<Mark[] | undefined> {
-  const key = drawKey(instruction, opts.underlay?.png, opts.underlay?.kind);
+  const key = drawKey(instruction, opts.underlay?.png, opts.underlay?.kind, {
+    model: opts.model,
+    context: opts.context,
+    box: opts.underlay?.box,
+  });
   const short = instruction.slice(0, 60);
 
   // Only when corrections are wanted. `revise: false` means "the drawing as it was
@@ -502,12 +548,12 @@ async function correct(
   const under = opts.underlay && { box: opts.underlay.box, traced: isTraced(opts.underlay.kind) };
   if (!revisesEverything() && !auditDrawing(prepareMarks(marks, under), under).length)
     return undefined;
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
   const revision = await reviseDrawing(marks, {
     client: c,
-    model: opts.model ?? drawModel(),
+    model: opts.model ?? drawModel(opts),
     schema,
     ...(opts.preview ? { preview: opts.preview } : {}),
     ...(opts.underlay ? { underlay: opts.underlay } : {}),
@@ -527,7 +573,7 @@ async function compose(
   key: string,
   opts: DrawOneOptions,
 ): Promise<Mark[] | undefined> {
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   const schema = await drawingJsonSchema();
   if (!c || !schema) return undefined;
 
@@ -564,14 +610,14 @@ async function compose(
     try {
       raw = await callTool(
         c,
-        opts.model ?? drawModel(),
-        briefFor(Boolean(opts.underlay), opts.underlay?.kind),
+        opts.model ?? drawModel(opts),
+        briefFor(Boolean(opts.underlay), opts.underlay?.kind) + SYNC_BRIEF,
         messages,
         schema,
         { name: TOOL, description: 'Emit the finished drawing as a list of marks.' },
         8000,
         opts.onSpend
-          ? (u) => noteSpend(opts, { lane: 'drawing', provider: 'anthropic', ...u })
+          ? (u) => noteSpend(opts, { lane: 'drawing', provider: c.provider ?? 'anthropic', ...u })
           : undefined,
       );
     } catch (err) {
@@ -579,11 +625,19 @@ async function compose(
       return undefined;
     }
     const parsed = DrawingSchema.safeParse(repairElements(raw));
-    if (parsed.success) {
+    const detail = parsed.success
+      ? [
+          ...labelTargetProblems(parsed.data.elements),
+          ...geometryConstraintProblems(parsed.data.elements),
+          ...parsed.data.elements
+            .filter((mark) => mark.cue && opts.context && !opts.context.includes(mark.cue))
+            .map((mark) => `${mark.id}: cue is not an exact phrase of this narration`),
+        ].join('\n')
+      : errorDetail(parsed.error);
+    if (parsed.success && !detail) {
       await writeCached(key, parsed.data.elements);
       return parsed.data.elements;
     }
-    const detail = errorDetail(parsed.error);
     log.warn(`the drawing did not validate (attempt ${attempt + 1}): "${short}"`, detail);
     if (attempt >= 1) return undefined;
     messages.push(
@@ -807,6 +861,7 @@ export async function drawLesson(lesson: Lesson, opts: LessonOptions = {}): Prom
       const underlay = await underlayFor(job.intent, opts);
       const marks = await drawOne(job.intent.describe, {
         model,
+        adapter: opts.adapter,
         context: job.step.narration,
         ...(underlay ? { underlay } : {}),
         ...(opts.drawPreview ? { preview: opts.drawPreview } : {}),

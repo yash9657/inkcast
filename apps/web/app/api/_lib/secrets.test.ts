@@ -446,7 +446,7 @@ test('concurrent writes for one account do not lose a key', async () => {
   }
 });
 
-test('an unparseable file reads as empty rather than breaking the page', async () => {
+test('a damaged file fails closed and cannot be silently overwritten', async () => {
   const stranger = randomBytes(32).toString('base64url');
   await writeOwnerSecret({ owner: stranger, provider: 'fal' }, `${ALICE_KEY}-fal`);
   const files = await readdir(secretsDir());
@@ -463,13 +463,16 @@ test('an unparseable file reads as empty rather than breaking the page', async (
   ).find((entry) => entry.hit);
   assert.ok(mine);
   await writeFile(mine.full, '{ this is not json', 'utf8');
-  assert.deepEqual(await listOwnerSecrets(stranger), []);
-  assert.equal(await readOwnerKey({ owner: stranger, provider: 'fal' }), undefined);
+  await assert.rejects(listOwnerSecrets(stranger), /damaged/);
+  await assert.rejects(readOwnerKey({ owner: stranger, provider: 'fal' }), /damaged/);
 
   // And a save against that damaged file does not leak into the *next* account
   // whose file is absent. The bug this pins had no cipher in it: one shared empty
   // object, read by every miss and mutated by every write.
-  await writeOwnerSecret({ owner: stranger, provider: 'fal' }, `${ALICE_KEY}-again`);
+  await assert.rejects(
+    writeOwnerSecret({ owner: stranger, provider: 'fal' }, `${ALICE_KEY}-again`),
+    /damaged/,
+  );
   const nobody = randomBytes(32).toString('base64url');
   assert.deepEqual(await listOwnerSecrets(nobody), []);
   assert.equal(await readOwnerKey({ owner: nobody, provider: 'fal' }), undefined);
@@ -487,4 +490,51 @@ test('SecretsError never carries the key or the master key in its message', () =
     assert.ok(!dump.includes(MASTER), 'the master key is in the error');
     assert.ok(!dump.includes(ALICE), 'the owner digest is in the error');
   }
+});
+
+test('new records authenticate display metadata and reject a changed mask', () => {
+  const ref = { owner: ALICE, provider: 'fireworks' };
+  const sealed = sealSecret(ALICE_KEY, ref);
+  assert.equal(sealed.v, 2);
+  assert.throws(() => openSecret({ ...sealed, hint: 'forged' }, ref), /could not be opened/);
+  assert.throws(() => openSecret({ ...sealed, length: 1 }, ref), /could not be opened/);
+});
+
+test('late validation of an old key cannot validate its replacement', async () => {
+  const ref = { owner: ALICE, provider: 'fireworks' };
+  await writeOwnerSecret(ref, ALICE_KEY);
+  await writeOwnerSecret(ref, BOB_KEY);
+  await markOwnerSecretValidated(ref, true, process.env, ALICE_KEY);
+  assert.equal((await readOwnerSummary(ref))?.validatedOk, undefined);
+  await markOwnerSecretValidated(ref, false, process.env, BOB_KEY);
+  assert.equal((await readOwnerSummary(ref))?.validatedOk, false);
+});
+
+test('existing version 1 account records remain readable after the storage upgrade', () => {
+  const legacy = {
+    v: 1,
+    provider: 'fireworks',
+    hint: '••••5678',
+    length: 34,
+    createdAt: '2026-10-11T00:00:00Z',
+    updatedAt: '2026-10-11T00:00:00Z',
+    wrap: {
+      iv: 'AwMDAwMDAwMDAwMD',
+      tag: 'rmgwEbp3OdFTgzByLRhOyQ==',
+      ct: 'j6TtAlK3Lcwl5v24G4OfZS0ch916AwmaAEcsL4Iaqzs=',
+    },
+    data: {
+      iv: 'BAQEBAQEBAQEBAQE',
+      tag: 'XpHbtJsXt/nuy7chiv2WDg==',
+      ct: 'gdjTHMPZDkjnJxsfcjFe87jFC4x7pO09Bnudh5NH4mFerA==',
+    },
+  } as const;
+  const legacyEnv = env({
+    INKCAST_SECRET_KEY: '0707070707070707070707070707070707070707070707070707070707070707',
+  });
+  assert.equal(
+    openSecret(legacy, { owner: 'legacy_fixture_owner_0001', provider: 'fireworks' }, legacyEnv),
+    'fake-legacy-fireworks-key-12345678',
+  );
+  assert.throws(() => openSecret(legacy, { owner: BOB, provider: 'fireworks' }, legacyEnv));
 });

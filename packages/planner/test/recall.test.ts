@@ -58,9 +58,8 @@ function drawing(describe: string, marks: Mark[]): VisualIntent {
  *
  * Three is `RECALL_MIN`, and the recap names exactly three, so it also clears the
  * majority test in `findRecall` — the two thresholds this fixture exists to sit above.
- * The names are spread across two earlier beats deliberately: the host is the one that
- * named the most of them, and a recap that circled only its host's parts would be the
- * same amnesia in a smaller panel.
+ * All recalled names share one host picture, so a close-up can show the entire recall.
+ * A separate test below covers names scattered across distinct pictures.
  */
 const RECALLED = Lesson.parse({
   version: 1,
@@ -81,6 +80,7 @@ const RECALLED = Lesson.parse({
       drawing('Two stacked pins in a chamber', [
         ...part('driver', 60, 60, 'driver pin'),
         ...part('keypin', 380, 60, 'key pin'),
+        ...part('shear-anchor', 700, 60, 'shear line'),
       ]),
     ],
   },
@@ -303,4 +303,14 @@ test('two beats asking for a picture in the same words still share one image', (
   // `subjectOf` names: same subject, different words, two images.
   const apart = compileLesson(REFERRED, { board: 'accumulate' });
   assert.equal(apart.assets.filter((a) => a.id.startsWith('underlay-')).length, 2);
+});
+
+test('a recap spanning separate pictures keeps its compact causal diagram', () => {
+  const lesson = structuredClone(RECALLED);
+  lesson.anchor.visuals[0]!.marks = lesson.anchor.visuals[0]!.marks!.filter(
+    (m) => !m.id.startsWith('shear-anchor'),
+  );
+  assert.equal(findReferrals(lessonBeats(lesson), 'accumulate').recall, null);
+  const rendered = compileLesson(lesson, { board: 'accumulate' });
+  assert.ok(rendered.scenes.at(-1)!.elements.some((el) => el.type === 'shape'));
 });

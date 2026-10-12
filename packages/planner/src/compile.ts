@@ -165,7 +165,9 @@ const log = logger('planner:compile');
  * shortened exactly one caption. The reasoning and the frame evidence for every re-pin
  * are in `test/pinned-hashes.test.ts`, which asserts this comment and that list agree.
  */
-export const COMPILER_VERSION = 6;
+// 2026-10-12: preserve full narration; runtime fitting precedes compilation.
+// Short pins after visual inspection: 00c21ff3fd82 / 198b5df61ed4 / ab4637902595.
+export const COMPILER_VERSION = 11;
 
 /* ------------------------------------------------------------------ assets */
 
@@ -467,7 +469,12 @@ export function compileLesson(
       narration: step.narration.trim(),
       camera: board.cameraFor(i, role),
       elements: built,
-      region: board.regionOf(i).key,
+      // A composed figure needs a close-up of its own cell. Sharing a camera
+      // region with earlier complete figures shrinks every label while teaching it.
+      // Annotations keep their host cell; all ink still persists on the board.
+      region: beats[shares.get(i) ?? i]!.step.visuals.some((v) => (v.marks?.length ?? 0) >= 6)
+        ? `${board.regionOf(i).key}:cell-${shares.get(i) ?? i}`
+        : board.regionOf(i).key,
       role,
       hold: paced.hold,
       cadence: paced.cadence,
@@ -654,10 +661,15 @@ export function planVocabulary(
 ): string[][] {
   const written = beats.map(({ step, role }) => captionFor(step, role, preset)).filter(Boolean);
   return beats.map(({ step }) => {
+    // Labels inside a composed diagram already teach its vocabulary. A second
+    // footer competes for both space and the pen's speech cue.
+    const labelled = step.visuals.flatMap((v) =>
+      (v.marks ?? []).filter((m) => m.kind === 'label').map((m) => m.text ?? ''),
+    );
     const out: string[] = [];
     for (const term of resolveTerms(step).found) {
       if (out.length >= MAX_TERMS) break;
-      if (!term || written.some((seen) => sameTerm(seen, term))) continue;
+      if (!term || [...written, ...labelled].some((seen) => sameTerm(seen, term))) continue;
       written.push(term);
       out.push(term);
     }

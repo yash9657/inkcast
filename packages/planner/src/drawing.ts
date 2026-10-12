@@ -1,3 +1,5 @@
+import { normalizeGeneratedTex } from './tex.js';
+import { resolveGeometryConstraints } from './geometry-constraints.js';
 /**
  * The drawing lane: a composed picture, in marks the author placed.
  *
@@ -48,6 +50,7 @@ import type { ArrowElement, Element, Mark, ShapeElement } from '@inkcast/core';
 import { DRAW_H, DRAW_W, logger } from '@inkcast/core';
 import { round } from './curves.js';
 import { cueMarks } from './draw-cues.js';
+import { resolveLabelAnchors } from './label-anchors.js';
 import {
   ADRIFT,
   LABEL_SIZE,
@@ -579,6 +582,9 @@ function isTitle(m: Mark, canvas: Box | undefined): boolean {
 
 /** Marks worth drawing: real geometry, no self-titling, no duplicates, capped. */
 export function cleanMarks(marks: Mark[]): Mark[] {
+  marks = resolveGeometryConstraints(
+    marks.map((m) => (m.tex ? { ...m, tex: normalizeGeneratedTex(m.tex) } : m)),
+  );
   const canvas = contentBounds(marks.map(withMathBox));
   const seen = new Set<string>();
   const out: Mark[] = [];
@@ -622,7 +628,7 @@ export function cleanMarks(marks: Mark[]): Mark[] {
  * scored zero and left alone.
  */
 export function prepareMarks(marks: Mark[], underlay?: Underlay, scale = TYPICAL_FIT): Mark[] {
-  return repairLabels(cleanMarks(marks), underlay, scale);
+  return resolveLabelAnchors(repairLabels(cleanMarks(marks), underlay, scale), scale);
 }
 
 /* ------------------------------------------------------------------ building */
@@ -885,7 +891,7 @@ export function buildDrawing(
   // repair a second time at the settled fit closes it to 15 square units and opens a
   // second hairline somewhere else, which is not worth a second pass over every drawing.
   const first = ctx.underlay ? fitCanvas(ctx.box) : fitDrawing(cleaned, ctx.box);
-  const clean = repairLabels(cleaned, undefined, first.s);
+  const clean = resolveLabelAnchors(repairLabels(cleaned, undefined, first.s), first.s);
   const fit = ctx.underlay ? first : fitDrawing(clean, ctx.box);
   const cues = ctx.narration ? cueMarks(clean, ctx.narration) : [];
   // Decided over the whole drawing, because "is anything inside this" is not a question

@@ -1,3 +1,5 @@
+import { providerEnv } from '@inkcast/core';
+import { textProvider, textModel } from '@inkcast/core';
 /**
  * Which provider each stage will actually use, decided from env only.
  *
@@ -34,23 +36,19 @@ export type Providers = {
 
 const CLAUDE_DEFAULT = 'claude-opus-5';
 
-export function plannerProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
-  const want = (env.INKCAST_PLANNER ?? '').trim();
-  const key = Boolean(env.ANTHROPIC_API_KEY);
-  if (want === 'local' || want === 'heuristic') {
-    return { name: 'heuristic', cloud: false, why: 'INKCAST_PLANNER=local' };
-  }
-  if (!key) {
-    return {
-      name: 'heuristic',
-      cloud: false,
-      why: want
-        ? `INKCAST_PLANNER=${want} but ANTHROPIC_API_KEY is unset`
-        : 'ANTHROPIC_API_KEY is unset',
-    };
-  }
-  const model = want === '' || want === 'anthropic' || want === 'claude' ? CLAUDE_DEFAULT : want;
-  return { name: 'anthropic', cloud: true, why: 'ANTHROPIC_API_KEY is set', model };
+export function plannerProvider(env: NodeJS.ProcessEnv = providerEnv()): ProviderChoice {
+  const name = textProvider(env);
+  return {
+    name,
+    cloud: name !== 'heuristic',
+    why:
+      name === 'heuristic'
+        ? 'local selected or no selected provider key'
+        : `${name} selected; key configured`,
+    ...(name !== 'heuristic'
+      ? { model: env.INKCAST_LESSON_MODEL || textModel(CLAUDE_DEFAULT, env) }
+      : {}),
+  };
 }
 
 /**
@@ -66,16 +64,22 @@ export function plannerProvider(env: NodeJS.ProcessEnv = process.env): ProviderC
  */
 export function voiceProvider(
   voiceId: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = providerEnv(),
 ): ProviderChoice {
   const id = (voiceId ?? env.INKCAST_VOICE ?? 'af_heart').trim();
-  const key = Boolean(env.ELEVENLABS_API_KEY);
+  const key =
+    Boolean(env.ELEVENLABS_API_KEY) &&
+    (textProvider(env) !== 'fireworks' || /^elevenlabs(:|$)/i.test(id));
   const pinned = PINNED_LOCAL.exec(id)?.[1]?.toLowerCase() ?? '';
   if (pinned || !key) {
     return {
       name: pinned === 'say' || pinned === 'system' ? 'say' : 'kokoro',
       cloud: false,
-      why: pinned ? `voice "${id}" is pinned to a local provider` : 'ELEVENLABS_API_KEY is unset',
+      why: pinned
+        ? `voice "${id}" is pinned to a local provider`
+        : textProvider(env) === 'fireworks'
+          ? 'Fireworks profile uses local speech'
+          : 'ELEVENLABS_API_KEY is unset',
       // A bare provider name is its own model id; a prefixed one carries the voice after it.
       model: id.replace(/^(?:kokoro|local|say|system):/i, '') || id,
     };
@@ -105,7 +109,7 @@ export function voiceProvider(
  */
 export const ELEVENLABS_DEFAULT_MODEL = 'eleven_multilingual_v2';
 
-export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = process.env): string {
+export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = providerEnv()): string {
   if (provider !== 'elevenlabs') return '';
   return env.ELEVENLABS_MODEL_ID || ELEVENLABS_DEFAULT_MODEL;
 }
@@ -194,7 +198,7 @@ export function billedVoiceChoice(
   };
 }
 
-export function imageProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
+export function imageProvider(env: NodeJS.ProcessEnv = providerEnv()): ProviderChoice {
   if (env.REPLICATE_API_TOKEN) {
     return { name: 'replicate', cloud: true, why: 'REPLICATE_API_TOKEN is set' };
   }
@@ -202,7 +206,7 @@ export function imageProvider(env: NodeJS.ProcessEnv = process.env): ProviderCho
   return { name: 'builtin', cloud: false, why: 'no image provider key set' };
 }
 
-export function providers(voiceId?: string, env: NodeJS.ProcessEnv = process.env): Providers {
+export function providers(voiceId?: string, env: NodeJS.ProcessEnv = providerEnv()): Providers {
   return {
     planner: plannerProvider(env),
     voice: voiceProvider(voiceId, env),

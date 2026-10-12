@@ -392,6 +392,8 @@ function findRecall(
       host = beat;
     }
   }
-  if (host < 0) return null;
+  // A recall scattered across separate cells makes their labels unreadable.
+  // Keep the author's compact recap drawing when no single host contains it.
+  if (host < 0 || already.size > 1) return null;
   return { beat: at, host, names: repeated };
 }

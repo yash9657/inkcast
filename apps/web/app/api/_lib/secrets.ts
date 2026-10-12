@@ -44,12 +44,13 @@
  *  3. **Plaintext leaves through exactly one function.** `openSecret` (and
  *     `readOwnerKey`, which wraps it). Everything else — listing, status, the
  *     masked hint — is computed from fields stored in the clear beside the
- *     ciphertext, so the common paths never unseal anything at all.
+ *     ciphertext. The account API separately verifies readability before returning
+ *     a summary.
  *  4. **Nothing here logs.** Not the key, not the record, not the error. Errors
  *     carry a fixed sentence and a code; the routes above turn those into prose.
  *     `@inkcast/keyvault`'s `installRedaction()` still runs in this process (see
  *     `app/api/keys/_account.ts`), so even a stray `console` call from elsewhere
- *     cannot print a credential — but this module gives it nothing to catch.
+ *     can scrub scoped job credentials — but this module gives it nothing to catch.
  *
  * ## Why envelope encryption rather than one AES-GCM layer
  *
@@ -83,6 +84,8 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 import { z } from 'zod';
+
+import { blobPrefix, blobStorageEnabled, readJson, writeJson } from '@inkcast/cloud';
 
 // Imported for the module side effect as much as for `PROJECTS_DIR`: `lib/store`
 // is the environment bootstrap, and it is what has read the repo-root `.env` into
@@ -383,15 +386,15 @@ const BlobSchema = z
  * Everything outside `wrap` and `data` is metadata the settings page needs and
  * that reveals nothing: which provider, how long the key is, the last four
  * characters, when it was stored, and how a validation check went. Keeping those
- * in the clear is what lets `GET /api/keys` answer without unsealing anything —
- * the same trade `@inkcast/keyvault` makes with its non-secret sidecar, and for
- * the same reason: which providers an account has configured is not the secret.
+ * in the clear supports masked summaries. Version 2 authenticates the mask,
+ * length and storage timestamps as AAD. The account API checks readability before
+ * returning these summaries; raw credentials never reach the response.
  *
  * Note what is *not* here: the owner. See rule 2 in the header.
  */
 const SealedSchema = z
   .object({
-    v: z.literal(1),
+    v: z.union([z.literal(1), z.literal(2)]),
     provider: z.string().min(1).max(32),
     wrap: BlobSchema,
     data: BlobSchema,
@@ -489,6 +492,21 @@ function aad(prefix: string, ref: SecretRef): Buffer {
   return Buffer.from(`${prefix}|1|${ref.owner}|${ref.provider}`, 'utf8');
 }
 
+function dataAad(
+  ref: SecretRef,
+  record: Pick<SealedSecret, 'v' | 'hint' | 'length' | 'createdAt' | 'updatedAt'>,
+): Buffer {
+  const base = aad(AAD_DATA, ref);
+  return record.v === 1
+    ? base
+    : Buffer.concat([
+        base,
+        Buffer.from(
+          JSON.stringify([2, record.hint, record.length, record.createdAt, record.updatedAt]),
+        ),
+      ]);
+}
+
 function assertOwner(owner: string): void {
   if (!OWNER_RE.test(owner)) {
     // The owner digest is base64url out of `sessionOwnerTag`, so anything else is
@@ -558,6 +576,8 @@ export function sealSecret(
 ): SealedSecret {
   assertRef(ref);
   const plaintext = key.trim();
+  if (/[\s\x00-\x1f\x7f]/.test(plaintext))
+    throw new SecretsError('rejected', 'the key contains whitespace or control characters');
   if (plaintext === '') throw new SecretsError('rejected', 'there is no key to store');
   if (plaintext.length > MAX_SECRET_CHARS) {
     throw new SecretsError('rejected', 'that is far too long to be a key');
@@ -566,16 +586,19 @@ export function sealSecret(
   const master = derived(requireSecretKey(env), INFO_MASTER);
   const dataKey = randomBytes(DATA_KEY_BYTES);
   const now = new Date().toISOString();
+  const metadata = {
+    v: 2 as const,
+    hint: secretHint(plaintext),
+    length: plaintext.length,
+    createdAt: previous?.createdAt ?? now,
+    updatedAt: now,
+  };
   try {
     return {
-      v: 1,
+      ...metadata,
       provider: ref.provider,
       wrap: encrypt(master, dataKey, aad(AAD_WRAP, ref)),
-      data: encrypt(dataKey, Buffer.from(plaintext, 'utf8'), aad(AAD_DATA, ref)),
-      hint: secretHint(plaintext),
-      length: plaintext.length,
-      createdAt: previous?.createdAt ?? now,
-      updatedAt: now,
+      data: encrypt(dataKey, Buffer.from(plaintext, 'utf8'), dataAad(ref, metadata)),
       // A re-paste invalidates any previous verdict: the stored key is a different
       // key now, and carrying "validated yesterday" across a write would report a
       // check that was never run against this value.
@@ -609,7 +632,7 @@ export function openSecret(
     if (dataKey.length !== DATA_KEY_BYTES) {
       throw new SecretsError('tampered', 'this record could not be opened');
     }
-    return decrypt(dataKey, sealed.data, aad(AAD_DATA, ref)).toString('utf8');
+    return decrypt(dataKey, sealed.data, dataAad(ref, sealed)).toString('utf8');
   } finally {
     dataKey.fill(0);
   }
@@ -663,25 +686,46 @@ function empty(): SecretsFile {
   return { v: 1, keys: {} };
 }
 
+/**
+ * Where an account's sealed records live on a Blob-storage (stateless) deployment:
+ * `<prefix>/account-keys/<same digest-derived name as on disk>`, in the private
+ * store. A Function's filesystem does not outlive its instance, so the disk path
+ * would accept a key and lose it. What is stored is exactly the on-disk document —
+ * envelope-sealed records that open only with `INKCAST_SECRET_KEY` and the owner —
+ * so the trust argument above is unchanged; only the medium is.
+ */
+function ownerBlob(owner: string, env: NodeJS.ProcessEnv): string {
+  return `${blobPrefix(env)}/account-keys/${path.basename(ownerFile(owner, env))}`;
+}
+
+async function readOwnerText(owner: string, env: NodeJS.ProcessEnv): Promise<string> {
+  if (!blobStorageEnabled(env)) return readFile(ownerFile(owner, env), 'utf8');
+  const found = await readJson(ownerBlob(owner, env));
+  if (!found) throw Object.assign(new Error('absent'), { code: 'ENOENT' });
+  return JSON.stringify(found.value);
+}
+
 async function readFileFor(owner: string, env: NodeJS.ProcessEnv): Promise<SecretsFile> {
   let text: string;
   try {
-    text = await readFile(ownerFile(owner, env), 'utf8');
-  } catch {
-    // Absent is the normal case for a new account, and an unreadable file is
-    // reported as empty rather than as an error: the alternative is a settings
-    // page that cannot render because of a byte on disk, and the write path
-    // below replaces the file wholesale anyway.
-    return empty();
+    text = await readOwnerText(owner, env);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return empty();
+    throw new SecretsError(
+      'tampered',
+      'The account key store cannot be read. Contact the server operator.',
+    );
   }
-  let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    const file = FileSchema.parse(JSON.parse(text));
+    if (Object.entries(file.keys).some(([id, record]) => id !== record.provider)) throw new Error();
+    return file;
   } catch {
-    return empty();
+    throw new SecretsError(
+      'tampered',
+      'The account key store is damaged. Contact the server operator; no keys were overwritten.',
+    );
   }
-  const parsed = FileSchema.safeParse(raw);
-  return parsed.success ? parsed.data : empty();
 }
 
 /**
@@ -698,15 +742,14 @@ const writes = new Map<string, Promise<unknown>>();
 function serialised<T>(owner: string, work: () => Promise<T>): Promise<T> {
   const previous = writes.get(owner) ?? Promise.resolve();
   const next = previous.then(work, work);
-  // Keep the chain from growing without bound, and never let a rejection poison
-  // the next writer: the chain's purpose is ordering, not error propagation.
-  writes.set(
-    owner,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
   );
+  writes.set(owner, settled);
+  void settled.then(() => {
+    if (writes.get(owner) === settled) writes.delete(owner);
+  });
   return next;
 }
 
@@ -715,13 +758,19 @@ async function writeFileFor(
   file: SecretsFile,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
+  if (blobStorageEnabled(env)) {
+    // One small JSON document per account, replaced whole — the same unit the disk
+    // path renames into place. `serialised` still orders this instance's writes.
+    await writeJson(ownerBlob(owner, env), file);
+    return;
+  }
   const target = ownerFile(owner, env);
   const dir = path.dirname(target);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // `mode` on `mkdir` is masked by the process umask, and a directory of sealed
   // credentials that is group-readable because of a container's umask is worth two
   // lines to prevent. Same reasoning as `session.ts` chmod-ing `.session-secret`.
-  await chmod(dir, 0o700).catch(() => undefined);
+  await chmod(dir, 0o700);
   // A `*`-only .gitignore, exactly as `@inkcast/keyvault` writes beside its vault.
   // The default location is inside `projects/`, which the repo already ignores by
   // an anchored rule — but this directory can be moved with INKCAST_SECRETS_DIR,
@@ -733,7 +782,7 @@ async function writeFileFor(
   // collide on it even though `serialised` already stops them from trying.
   const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
   try {
-    await writeFile(temp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(temp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     await chmod(temp, 0o600);
     await rename(temp, target);
   } catch (err) {
@@ -778,7 +827,7 @@ export async function writeOwnerSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<SecretSummary> {
   assertRef(ref);
-  return serialised(ref.owner, async () => {
+  return serialised(ownerFile(ref.owner, env), async () => {
     const file = await readFileFor(ref.owner, env);
     const sealed = sealSecret(key, ref, env, file.keys[ref.provider]);
     file.keys[ref.provider] = sealed;
@@ -793,7 +842,7 @@ export async function deleteOwnerSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   assertRef(ref);
-  return serialised(ref.owner, async () => {
+  return serialised(ownerFile(ref.owner, env), async () => {
     const file = await readFileFor(ref.owner, env);
     if (file.keys[ref.provider] === undefined) return false;
     delete file.keys[ref.provider];
@@ -807,12 +856,14 @@ export async function markOwnerSecretValidated(
   ref: SecretRef,
   ok: boolean,
   env: NodeJS.ProcessEnv = process.env,
+  checkedKey?: string,
 ): Promise<void> {
   assertRef(ref);
-  await serialised(ref.owner, async () => {
+  await serialised(ownerFile(ref.owner, env), async () => {
     const file = await readFileFor(ref.owner, env);
     const sealed = file.keys[ref.provider];
     if (sealed === undefined) return;
+    if (checkedKey !== undefined && openSecret(sealed, ref, env) !== checkedKey) return;
     file.keys[ref.provider] = { ...sealed, validatedAt: new Date().toISOString(), validatedOk: ok };
     await writeFileFor(ref.owner, file, env);
   });
@@ -821,13 +872,9 @@ export async function markOwnerSecretValidated(
 /**
  * The credential one account stored for one provider, in the clear.
  *
- * **This is the only function outside `openSecret` that yields plaintext**, and it
- * exists for exactly two callers: the validate route, which puts the value in one
- * outbound request header and never in a response, and the render path, which will
- * need it once `CastOptions` can carry a credential (see the return value of the
- * agent that wrote this file — the pipeline reads `process.env` today, and
- * `process.env` is process-global, so it is the wrong channel for a per-user key
- * on a box running two renders at once).
+ * Used for status readability checks, validation and job admission. Jobs install
+ * the result in an async credential scope, never in process.env. Callers must
+ * neither retain plaintext globally nor include it in a response.
  *
  * `undefined` means nothing is stored. A stored record that will not open throws,
  * because that is a different fact with a different remedy: re-paste the key.

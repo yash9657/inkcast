@@ -17,7 +17,7 @@
  * nothing, and produce an empty library that looks like data loss instead of a
  * bug.
  *
- * `includeUnowned` is left at the store's default (`!isHosted()`), which is what
+ * `includeUnowned` is left at the store's default (`!accountKeys()`), which is what
  * keeps the local studio whole: every project the CLI ever wrote, and every one
  * that predates ownership, has no owner recorded, and hiding those from the only
  * person at the machine would empty their library. Hosted, the same default

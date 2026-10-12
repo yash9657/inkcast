@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * ElevenLabs — opt-in cloud upgrade, active only when `ELEVENLABS_API_KEY` is set.
  *
@@ -48,6 +49,8 @@ const API = 'https://api.elevenlabs.io/v1';
  * Fifteen cents. The film is the product.
  */
 export const ELEVENLABS_MULTILINGUAL_MODEL = 'eleven_multilingual_v2';
+/** Default for teaching: native pace control and stable long-form delivery. */
+export const ELEVENLABS_QUALITY_MODEL = 'eleven_multilingual_v2';
 
 /**
  * The latency-optimised engine, at half the credits — no longer the default.
@@ -67,8 +70,8 @@ export const ELEVENLABS_FLASH_MODEL = 'eleven_flash_v2_5';
  * that needs to name the model — the clip key, the delivery signature, the record in
  * `pipeline.json` — asks here.
  */
-export function elevenLabsModel(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_MULTILINGUAL_MODEL;
+export function elevenLabsModel(env: NodeJS.ProcessEnv = providerEnv()): string {
+  return env.ELEVENLABS_MODEL_ID || ELEVENLABS_QUALITY_MODEL;
 }
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
 const FALLBACK_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -130,7 +133,7 @@ export function elevenLabsCostUsd(chars: number, model: string | undefined): num
  * performance is what makes a hard idea harder to hold on to.
  */
 const VOICE_SETTINGS = {
-  stability: 0.55,
+  stability: 0.65,
   similarity_boost: 0.75,
   style: 0,
   use_speaker_boost: true,
@@ -152,86 +155,23 @@ const VOICE_SETTINGS = {
  * clip key by construction — and a phrase that used to be stretched to 0.81 and is
  * now sent at 0.9 is different audio for narration that never moved.
  */
-export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string {
-  return `el/v4:${elevenLabsModel(env)}+context+pinned-settings+speed-clamped`;
+export function elevenLabsDelivery(env: NodeJS.ProcessEnv = providerEnv()): string {
+  return `el/v8:${elevenLabsModel(env)}+context+pinned-settings+speed-clamped`;
 }
 
-/**
- * Words per minute this provider **delivers** at `speed: 1`.
- *
- * Without a number here the voice stage skips its rate correction entirely — `speed`
- * stays at 1 and "140–160 wpm for teaching" becomes a target nothing aims at. That is
- * what was happening: a nine-beat lesson on the cardiac conduction system came out at
- * **185 wpm**, a fifth faster than the top of the band, and the stage could only notice
- * afterwards and warn. Every Kokoro voice has carried a measured baseline since the voice
- * audit; the cloud provider was added later and never got one.
- *
- * Measured the same way theirs were, which is the only way the two are comparable: the
- * rate delivered through the *real* phrase pipeline — per-phrase synthesis, edge
- * trimming, clause and sentence gaps — and not from one raw call. `narrate()` reports
- * exactly this quantity at the end of every run, which is where the number comes from.
- *
- * One measurement of one voice, and that is its honest limit: ElevenLabs voices differ
- * from each other more than Kokoro's do, and a cloned voice could be anywhere. It is
- * still far better than the 1.0 it replaces, and the stage keeps warning when the
- * delivered rate misses the band — so a voice this is wrong for reports itself.
- */
+/** Legacy voice/model baseline; individual calibrated profiles take precedence. */
 export const ELEVENLABS_BASELINE_WPM = 193;
 
-/*
- * **Re-measured 2026-08-25 under multilingual + sentence split, and read the caveat.**
- *
- * 185 came off `eleven_flash_v2_5` splitting at clauses. This adapter now speaks
- * `eleven_multilingual_v2` in whole sentences, and both change the delivered rate — fewer
- * inter-fragment gaps alone makes a scene faster. `projects/f3ac9c760194`, the acceptance
- * film of `docs/PLAN-WATCHABILITY.md`, delivered **158 words over 54.6s = 173.6 wpm**
- * across eight scenes (per scene: 168, 209, 173, 188, 174, 152, 178, 176).
- *
- * ## Why the constant is 193 and not 173.6
- *
- * Because 173.6 is what came back at `speed 0.9`, not at 1.0. This constant means "the
- * engine's rate when it is not being pushed", and the whole film ran at the clamp: the
- * teaching target is ~150 wpm, 150/185 is 0.81, and `elevenLabsSpeed` floors that at 0.9.
- * 173.6 / 0.9 = 192.9, so 193 — **on the assumption that ElevenLabs `speed` scales the
- * delivered rate linearly**, which is plausible, is what the parameter claims to do, and
- * has not been verified here. A clean measurement wants one run with `speed` pinned to
- * 1.0; nothing in this repo currently asks for that, so it has not been done.
- *
- * ## Which is why moving it changes no audio today, and that is worth knowing
- *
- * The clamp binds either way: 150/185 = 0.81 and 150/193 = 0.78 both floor to 0.9. This
- * constant only starts affecting what is spoken when it comes within 10% of the target
- * rate — a much slower voice, or a much faster target. So this edit is truth-in-reporting,
- * not a change to the film, and a re-cast should sound byte-identical.
- *
- * What makes the residual uncertainty survivable is that same clamp: a baseline wrong by
- * 20% used to become a 20% stretch on every phrase, and now becomes at most 10% with the
- * delivered rate reported against the teaching band on every run.
- */
-
-/**
- * How far the engine's own rate may be stretched, either way.
- *
- * The stage divides its target rate by the baseline above and hands the result over
- * as `speed`, which is right in principle and was audibly wrong in practice: 185
- * against a 150 wpm target is **0.81 on every phrase**, and a voice slowed by a fifth
- * for its whole runtime does not sound calm, it sounds like a recording being played
- * back slowly. That is the "drags" half of the dissection's voice finding.
- *
- * So the correction is a nudge rather than a lever. Inside ±10% the engine's own
- * prosody survives; outside it, the honest conclusion is that the *baseline* is wrong
- * for this voice, and `narrate()` already reports the delivered rate against the
- * teaching band on every run so that shows up as a measurement rather than as a
- * permanent stretch nobody can hear the cause of.
- */
-const MAX_SPEED_CORRECTION = 0.1;
+// A speed request sets provider prosody, not a post-synthesis audio stretch.
+// Delivered pace is measured again after trimming; profiles are approximate.
+// Provider supports 0.7–1.2; cap acceleration at 1.15 for teaching.
+const MIN_TEACHING_SPEED = 0.7;
+const MAX_TEACHING_SPEED = 1.15;
 
 /** The `speed` this adapter will actually send for a requested one. */
 export function elevenLabsSpeed(requested: number): number {
   if (!Number.isFinite(requested) || requested <= 0) return 1;
-  return (
-    Math.round(clamp(requested, 1 - MAX_SPEED_CORRECTION, 1 + MAX_SPEED_CORRECTION) * 1000) / 1000
-  );
+  return Math.round(clamp(requested, MIN_TEACHING_SPEED, MAX_TEACHING_SPEED) * 1000) / 1000;
 }
 
 const clampSpeed = elevenLabsSpeed;
@@ -249,7 +189,7 @@ const PREFERENCES: Record<string, readonly string[]> = {
 };
 
 function apiKey(): string | undefined {
-  return process.env.ELEVENLABS_API_KEY || undefined;
+  return providerEnv().ELEVENLABS_API_KEY || undefined;
 }
 
 /** ElevenLabs voice ids are 20-character base62 strings. */
@@ -293,7 +233,8 @@ type AlignmentPayload = {
  * Fold ElevenLabs' per-character alignment into the IR's word timings.
  *
  * A word runs from the start of its first non-space character to the end of its
- * last, which is precisely what a karaoke-style highlight needs.
+ * last. Punctuation separates tokens exactly as core/speech.ts does; apostrophes
+ * stay inside a word. In particular, hyphens must not shift later cue indices.
  */
 export function alignmentToWords(alignment: AlignmentPayload | undefined): WordTiming[] {
   const chars = alignment?.characters;
@@ -316,7 +257,7 @@ export function alignmentToWords(alignment: AlignmentPayload | undefined): WordT
     const ch = typeof chars[i] === 'string' ? (chars[i] as string) : '';
     const s = Number(starts[i]);
     const e = Number(ends[i]);
-    if (!ch || /\s/.test(ch)) {
+    if (!ch || /[^a-z0-9'’]/i.test(ch)) {
       flush();
       continue;
     }
@@ -381,10 +322,9 @@ async function request(
   }
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 400);
-    // The message text is unchanged on purpose: it is what today's log lines say, and
-    // the classification is carried beside it rather than instead of it.
+    // Classify the body internally; never forward a provider echo into logs or artifacts.
     throw new VoiceProviderError(
-      `ElevenLabs ${urlPath} -> ${res.status} ${res.statusText}${body ? `: ${body}` : ''}`,
+      `ElevenLabs ${urlPath} -> HTTP ${res.status} (${classify(res.status, body)})`,
       { provider: 'elevenlabs', reason: classify(res.status, body), status: res.status },
     );
   }
@@ -499,9 +439,12 @@ export function createElevenLabsProvider(): VoiceProvider {
   };
 
   const body = (req: SynthesisRequest): string => {
-    const settings: Record<string, unknown> = { ...VOICE_SETTINGS };
+    const isV4 = elevenLabsModel().startsWith('eleven_v4');
+    const settings: Record<string, unknown> = isV4
+      ? { stability: VOICE_SETTINGS.stability, similarity_boost: VOICE_SETTINGS.similarity_boost }
+      : { ...VOICE_SETTINGS };
     const speed = clampSpeed(req.speed);
-    if (speed !== 1) settings.speed = speed;
+    if (!isV4 && speed !== 1) settings.speed = speed;
     return JSON.stringify({
       text: req.text,
       model_id: elevenLabsModel(),
@@ -536,38 +479,26 @@ export function createElevenLabsProvider(): VoiceProvider {
     // vault is the failure this string exists to make impossible to miss.
     unavailableReason() {
       if (apiKey()) return undefined;
-      return 'ELEVENLABS_API_KEY is not set in this process (a key stored in the vault only counts once it has been hydrated into the environment)';
+      return 'ELEVENLABS_API_KEY is not set in this process (select a saved key for this video)';
     },
 
     async voices() {
       return (await loadCatalogue()).map((v) => v.name);
     },
 
-    naturalWpm() {
+    naturalWpm(voice) {
+      // v4 ignores speed/style; do not claim rate correction for an unsupported control.
+      if (elevenLabsModel().startsWith('eleven_v4')) return undefined;
+      // GPS paragraph benchmark: River/v2 delivered 134 wpm at about 0.77 speed.
+      // This is an approximate starting profile, not a guarantee for every script.
+      if (elevenLabsModel() === ELEVENLABS_MULTILINGUAL_MODEL && voice === 'SAz9YHcvj6GT2YYXdXww')
+        return 173;
       return ELEVENLABS_BASELINE_WPM;
     },
 
-    /**
-     * Whole sentences, not clauses.
-     *
-     * The clause split was chosen for cue precision and it did buy that — but the
-     * precision does not come from the split. Word timings come back from the
-     * timestamped endpoint whatever size the request was, so cue resolution stays
-     * word-exact on sentences; what the split decides is how much text the *engine*
-     * gets to shape a contour across.
-     *
-     * `previous_text`/`next_text` were the argument for keeping clauses safe, and
-     * they help. They are not enough: a scene delivered as four to ten separate
-     * generations, edge-trimmed and concatenated with modelled gaps, still lands
-     * slightly differently on each fragment — a new onset, a fresh pitch range — and
-     * ten of those in a row is the choppiness the dissection of
-     * `projects/deb81002b073` heard and called "no proper cadence". Kokoro reached
-     * the same conclusion for a different reason (no context window at all) and this
-     * is `VoiceProvider.preferredSplit`'s whole purpose: the engine says how much
-     * text it needs to sound like a person.
-     */
+    /** Continuous scene paragraphs preserve prosody; timestamps align individual words. */
     preferredSplit() {
-      return 'sentence';
+      return 'paragraph';
     },
 
     modelId() {
@@ -579,7 +510,7 @@ export function createElevenLabsProvider(): VoiceProvider {
     },
 
     async resolveVoice(requested: string) {
-      const override = process.env.ELEVENLABS_VOICE_ID;
+      const override = providerEnv().ELEVENLABS_VOICE_ID;
       if (override) return override;
       if (looksLikeVoiceId(requested)) return requested;
 

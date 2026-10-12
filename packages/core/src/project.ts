@@ -11,6 +11,7 @@
  * expensively generated asset is keyed by what it is rather than by which project
  * happened to ask for it first.
  */
+import { providerEnv } from './provider-context.js';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -42,7 +43,9 @@ export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
  * regenerating, never to a wrong drawing, because the key covers the inputs.
  */
 export function cacheDir(...parts: string[]): string {
-  return path.join(stateDir(), 'cache', ...parts);
+  // Account jobs use an owner-specific cache; CLI/local work retains the machine cache.
+  const root = providerEnv().INKCAST_CACHE_DIR ?? path.join(stateDir(), 'cache');
+  return path.join(root, ...parts);
 }
 
 export type Project = {

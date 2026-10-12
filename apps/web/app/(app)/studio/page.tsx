@@ -77,14 +77,9 @@ export default async function StudioPage({
         </h1>
         <p className="max-w-2xl text-md leading-relaxed text-muted-foreground">
           One canvas the camera moves across, real strokes, narration measured against the audio.
-          {/* "Nothing leaves this machine" is the local studio's strongest
-              promise and the shared deployment's plainest falsehood — there the
-              machine is the server, and the document was uploaded to it to get
-              here. Two sentences rather than one hedge, so neither deployment is
-              told a version of the other's story. */}
-          {access.mode === 'open'
-            ? ' Nothing leaves this machine unless you have set a cloud key.'
-            : ' The render runs on the server, so what you paste here is uploaded to it.'}
+          {
+            ' Your source is uploaded to Inkcast. Choose local processing or use your own provider keys below.'
+          }
         </p>
       </header>
 

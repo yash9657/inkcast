@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * The illustration lane: text-to-image → vectorise → roughen.
  *
@@ -113,7 +114,7 @@ const DEFAULT_FIGURE_MODELS = new Set(Object.values(MODELS).map((m) => m.figure)
  * model that is actually called can never disagree — which is the whole of plan 6.5.
  */
 export function figureModelOverride(): string | undefined {
-  const raw = process.env.INKCAST_FIGURE_MODEL?.trim();
+  const raw = providerEnv().INKCAST_FIGURE_MODEL?.trim();
   return raw && raw.length > 0 ? raw : undefined;
 }
 
@@ -215,9 +216,9 @@ let announced = false;
 
 /** Which provider (if any) is configured. Logged once per process. */
 export function detectImageProvider(): ImageProvider {
-  const provider: ImageProvider = process.env.REPLICATE_API_TOKEN
+  const provider: ImageProvider = providerEnv().REPLICATE_API_TOKEN
     ? 'replicate'
-    : process.env.FAL_KEY
+    : providerEnv().FAL_KEY
       ? 'fal'
       : 'none';
   if (!announced) {
@@ -279,7 +280,9 @@ export function figurePrompt(prompt: string): string {
     'on white paper, clean confident outlines, flat semantic colour fills, clearly separated ' +
     'parts, plain white background, no background scenery, no frame, ' +
     'no text, no lettering, no labels, no captions, no watermark, ' +
-    'whole subject in frame not cropped'
+    'whole subject in frame not cropped, reserve clear space around the subject for editable ' +
+    'vector labels, consistent viewpoint, uncluttered silhouette, only the structures explicitly ' +
+    'requested, no decorative symbols or invented measurements'
   );
 }
 
@@ -346,7 +349,7 @@ async function generateReplicate(
   aspect: number,
   seed?: number,
 ): Promise<Buffer | undefined> {
-  const token = process.env.REPLICATE_API_TOKEN;
+  const token = providerEnv().REPLICATE_API_TOKEN;
   if (!token) return undefined;
   const model = modelFor('replicate', kind);
   let body = await fetchJson(`https://api.replicate.com/v1/models/${model}/predictions`, {
@@ -411,7 +414,7 @@ async function generateFal(
   aspect: number,
   seed?: number,
 ): Promise<Buffer | undefined> {
-  const key = process.env.FAL_KEY;
+  const key = providerEnv().FAL_KEY;
   if (!key) return undefined;
   const body = await fetchJson(`https://fal.run/${modelFor('fal', kind)}`, {
     method: 'POST',
@@ -527,7 +530,7 @@ export function illustrationKey(
   const shape = size.width === size.height ? [] : [`${size.width}x${size.height}`];
   const token = kind === 'figure' ? figureModelToken(model) : '';
   const tier = token ? [token] : [];
-  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim(), ...shape, ...tier).slice(0, 10)}`;
+  return `${sanitiseId(id)}-${hash(kind === 'figure' ? 'figure-prompt/v3' : 'illustration/v2', kind, prompt.trim(), ...shape, ...tier).slice(0, 10)}`;
 }
 
 export type IllustrationRaster = {

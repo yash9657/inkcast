@@ -114,7 +114,9 @@ export function openDrawPreview(meta: Partial<StoryboardMeta> = {}): DrawPreview
     // critic a picture in a different coordinate space from the one the marks annotate,
     // and the two images it is handed could not be read against each other.
     const elements = build.buildDrawing(marks, {
-      id: 'd',
+      // Use the compiler's drawing group convention: intersecting range rings
+      // are one diagram, not unrelated solid boxes colliding on the board.
+      id: 'preview_v0',
       box: BOX,
       ...(opts.underlay ? { underlay: true } : {}),
     });

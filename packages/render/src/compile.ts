@@ -976,7 +976,7 @@ function serializeScene(items: PlanItem[], timing: SceneTiming, ctx: Ctx): void 
       dur: it.dur,
       ink: inkCost(it.prims, timing.pace),
     })),
-    { length: timing.length, speech: timing.speech, tail },
+    { length: timing.length, speech: timing.speech, tail, cueSlack: 0.65 },
   );
 
   const by = new Map(schedule.slots.map((s) => [s.id, s]));

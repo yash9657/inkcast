@@ -1,20 +1,16 @@
+import { providerEnv } from '@inkcast/core';
 /**
- * The opt-in Anthropic planner adapter.
- *
- * Selected only when `ANTHROPIC_API_KEY` is set. It asks Claude for a
- * scene-by-scene plan through a **forced tool call** whose `input_schema` is the
- * Storyboard schema itself, so the model cannot reply with prose. zod is still
- * the gate: on a validation failure we retry once with the errors fed back, and
- * if that also fails the caller falls back to the heuristic planner. A missing
- * key, a missing SDK, a rate limit or a bad response can therefore never crash
- * the pipeline — they only cost you the upgrade.
+ * Structured cloud model calls. The legacy filename/API remains compatible with
+ * callers; provider selection chooses Fireworks or the optional Anthropic SDK.
+ * Forced tools constrain output shape; schema and semantic checks remain separate.
+ * Callers decide whether provider failure may degrade or must block the run.
  */
 import type { Asset, Storyboard } from '@inkcast/core';
 import { logger, noteProblem, parseStoryboard, report } from '@inkcast/core';
 import { ICONS } from './icons.js';
 import { optionalImport } from './optional.js';
 import { storyboardJsonSchema } from './schema.js';
-import type { PlanOptions, SourceDoc } from './types.js';
+import type { PlanOptions, SourceDoc, PlannerAdapter } from './types.js';
 
 const log = logger('planner:anthropic');
 
@@ -24,88 +20,50 @@ const TOOL = 'emit_storyboard';
 
 /* ------------------------------------------------------------- SDK surface */
 
-type ContentBlock = { type: string; name?: string; input?: unknown; text?: string };
-/**
- * `usage` is the provider's own token accounting, and it is the only reason a cost line
- * for a drawing can say `estimated: false` (plan 3.5). Optional because it is read
- * defensively: a response without it costs us the record, never the run.
- */
-type MessageResponse = {
-  content: ContentBlock[];
-  stop_reason?: string | null;
-  usage?: { input_tokens?: number; output_tokens?: number };
-};
-
-/** Where a call reports what it spent. Tagged with a lane by whoever made it. */
+export type {
+  ModelMessage as Message,
+  ModelImage as ImagePart,
+  ModelText as TextPart,
+  ModelClient as Client,
+} from '@inkcast/core';
+import { fireworksClient, textProvider, textModel } from '@inkcast/core';
+import type {
+  ModelMessage as Message,
+  ModelImage as ImagePart,
+  ModelClient as Client,
+} from '@inkcast/core';
 export type CallSpend = (spend: { model: string; inTokens: number; outTokens: number }) => void;
-
-/** A picture in a message: what lets the drawing lane show a model its own render. */
-export type ImagePart = {
-  type: 'image';
-  source: { type: 'base64'; media_type: 'image/png'; data: string };
-};
-export type TextPart = { type: 'text'; text: string };
-
-/**
- * One turn. `content` is a plain string for every text-only call — which is all of them
- * except the drawing critic, the only place a model is shown pixels.
- */
-export type Message = {
-  role: 'user' | 'assistant';
-  content: string | (TextPart | ImagePart)[];
-};
-
-/** A PNG as the content block the Messages API wants. */
+type AnthropicCtor = new (opts: { apiKey: string }) => Client;
 export function imagePart(png: Uint8Array): ImagePart {
   return {
     type: 'image',
     source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') },
   };
 }
-type CreateBody = {
-  model: string;
-  max_tokens: number;
-  system: string;
-  messages: Message[];
-  tools: {
-    name: string;
-    description: string;
-    input_schema: Record<string, unknown>;
-  }[];
-  tool_choice: { type: 'tool'; name: string };
-};
-export type Client = { messages: { create(body: CreateBody): Promise<MessageResponse> } };
-type AnthropicCtor = new (opts: { apiKey: string }) => Client;
-
-/** True when the cloud planner can be used at all. */
+/** Legacy name retained for callers; availability now includes Fireworks. */
 export function anthropicAvailable(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return textProvider() !== 'heuristic';
 }
-
-export function plannerModel(opts?: { model?: string }): string {
-  return opts?.model ?? process.env.INKCAST_PLANNER_MODEL ?? DEFAULT_MODEL;
+export function plannerModel(opts?: { model?: string; adapter?: string }): string {
+  return (
+    opts?.model ??
+    providerEnv().INKCAST_PLANNER_MODEL ??
+    textModel(DEFAULT_MODEL, providerEnv(), opts?.adapter)
+  );
 }
-
-/**
- * A constructed Anthropic client, or `undefined` when the key or the SDK is
- * missing. Shared with the lesson adapter so there is one place that decides
- * whether the cloud path is available at all.
- */
-export async function anthropicClient(): Promise<Client | undefined> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return undefined;
+export async function anthropicClient(opts?: { adapter?: string }): Promise<Client | undefined> {
+  const provider = textProvider(providerEnv(), opts?.adapter);
+  if (provider === 'heuristic') return undefined;
+  if (provider === 'fireworks') return fireworksClient(providerEnv().FIREWORKS_API_KEY!);
   const mod = await optionalImport<{ default: AnthropicCtor } | AnthropicCtor>(
     '@anthropic-ai/sdk',
     'falling back to the heuristic planner',
   );
   if (!mod) return undefined;
   const Ctor = (mod as { default?: AnthropicCtor }).default ?? (mod as AnthropicCtor);
-  try {
-    return new Ctor({ apiKey: key });
-  } catch (err) {
-    log.warn('could not construct the Anthropic client', err as Error);
-    return undefined;
-  }
+  const client = new Ctor({ apiKey: providerEnv().ANTHROPIC_API_KEY! });
+  client.provider = 'anthropic';
+  return client;
 }
 
 /* -------------------------------------------------------------- the prompt */
@@ -214,6 +172,7 @@ export async function callTool(
       outTokens: res.usage?.output_tokens ?? 0,
     });
   }
+  if (res.failure) throw new Error(res.failure);
   const block = res.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
   if (!block || block.input === undefined) {
     throw new Error(
@@ -243,7 +202,7 @@ export async function anthropicPlan(
   doc: SourceDoc,
   opts: PlanOptions = {},
 ): Promise<Storyboard | undefined> {
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;
@@ -289,9 +248,9 @@ export async function anthropicPlan(
 export async function anthropicEdit(
   sb: Storyboard,
   instruction: string,
-  opts: { model?: string } = {},
+  opts: { model?: string; adapter?: PlannerAdapter } = {},
 ): Promise<Storyboard | undefined> {
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;

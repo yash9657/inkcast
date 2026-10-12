@@ -66,6 +66,7 @@ export {
 export { mask, maskedMiddle } from './mask.js';
 
 export {
+  withSecretRedaction,
   forgetSecrets,
   installRedaction,
   looksRedacted,

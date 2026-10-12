@@ -23,6 +23,7 @@ import { type Storyboard } from '@inkcast/core';
 import {
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_QUALITY_MODEL,
   elevenLabsModel,
 } from '@inkcast/voice';
 import { markVoiceFresh, staleVoiceScenes } from '../src/cast.js';
@@ -127,7 +128,7 @@ test('the pipeline and the adapter agree on which engine is in force', () => {
   // Mirrored rather than imported — `providers.ts` must decide whether to run the voice
   // stage before it has loaded the voice stage — so the copy is pinned against the
   // original here. Drift is a cache that never invalidates, which is invisible.
-  assert.equal(ELEVENLABS_DEFAULT_MODEL, ELEVENLABS_MULTILINGUAL_MODEL);
+  assert.equal(ELEVENLABS_DEFAULT_MODEL, ELEVENLABS_QUALITY_MODEL);
   assert.equal(voiceEngine('elevenlabs', DEFAULT_ENV), elevenLabsModel(DEFAULT_ENV));
   assert.equal(voiceEngine('elevenlabs', FLASH), elevenLabsModel(FLASH));
   assert.equal(voiceEngine('elevenlabs', FLASH), ELEVENLABS_FLASH_MODEL);

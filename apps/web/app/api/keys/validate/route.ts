@@ -1,3 +1,5 @@
+import { accountKeys } from '../../_lib/deployment';
+import { guardRequest, readCredentialBody } from '../../_lib/request-guard';
 /**
  * `POST /api/keys/validate` — ask the provider whether a key works, right now.
  *
@@ -84,12 +86,14 @@ function tooSoon(bucket: string): boolean {
 }
 
 export async function POST(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   let key = '';
   try {
     // Identity before the body, before the debounce, before any read: an
     // unauthenticated hosted request must not be able to consume another account's
     // rate budget or learn whether a provider is configured.
-    const who = isHosted() ? await accountOwner(request) : undefined;
+    const who = accountKeys() ? await accountOwner(request) : undefined;
     if (who !== undefined && !who.ok) return who.response;
     const owner: AccountOwner | undefined = who !== undefined && who.ok ? who.owner : undefined;
 
@@ -158,7 +162,7 @@ export async function POST(request: Request) {
       // Only a definitive verdict is recorded, and only for the stored key: an
       // `unknown` says nothing about the key (a 5xx, a train tunnel) and writing it
       // down would overwrite a real answer with a shrug.
-      await recordAccountValidation(owner, provider, result.status === 'valid');
+      await recordAccountValidation(owner, provider, result.status === 'valid', process.env, key);
     }
 
     const body = json({
@@ -180,22 +184,12 @@ export async function POST(request: Request) {
   }
 }
 
-type Read =
-  { ok: true; data: z.infer<typeof Body> } | { ok: false; response: ReturnType<typeof badRequest> };
+type Read = { ok: true; data: z.infer<typeof Body> } | { ok: false; response: Response };
 
 async function readBody(request: Request): Promise<Read> {
-  let text: string;
-  try {
-    text = await request.text();
-  } catch {
-    return { ok: false, response: badRequest('could not read the request body') };
-  }
-  let raw: unknown;
-  try {
-    raw = text.trim() === '' ? {} : JSON.parse(text);
-  } catch {
-    return { ok: false, response: badRequest('the request body is not valid JSON') };
-  }
+  const read = await readCredentialBody(request);
+  if (!read.ok) return read;
+  const raw = read.data;
   const parsed = Body.safeParse(raw);
   if (!parsed.success) {
     return {

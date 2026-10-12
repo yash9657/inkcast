@@ -28,7 +28,7 @@ test('hydrateEnv populates the canonical variable from storage', async () => {
     assert.equal(target.ANTHROPIC_API_KEY, FAKE.anthropic);
     assert.equal(target.FAL_KEY, FAKE.fal);
     assert.deepEqual(result.injected.sort(), ['anthropic', 'fal']);
-    assert.deepEqual(result.missing.sort(), ['elevenlabs', 'replicate']);
+    assert.deepEqual(result.missing.sort(), ['elevenlabs', 'fireworks', 'replicate']);
     assert.deepEqual(result.fromEnv, []);
   } finally {
     dehydrate(target);

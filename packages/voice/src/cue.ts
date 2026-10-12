@@ -469,7 +469,12 @@ export function resolveSceneCues(scene: Scene, opts: ResolveCuesOptions): Resolv
     // and the cap below then applies to when it appears, not to when it travels.
     const moving = el.motion !== undefined;
     let at = anchorMotionToCue(el, cueAt);
-    if (el.id === dominant && at > MAX_DOMINANT_AT) {
+    if (
+      el.id === dominant &&
+      at > MAX_DOMINANT_AT &&
+      el.type !== 'equation' &&
+      el.type !== 'text'
+    ) {
       if (!moving) {
         warnings.push(
           `scene "${label}": cue "${cue}" lands at ${Math.round(at * 100)}% of the narration, but ` +
@@ -558,22 +563,8 @@ function spanFor(
 }
 
 /**
- * Draw strokes that resolved to the same moment as one gesture, in drawing order.
- *
- * Every element is visited in storyboard order and pushed to at least `GESTURE_STEP_SEC`
- * after the one before it. Two things fall out of that single rule:
- *
- *  - **A shared cue becomes a gesture.** The compiler gives every stroke of one picture
- *    the same cue on purpose (see `planner/src/compile.ts`), so this is what turns "these
- *    nine strokes belong to the words *a hillside in fog*" into a hillside being drawn.
- *  - **Nothing is drawn before what it sits on.** Storyboard order is drawing order, so a
- *    tangent cannot precede its curve even if its cue lands earlier in the sentence.
- *
- * It only ever moves an element *later*, and never past the end of the narration.
- *
- * **Only elements that actually resolved take part.** An element whose cue matched nothing
- * keeps the fraction its author gave it, and is left out of the chain entirely: a guessed
- * time has no business pushing a real one around.
+ * Stagger simultaneous strokes by at most 350 ms. Distinct speech cues retain
+ * their temporal order regardless of the order geometry is stored in the IR.
  */
 function spreadGesture(
   scene: Scene,
@@ -581,23 +572,32 @@ function spreadGesture(
   resolved: readonly CueResolution[],
 ): void {
   if (!(narrationSec > 0) || !resolved.length) return;
-  const step = GESTURE_STEP_SEC / narrationSec;
   const byId = new Map(resolved.map((r) => [r.elementId, r]));
-  let previous = -Infinity;
-  for (const el of scene.elements) {
-    if (!byId.has(el.id)) continue;
-    const at = el.enter.at;
-    const moved = at <= previous ? Math.min(0.995, previous + step) : at;
-    previous = moved;
-    if (moved === at) continue;
-    el.enter.at = round3(moved);
-    if (el.motion) {
-      const span = Math.max(MIN_TRAVEL, el.motion.to - el.motion.from);
-      const from = Math.min(Math.max(el.motion.from, moved + TRAVEL_LEAD), 0.97 - span);
-      el.motion = { ...el.motion, from: round3(from), to: round3(Math.min(0.99, from + span)) };
+  // Storage order is geometry order, not speech order. A late-cued shape must
+  // never push every subsequent label past the word that introduces it.
+  const ordered = scene.elements
+    .filter((el) => byId.has(el.id))
+    .sort((a, b) => a.enter.at - b.enter.at);
+  for (let i = 0; i < ordered.length;) {
+    const start = ordered[i]!.enter.at;
+    let end = i + 1;
+    while (end < ordered.length && Math.abs(ordered[end]!.enter.at - start) < 0.001) end++;
+    const next = ordered[end]?.enter.at ?? 0.995;
+    const count = end - i;
+    // Even a twenty-stroke object is one gesture, not two seconds of cue drift.
+    const step = Math.min(
+      GESTURE_STEP_SEC / narrationSec,
+      0.35 / narrationSec / Math.max(1, count - 1),
+      Math.max(0, next - start) / count,
+    );
+    for (let j = i; j < end; j++) {
+      const el = ordered[j]!;
+      const moved = Math.min(0.995, start + (j - i) * step);
+      el.enter.at = round3(moved);
+      const record = byId.get(el.id);
+      if (record) record.at = el.enter.at;
     }
-    const record = byId.get(el.id);
-    if (record) record.at = round3(moved);
+    i = end;
   }
 }
 

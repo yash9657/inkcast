@@ -35,7 +35,15 @@
  * a picture is not worth paying for twice.
  */
 import type { Mark, OnProblem, OnSpend } from '@inkcast/core';
-import { DRAW_H, DRAW_W, Mark as MarkSchema, logger, noteProblem, noteSpend } from '@inkcast/core';
+import {
+  DRAW_H,
+  DRAW_W,
+  Mark as MarkSchema,
+  hash,
+  logger,
+  noteProblem,
+  noteSpend,
+} from '@inkcast/core';
 import { z } from 'zod';
 import { type Client, type Message, callTool, errorDetail, imagePart } from './anthropic.js';
 import {
@@ -47,6 +55,8 @@ import {
 } from './draw-audit.js';
 import { round } from './curves.js';
 import { prepareMarks } from './drawing.js';
+import { geometryConstraintProblems } from './geometry-constraints.js';
+import { labelTargetProblems } from './label-anchors.js';
 import type { Box } from './elements.js';
 import type { DrawPreview } from './types.js';
 import { isTraced } from './underlay.js';
@@ -61,7 +71,7 @@ const log = logger('planner:drawing:critic');
  * rules that no longer exist — the subtlest possible way to make a fix look like it did
  * nothing.
  */
-export const FIX_VERSION = 'fix/v1';
+export const FIX_VERSION = 'fix/v2';
 
 const TOOL = 'emit_drawing';
 
@@ -72,6 +82,7 @@ Below the picture are the marks that produced it, and a list of the things that 
 HOW TO FIX IT
 - FIX WHAT THE LIST NAMES, and look at the picture for anything else that is plainly wrong: a name that reads as belonging to the wrong part, ink that crosses ink and should not, a shape that came out unrecognisable.
 - CHANGE AS LITTLE AS POSSIBLE. Keep every id. Keep every part. Keep the coordinates of everything you are not fixing, exactly. This is a correction, not a second attempt: the drawing was good enough to be worth repairing.
+- PRESERVE SEMANTICS. Keep every cue, target and circleThrough unchanged. They bind a mark to the spoken words and geometric referent. Moving a label must not change when it appears or what it names.
 - MOVE THE WORDS, NOT THE PICTURE. A label in the wrong place is almost always fixed by moving the label into nearby empty space — and if the part is small or crowded, by adding a short arrow from the words to the part. Redrawing the structure to make room for a name is the wrong trade.
 - A NAME HAS TO STAY WITH WHAT IT NAMES. Moving it a little is a fix; moving it somewhere it now sits beside a different part is worse than the problem it solved, and moving it off the picture altogether is worst of all. If the only clear space is far away, leave the words near their part and draw an arrow instead.
 - IF THE LIST SAYS THE CARD IS THIN, that is the one item where the answer is to change the picture, and it is the one thing "change as little as possible" does not cover. Grow the parts where they stand — every shape bigger, until the ink fills the space between the parts — and keep every id, every part and every relation. Scaling the whole drawing up is not a fix and changes nothing: the board fits your drawing to the card either way, so what counts is the size of the parts against the gaps between them. Do not add parts to fill space, and never stretch: a stretched drawing of anything looks wrong in a way a viewer cannot name but can always see.
@@ -88,10 +99,7 @@ Emit the COMPLETE corrected drawing — every mark, not just the ones you change
  * a question nobody asks any more.
  */
 export function fixTag(): string {
-  // Cheap and stable: both are fixed at build time, so a version plus the brief's length is
-  // enough to separate one generation of corrections from the next.
-  const audit = AUDIT_VERSION.replace(/\W+/g, '');
-  return `${FIX_VERSION.replace(/\W+/g, '')}${audit}-${FIX_BRIEF.length}`;
+  return hash(FIX_VERSION, AUDIT_VERSION, FIX_BRIEF).slice(0, 16);
 }
 
 const RevisionSchema = z.object({
@@ -254,7 +262,12 @@ export async function reviseDrawing(
       { name: TOOL, description: 'Emit the complete corrected drawing as a list of marks.' },
       8000,
       opts.onSpend
-        ? (u) => noteSpend(opts, { lane: 'drawing-fix', provider: 'anthropic', ...u })
+        ? (u) =>
+            noteSpend(opts, {
+              lane: 'drawing-fix',
+              provider: opts.client.provider ?? 'anthropic',
+              ...u,
+            })
         : undefined,
     );
   } catch (err) {
@@ -278,7 +291,13 @@ export async function reviseDrawing(
     return undefined;
   }
 
-  const after = defectScore(auditDrawing(prepareMarks(parsed.data.elements, under), under));
+  const revised = preserveMarkBindings(marks, parsed.data.elements);
+  const bindingProblems = [...geometryConstraintProblems(revised), ...labelTargetProblems(revised)];
+  if (bindingProblems.length) {
+    noteProblem(opts, `Drawing correction broke semantic bindings: ${bindingProblems.join('; ')}`);
+    return undefined;
+  }
+  const after = defectScore(auditDrawing(prepareMarks(revised, under), under));
   // **The score vetoes a regression; it does not adjudicate the drawing.** A revision is
   // kept unless it measures worse than what it replaced.
   //
@@ -309,5 +328,20 @@ export async function reviseDrawing(
         `the original's ${before}, so the original ships with ${defectSummary(defects)}`,
     );
   }
-  return { marks: kept ? parsed.data.elements : marks, before, after, kept };
+  return { marks: kept ? revised : marks, before, after, kept };
+}
+
+/** A visual layout revision cannot silently erase narration or geometry bindings. */
+export function preserveMarkBindings(original: readonly Mark[], revised: readonly Mark[]): Mark[] {
+  const byId = new Map(original.map((m) => [m.id, m]));
+  return revised.map((m) => {
+    const before = byId.get(m.id);
+    if (!before) return m;
+    return {
+      ...m,
+      ...(before.cue ? { cue: before.cue } : {}),
+      ...(before.target ? { target: before.target } : {}),
+      ...(before.circleThrough ? { circleThrough: before.circleThrough } : {}),
+    };
+  });
 }

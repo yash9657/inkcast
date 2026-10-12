@@ -183,7 +183,7 @@ than uncommented:
 INKCAST_PUBLIC_URL=https://films.example.com
 INKCAST_ACME_EMAIL=you@example.com
 
-# Turns on the per-IP limiter, the 20k-char source cap, and hides the BYOK panel.
+# Turns on the per-IP limiter, the 20k-char source cap, and enables per-account BYOK storage.
 # docker-compose.yml already sets this; it is listed here because it is the one
 # variable whose absence changes the product's posture rather than its plumbing.
 INKCAST_HOSTED=1
@@ -319,50 +319,22 @@ docker stats                        # memory headroom against the 4 GB limit
 
 ---
 
-## Server keys
+## Provider credentials and account isolation
 
-Provider keys go in the **environment** and nowhere else. This is not a preference
-between two working mechanisms — on the hosted path the environment is the only
-mechanism there is.
+See [AUTH.md](AUTH.md#per-account-api-keys-and-video-choices) for the current BYOK
+contract. Settings now accepts each user's own keys. Hosted or Clerk-enabled web jobs
+use only that owner's selected credentials; operator environment keys are not a fallback.
+A deployment using Clerk without `INKCAST_HOSTED` still needs `INKCAST_SECRET_KEY`.
 
-Verified adapter by adapter, at HEAD:
+Generate separate random `INKCAST_SESSION_SECRET` and `INKCAST_SECRET_KEY` values with
+`openssl rand -hex 32`. Persist the projects volume (including `.keys`), restrict access
+to server secrets, and use one Next process per volume. For external API clients, add
+`X-Inkcast-Request: 1` to mutation requests. Set `INKCAST_PUBLIC_URL` to the canonical
+HTTPS browser origin so origin checks remain correct behind the proxy.
 
-| Provider                           | Reads                             | Where                                                                                                                                       |
-| ---------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Anthropic (planner, lesson, edits) | `process.env.ANTHROPIC_API_KEY`   | `packages/planner/src/anthropic.ts:70` and `:83`; `packages/pipeline/src/edit.ts:134`; selection in `packages/pipeline/src/providers.ts:39` |
-| ElevenLabs (voice)                 | `process.env.ELEVENLABS_API_KEY`  | `packages/voice/src/providers/elevenlabs.ts:175`; selection in `packages/pipeline/src/providers.ts:72`                                      |
-| Replicate (figures)                | `process.env.REPLICATE_API_TOKEN` | `packages/visuals/src/image.ts:180` and `:311`; selection in `packages/pipeline/src/providers.ts:198`                                       |
-| fal (figures)                      | `process.env.FAL_KEY`             | `packages/visuals/src/image.ts:182` and `:376`; selection in `packages/pipeline/src/providers.ts:201`                                       |
-
-**Not one of them consults the keyvault.** The vault does not add a second
-mechanism; it _populates the first one_. `hydrateEnv()` copies stored keys into
-`process.env` only for providers the environment did not already supply, and
-refuses to overwrite one that is present (`packages/keyvault/src/hydrate.ts:77-83`
-— "Already in the environment, and not by us: authoritative, hands off"). So on a
-box where you set the variables, env-before-vault is not merely the precedence; it
-is the whole story, and there is no configuration in which a stored key shadows
-one you set.
-
-Two consequences worth internalising:
-
-- **Unset is a supported state.** With no keys, the planner uses its local
-  heuristic, the voice uses Kokoro (baked in), and figures come from the built-in
-  icon set. The product degrades; it does not fail. This is also the fallback the
-  D6 spend ceiling drops to, with a banner.
-- **`/settings` hides its key form when `INKCAST_HOSTED=1`**, and replaces it with
-  an explanation rather than an empty page
-  (`apps/web/app/(app)/settings/page.tsx`). A key pasted there would be stored in
-  the _operator's_ vault and then ignored by every stage, because your environment
-  variables win — a control that reports success and changes nothing.
-
-> **The UI is hidden; the endpoints are not.** `apps/web/app/api/keys/` has no
-> `isHosted()` guard anywhere in it, so on a public deployment the routes that
-> read, write and delete vault entries are still reachable by anyone who knows the
-> path, even though nothing links to them. They write the operator's vault, which
-> is a credential sink the visitor cannot audit and the operator did not ask for.
-> Nothing in this deployment's own files can fix that — it needs the same
-> `isHosted()` early return the settings page uses. Until it lands, treat a hosted
-> box's `/api/keys` as an open door and say so in your threat model.
+Local development without Clerk keeps the shared CLI keychain/vault, available only
+through localhost. Saved local keys take priority over environment keys. The CLI's
+`hydrateEnv()` is not used by web jobs; never add it to a shared server request path.
 
 Never put a key in `[env]` in `fly.toml` or in a `Dockerfile` `ARG`. Anything in
 `[env]` is visible in `fly config show` and in the image's metadata, and a key

@@ -66,6 +66,7 @@ const bob = mintSession();
 
 function request(url: string, init: RequestInit = {}, token?: string): Request {
   const headers = new Headers(init.headers);
+  headers.set('x-inkcast-request', '1');
   if (token !== undefined) headers.set('cookie', `inkcast_session=${token}`);
   return new Request(`http://localhost${url}`, { ...init, headers });
 }
@@ -131,13 +132,14 @@ function row(body: Record<string, never>, id: string): Row {
 
 /* ------------------------------------------------------------- the empty state */
 
-test('a hosted GET describes four providers and what protects them', async () => {
+test('a hosted GET describes all supported providers and what protects them', async () => {
   const out = await read(await GET(request('/api/keys', {}, alice.token)));
   assert.equal(out.status, 200);
   assert.deepEqual((out.body.keys as unknown as Row[]).map((entry) => entry.id).sort(), [
     'anthropic',
     'elevenlabs',
     'fal',
+    'fireworks',
     'replicate',
   ]);
   for (const entry of out.body.keys as unknown as Row[]) assert.equal(entry.configured, false);
@@ -449,4 +451,75 @@ test('a definitive verdict is remembered against the account that asked', async 
     await holds(bob, 'elevenlabs', undefined),
     "another account can read this account's key",
   );
+});
+
+test('cross-origin saves, deletes and validation are refused before touching the store', async () => {
+  for (const origin of ['https://evil.example', 'null', 'http://localhost.evil.example']) {
+    const init = {
+      method: 'POST',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'fireworks', key: ALICE_KEY }),
+    };
+    assert.equal((await POST(request('/api/keys', init, alice.token))).status, 403);
+    assert.equal(
+      (
+        await DELETE(
+          request(
+            '/api/keys?provider=anthropic',
+            { method: 'DELETE', headers: { origin } },
+            alice.token,
+          ),
+        )
+      ).status,
+      403,
+    );
+  }
+  assert.equal(
+    (await GET(request('/api/keys', { headers: { 'sec-fetch-site': 'same-site' } }, alice.token)))
+      .status,
+    403,
+  );
+});
+
+test('credential requests require JSON, reject oversized chunked bodies, and never echo input fields', async () => {
+  const plain = request(
+    '/api/keys',
+    { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' },
+    alice.token,
+  );
+  assert.equal((await POST(plain)).status, 415);
+  const oversized = request(
+    '/api/keys',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: ' '.repeat(20_000) },
+    alice.token,
+  );
+  assert.equal((await POST(oversized)).status, 413);
+  const out = await read(
+    await POST(post({ provider: 'fireworks', key: { [ALICE_KEY]: ALICE_KEY } }, alice.token)),
+  );
+  assert.equal(out.status, 400);
+});
+
+test('Clerk without hosted mode still cannot reach the operator keychain', async () => {
+  process.env.INKCAST_HOSTED = '0';
+  process.env.CLERK_SECRET_KEY = 'partial-auth-configuration';
+  try {
+    assert.equal((await GET(request('/api/keys', {}, alice.token))).status, 503);
+    assert.equal(
+      (await POST(post({ provider: 'fireworks', key: ALICE_KEY }, alice.token))).status,
+      503,
+    );
+  } finally {
+    process.env.INKCAST_HOSTED = '1';
+    delete process.env.CLERK_SECRET_KEY;
+  }
+});
+
+test('a browser mutation without an origin or explicit API header is refused', async () => {
+  const req = new Request('http://localhost/api/keys', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie: `inkcast_session=${alice.token}` },
+    body: JSON.stringify({ provider: 'fireworks', key: ALICE_KEY }),
+  });
+  assert.equal((await POST(req)).status, 403);
 });

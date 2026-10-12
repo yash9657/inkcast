@@ -27,6 +27,7 @@ export type { KeyState };
  * page must not describe an encrypted file that does not exist.
  */
 export type VaultInfo = {
+  scope?: 'account' | 'machine';
   backend: 'keychain' | 'vault';
   /** True when the backend can actually hold a key right now. */
   ready: boolean;
@@ -87,7 +88,7 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
-const IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+const IDS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 function parseKey(raw: unknown): KeyState | undefined {
   const rec = asRecord(raw);
@@ -108,6 +109,8 @@ function parseKey(raw: unknown): KeyState | undefined {
     ...(mask === undefined ? {} : { mask }),
     ...(length === undefined ? {} : { length }),
     ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(typeof rec.validatedAt === 'string' ? { validatedAt: rec.validatedAt } : {}),
+    ...(typeof rec.validatedOk === 'boolean' ? { validatedOk: rec.validatedOk } : {}),
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
     ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
@@ -135,6 +138,7 @@ function parseVault(raw: unknown): VaultInfo | undefined {
     rec.backend === 'keychain' ? 'keychain' : rec.backend === 'vault' ? 'vault' : undefined;
   if (backend === undefined) return undefined;
   return {
+    scope: rec.scope === 'account' ? 'account' : 'machine',
     backend,
     ready: rec.ready !== false,
     why: str(rec.why) ?? '',

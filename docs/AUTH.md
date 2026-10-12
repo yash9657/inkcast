@@ -21,7 +21,7 @@ becomes a signed-in product.
 | `/library`             | This browser's projects                           | This account's projects                        |
 | `/sign-in`, `/sign-up` | **404** — no such page here                       | Clerk's flow                                   |
 | Provider keys          | `@inkcast/keyvault` (macOS keychain / vault file) | Per-account, encrypted at rest on the box      |
-| `/settings`            | The BYOK panel                                    | An explanation (see "Not finished" below)      |
+| `/settings`            | The local BYOK panel                              | Per-account BYOK panel                         |
 | Landing page copy      | "no account, no key"                              | The truth about signing in                     |
 | Required secrets       | none                                              | `INKCAST_SESSION_SECRET`, `INKCAST_SECRET_KEY` |
 
@@ -205,52 +205,99 @@ shared this. Break either and every share link dies.
 
 ---
 
-## Per-account API keys
+## Per-account API keys and video choices
 
-On `INKCAST_HOSTED=1`, `/api/keys` stores each account's provider credentials in
-`$INKCAST_PROJECTS/.keys/<sha256(ownerTag)>.json` (dir `0700`, files `0600`,
-atomic write). Envelope encryption, `node:crypto` only, no new dependency: a fresh
-random 32-byte data key seals the credential with AES-256-GCM, and
-`INKCAST_SECRET_KEY` seals the data key. Both layers bind AAD built from the owner
-**the caller asked for**, so a record moved between accounts, moved between
-providers, or sealed under a different master key fails authentication with one
-indistinguishable error.
+`/settings` accepts Fireworks and ElevenLabs keys, with Anthropic and image providers
+available as additional choices. `/studio` selects planning, narration and illustrations
+independently. A Fireworks lesson can use ElevenLabs speech, including the River voice
+and the existing Multilingual v2 delivery defaults. Users can explicitly choose local
+planning, Kokoro speech and built-in artwork without any paid provider credentials.
 
-Nothing ever reads a key back out over the wire. `GET` unseals nothing — the mask,
-length and timestamps are cleartext metadata stored beside the ciphertext.
+**Account storage is selected when `INKCAST_HOSTED=1` OR either Clerk variable is
+present.** A partial Clerk configuration refuses credential access with 503. It never
+opens the operator's keychain. Account storage requires `INKCAST_SECRET_KEY` even on a
+Clerk-enabled development server with hosted mode off. Local key management is available
+only via a loopback hostname when neither hosted mode nor Clerk is enabled.
 
-Locally none of this is used: `pnpm dev` keeps using `@inkcast/keyvault` (the macOS
-keychain, or an encrypted `~/.inkcast/vault.json`). The two stores are never both
-reachable — on a hosted box `apps/web/app/api/keys/_store.ts` is not even imported,
-so "a stranger's request cannot reach the operator's keychain" is a property of the
-module graph rather than of an `if`.
+Account keys live in `$INKCAST_PROJECTS/.keys/`, or `INKCAST_SECRETS_DIR`. Filenames
+are keyed digests of owner tags. The directory is `0700`, files `0600`; replacement
+writes are atomic and serialized per account in the single server process. A random
+32-byte data key encrypts each credential with AES-256-GCM; a key derived from
+`INKCAST_SECRET_KEY` wraps that data key. Both layers authenticate the caller's owner
+and provider. New v2 records also authenticate the mask, length and creation/update
+timestamps. Existing v1 records remain readable and become v2 when replaced.
 
-`.keys` lives inside the projects directory on purpose: it is the one volume a
-hosted deploy must already persist. Two consequences worth knowing:
+Only masked status is returned. Status checks verify decryptability, then discard the
+plaintext. Corrupt files fail closed instead of looking empty or being overwritten.
+A late validation response cannot mark a newly replaced key as checked. A metadata
+check confirms that request only: it cannot guarantee model access, credits or synthesis
+permissions. Rate limits and missing metadata permissions produce an unknown result,
+not a claim that a key works. ElevenLabs metadata checks need User read permission;
+speech and voice lookup need their respective permissions.
 
-- The leading dot is a guard. Project ids must start with an alphanumeric, so
-  `.keys` can never appear in the library index and `/api/media` can never serve a
-  byte of it.
-- The disk janitor skips it. `scripts/janitor.mjs` selects directories by an
-  **allow-list** of the project-id pattern; it used to use a deny-list, which would
-  have `rm -rf`'d `.keys` 48 hours after launch and destroyed every stored
-  credential on the box.
+The server must decrypt a key to call its provider. Anyone with the server's encryption
+secret and stored records can also decrypt it; encryption is not protection from the
+server operator. Keep encryption secrets in runtime secret management, out of Git, build
+arguments, images and logs. Back up the secrets directory and encryption secret separately.
 
-### Rotating the encryption key
+### Job isolation
 
-Not a one-line change, because the **filename** is derived from the key as well as
-the contents. Rotating `INKCAST_SECRET_KEY` requires, for every record: unseal the
-data key under the old master key, re-seal it under the new one, and rename the
-file to the digest the new key produces. There is no script for this yet.
+`apps/web/lib/keys.ts` resolves the owner's selected credentials at job admission.
+`withProviderEnv()` in core carries an immutable snapshot through `AsyncLocalStorage`.
+Planner, drawing, voice, image and review adapters read that snapshot. No web route
+hydrates `process.env`; account jobs never fall back to operator environment keys or the
+operator's keychain. Non-secret model/delivery configuration is explicitly allow-listed.
+The CLI retains its environment and local-vault behavior.
 
-Until one exists, the supported rotation is destructive and honest: change the key,
-delete `$INKCAST_PROJECTS/.keys/`, and tell users to paste their keys again. The
-UI already distinguishes this case — a record that exists and will not open reports
-`unreadable` ("paste it again"), not "not configured".
+Only public provider choices are saved in project metadata. Edits and rerenders reuse
+those choices with the current owner's current keys. Missing or unreadable selected keys
+produce an actionable failure. Deleting a key prevents queued jobs from loading it; a
+job already running may finish with the credential it loaded. Revoke at the provider to
+stop all use. Saving a replacement does not mutate credentials in a running job.
 
-Envelope encryption is what makes the non-destructive version cheap when it is
-written: 32 bytes to re-wrap per record, rather than decrypting every user's
-credential.
+Exact credential redaction is scoped to the request/job, including encoded forms, logs,
+progress and failure messages. Customer keys are not retained in the global redaction
+registry, included in command arguments, or copied into project metadata.
+
+Generated drawing and illustration caches for account jobs are stored beneath
+`INKCAST_PROJECTS/.account-cache/<owner-tag>/`, separate from other accounts and
+from the local machine cache. Model weights and built-in assets remain shared.
+
+### Request and project boundaries
+
+Local mode is for a single-user server bound to loopback. Hostname checks are
+defense in depth, not network authentication; use account mode for shared servers.
+
+Browser mutations require a matching Origin or same-origin Fetch Metadata. API clients
+without Origin must send `X-Inkcast-Request: 1`. Cross-site and same-site-but-cross-origin
+requests are refused before credential reads or work. Behind a proxy, set
+`INKCAST_PUBLIC_URL` to the browser's canonical origin; forwarded Host values are not
+trusted. Credential bodies must be JSON and are streamed with a 16 KiB cap.
+
+Project identifiers derived from source now include the owner and provider choices.
+Explicit IDs have an atomic ownership check before uploads or job registration. Clerk
+installations cannot adopt unowned CLI projects merely by turning hosted mode off.
+Shared video links expose playback media, not raw uploads, private metadata, caches or
+diagnostics. Existing ownership checks still protect edits, rerenders, deletion, job
+status and progress streams.
+
+Account deployments reject server `filePath` sources. URL ingestion checks all DNS
+answers and pins a public address to the socket; redirects are independently checked,
+with a timeout, redirect limit and 8 MiB body cap. Private, loopback and metadata addresses
+are refused. Local CLI ingestion retains its existing behavior.
+
+### Rotation and operating limits
+
+Keep `INKCAST_SESSION_SECRET` stable: changing it changes owner tags. Keep
+`INKCAST_SECRET_KEY` stable: changing it changes both ciphertext wrapping and filenames.
+There is no in-place rotation tool. A supported destructive reset is to back up the old
+state, change the secret and ask users to save their provider keys again. A missing old
+filename appears unconfigured; a record whose ciphertext cannot open appears unreadable.
+Never describe a master-key change as an automatic migration.
+
+This filesystem store and in-memory job queue target one Next server process per projects
+volume. Multiple writers or replicas require a shared transactional store and scheduler.
+The `.keys` directory remains outside project discovery, media routing and the janitor.
 
 ---
 
@@ -286,17 +333,6 @@ store change and no second notion of ownership. What is missing is only
 
 ## Not finished — read this before launch
 
-- **A per-account key is stored but not yet spent.** Every provider adapter reads
-  `process.env` directly (~12 sites across `packages/pipeline`, `planner`, `voice`,
-  `visuals`) and `CastOptions` has no credential field, so a render on the hosted
-  box bills the **operator's** server keys regardless of what a user has saved.
-  This is why `/settings` still shows an explanation instead of the BYOK panel on
-  a hosted box: a form that accepts credentials it never uses is a credential sink,
-  and the endpoint's own success message deliberately does not claim the next
-  render will use the key. The fix is a `credentials` resolver threaded from the
-  route through `cast()` into each stage adapter. It must **not** be done by
-  injecting into `process.env`: that is process-global and two renders run
-  concurrently, so user A's key would bill user B's job.
 - **No real signed-in pass has been done.** The signed-out path, the refusal path,
   the proxy wiring and Clerk's sign-in widget mounting are all verified against a
   live Clerk dev instance. Creating an actual session needs the owner's Clerk
@@ -305,7 +341,6 @@ store change and no second notion of ownership. What is missing is only
   first's projects.
 - **There is no sign-out control** unless `NEXT_PUBLIC_CLERK_ACCOUNT_URL` is set.
 - **No claim route**, per the section above.
-- **`GET /api/providers` still reports the pipeline's capability from
-  `process.env`** — i.e. what the operator has configured — because that describes
-  the film a visitor is about to get. It no longer reports the operator's masked
-  key material, which it used to do on a public endpoint.
+- **Authenticated Clerk browser acceptance remains with the separate login work.**
+  BYOK tests use synthetic identities, two independent browser cookie accounts, and
+  intercepted provider responses; they do not certify a real Clerk sign-in or paid video.

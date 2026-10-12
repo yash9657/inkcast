@@ -1,3 +1,5 @@
+import { accountKeys } from '../_lib/deployment';
+import { guardRequest, readCredentialBody } from '../_lib/request-guard';
 /**
  * `/api/keys` — list, set and delete the provider credentials.
  *
@@ -7,8 +9,8 @@
  *  1. **A raw key only ever travels inbound.** It arrives in a POST body, goes
  *     straight into the vault, and the handler returns a masked status derived
  *     from `keyStatuses()`. There is no code path from any method here to a
- *     plaintext key in a response — `GET` never even unseals one, because the
- *     mask is stored in plaintext beside the ciphertext.
+ *     plaintext key in a response. GET opens stored records to verify readability,
+ *     but returns only their masked status.
  *  2. **Nothing is logged.** These handlers deliberately do not use
  *     `unexpected()` from `_lib/http`: it calls `console.error(err)` with the
  *     whole error, and an error thrown while a key is in scope can carry that key
@@ -106,8 +108,10 @@ function localStore() {
 
 /** The four providers, their status, and what protects them. Masks only. */
 export async function GET(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
-    if (isHosted()) {
+    if (accountKeys()) {
       const who = await accountOwner(request);
       if (!who.ok) return who.response;
       const keys = await accountKeyStatuses(who.owner);
@@ -124,12 +128,14 @@ export async function GET(request: Request) {
 /* -------------------------------------------------------------------- POST */
 
 export async function POST(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   let key = '';
   try {
-    if (blobStorage()) return keysAreServerSide();
+    if (blobStorage() && !accountKeys()) return keysAreServerSide();
     // Identity first, and above `readJson`: a request that may not store a key
     // must not have one parsed out of its body, let alone sealed and written.
-    const who = isHosted() ? await accountOwner(request) : undefined;
+    const who = accountKeys() ? await accountOwner(request) : undefined;
     if (who !== undefined && !who.ok) return who.response;
 
     const body = await readJson(request);
@@ -152,15 +158,7 @@ export async function POST(request: Request) {
           ok: true,
           key: status,
           ...(shape.warning === undefined ? {} : { warning: shape.warning }),
-          /**
-           * What is true now, and nothing more. It deliberately does not say the
-           * next render bills this key: the stages read `process.env` today, and
-           * the credential-threading that makes a per-account key reach the
-           * pipeline is a change in `packages/pipeline` that this route does not
-           * own. Promising it here is exactly the silent-wrongness the launch plan
-           * names as this repo's dominant failure mode.
-           */
-          note: `${info.label} is set for your account. It is stored encrypted, it is never shown again, and no other account can decrypt it.`,
+          note: `${info.label} is set for your account. It is stored encrypted, it is never shown again, and it is available only to requests authenticated as your account. Select it in the studio to use it.`,
         }),
         who.owner,
       );
@@ -195,9 +193,11 @@ export async function POST(request: Request) {
  * mode for a destructive verb.
  */
 export async function DELETE(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
-    if (blobStorage()) return keysAreServerSide();
-    const who = isHosted() ? await accountOwner(request) : undefined;
+    if (blobStorage() && !accountKeys()) return keysAreServerSide();
+    const who = accountKeys() ? await accountOwner(request) : undefined;
     if (who !== undefined && !who.ok) return who.response;
 
     const url = new URL(request.url);
@@ -253,9 +253,7 @@ export async function DELETE(request: Request) {
 
 /* ------------------------------------------------------------------ helpers */
 
-type Read =
-  | { ok: true; data: z.infer<typeof SetBody> }
-  | { ok: false; response: ReturnType<typeof badRequest> };
+type Read = { ok: true; data: z.infer<typeof SetBody> } | { ok: false; response: Response };
 
 /**
  * Read the body ourselves instead of using `parseJsonBody`.
@@ -265,31 +263,18 @@ type Read =
  * lets a zod message quote input. Here the only safe response is a fixed sentence.
  */
 async function readJson(request: Request): Promise<Read> {
-  let text: string;
-  try {
-    text = await request.text();
-  } catch {
-    return { ok: false, response: badRequest('could not read the request body') };
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return { ok: false, response: badRequest('the request body is not valid JSON') };
-  }
+  const read = await readCredentialBody(request);
+  if (!read.ok) return read;
+  const raw = read.data;
   const parsed = SetBody.safeParse(raw);
   if (!parsed.success) {
     // **Field names only.** A zod message quotes the offending value
     // (`received 'sk-ant-…'`), so `issue.message` must never be forwarded from
     // this route. `issue.path` is a key name we defined, so it is safe.
-    const fields = [
-      ...new Set(parsed.error.issues.map((issue) => issue.path.join('.') || 'body')),
-    ].slice(0, 4);
     return {
       ok: false,
       response: badRequest(
         `the request body must be { provider, key } with provider one of ${PROVIDER_IDS.join(', ')}`,
-        fields.map((field) => `${field} is missing or not acceptable`),
       ),
     };
   }
@@ -310,16 +295,17 @@ function oops(what: string, err: unknown, secret?: string) {
 }
 
 /**
- * A Blob-storage (stateless) deployment has nowhere durable to keep a credential:
- * both stores write files — the per-account store under `INKCAST_SECRETS_DIR`, the
- * local vault under `~/.inkcast` — and a Function's filesystem does not outlive the
- * instance. The render service uses the operator's provider keys from its own
- * environment instead, so storing a key here would be accepted and then silently
- * never used.
+ * A Blob-storage (stateless) deployment without accounts has nowhere durable for
+ * the operator's vault: `@inkcast/keyvault` writes the keychain or
+ * `~/.inkcast/vault.json`, and a Function's filesystem does not outlive the
+ * instance, so a saved key would be accepted and then silently lost. Account keys
+ * (`INKCAST_HOSTED=1` or Clerk) are different — `_lib/secrets.ts` keeps their
+ * sealed records in Blob — so only this combination is refused. The operator's
+ * keys then come from the project environment.
  */
 function keysAreServerSide() {
   return fail(
     501,
-    "This deployment does not store API keys. Rendering uses the operator's server-side provider keys.",
+    'This deployment does not store API keys without accounts. Set provider keys in the server environment instead.',
   );
 }

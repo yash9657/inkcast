@@ -1,3 +1,4 @@
+import type { ProviderSelection } from './provider-selection';
 /**
  * The typed client for the studio's API routes.
  *
@@ -120,6 +121,7 @@ export type ProjectDetail = {
 export type Depth = 'short' | 'standard' | 'deep';
 
 export type GenerateInput = {
+  providers?: ProviderSelection;
   text?: string;
   url?: string;
   /** A dropped pdf/md/txt/docx. Sent as multipart when present. */
@@ -346,7 +348,7 @@ export type StageProvider = {
 
 /** The masked view of one credential. A key value never appears here. */
 export type KeyState = {
-  id: 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
+  id: 'fireworks' | 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
   envVar: string;
   configured: boolean;
   /** `keychain` on macOS, where `@inkcast/keyvault` uses the OS keychain. */
@@ -354,6 +356,8 @@ export type KeyState = {
   mask?: string;
   length?: number;
   updatedAt?: string;
+  validatedAt?: string;
+  validatedOk?: boolean;
   /** Stored but unusable — see `locked` for which of the two reasons. */
   unreadable?: boolean;
   /** Unusable because no passphrase is available, not because it is damaged. */
@@ -365,6 +369,8 @@ export type KeyState = {
 };
 
 export type Capabilities = {
+  selection?: ProviderSelection;
+  credentialScope?: 'account' | 'machine';
   planner: StageProvider;
   voice: StageProvider;
   images: StageProvider;
@@ -417,7 +423,7 @@ function parseStageProvider(raw: unknown): StageProvider {
   };
 }
 
-const KEY_IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+const KEY_IDS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 function parseKeyState(raw: unknown): KeyState | undefined {
   const rec = asRecord(raw);
@@ -438,6 +444,8 @@ function parseKeyState(raw: unknown): KeyState | undefined {
     ...(mask === undefined ? {} : { mask }),
     ...(length === undefined ? {} : { length }),
     ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(typeof rec.validatedAt === 'string' ? { validatedAt: rec.validatedAt } : {}),
+    ...(typeof rec.validatedOk === 'boolean' ? { validatedOk: rec.validatedOk } : {}),
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
     ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
@@ -462,6 +470,8 @@ export async function getCapabilities(signal?: AbortSignal): Promise<Capabilitie
     if (parsed) keys.push(parsed);
   }
   return {
+    selection: out.selection as ProviderSelection | undefined,
+    credentialScope: out.credentialScope === 'account' ? 'account' : 'machine',
     planner: parseStageProvider(providers.planner),
     voice: parseStageProvider(providers.voice),
     images: parseStageProvider(providers.images),
@@ -571,12 +581,16 @@ export async function generate(input: GenerateInput, signal?: AbortSignal): Prom
     // Multipart: every scalar is a string and `meta` travels as a JSON blob.
     const form = new FormData();
     form.append('meta', JSON.stringify(meta));
+    if (input.providers) form.append('providers', JSON.stringify(input.providers));
     if (title) form.append('title', title);
     if (format) form.append('preset', format);
     form.append('file', input.file, input.file.name);
     init = { method: 'POST', body: form };
   } else {
-    const body: Record<string, unknown> = { meta };
+    const body: Record<string, unknown> = {
+      meta,
+      ...(input.providers ? { providers: input.providers } : {}),
+    };
     if (title) body.title = title;
     if (format) body.preset = format;
     if (input.text?.trim()) body.text = input.text;

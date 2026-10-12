@@ -28,6 +28,7 @@ type Action = (typeof ACTIONS)[number];
 
 /** Which stage each provider upgrades, in the words the rest of the CLI uses. */
 const UPGRADES: Record<string, string> = {
+  fireworks: 'lesson, diagrams and visual review — open-weight models on one API key.',
   anthropic: 'lesson — writes the teaching itself. This is the one that matters.',
   elevenlabs: 'voice — a publishable narrator instead of a good local one.',
   replicate: 'visuals — drawn objects and characters instead of built-in icons.',
@@ -236,7 +237,7 @@ async function validateKeys(ctx: CliContext, kv: Keyvault, which?: string): Prom
       return 0;
     }
     process.stdout.write(
-      `${c.dim('no keys configured — nothing to validate.')} ${c.cyan('inkcast keys set anthropic')}\n`,
+      `${c.dim('no keys configured — nothing to validate.')} ${c.cyan('inkcast keys set fireworks')}\n`,
     );
     return 0;
   }

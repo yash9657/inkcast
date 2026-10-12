@@ -72,9 +72,21 @@ const intentFor = (kind: 'form' | 'figure', inkBox?: number[]): VisualIntent =>
  * fill of 26%, and serving them would be serving the defect the new lines exist to fix.
  * Previous blank-board pin: 9a1f337a8ecd8a07.
  */
-test('the draw keys moved with the math-mark brief change, and only then', () => {
-  assert.equal(drawKey(HEART), '6f842b7a19191a08');
-  assert.equal(drawKey(HEART, PNG), '3d94a24a9cc2b943');
+test('drawing cache includes the effective model, narration context, and image placement', () => {
+  const base = { model: 'model-a', context: 'The signal travels toward the receiver.' };
+  assert.notEqual(
+    drawKey(HEART, PNG, 'form', base),
+    drawKey(HEART, PNG, 'form', { ...base, model: 'model-b' }),
+  );
+  assert.notEqual(
+    drawKey(HEART, PNG, 'form', base),
+    drawKey(HEART, PNG, 'form', { ...base, context: 'The signal travels away from the receiver.' }),
+  );
+  assert.notEqual(
+    drawKey(HEART, PNG, 'form', base),
+    drawKey(HEART, PNG, 'form', { ...base, box: { x: 80, y: 0, w: 840, h: 560 } }),
+  );
+  assert.notEqual(drawKey('label pH'), drawKey('label PH'));
   // `form` is the default the lane has always had, so naming it has to be free.
   assert.equal(drawKey(HEART, PNG, 'form'), drawKey(HEART, PNG));
 });

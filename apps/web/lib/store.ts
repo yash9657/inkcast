@@ -1,3 +1,5 @@
+import { accountKeys } from '../app/api/_lib/deployment';
+import { ProviderSelectionSchema } from '../app/api/_lib/schemas';
 /**
  * Environment bootstrap + the studio's project index.
  *
@@ -293,6 +295,7 @@ const LanesSchema = z.object({ unserved: z.array(z.string()) });
 
 const ProjectRecordSchema = z.object({
   id: z.string(),
+  providers: ProviderSelectionSchema.optional(),
   title: z.string(),
   status: z.enum(PROJECT_STATUSES),
   createdAt: z.string(),
@@ -563,8 +566,12 @@ export async function readProjectMeta(id: string): Promise<ProjectMeta | undefin
  * `upsertProject` as "this project is in the index now" — the property the
  * concurrency test asserts.
  */
-export async function upsertProject(id: string, patch: ProjectPatch): Promise<ProjectRecord> {
-  if (blobStorage()) return blobUpsert(id, patch);
+export async function upsertProject(
+  id: string,
+  patch: ProjectPatch,
+  expectedOwner?: string,
+): Promise<ProjectRecord> {
+  if (blobStorage()) return blobUpsert(id, patch, expectedOwner);
   const dir = projectDir(id);
   if (!dir) throw new Error(`"${id}" is not a valid project id, so it has no metadata to write`);
 
@@ -574,6 +581,14 @@ export async function upsertProject(id: string, patch: ProjectPatch): Promise<Pr
     // first write after this migration. Reading the cache as a fallback *base*
     // is the migration, and it costs one file read per project, once.
     const previous = (await readMetaFile(dir)) ?? legacyBase(id, await readIndex());
+    if (
+      expectedOwner &&
+      previous &&
+      previous.ownerSession !== expectedOwner &&
+      (accountKeys() || previous.ownerSession)
+    ) {
+      throw new Error('Project ownership changed. Start a new video.');
+    }
     const merged = mergeMeta(id, previous, patch);
     await mkdir(dir, { recursive: true });
     await writeAtomic(metaPathFor(dir), `${JSON.stringify(merged, null, 2)}\n`);
@@ -617,6 +632,9 @@ function mergeMeta(
   return {
     version: 1,
     id,
+    ...((patch.providers ?? previous?.providers)
+      ? { providers: patch.providers ?? previous?.providers }
+      : {}),
     title: patch.title ?? previous?.title ?? id,
     status: patch.status ?? previous?.status ?? 'queued',
     createdAt: previous?.createdAt ?? patch.createdAt ?? now,
@@ -731,12 +749,12 @@ function toDto(record: ProjectRecord): ProjectDto {
  * whoever is looking — there is exactly one person there. Hosted, the same
  * reasoning inverts: an unowned project is one this deployment cannot attribute,
  * and showing it to an arbitrary visitor would be the leak. `includeUnowned`
- * therefore defaults to `!isHosted()`, and a caller that means something else
+ * therefore defaults to `!accountKeys()`, and a caller that means something else
  * has to say so.
  */
 export async function listProjects(filter: ProjectFilter = {}): Promise<ProjectDto[]> {
   const truth = blobStorage() ? await blobCollectTruth() : await collectTruth();
-  const includeUnowned = filter.includeUnowned ?? !isHosted();
+  const includeUnowned = filter.includeUnowned ?? !accountKeys();
 
   return [...truth.values()]
     .filter(({ ownerSession }) => {
@@ -1100,13 +1118,28 @@ async function blobReadMeta(id: string): Promise<{ meta: ProjectMeta; etag: stri
   return parsed.success ? { meta: parsed.data, etag: read.etag } : undefined;
 }
 
-async function blobUpsert(id: string, patch: ProjectPatch): Promise<ProjectRecord> {
+async function blobUpsert(
+  id: string,
+  patch: ProjectPatch,
+  expectedOwner?: string,
+): Promise<ProjectRecord> {
   if (!isValidProjectId(id)) {
     throw new Error(`"${id}" is not a valid project id, so it has no metadata to write`);
   }
   const key = projectKey(blobPrefix(), id, META_BLOB);
   for (let attempt = 1; ; attempt++) {
     const current = await blobReadMeta(id);
+    // The same ownership guard as the disk path: re-checked on every attempt,
+    // because the record a lost race re-reads may have changed hands.
+    const previous = current?.meta;
+    if (
+      expectedOwner &&
+      previous &&
+      previous.ownerSession !== expectedOwner &&
+      (accountKeys() || previous.ownerSession)
+    ) {
+      throw new Error('Project ownership changed. Start a new video.');
+    }
     const merged = mergeMeta(id, current?.meta, patch);
     try {
       await writeJson(key, merged, current ? { ifMatch: current.etag } : {});

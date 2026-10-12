@@ -301,3 +301,19 @@ test('one mark, or none, is left exactly alone', () => {
   assert.deepEqual(one.slots, [{ id: 'a', at: 1.5, dur: 2 }]);
   assert.equal(one.lastFinish, 3.5);
 });
+
+test('the pen protects each spoken cue without accelerating a settled earlier diagram', () => {
+  const slots = [
+    { id: 'settled', at: 0, dur: 1, ink: 100 },
+    { id: 'outline', at: 5, dur: 2, ink: 100 },
+    { id: 'label', at: 5.3, dur: 1, ink: 100 },
+    { id: 'relation', at: 7, dur: 1, ink: 100 },
+  ];
+  const result = serializePen(slots, { length: 12, speech: 11, cueSlack: 0.65 });
+  assert.equal(result.slots[0]!.dur, 1);
+  assert.ok(result.slots[1]!.dur < 2);
+  for (const slot of result.slots) {
+    const wanted = slots.find((s) => s.id === slot.id)!;
+    assert.ok(slot.at <= wanted.at + 0.651, `${slot.id} misses its spoken cue`);
+  }
+});

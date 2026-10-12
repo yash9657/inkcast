@@ -72,7 +72,7 @@ export type LessonSummary = {
    * Absent on files written before this was recorded. Absent is not `heuristic` — it means
    * nobody wrote it down, exactly as a missing `grounding` does.
    */
-  author?: 'anthropic' | 'heuristic' | 'supplied';
+  author?: 'anthropic' | 'fireworks' | 'heuristic' | 'supplied';
 };
 
 /**

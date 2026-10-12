@@ -60,7 +60,7 @@ const log = logger('render');
  * paper so a name written across shading stays readable. The halo is unconditional and
  * therefore touches every frame that has ever had text on it, which is all of them.
  */
-const RENDER_VERSION = 5;
+const RENDER_VERSION = 7;
 
 /**
  * Capture workers when the caller does not say: `INKCAST_RENDER_WORKERS` if it is a

@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * The voice stage.
  *
@@ -127,7 +128,7 @@ export type NarrateOptions = StageOptions & {
    * sync is preserved. Without it, beats with `hold: 0` run into each other.
    */
   padSec?: number;
-  /** `clause` (default) buys sub-sentence cue precision; `sentence` is safer. */
+  /** Override the engine’s synthesis unit; neural voices default to a scene paragraph. */
   phraseSplit?: PhraseSplit;
   /** Word-level alignment: `auto` (default), `whisper`, or `off`. */
   align?: AlignMode;
@@ -255,7 +256,7 @@ export type NarrateResult = {
 };
 
 function envNumber(name: string, fallback: number): number {
-  const raw = process.env[name];
+  const raw = providerEnv()[name];
   if (!raw) return fallback;
   const value = Number.parseFloat(raw);
   return Number.isFinite(value) ? value : fallback;
@@ -302,6 +303,18 @@ type SceneTiming = {
   alignFraction?: number;
 };
 
+/** Timestamp quantisation can place a final word one ASR frame past the file. */
+export function boundWordTimings(words: WordTiming[], narrationSec: number): WordTiming[] {
+  // Larger errors remain visible to the existing quality gate; never disguise a
+  // wrong clock or resampling ratio as a harmless boundary adjustment.
+  if (words.some((word) => word.end > narrationSec + 0.05)) return words;
+  return words.map((word) => ({
+    ...word,
+    start: Math.max(0, Math.min(narrationSec, word.start)),
+    end: Math.max(0, Math.min(narrationSec, word.end)),
+  }));
+}
+
 async function readTiming(file: string): Promise<SceneTiming | undefined> {
   try {
     const parsed = JSON.parse(await readFile(file, 'utf8')) as SceneTiming;
@@ -319,7 +332,8 @@ type SynthContext = {
   speed: number;
   targetWpm: number;
   /** Verbatim phrases of this scene's narration that carry its weight. */
-  emphasis: readonly string[];
+  previousText?: string;
+  nextText?: string;
   language: string;
   padSec: number;
   chain: ReturnType<typeof openVoiceChain>;
@@ -338,23 +352,6 @@ type SynthContext = {
 };
 
 /**
- * How much a phrase carrying emphasis is slowed, and how much extra room it gets
- * after it.
- *
- * Emphasis is *time*, not volume. No local voice this pipeline can run accepts SSML —
- * Kokoro takes a speed and nothing else — so getting louder is not available, and a
- * gain applied to the samples afterwards would be an artefact rather than a delivery.
- * What is available is exactly what a person actually does with a phrase that
- * matters: slow down over it and leave a moment after it.
- *
- * Both numbers are small on purpose. This lands on a *clause*, because clauses are
- * the unit the clip is already assembled from, so a heavy hand here does not stress a
- * word — it drags a whole sentence.
- */
-const EMPHASIS_SLOWDOWN = 0.92;
-const EMPHASIS_EXTRA_GAP = 0.18;
-
-/**
  * How many times the whole film may be re-narrated before the stage stops restarting.
  *
  * A bound, not a policy. Every abandonment consumes one link of the chain permanently
@@ -370,13 +367,6 @@ const EMPHASIS_EXTRA_GAP = 0.18;
  * its last four scenes is worse.
  */
 const MAX_VOICE_ATTEMPTS = VOICE_PROVIDER_IDS.length;
-
-/** Does this phrase contain any of the scene's emphasised spans? */
-function carriesEmphasis(phrase: string, emphasis: readonly string[]): boolean {
-  if (!emphasis.length) return false;
-  const haystack = phrase.toLowerCase();
-  return emphasis.some((e) => haystack.includes(e.trim().toLowerCase()));
-}
 
 /**
  * How much narration on either side of a phrase is offered as context.
@@ -454,12 +444,12 @@ async function synthesizeScene(
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i]!;
       const tmp = path.join(scratch, `${index}-${i}.wav`);
-      const stressed = carriesEmphasis(phrase.text, ctx.emphasis);
       const result = await ctx.chain.synthesize({
         text: phrase.text,
-        ...neighbours(phrases, i),
-        speed: stressed ? round3(ctx.speed * EMPHASIS_SLOWDOWN) : ctx.speed,
-        targetWpm: stressed ? Math.round(ctx.targetWpm * EMPHASIS_SLOWDOWN) : ctx.targetWpm,
+        ...{ previousText: ctx.previousText, nextText: ctx.nextText },
+        ...Object.fromEntries(Object.entries(neighbours(phrases, i)).filter(([, value]) => value)),
+        speed: ctx.speed,
+        targetWpm: ctx.targetWpm,
         language: ctx.language,
         outPath: tmp,
       });
@@ -476,14 +466,25 @@ async function synthesizeScene(
 
       const samples = await readClipSamples(tmp);
       const bounds = findSpeechBounds(samples, CLIP_SAMPLE_RATE);
+      // Quiet consonants may fall below the energy threshold. Provider timestamps
+      // protect them from trimming instead of leaving words outside the audio.
+      if (result.words?.length) {
+        bounds.start = Math.min(
+          bounds.start,
+          Math.max(0, Math.floor(result.words[0]!.start * CLIP_SAMPLE_RATE) - 960),
+        );
+        bounds.end = Math.max(
+          bounds.end,
+          Math.min(samples.length, Math.ceil(result.words.at(-1)!.end * CLIP_SAMPLE_RATE) + 960),
+        );
+      }
       const trimmed = samples.slice(bounds.start, bounds.end);
       const trimStartSec = bounds.start / CLIP_SAMPLE_RATE;
 
       parts.push({
         samples: trimmed.length ? trimmed : samples,
-        // The moment after the phrase that mattered. Added to the clause gap rather
-        // than replacing it, so punctuation still does its own work.
-        gapSec: gapAfter(phrase, phrases[i + 1]) + (stressed ? EMPHASIS_EXTRA_GAP : 0),
+        // Paragraph mode has one part and inserts no internal gaps.
+        gapSec: gapAfter(phrase, phrases[i + 1]),
       });
 
       // Provider timings are relative to the untrimmed clip; rebase them so they
@@ -548,6 +549,8 @@ async function synthesizeScene(
       );
     }
   }
+
+  if (words) words = boundWordTimings(words, assembled.narrationSec);
 
   return {
     version: 1,
@@ -673,12 +676,31 @@ async function allowReadingTime(
   // only thing that can grow the beat here is `tail`, and `tail` is capped at
   // `MAX_READ_SHARE` of it — `MAX_READING_EXTRA` is now an outer bound rather than the
   // number that binds.
-  const finish = serializePen(slots, { length: authored, speech: timing.narrationSec }).lastFinish;
-  const want = Math.min(authored + MAX_READING_EXTRA, finish + tail);
+  const finish = serializePen(slots, {
+    length: authored,
+    speech: timing.narrationSec,
+    cueSlack: 0.65,
+  }).lastFinish;
+  const want = Math.max(authored, Math.min(authored + MAX_READING_EXTRA, finish + tail));
   const extra = round3(want - standing);
-  if (!(extra > 0.02)) return timing;
+  if (Math.abs(extra) <= 0.02) return timing;
 
-  await appendSilence(ctx.abs, extra);
+  if (extra > 0) await appendSilence(ctx.abs, extra);
+  else {
+    // A lighter or better-timed drawing no longer needs the silence bought by
+    // an earlier schedule. Remove only our extension, preserving all speech and
+    // the authored hold, without paying to synthesise the same words again.
+    const audio = await readClipSamples(ctx.abs);
+    await writeClipFromParts(
+      ctx.abs,
+      [{ samples: audio.slice(0, Math.round(timing.narrationSec * CLIP_SAMPLE_RATE)), gapSec: 0 }],
+      {
+        padSec: 0,
+        holdSec: want - timing.narrationSec,
+        sampleRate: CLIP_SAMPLE_RATE,
+      },
+    );
+  }
   const next: SceneTiming = {
     ...timing,
     holdSec: round3(timing.holdSec + extra),
@@ -686,7 +708,7 @@ async function allowReadingTime(
   };
   await writeFile(ctx.timingAbs, JSON.stringify(next, null, 2));
   log.debug(
-    `scene ${index + 1} (${scene.id}): +${extra.toFixed(2)}s so the finished board has ` +
+    `scene ${index + 1} (${scene.id}): ${extra >= 0 ? '+' : ''}${extra.toFixed(2)}s so the finished board has ` +
       `${tail.toFixed(2)}s to be read`,
   );
   return next;
@@ -915,11 +937,11 @@ export async function narrate(
           mode,
           alignMode,
           phrases.length,
-          // Emphasis changes the audio — a phrase carrying it is slowed and given a
-          // longer beat after it — so it belongs in the key or a re-emphasised lesson
-          // reuses the clip that ignored it.
-          scene.emphasis.join('|'),
+          // Visual emphasis does not change the audio.
           CLIP_SIGNATURE,
+          'continuous-scene-v1',
+          out.scenes[i - 1]?.narration ?? '',
+          out.scenes[i + 1]?.narration ?? '',
           // How the clip is *delivered*, which the stage does not otherwise own: an
           // adapter decides the voice settings, the engine, and whether it is told what
           // surrounds a clause, and each changes the audio for narration that never
@@ -942,7 +964,9 @@ export async function narrate(
         dir,
         speed,
         targetWpm: sceneWpm,
-        emphasis: scene.emphasis,
+        previousText: i > 0 ? normalizeNarration(out.scenes[i - 1]!.narration) : undefined,
+        nextText:
+          i + 1 < out.scenes.length ? normalizeNarration(out.scenes[i + 1]!.narration) : undefined,
         language: out.meta.language,
         padSec,
         chain,
@@ -1302,7 +1326,7 @@ export async function narrate(
    * themselves: the chain simply walked past its own head and the run went on
    * looking completely ordinary. That is how "ElevenLabs was never getting
    * caught" was true and invisible at the same time — the key was in the vault,
-   * the vault had not been hydrated into `process.env` on this code path
+   * the vault had not been hydrated into `providerEnv()` on this code path
    * (`apps/web/lib/keys.ts` is the other half of that fix), `available()`
    * returned false, and one `log.debug` line was the entire record.
    *

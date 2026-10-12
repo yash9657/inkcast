@@ -1,3 +1,4 @@
+import { accountKeys } from './deployment';
 /**
  * Sessions, accounts, and project ownership.
  *
@@ -835,7 +836,7 @@ export async function requireOwner(
     };
   }
   if (truth.ownerSession === undefined) {
-    if (hosted(env)) {
+    if (accountKeys(env)) {
       return {
         ok: false,
         status: 403,

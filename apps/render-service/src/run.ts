@@ -16,6 +16,7 @@
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
@@ -50,9 +51,10 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export function createRunner(options: { repoRoot: string }): Runner {
   return async (request, emit) => {
-    const [core, pipeline] = await Promise.all([
+    const [core, pipeline, keyvault] = await Promise.all([
       import('@inkcast/core'),
       import('@inkcast/pipeline'),
+      import('@inkcast/keyvault'),
     ]);
     const { projectId: id, blobPrefix: prefix } = request;
     const dir = path.resolve(core.PROJECTS_ROOT, id);
@@ -120,11 +122,32 @@ export function createRunner(options: { repoRoot: string }): Runner {
         ...(filePath === undefined ? {} : { filePath }),
       } as Parameters<typeof pipeline.cast>[0];
 
-      const result = await pipeline.cast(input, {
-        projectId: id,
-        force: request.force ?? false,
-        onProgress,
-      });
+      const run = () =>
+        pipeline.cast(input, {
+          projectId: id,
+          force: request.force ?? false,
+          onProgress,
+        });
+      const env = providerEnvFor(request, keyvault.PROVIDER_SPECS);
+      const result = env
+        ? await keyvault.withSecretRedaction(secretsIn(env, keyvault.PROVIDER_SPECS), () =>
+            core.withProviderEnv(env, async () => {
+              try {
+                return await run();
+              } catch (err) {
+                // Redacted while the scope still knows the keys, as `runWithKeys`
+                // does in the studio: a provider error can quote a key back.
+                const error = new Error(
+                  keyvault.redact(err instanceof Error ? err.message : String(err)),
+                );
+                if (err instanceof Error) error.name = err.name;
+                const stage = (err as { stage?: unknown } | null)?.stage;
+                if (typeof stage === 'string') Object.assign(error, { stage });
+                throw error;
+              }
+            }),
+          )
+        : await run();
 
       // One line per film: how long each stage took on this instance. This is the
       // number to watch against the 800-second ceiling.
@@ -230,4 +253,50 @@ function describe(err: unknown, rootCause: (err: unknown) => string): JobFailure
     message = err instanceof Error ? err.message : String(err);
   }
   return { error: message || 'the run failed for an unknown reason', ...(stage ? { stage } : {}) };
+}
+
+type ProviderSpecs = Record<string, { envVars: readonly string[] }>;
+
+/**
+ * The provider environment for this run, or `undefined` to use the process's own.
+ *
+ * Mirrors `credentialEnvironment` in apps/web/lib/keys.ts. The studio resolved the
+ * keys and settings; this only decides what they sit on top of:
+ *
+ *  - `isolated` (accounts on): exactly what was sent, plus NODE_ENV. Nothing in this
+ *    container's environment — in particular no provider key set on the render
+ *    project — can reach an account's film.
+ *  - otherwise: this container's environment with every provider key removed, then
+ *    what was sent. A provider the request deselected stays deselected even if
+ *    the render project happens to have its key.
+ *
+ * `INKCAST_CACHE_DIR` names a per-account cache on the studio's disk; it is moved
+ * under this instance's `/tmp`, keeping the per-account separation.
+ */
+function providerEnvFor(
+  request: RenderRequest,
+  specs: ProviderSpecs,
+): NodeJS.ProcessEnv | undefined {
+  const sent = request.providerEnv;
+  if (!sent) return undefined;
+  const base: NodeJS.ProcessEnv = request.isolated
+    ? { NODE_ENV: process.env.NODE_ENV }
+    : { ...process.env };
+  for (const spec of Object.values(specs)) for (const name of spec.envVars) delete base[name];
+  const env: NodeJS.ProcessEnv = { ...base, ...sent };
+  if (sent.INKCAST_CACHE_DIR) {
+    env.INKCAST_CACHE_DIR = path.join(
+      tmpdir(),
+      'inkcast',
+      'account-cache',
+      path.basename(sent.INKCAST_CACHE_DIR),
+    );
+  }
+  return env;
+}
+
+function secretsIn(env: NodeJS.ProcessEnv, specs: ProviderSpecs): string[] {
+  return Object.values(specs).flatMap((spec) =>
+    spec.envVars.map((name) => env[name]).filter((key): key is string => Boolean(key)),
+  );
 }

@@ -312,18 +312,9 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
       return KOKORO_MODEL_ID;
     },
 
-    /**
-     * Whole sentences, always.
-     *
-     * Kokoro has no context window — `generate(text, {voice, speed})` is the entire
-     * surface, so there is no `previous_text` to tell it that these four words are the
-     * middle of a thought. Handed a clause it renders a complete utterance: hard onset,
-     * terminal fall, its own pitch range. A scene assembled from ten of those is ten
-     * people saying ten short things, which is exactly the abrupt delivery the local voice
-     * has always had and which was mistaken for a limit of the model.
-     */
+    /** Continuous scene paragraphs preserve prosody; timestamps align individual words. */
     preferredSplit() {
-      return 'sentence' as const;
+      return 'paragraph' as const;
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {

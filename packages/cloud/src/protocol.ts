@@ -41,6 +41,18 @@ export const RenderRequestSchema = z.object({
   kind: z.literal('cast'),
   input: RenderInputSchema,
   force: z.boolean().optional(),
+  /**
+   * The provider environment the pipeline runs inside: keys and provider/model
+   * settings, resolved by the studio for this request (an account's own keys when
+   * accounts are on). Used for this run only — never written to Blob or logged.
+   */
+  providerEnv: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string()).optional(),
+  /**
+   * True when the studio runs with per-account keys: the render service must then
+   * use `providerEnv` as the complete provider environment and never fall back to
+   * keys in its own environment (the account-isolation rule in apps/web/lib/keys.ts).
+   */
+  isolated: z.boolean().optional(),
 });
 
 export type RenderInput = z.infer<typeof RenderInputSchema>;
