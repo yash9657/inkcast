@@ -4,9 +4,10 @@
 import { accessSync, constants, existsSync } from 'node:fs';
 
 const { chromium } = await import('playwright');
-// The renderer only ever launches headless, which Playwright serves from the
-// headless shell; `--only-shell` in Dockerfile.vercel installs just that.
-console.log(`playwright browsers: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+// The render stage refuses to start unless this exact path exists.
+const exe = chromium.executablePath();
+if (!existsSync(exe)) throw new Error(`Chromium is not at ${exe}`);
+console.log(`chromium: executable at ${exe}`);
 
 const ort = await import('onnxruntime-node');
 if (typeof (ort.InferenceSession ?? ort.default?.InferenceSession) !== 'function') {

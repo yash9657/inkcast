@@ -126,6 +126,13 @@ export function createRunner(options: { repoRoot: string }): Runner {
         onProgress,
       });
 
+      // One line per film: how long each stage took on this instance. This is the
+      // number to watch against the 800-second ceiling.
+      const stages = Object.entries(result.timings)
+        .map(([stage, ms]) => `${stage}=${Math.round((ms ?? 0) / 1000)}s`)
+        .join(' ');
+      console.log(`[render-service] ${id} cast finished: ${stages}`);
+
       const videoRel = toRelative(dir, result.videoPath);
       await upload(prefix, id, dir, videoRel);
       for (const name of KEPT_ARTEFACTS) {

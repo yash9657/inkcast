@@ -14,7 +14,6 @@
 #   - no Next.js build: only the render service and the packages it imports are
 #     installed (`--filter @inkcast/render-service...`), which drops Next, React and
 #     the UI dependencies from the image;
-#   - only Chromium's headless shell, not the full browser;
 #   - runs as root on port 80, Vercel's default container port (set PORT on the
 #     project to change it). Chromium is launched without its sandbox, which is
 #     Playwright's default; the instance itself is the isolation boundary;
@@ -82,9 +81,10 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=deps /app/ /app/
 
-# Chromium's headless shell plus the system libraries it needs, at the revision
-# the installed Playwright expects.
-RUN cd packages/render && npx --no-install playwright install --with-deps --only-shell chromium \
+# Chromium plus the system libraries it needs, at the revision the installed
+# Playwright expects. The full build, not `--only-shell`: the render stage checks
+# for `chromium.executablePath()` before it launches.
+RUN cd packages/render && npx --no-install playwright install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* \
  && chmod -R a+rX /ms-playwright
 
