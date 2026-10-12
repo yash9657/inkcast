@@ -26,7 +26,7 @@ await validateKey('anthropic'); // one free metadata call
 await deleteKey('anthropic');
 ```
 
-Providers: `anthropic`, `elevenlabs`, `replicate`, `fal`.
+Providers: `fireworks`, `anthropic`, `elevenlabs`, `replicate`, `fal`.
 
 ---
 
@@ -127,21 +127,17 @@ contains key material** — `0600` here is hygiene, not the security boundary.
 
 ## Precedence
 
-`getKey()` resolves **`process.env` first, then storage**:
+`getKey()` resolves **readable storage first, then `process.env`** (the older environment-first behavior was superseded):
 
-1. `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`
-   (`FAL_API_KEY` is accepted as fal's older name). These are the same variables
-   the rest of the repo already reads, so the vault can be adopted incrementally.
-2. The keychain or the vault.
+1. The keychain or encrypted vault, when its saved key is readable.
+2. `FIREWORKS_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`,
+   `REPLICATE_API_TOKEN`, or `FAL_KEY` (`FAL_API_KEY` is also accepted).
 
-Environment-first is what CI and power users depend on: a runner can inject a key
-with no vault and no passphrase, and you can shadow a stored key for a single
-command without mutating storage. An exported-but-**empty** variable counts as
-unset, so it cannot silently shadow a real stored key.
-
-`listProviders()` reports which source would win (`source: 'env' | 'keychain' |
-'vault'`), so shadowing is never invisible, and `setKey()` warns when it stores a
-key that an environment variable is currently overriding.
+Environment keys remain available when no readable saved key exists. An empty
+variable counts as unset. `listProviders()` reports which source wins and whether
+a stored key overrides the environment, or an unreadable entry falls back to it.
+This fallback applies to the local machine vault only. Web account jobs never
+fall back to server environment credentials.
 
 ```ts
 [
@@ -161,60 +157,46 @@ key that an environment variable is currently overriding.
 
 `validateKey()` makes the cheapest authenticated call each provider offers — a
 metadata or account read that bills nothing and mutates nothing, never an
-inference or synthesis call. All four were probed with a deliberately invalid key
+inference or synthesis call. The endpoints were probed with a deliberately invalid key
 to confirm the URL and header shape (each returns 401, not 404):
 
-| provider     | request                                   | auth header                       |
-| ------------ | ----------------------------------------- | --------------------------------- |
-| `anthropic`  | `GET api.anthropic.com/v1/models?limit=1` | `x-api-key` + `anthropic-version` |
-| `elevenlabs` | `GET api.elevenlabs.io/v1/user`           | `xi-api-key`                      |
-| `replicate`  | `GET api.replicate.com/v1/account`        | `Authorization: Token …`          |
-| `fal`        | `POST rest.alpha.fal.ai/tokens/`          | `Authorization: Key …`            |
+| provider     | request                                    | auth header                       |
+| ------------ | ------------------------------------------ | --------------------------------- |
+| `fireworks`  | `GET api.fireworks.ai/inference/v1/models` | `Authorization: Bearer …`         |
+| `anthropic`  | `GET api.anthropic.com/v1/models?limit=1`  | `x-api-key` + `anthropic-version` |
+| `elevenlabs` | `GET api.elevenlabs.io/v1/user`            | `xi-api-key`                      |
+| `replicate`  | `GET api.replicate.com/v1/account`         | `Authorization: Token …`          |
+| `fal`        | `POST rest.alpha.fal.ai/tokens/`           | `Authorization: Key …`            |
 
 fal has no free account-read endpoint, so we ask its token service for a
 short-lived scoped JWT — fal's own documented way to exchange a key, and free.
 
 These are raw `fetch` calls rather than SDK calls on purpose: adding
 `@anthropic-ai/sdk` to a credential-storage package to make one metadata `GET`
-would give the vault a dependency on the very layer it exists to serve, and three
-of the four providers have no SDK in this workspace at all. One uniform path keeps
+would give the vault a dependency on the very layer it exists to serve, and several
+providers have no SDK in this workspace at all. One uniform path keeps
 the security-relevant surface small.
 
 `validateKey()` never throws. `2xx` → `ok`. `401` → `rejected`. `403` →
-`forbidden` (real key, wrong permissions). **`429` → `ok`**, because a throttled
-request got past authentication. `5xx` and network failures return `ok: false`
-with reason `server-error` / `network` and are **not** recorded, since they say
-nothing about the key and must not overwrite yesterday's successful check.
+`forbidden` (the metadata request was refused). `429` → `rate-limited`.
+Neither establishes whether the key can generate. These uncertain results, along
+with `5xx` and network failures, return `ok: false` but are **not** recorded as
+invalid credentials; only a definitive acceptance or rejection updates the saved verdict.
 
 ---
 
-## Making a stored key take effect (`hydrateEnv`)
+## Making a stored key take effect
 
-Every stage picks its provider by reading `process.env` — that is what
-`packages/pipeline/src/providers.ts` does, and it is the one mechanism the CLI, the
-studio and a CI run share. Rather than invent a second one that every adapter would
-need teaching about, `hydrateEnv()` **populates the existing one**:
+The CLI still uses `hydrateEnv()` for its single-user process. Saved keys take priority;
+`dehydrate()` restores variables the CLI overrode. This facility must not be used in a
+shared web server: environment variables are process-global and inherited by children.
 
-```ts
-import { hydrateEnv, dehydrate } from '@inkcast/keyvault';
-
-await hydrateEnv(); // stored keys -> process.env, for providers env did not supply
-// ... run the pipeline ...
-dehydrate(); // remove only the variables we set
-```
-
-It mirrors `getKey()`'s precedence exactly: a key already in the shell or `.env` is
-authoritative and is never overwritten, and `dehydrate()` touches only variables
-this process injected — so deleting a key stops it applying immediately instead of
-at the next restart. Idempotent, and an unreadable entry is reported as missing
-rather than thrown, so one bad entry cannot stop the other three stages upgrading.
-
-**This is opt-in, and it is strictly weaker than `getKey()`.** A key in
-`process.env` is inherited by every child process and appears in anything that
-dumps the environment (`docker inspect`, crash reports, some error reporters).
-Prefer `getKey()` and pass the value explicitly wherever a stage allows it; reach
-for `hydrateEnv()` only in a long-lived server process driving stages that read env
-directly.
+Web jobs instead use `apps/web/lib/keys.ts` and core's `withProviderEnv()` async scope.
+Account credentials are resolved for the authenticated owner at job admission; local web
+jobs use `createKeyvault({ interactive: false, track: false })`. Each job receives an
+immutable provider environment without mutating `process.env`. `withSecretRedaction()`
+provides job-scoped exact-value redaction without permanently retaining customer keys.
+See [AUTH.md](../../docs/AUTH.md) for storage, request protections and operational limits.
 
 ---
 

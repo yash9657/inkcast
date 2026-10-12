@@ -1,7 +1,11 @@
+import { providerEnv } from './provider-context.js';
 /** Shared provider selection. A Fireworks key wins auto selection; explicit pins win. */
 export type TextProvider = 'fireworks' | 'anthropic' | 'heuristic';
 export const FIREWORKS_DEFAULT_MODEL = 'accounts/fireworks/models/deepseek-v4p1-flash';
-export function textProvider(env: NodeJS.ProcessEnv = process.env, adapter?: string): TextProvider {
+export function textProvider(
+  env: NodeJS.ProcessEnv = providerEnv(),
+  adapter?: string,
+): TextProvider {
   const requested = adapter && adapter !== 'auto' ? adapter : env.INKCAST_PLANNER?.trim();
   if (requested === 'local' || requested === 'heuristic') return 'heuristic';
   if (requested === 'fireworks' || requested?.startsWith('accounts/'))
@@ -11,7 +15,7 @@ export function textProvider(env: NodeJS.ProcessEnv = process.env, adapter?: str
 }
 export function textModel(
   fallback: string,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = providerEnv(),
   adapter?: string,
 ): string {
   const selected = textProvider(env, adapter);

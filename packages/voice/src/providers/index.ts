@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * Provider selection and the fallback chain.
  *
@@ -77,7 +78,7 @@ const KEYED_CHAIN: readonly VoiceProviderId[] = ['elevenlabs', 'kokoro', 'system
  * Pin the local one with a `kokoro:` or `local:` prefix on the voice id when you want free
  * delivery *despite* a key. See `pinnedProvider`.
  */
-export function defaultChain(env: NodeJS.ProcessEnv = process.env): VoiceProviderId[] {
+export function defaultChain(env: NodeJS.ProcessEnv = providerEnv()): VoiceProviderId[] {
   if (textProvider(env) === 'fireworks') return ['kokoro', 'system', 'silence'];
   return env.ELEVENLABS_API_KEY ? [...KEYED_CHAIN] : [...DEFAULT_CHAIN];
 }
@@ -133,7 +134,7 @@ export function createProvider(id: VoiceProviderId, hooks: ProviderHooks = {}): 
 
 /** Resolve the requested provider from options then `INKCAST_VOICE`. */
 export function requestedProvider(explicit?: string): VoiceProviderId | undefined {
-  const candidate = explicit ?? process.env.INKCAST_VOICE;
+  const candidate = explicit ?? providerEnv().INKCAST_VOICE;
   if (!candidate) return undefined;
   if (isVoiceProviderId(candidate)) return candidate;
   logger('voice').warn(
@@ -145,7 +146,7 @@ export function requestedProvider(explicit?: string): VoiceProviderId | undefine
 /** Preferred provider first, then everything else in this environment's order. */
 export function chainFor(
   preferred?: VoiceProviderId,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = providerEnv(),
 ): VoiceProviderId[] {
   const order = defaultChain(env);
   if (!preferred) return order;
@@ -209,7 +210,7 @@ export type VoiceFallback = {
  * it lands in `problems`, and the user is told. A rejection is a provider that was
  * never reached, and until now the only trace of one was a `log.debug` line —
  * which is exactly how "ElevenLabs was never getting caught" happened. A key in
- * the vault that had not been hydrated into `process.env`, or a provider that
+ * the vault that had not been hydrated into `providerEnv()`, or a provider that
  * threw while resolving a voice, produced an ordinary-looking local film with
  * nothing anywhere saying a paid provider had been skipped.
  *

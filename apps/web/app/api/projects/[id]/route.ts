@@ -1,3 +1,4 @@
+import { guardRequest } from '../../_lib/request-guard';
 /**
  * `GET /api/projects/<id>`    — one project, with its storyboard.
  * `DELETE /api/projects/<id>` — remove the project directory and index entry.
@@ -106,6 +107,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const refused = guardRequest(request);
+  if (refused) return refused;
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);

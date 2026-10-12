@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textProvider } from '@inkcast/core';
 /**
  * Stage 2+3 — plan. `SourceDoc` in, `Storyboard` out.
@@ -46,7 +47,7 @@ const ARTEFACT = 'storyboard.json';
 
 /** Which adapter a given set of options resolves to, given the environment. */
 export function resolveAdapter(opts: PlanOptions = {}): Exclude<PlannerAdapter, 'auto'> {
-  return textProvider(process.env, opts.adapter);
+  return textProvider(providerEnv(), opts.adapter);
 }
 
 /** Whether this plan runs the pedagogy stage. Default: yes. */

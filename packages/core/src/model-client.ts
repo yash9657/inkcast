@@ -1,3 +1,4 @@
+import { providerEnv } from './provider-context.js';
 import { FIREWORKS_DEFAULT_MODEL } from './model-provider.js';
 
 /** Minimal shared tool-call contract, independent of any provider SDK. */
@@ -40,6 +41,7 @@ export function fireworksClient(key: string, request: typeof fetch = fetch): Mod
     provider: 'fireworks',
     messages: {
       async create(body) {
+        const reasoning = providerEnv().INKCAST_FIREWORKS_REASONING;
         const knownModel = body.model === FIREWORKS_DEFAULT_MODEL;
         const floor = knownModel
           ? body.tool_choice.name === 'emit_lesson'
@@ -65,10 +67,10 @@ export function fireworksClient(key: string, request: typeof fetch = fetch): Mod
                 max_tokens: budget,
                 // A context overflow must not silently shrink the output or discard facts.
                 context_length_exceeded_behavior: 'error',
-                reasoning_effort: process.env.INKCAST_FIREWORKS_REASONING
-                  ? /^\d+$/.test(process.env.INKCAST_FIREWORKS_REASONING)
-                    ? Number(process.env.INKCAST_FIREWORKS_REASONING)
-                    : process.env.INKCAST_FIREWORKS_REASONING
+                reasoning_effort: reasoning
+                  ? /^\d+$/.test(reasoning)
+                    ? Number(reasoning)
+                    : reasoning
                   : body.model.includes('deepseek-v4p1')
                     ? 4096
                     : 'low',

@@ -1,3 +1,4 @@
+import { guardRequest } from '../_lib/request-guard';
 /**
  * `POST /api/generate` — start a cast run and return immediately.
  *
@@ -21,6 +22,7 @@ import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
 
 import {
   badRequest,
+  conflictingJob,
   fail,
   forbidden,
   isHosted,
@@ -47,7 +49,9 @@ import {
   uploadExtension,
 } from '../_lib/schemas';
 import { REPO_ROOT, loadCore, loadPipeline, upsertProject } from '@/lib/store';
-import { hydrateEnv, withKeys } from '@/lib/keys';
+import { credentialEnvironment, defaultProviders, withKeys } from '@/lib/keys';
+import { selectedVoice } from '@/lib/provider-selection';
+import { accountKeys } from '../_lib/deployment';
 import { isRunning, startJob, studioFormat } from '@/lib/jobs';
 
 // The filesystem, ffmpeg and a headless Chromium are all involved. Never edge.
@@ -57,6 +61,8 @@ export const dynamic = 'force-dynamic';
 type SourceRef = { kind: 'text' | 'url' | 'file'; ref: string };
 
 export async function POST(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
     /*
      * Admission before anything else, and specifically before the body is read.
@@ -114,7 +120,19 @@ export async function POST(request: Request) {
     const parsed = isMultipart ? await readMultipart(request) : await readJson(request);
     if (!parsed.ok) return parsed.response;
     const { fields, upload } = parsed.data;
-    const meta = mergeMeta(fields);
+    const selection = fields.providers ?? (await defaultProviders(session));
+    const meta = {
+      ...mergeMeta(fields),
+      voice: selectedVoice(selection, mergeMeta(fields)?.voice),
+    };
+    // Fail before creating a project if a selected key is missing/unreadable.
+    try {
+      await credentialEnvironment(session, selection);
+    } catch {
+      return badRequest(
+        'A selected provider key is missing or unreadable. Check it in Settings, or select the local option.',
+      );
+    }
 
     /* ---------------------------------------------- the hosted source cap */
 
@@ -147,6 +165,7 @@ export async function POST(request: Request) {
 
     let serverPath: string | undefined;
     if (fields.filePath !== undefined) {
+      if (accountKeys()) return forbidden('Upload a document instead of reading server files.');
       const resolved = confineToRepo(fields.filePath);
       if (!resolved) {
         return fail(
@@ -190,7 +209,14 @@ export async function POST(request: Request) {
             // resume the first one's cached lesson and storyboard, and hand back the
             // wrong film. Absent when nothing asked, so `JSON.stringify` drops it and
             // every id derived before this line still derives the same way.
-            JSON.stringify({ source, meta, title: fields.title, preset: fields.preset }),
+            JSON.stringify({
+              owner: ownerTagFor(session),
+              source,
+              meta,
+              title: fields.title,
+              preset: fields.preset,
+              providers: selection,
+            }),
           ));
 
     /*
@@ -229,7 +255,7 @@ export async function POST(request: Request) {
     }
     const id = takenByAnother ? core.projectId() : wanted;
 
-    const project = await core.openProject(id);
+    if (isRunning(id)) return setSessionCookie(conflictingJob(id), session);
 
     /* ------------------------------------------------ charge the generation */
 
@@ -245,6 +271,12 @@ export async function POST(request: Request) {
      */
     const admission = isRunning(id) ? probe : admit(request.headers, 'generation');
     if (!admission.allowed) return tooManyRequests(admission);
+    await upsertProject(
+      id,
+      { ownerSession: ownerTagFor(session), providers: selection },
+      ownerTagFor(session),
+    );
+    const project = await core.openProject(id);
 
     /* --------------------------------------------------------- the upload */
 
@@ -319,35 +351,10 @@ export async function POST(request: Request) {
       ...(meta?.aspect === undefined ? {} : { aspect: meta.aspect }),
     });
 
-    /*
-     * ------------------------------------------------------ the keys, in the env
-     *
-     * This is the route that spends, and until this line existed it was the route
-     * that could not see a key. Every stage adapter picks its provider by reading
-     * `process.env` (`pipeline/src/providers.ts`); a key stored in the vault
-     * reaches `process.env` only via `hydrateEnv()`; and the only handlers that
-     * called it were `/api/keys` and `/api/providers`. So a generation was keyed
-     * if — and only if — the browser had already loaded the settings page or the
-     * studio's provider strip in the *same server process*.
-     *
-     * On a warm dev server that always looks fine, which is why it survived. On a
-     * freshly restarted `next dev`, or a `curl` straight at this endpoint, the
-     * lesson fell to the heuristic author, the narration fell to Kokoro and the
-     * figure lane never ran — with the keys sitting readable in the vault the
-     * whole time and nothing anywhere saying so.
-     *
-     * Hydrated twice, deliberately, and the second one is the one that matters:
-     * `withKeys` wraps the runner, and the runner can start minutes after this
-     * request when both render slots were busy. Here answers "what keys existed
-     * when the button was pressed"; there answers "what keys exist now" — which
-     * is the right question when someone pastes a key while their film waits.
-     */
-    await hydrateEnv();
-
     const { snapshot, started } = startJob(
       id,
       'cast',
-      withKeys(async (onProgress) => {
+      withKeys(session, selection, async (onProgress) => {
         const { cast } = await loadPipeline();
         const result = await cast(castInput, {
           projectId: id,
@@ -475,6 +482,14 @@ async function readMultipart(request: Request): Promise<Parsed<GenerateInput>> {
     raw.force = force === 'true' || force === '1';
   }
 
+  const providerField = form.get('providers');
+  if (typeof providerField === 'string') {
+    try {
+      raw.providers = JSON.parse(providerField);
+    } catch {
+      return { ok: false, response: badRequest('providers must be a JSON object') };
+    }
+  }
   const metaField = form.get('meta');
   if (typeof metaField === 'string' && metaField.trim() !== '') {
     let metaJson: unknown;

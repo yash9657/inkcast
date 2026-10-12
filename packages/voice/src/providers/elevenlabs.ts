@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * ElevenLabs — opt-in cloud upgrade, active only when `ELEVENLABS_API_KEY` is set.
  *
@@ -69,7 +70,7 @@ export const ELEVENLABS_FLASH_MODEL = 'eleven_flash_v2_5';
  * that needs to name the model — the clip key, the delivery signature, the record in
  * `pipeline.json` — asks here.
  */
-export function elevenLabsModel(env: NodeJS.ProcessEnv = process.env): string {
+export function elevenLabsModel(env: NodeJS.ProcessEnv = providerEnv()): string {
   return env.ELEVENLABS_MODEL_ID || ELEVENLABS_QUALITY_MODEL;
 }
 /** "Rachel" — the long-standing default voice, used if `/v1/voices` is unreachable. */
@@ -154,7 +155,7 @@ const VOICE_SETTINGS = {
  * clip key by construction — and a phrase that used to be stretched to 0.81 and is
  * now sent at 0.9 is different audio for narration that never moved.
  */
-export function elevenLabsDelivery(env: NodeJS.ProcessEnv = process.env): string {
+export function elevenLabsDelivery(env: NodeJS.ProcessEnv = providerEnv()): string {
   return `el/v8:${elevenLabsModel(env)}+context+pinned-settings+speed-clamped`;
 }
 
@@ -188,7 +189,7 @@ const PREFERENCES: Record<string, readonly string[]> = {
 };
 
 function apiKey(): string | undefined {
-  return process.env.ELEVENLABS_API_KEY || undefined;
+  return providerEnv().ELEVENLABS_API_KEY || undefined;
 }
 
 /** ElevenLabs voice ids are 20-character base62 strings. */
@@ -321,10 +322,9 @@ async function request(
   }
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 400);
-    // The message text is unchanged on purpose: it is what today's log lines say, and
-    // the classification is carried beside it rather than instead of it.
+    // Classify the body internally; never forward a provider echo into logs or artifacts.
     throw new VoiceProviderError(
-      `ElevenLabs ${urlPath} -> ${res.status} ${res.statusText}${body ? `: ${body}` : ''}`,
+      `ElevenLabs ${urlPath} -> HTTP ${res.status} (${classify(res.status, body)})`,
       { provider: 'elevenlabs', reason: classify(res.status, body), status: res.status },
     );
   }
@@ -479,7 +479,7 @@ export function createElevenLabsProvider(): VoiceProvider {
     // vault is the failure this string exists to make impossible to miss.
     unavailableReason() {
       if (apiKey()) return undefined;
-      return 'ELEVENLABS_API_KEY is not set in this process (a key stored in the vault only counts once it has been hydrated into the environment)';
+      return 'ELEVENLABS_API_KEY is not set in this process (select a saved key for this video)';
     },
 
     async voices() {
@@ -510,7 +510,7 @@ export function createElevenLabsProvider(): VoiceProvider {
     },
 
     async resolveVoice(requested: string) {
-      const override = process.env.ELEVENLABS_VOICE_ID;
+      const override = providerEnv().ELEVENLABS_VOICE_ID;
       if (override) return override;
       if (looksLikeVoiceId(requested)) return requested;
 

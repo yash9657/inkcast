@@ -76,7 +76,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     stage: 'plan',
     role: 'Plans, draws and reviews',
     unlocks:
-      'Open-weight models write lessons, compose vector diagrams and review rendered frames. Preferred when configured. Pair with local Kokoro speech; raster illustration generation needs a separate image provider.',
+      'Open-weight models write lessons, compose vector diagrams and review rendered frames. Preferred when configured. Pair with ElevenLabs narration or local Kokoro speech; raster illustration generation needs a separate image provider.',
     without: 'Uses another configured planning provider, or the limited local document planner.',
     rank: 1,
     console: {
@@ -97,12 +97,12 @@ export const PROVIDERS: readonly ProviderInfo[] = [
       'Claude writes the lesson before anything is drawn: a hook, an everyday anchor for the idea, one new step at a time with a reason for each, a worked example with real numbers, and the wrong belief a learner usually forms, named and refuted. It also handles plain-language edits to a finished storyboard.',
     without:
       'The local planner splits the document into beats and narrates them in order. It is deterministic, free and instant, and it summarises rather than teaches — the video will describe your document instead of building an idea in the viewer.',
-    rank: 1,
+    rank: 2,
     console: {
       href: 'https://console.anthropic.com/settings/keys',
       label: 'console.anthropic.com',
     },
-    cost: 'a few cents per video',
+    cost: 'Billed by your provider; varies with usage',
     looksLike: {
       prefix: 'sk-ant-',
       minLength: 40,
@@ -117,12 +117,12 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     stage: 'voice',
     role: 'Speaks the narration',
     unlocks:
-      'Narration in a voice a learner will sit through for three minutes, with word-level timings so a diagram lands on the exact word that names it — and the other fifteen languages the studio offers.',
+      'Cloud narration with native word timings and multilingual speech. The creation form lets you choose a voice or enter a voice ID from your ElevenLabs account.',
     without:
-      'Kokoro synthesises the narration on this machine, in English, for nothing. Its better voices are listenable; none of them are as good as a cloud voice for something you intend to publish.',
+      'Choose local Kokoro narration in English with no speech API charge. Alignment quality depends on the available local models.',
     rank: 2,
     console: { href: 'https://elevenlabs.io/app/settings/api-keys', label: 'elevenlabs.io' },
-    cost: 'about $0.10 per minute',
+    cost: 'Billed by ElevenLabs; varies with plan and usage',
     looksLike: { minLength: 24, describe: '32 hex characters, or a key beginning sk_' },
   },
   {
@@ -201,7 +201,7 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 export function judgeKeyShape(id: ProviderId, key: string): ShapeVerdict {
   const info = providerInfo(id);
   if (key === '') return { ok: false, problem: 'The field is empty.' };
-  if (/\s/.test(key)) {
+  if (/\s/.test(key) || CONTROL_CHARS.test(key)) {
     return {
       ok: false,
       problem:

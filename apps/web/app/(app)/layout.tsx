@@ -85,16 +85,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <footer className="border-t border-border">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-5 text-xs text-muted-foreground sm:px-6">
-          {/* "Runs on this machine" was true of every deployment there was when
-              it was written, and is false of the one with the sign-in on it: the
-              machine is somebody else's server. The path on the right stays,
-              because a project directory is still exactly where the file lands —
-              that part is true on both. */}
-          <p>
-            {access.mode === 'open'
-              ? 'Runs on this machine. No keys, no per-minute bill.'
-              : 'A shared deployment. No per-minute bill.'}
-          </p>
+          <p>Local processing has no provider fees. Cloud usage is billed by your providers.</p>
           <p className="font-mono">projects/&lt;id&gt;/out.mp4</p>
         </div>
       </footer>

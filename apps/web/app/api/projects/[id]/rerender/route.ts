@@ -1,3 +1,4 @@
+import { guardRequest } from '../../../_lib/request-guard';
 /**
  * `POST /api/projects/<id>/rerender` — rebuild the video from the saved storyboard.
  *
@@ -29,13 +30,15 @@ import { admit } from '../../../_lib/ratelimit';
 import { RerenderBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
 import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
-import { hydrateEnv, withKeys } from '@/lib/keys';
+import { defaultProviders, withKeys } from '@/lib/keys';
 import { isRunning, startJob } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
@@ -86,20 +89,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       aspect: storyboard.meta.aspect,
     });
 
-    /*
-     * Stored keys into the environment before anything reads them — see the long
-     * note in `/api/generate`. A re-render usually spends nothing, but "usually"
-     * is not "never": the voice stage re-synthesises scenes whose narration
-     * changed, and without this a re-render after an edit would speak those
-     * scenes in Kokoro and splice them into a film the rest of which is
-     * ElevenLabs. A half-recast film is worse than a wholly local one.
-     */
-    await hydrateEnv();
+    const selection = verdict.project.providers ?? (await defaultProviders(session));
 
     const { started } = startJob(
       id,
       'rerender',
-      withKeys(async (onProgress) => {
+      withKeys(session, selection, async (onProgress) => {
         const { rerender } = await loadPipeline();
         const result = await rerender(id, {
           // `rerender` already defaults this to true; passing it through lets a

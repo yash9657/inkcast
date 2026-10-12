@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { textModel, noteSpend } from '@inkcast/core';
@@ -58,8 +59,8 @@ export const CAST_POSES = ['standing', 'walking', 'pointing', 'sitting'] as cons
 export function lessonModel(opts?: { model?: string; adapter?: string }): string {
   return (
     opts?.model ??
-    process.env.INKCAST_LESSON_MODEL ??
-    textModel(DEFAULT_LESSON_MODEL, process.env, opts?.adapter)
+    providerEnv().INKCAST_LESSON_MODEL ??
+    textModel(DEFAULT_LESSON_MODEL, providerEnv(), opts?.adapter)
   );
 }
 

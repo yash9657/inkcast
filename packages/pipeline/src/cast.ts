@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * The orchestrator: ingest -> lesson -> storyboard -> voice -> visuals -> check -> render.
  *
@@ -682,13 +683,13 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
          */
         images: provs.images.name,
         generation: {
-          fireworksReasoning: process.env.INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+          fireworksReasoning: providerEnv().INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
           language: metaOverrides.language ?? 'en',
           style: metaOverrides.style ?? 'marker',
-          drawModel: process.env.INKCAST_DRAW_MODEL ?? 'default',
-          routerModel: process.env.INKCAST_ROUTER_MODEL ?? 'default',
-          figureModel: process.env.INKCAST_FIGURE_MODEL ?? 'default',
-          drawingRevision: process.env.INKCAST_DRAW_FIX ?? 'default',
+          drawModel: providerEnv().INKCAST_DRAW_MODEL ?? 'default',
+          routerModel: providerEnv().INKCAST_ROUTER_MODEL ?? 'default',
+          figureModel: providerEnv().INKCAST_FIGURE_MODEL ?? 'default',
+          drawingRevision: providerEnv().INKCAST_DRAW_FIX ?? 'default',
         },
       },
     );
@@ -1809,7 +1810,7 @@ async function sourceStamp(input: CastInput): Promise<string> {
 
 /** CLI/API flags plus env defaults, with `undefined` entries removed. */
 function resolveMetaOverrides(meta: Partial<StoryboardMeta> = {}): Partial<StoryboardMeta> {
-  const envVoice = process.env.INKCAST_VOICE?.trim();
+  const envVoice = providerEnv().INKCAST_VOICE?.trim();
   const merged: Partial<StoryboardMeta> = { ...meta };
   if (merged.voice === undefined && envVoice) merged.voice = envVoice;
   return Object.fromEntries(

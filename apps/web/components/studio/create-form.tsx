@@ -58,6 +58,8 @@ import {
 import { cn } from '@/lib/utils';
 
 import { FileDrop } from './file-drop';
+import { ProviderChoices } from './provider-choices';
+import { defaultSelection, selectedVoice, type ProviderSelection } from '@/lib/provider-selection';
 import { clock, estimateSpokenSeconds, wordCount } from './format';
 import {
   DEFAULT_VOICE,
@@ -204,6 +206,9 @@ export function CreateForm() {
   const [palette, setPalette] = React.useState<Palette>('color');
   const [language, setLanguage] = React.useState('en');
   const [voice, setVoice] = React.useState<string>(DEFAULT_VOICE);
+  const [cloudVoice, setCloudVoice] = React.useState('River');
+  const [selection, setSelection] = React.useState<ProviderSelection>();
+  const submittingRef = React.useRef(false);
 
   const [showOptions, setShowOptions] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
@@ -225,13 +230,29 @@ export function CreateForm() {
    * capability shows no banner rather than a scary one.
    */
   const [caps, setCaps] = React.useState<Capabilities | undefined>(undefined);
+  const [capsError, setCapsError] = React.useState<string>();
+  const refreshCapabilities = React.useCallback(async (signal?: AbortSignal) => {
+    try {
+      const value = await getCapabilities(signal);
+      if (signal?.aborted) return;
+      setCaps(value);
+      setCapsError(undefined);
+    } catch (err) {
+      if (!signal?.aborted) setCapsError(errorMessage(err));
+    }
+  }, []);
   React.useEffect(() => {
     const controller = new AbortController();
-    getCapabilities(controller.signal)
-      .then((value) => setCaps(value))
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
+    const refresh = () => void refreshCapabilities(controller.signal);
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      controller.abort();
+      window.removeEventListener('focus', refresh);
+    };
+  }, [refreshCapabilities]);
+  const providers = selection ?? caps?.selection ?? defaultSelection(caps?.keys ?? []);
+  const cloudSpeech = providers.speech === 'elevenlabs';
 
   const words = wordCount(text);
   const estimate = estimateSpokenSeconds(text);
@@ -284,18 +305,21 @@ export function CreateForm() {
   const shownError = rejection ?? (attempted ? problem : undefined);
 
   async function submit() {
+    if (submittingRef.current || !caps || capsError) return;
     setAttempted(true);
     setRejection(undefined);
     const found = validate();
     setProblem(found);
     if (found) return;
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const input: GenerateInput = {
         aspect,
         language,
-        voice,
+        voice: selectedVoice(providers, cloudSpeech ? cloudVoice.trim() || 'River' : voice),
+        providers,
         style,
         palette,
         format,
@@ -326,7 +350,9 @@ export function CreateForm() {
       });
       router.push(`/project/${projectId}?generating=1`);
     } catch (err) {
+      submittingRef.current = false;
       setSubmitting(false);
+      setRejection(errorMessage(err));
       toast.error('Could not start the render', { description: errorMessage(err) });
     }
   }
@@ -343,7 +369,25 @@ export function CreateForm() {
       }}
       className="flex flex-col gap-6"
     >
-      <PlannerNotice caps={caps} />
+      {capsError ? (
+        <div role="alert" className="flex flex-col gap-2 text-sm text-destructive">
+          <p>Could not load your provider settings. {capsError}</p>
+          <Button
+            type="button"
+            variant="outline"
+            className="self-start"
+            onClick={() => void refreshCapabilities()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : caps ? (
+        <ProviderChoices caps={caps} value={providers} onChange={setSelection} />
+      ) : (
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading your provider settings…
+        </p>
+      )}
 
       <Card className="gap-4 py-4">
         <CardContent className="px-4">
@@ -496,7 +540,9 @@ export function CreateForm() {
             hint="How much is explained, and therefore how long it runs."
             value={format}
             onValueChange={setFormat}
-            options={FILM_FORMATS.map((option) => ({
+            options={FILM_FORMATS.filter(
+              (option) => !caps || caps.formats.includes(option.value),
+            ).map((option) => ({
               value: option.value,
               label: option.label,
               hint: option.hint,
@@ -507,9 +553,8 @@ export function CreateForm() {
           <LabelHint>
             {lengthHonoured ? (
               <>
-                The planner aims for {clock(chosenFormat.seconds)} and is rejected if it overruns by
-                more than a quarter. Either way the board shows one card per beat and wipes between
-                them.
+                The planner aims for {clock(chosenFormat.seconds)}. The camera follows a growing
+                canvas; final timing follows the narration.
               </>
             ) : (
               <>
@@ -539,7 +584,7 @@ export function CreateForm() {
 
           {showOptions ? null : (
             <p className="tabular min-w-0 text-xs text-muted-foreground">
-              {languageLabel} · {voiceLabel(voice)} ·{' '}
+              {languageLabel} · {cloudSpeech ? cloudVoice || 'River' : voiceLabel(voice)} ·{' '}
               {inkStyles.find((s) => s.value === style)?.label} ·{' '}
               {PALETTES.find((p) => p.value === palette)?.label}
             </p>
@@ -598,37 +643,54 @@ export function CreateForm() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {localVoice ? (
+                  {localVoice || cloudSpeech ? (
                     <LabelHint>Narration is measured, so timing reflows per language.</LabelHint>
                   ) : (
                     <p className="flex flex-wrap items-center gap-1.5 text-xs leading-relaxed text-warning">
                       <Badge variant="warning">Needs a key</Badge>
-                      The local voice speaks English only. {languageLabel} narration needs
-                      ELEVENLABS_API_KEY; without it the run falls back to English.
+                      The local voice speaks English only. Select ElevenLabs above for{' '}
+                      {languageLabel} narration.
                     </p>
                   )}
                 </div>
 
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="voice">Voice</Label>
-                  <Select value={voice} onValueChange={(value: unknown) => setVoice(String(value))}>
-                    <SelectTrigger id="voice" aria-label="Narration voice">
-                      <span className="truncate">{voiceLabel(voice)}</span>
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {VOICE_GROUPS.map((group) => (
-                        <SelectGroup key={group.group}>
-                          <SelectGroupLabel>{group.group}</SelectGroupLabel>
-                          {group.voices.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <LabelHint>Runs locally with Kokoro. No key, no per-minute bill.</LabelHint>
+                  {cloudSpeech ? (
+                    <Input
+                      id="voice"
+                      value={cloudVoice}
+                      maxLength={100}
+                      placeholder="River, Rachel, or your ElevenLabs voice ID"
+                      onChange={(event) => setCloudVoice(event.target.value)}
+                    />
+                  ) : (
+                    <Select
+                      value={voice}
+                      onValueChange={(value: unknown) => setVoice(String(value))}
+                    >
+                      <SelectTrigger id="voice" aria-label="Narration voice">
+                        <span className="truncate">{voiceLabel(voice)}</span>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {VOICE_GROUPS.map((group) => (
+                          <SelectGroup key={group.group}>
+                            <SelectGroupLabel>{group.group}</SelectGroupLabel>
+                            {group.voices.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <LabelHint>
+                    {cloudSpeech
+                      ? 'A voice name or ID from your ElevenLabs account. Availability depends on your plan and key permissions.'
+                      : 'Runs locally with Kokoro. No speech API charge.'}
+                  </LabelHint>
                 </div>
               </div>
 
@@ -650,14 +712,19 @@ export function CreateForm() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-          Five stages, on this machine: read the source, plan one growing canvas, narrate and
-          measure it, draw every entity once, then ink the frames.{' '}
+          Read the source, plan the lesson, narrate and measure it, draw the canvas, then render the
+          video.{' '}
           {mode === 'text' && words > 0 ? (
             <span className="text-foreground">≈{clock(estimate)} of video.</span>
           ) : null}
         </p>
 
-        <Button type="submit" size="lg" disabled={submitting} className="shrink-0">
+        <Button
+          type="submit"
+          size="lg"
+          disabled={submitting || !caps || Boolean(capsError)}
+          className="shrink-0"
+        >
           {submitting ? 'Starting…' : 'Draw it'}
           {submitting ? null : <ArrowRightIcon aria-hidden />}
         </Button>
@@ -691,58 +758,3 @@ export function CreateForm() {
  * is that it works with no keys — so the absence of an answer must never read as
  * an error.
  */
-function PlannerNotice({ caps }: { caps: Capabilities | undefined }) {
-  if (!caps) return null;
-
-  const anthropic = keyStateFor(caps, 'anthropic');
-  const planning = caps.planner.name === 'anthropic';
-
-  if (planning) {
-    return (
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <BrainIcon className="size-3.5 shrink-0" aria-hidden />
-        Planning the lesson with {caps.planner.model ?? 'Claude'}.
-        <Link
-          href="/settings"
-          className="focus-ring rounded-xs text-primary underline-offset-4 outline-none hover:underline"
-        >
-          Keys
-        </Link>
-      </p>
-    );
-  }
-
-  return (
-    <Card className="gap-3 border-warning/40 bg-warning/6 py-4">
-      <CardContent className="flex flex-col gap-3 px-4">
-        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-          <Badge variant="warning">
-            <KeyRoundIcon aria-hidden />
-            Limited output
-          </Badge>
-          No Anthropic key, so this will summarise rather than teach.
-        </p>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          The local planner splits your document into beats and narrates them in order. It is free,
-          instant and deterministic, and it cannot build an idea: no hook, no everyday anchor, no
-          worked example, no misconception named and refuted. Everything else — the drawing, the
-          narration, the timing — works exactly as it will with a key.
-          {anthropic?.unreadable
-            ? ' A key is saved but can no longer be decrypted; paste it again.'
-            : ''}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start"
-          render={<Link href="/settings" />}
-        >
-          <KeyRoundIcon aria-hidden />
-          Add a key
-          <ArrowRightIcon aria-hidden />
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}

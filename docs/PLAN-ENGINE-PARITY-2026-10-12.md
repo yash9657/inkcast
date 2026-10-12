@@ -107,7 +107,7 @@ The current function produces the same output for that saved narration at an 18-
 
 **Consequence:** the video can meet pace/word-count checks while omitting the reason the demonstration exists. The image may still depict concepts the voice no longer explains.
 
-**Required change:** rewrite to a whole-film duration budget *before* final visual planning; preserve required claims, dependencies, worked-example outcomes, and the objective. Revalidate the final spoken script against those requirements. If it cannot fit, reduce optional scope or offer a longer version; never silently discard a required causal sentence. A deterministic offline path should choose complete, dependency-closed explanation units rather than first sentences.
+**Required change:** rewrite to a whole-film duration budget _before_ final visual planning; preserve required claims, dependencies, worked-example outcomes, and the objective. Revalidate the final spoken script against those requirements. If it cannot fit, reduce optional scope or offer a longer version; never silently discard a required causal sentence. A deterministic offline path should choose complete, dependency-closed explanation units rather than first sentences.
 
 **Acceptance:** the lamp/ball regression retains the illumination/shadow mechanism; all required claims have a sentence and a supporting visual action or justified verbal-only treatment; no silent loss through preset fitting, edit, translation, or revoice. Test both strict-duration and flexible-duration modes. Increasing `maxWordsPerBeat` alone is not a fix.
 
@@ -483,7 +483,6 @@ After the renderer environment is repaired, rerun the full workspace tests and a
 
 The next implementation action should be the baseline/preflight and script-preservation work packages. The project already contains enough rendering machinery to make substantially better videos; the highest-value work is making every stage preserve and demonstrate the same explanation.
 
-
 ## 12. Implementation execution notes — 2026-10-12
 
 The first implementation slice addresses the failures that made meaningful comparison impossible. It does not complete the full roadmap or establish Golpo parity.
@@ -500,7 +499,6 @@ The first real baseline exhausted the existing Anthropic account's credits and p
 The default Fireworks model now receives 65,536 tokens for lessons/edits and 32,768 for drawings, with one fresh retry at 131,072 after truncation. Reasoning is capped separately at 4,096 tokens and counts inside the output allowance. Retry usage is retained, truncated JSON is rejected, context overflow is explicit, and timeouts scale with the allowance. Other model overrides do not inherit an unverified ceiling. The 131,072 value is supported by the model card's published example; it is our configured retry ceiling, not a claim that all Fireworks models share that limit.
 
 Outstanding release work still includes claim-to-source validation, scientific/domain relationship constraints, persistent mechanism updates, measured whole-film cadence review, first-attempt benchmark acceptance, local raster generation, and durable product jobs. Existing structural/vision checks are insufficient to certify “perfect” factual explanations.
-
 
 ### Completed GPS run: output-limit fix validated; parity acceptance failed
 
@@ -559,3 +557,46 @@ The user reviewed the V4 film and approved the improvement. At their request, th
 The next requested work is to update login, settings, and video creation for users supplying their own Fireworks and ElevenLabs keys, and to harden credential storage and account isolation. That work has **not been implemented or security-validated** in this checkpoint. The existing web changes only register Fireworks in the provider catalog/types and related tests; they do not establish secure multi-user deployment.
 
 Start by reading `docs/AUTH.md`, `docs/DEPLOY.md`, `packages/keyvault/README.md`, the web session/key-account routes, and job execution. Verify owner checks, session/cookie and request-origin protections, encrypted storage and deployment secret handling, and per-job credentials without cross-user environment leakage. Cover adversarial cross-account and concurrent-job cases before claiming secure BYOK support. Then update the UI with clear Fireworks planning and ElevenLabs speech choices, connection/removal states, and accurate data-handling language; preserve the explicit local fallback. The user previously requested committing and pushing the completed changes, but narrowed this immediate checkpoint to a local commit before the new chat.
+
+### BYOK settings, creation and isolation — 2026-10-12
+
+The settings and studio now support each user's Fireworks planning and ElevenLabs
+speech keys independently, including explicit local choices, optional image providers,
+validation, replacement and removal. Provider selections are saved with each project;
+credentials are resolved again when queued work is admitted and on edits/rerenders.
+The settings copy distinguishes encryption at rest, server operator access, provider
+billing and removal versus revocation. Clerk login remains a separate workstream.
+
+Account jobs use async credential scopes instead of changing `process.env`. They never
+fall back to operator keys. Generated drawing/illustration caches and source-derived
+project IDs are scoped to the owner. Ownership claims are checked under the metadata
+lock, and Clerk installations cannot list or adopt unowned operator projects when the
+hosted flag is off. Key routes, generation and edits enforce request-origin checks;
+local-vault access and spending reject non-localhost request URLs. Local mode must be
+bound to loopback; Host headers are not network authentication.
+
+Storage now fails closed on damaged files, authenticates version 2 display metadata,
+reads existing version 1 records, and ignores stale validation results for replaced
+keys. Validation and job redaction use scoped secrets, including common encodings.
+Account source ingestion rejects server file paths, checks and pins public DNS addresses,
+revalidates redirects, and bounds response size. Shared media routes exclude raw sources,
+metadata and diagnostics.
+
+Verification: **1,305 passing tests, 3 credential-dependent skips, zero failures**
+across the workspace suite and final affected-package reruns; workspace typecheck passes.
+Tests cover concurrent real provider adapters with intercepted HTTP, cross-account
+reads/writes, queued key changes, encoded redaction, tampering, legacy storage, shared
+media, private-network redirects and response limits. The first browser pass verified
+save/masking, account separation, provider choices, cloud/local request payloads,
+removal, failed loading, mobile layouts and dark mode. The production build and final browser pass also succeeded on the user's Mac mini
+over Tailscale, using Node 22, two build workers, synthetic account secrets and the
+existing dependency tree. The browser pass checks that a second account cannot start
+a video with the first account's keys or read a server source file. Screenshots cover
+1440×1000 and 390×844 in light/dark mode, with no page errors or horizontal overflow.
+Run `scripts/verify-byok-ui.mjs` against an isolated account-mode server to repeat it
+(`BYOK_TEST_URL`, optional `BYOK_TEST_CHROME`, and `BYOK_TEST_EVIDENCE`). Set the
+server's `INKCAST_PUBLIC_URL` to that test URL. No real Clerk login or paid video is claimed.
+
+The Storyboard IR, renderer and video-quality algorithms are unchanged. No dependency
+installation or lockfile change was made. Per the user's latest instruction, keep the
+finished commit local and wait for their go-ahead before pushing.

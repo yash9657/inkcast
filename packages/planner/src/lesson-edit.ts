@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textProvider } from '@inkcast/core';
 /**
  * Revising the teaching, not just the drawing.
@@ -251,7 +252,7 @@ export async function editLessonDetailed(
   opts: LessonOptions = {},
 ): Promise<{ lesson: Lesson; report: LessonEditReport }> {
   const preset = resolvePreset(opts);
-  const adapter = textProvider(process.env, opts.adapter);
+  const adapter = textProvider(providerEnv(), opts.adapter);
 
   if (adapter !== 'heuristic') {
     const patched = await anthropicLessonEdit(lesson, instruction, opts, preset.maxSeconds);

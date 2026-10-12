@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textProvider } from '@inkcast/core';
 /**
  * Natural-language editing of a storyboard.
@@ -221,7 +222,7 @@ export async function editStoryboardDetailed(
   instruction: string,
   opts: EditOptions = {},
 ): Promise<{ storyboard: Storyboard; report: EditReport }> {
-  const adapter = textProvider(process.env, opts.adapter);
+  const adapter = textProvider(providerEnv(), opts.adapter);
 
   if (adapter !== 'heuristic') {
     const patched = await anthropicEdit(sb, instruction, opts);

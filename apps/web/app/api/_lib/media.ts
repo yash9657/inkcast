@@ -183,3 +183,15 @@ export const CONTENT_TYPES: Readonly<Record<string, string>> = {
 export function contentTypeFor(file: string): string {
   return CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
 }
+
+/** Public shares expose playback assets, never source documents or private metadata. */
+export function shareableMediaPath(segments: readonly string[], videoPath?: string): boolean {
+  if (!segments.length || !segments.every(isSafeSegment)) return false;
+  const rel = segments.join('/');
+  if (rel === videoPath && /\.(mp4|webm|m4v|mov)$/i.test(rel)) return true;
+  if (segments.length === 1 && /^(thumbnail|poster)\.(png|jpe?g|webp)$/i.test(rel)) return true;
+  return (
+    ['audio', 'assets'].includes(segments[0]!) &&
+    /\.(wav|mp3|m4a|ogg|opus|png|jpe?g|webp|gif|svg)$/i.test(rel)
+  );
+}

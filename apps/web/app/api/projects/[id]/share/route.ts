@@ -1,3 +1,4 @@
+import { guardRequest } from '../../../_lib/request-guard';
 /**
  * `POST /api/projects/<id>/share` — publish or unpublish one film.
  *
@@ -42,6 +43,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const refused = guardRequest(request);
+  if (refused) return refused;
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);

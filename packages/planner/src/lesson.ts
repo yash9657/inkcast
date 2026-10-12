@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textProvider, FIREWORKS_GENERATION_POLICY } from '@inkcast/core';
 /**
  * Stage 2 — lesson. Document (or a bare topic) in, `Lesson` out.
@@ -33,13 +34,13 @@ const CACHE_KEY = 'lesson';
 
 /** Which lesson author a given set of options resolves to, in this environment. */
 export function resolveLessonAdapter(opts: LessonOptions = {}): Exclude<PlannerAdapter, 'auto'> {
-  return textProvider(process.env, opts.adapter);
+  return textProvider(providerEnv(), opts.adapter);
 }
 
 function inputHash(input: LessonInput, opts: LessonOptions, adapter: string): string {
   const doc = typeof input === 'string' ? { title: input, text: input } : input;
   return hash(LESSON_VERSION, adapter, doc.title, doc.text, {
-    fireworksReasoning: process.env.INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+    fireworksReasoning: providerEnv().INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
     fireworksOutputPolicy: FIREWORKS_GENERATION_POLICY,
     language: opts.language,
     style: opts.style,

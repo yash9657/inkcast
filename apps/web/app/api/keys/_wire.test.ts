@@ -169,11 +169,11 @@ test('a rejected key is invalid, and the provider body is demoted to detail', ()
   assert.equal(out.detail, raw);
 });
 
-test('rate limiting means the key authenticated, so it is valid', () => {
+test('rate limiting leaves authentication unknown', () => {
   // 429 got past authentication to a quota check. Calling this invalid would be
   // wrong, and calling it unknown would be timid.
   const out = describeProbe({ reason: 'rate-limited', status: 429 }, 'ElevenLabs', ANTHROPIC);
-  assert.equal(out.status, 'valid');
+  assert.equal(out.status, 'unknown');
   assert.match(out.message, /rate-limited/);
 });
 
@@ -182,7 +182,7 @@ test('an unreachable provider is unknown, never invalid', () => {
   const out = describeProbe({ reason: 'network', message: 'fetch failed' }, 'Replicate', ANTHROPIC);
   assert.equal(out.status, 'unknown');
   assert.match(out.message, /could not be checked/);
-  assert.match(out.message, /saved and will be used/);
+  assert.ok(!out.message.includes('saved and will be used'));
 });
 
 test('a 5xx says nothing about the key', () => {
@@ -191,11 +191,11 @@ test('a 5xx says nothing about the key', () => {
   assert.equal(out.httpStatus, 503);
 });
 
-test('403 is invalid but is not described as a wrong key', () => {
+test('403 on a metadata scope does not invalidate a synthesis key', () => {
   const out = describeProbe({ reason: 'forbidden', status: 403 }, 'Anthropic', ANTHROPIC);
-  assert.equal(out.status, 'invalid');
+  assert.equal(out.status, 'unknown');
   // The key is real; the fix is scopes or billing, not re-pasting.
-  assert.match(out.message, /lacks the permission/);
+  assert.match(out.message, /permissions/);
   assert.ok(!/Copy it again/.test(out.message));
 });
 

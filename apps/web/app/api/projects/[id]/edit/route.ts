@@ -1,3 +1,4 @@
+import { guardRequest } from '../../../_lib/request-guard';
 /**
  * `POST /api/projects/<id>/edit` — patch a storyboard from plain English.
  *
@@ -30,13 +31,15 @@ import { admit } from '../../../_lib/ratelimit';
 import { EditBody } from '../../../_lib/schemas';
 import { requireOwner, resolveIdentity, setSessionCookie } from '../../../_lib/session';
 import { isValidProjectId, loadPipeline, readProjectStoryboard, upsertProject } from '@/lib/store';
-import { hydrateEnv } from '@/lib/keys';
+import { defaultProviders, runWithKeys } from '@/lib/keys';
 import { isRunning } from '@/lib/jobs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
     const { id } = await context.params;
     if (!isValidProjectId(id)) return badRequest(`"${id}" is not a valid project id`);
@@ -101,24 +104,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const admission = admit(request.headers, 'operation');
     if (!admission.allowed) return tooManyRequests(admission);
 
-    /*
-     * Stored keys into the environment before the pipeline reads them — the same
-     * defect as `/api/generate`, and here it has a name the response prints.
-     * `editProject` asks Claude when `ANTHROPIC_API_KEY` is set and falls back to
-     * the pattern parser when it is not, and reports which happened as `via`. On a
-     * server process that had not served the settings page, the key never reached
-     * `process.env`, so every edit took the local path and the response said
-     * `via: 'local'` — truthfully, about a choice nobody made.
-     *
-     * No `withKeys` here: this route does its work inline rather than as a job, so
-     * there is no later moment to hydrate for.
-     */
-    await hydrateEnv();
-
     const pipeline = await loadPipeline();
     let result: Awaited<ReturnType<typeof pipeline.editProject>>;
     try {
-      result = await pipeline.editProject(id, parsed.data.instruction);
+      result = await runWithKeys(
+        session,
+        verdict.project.providers ?? (await defaultProviders(session)),
+        () => pipeline.editProject(id, parsed.data.instruction),
+      );
     } catch (err) {
       // An instruction the local parser could not map onto an edit operation is
       // a 422 with the pipeline's own usage hint attached — the user needs to

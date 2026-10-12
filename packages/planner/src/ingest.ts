@@ -1,3 +1,4 @@
+import { providerEnv, fetchPublicText } from '@inkcast/core';
 /**
  * Stage 1 — ingest.
  *
@@ -171,15 +172,23 @@ async function fromUrl(url: string, opts?: StageOptions): Promise<Extracted> {
     throw new Error(`only http(s) URLs can be ingested, got ${parsed.protocol}`);
   }
 
-  const res = await fetch(parsed, {
-    redirect: 'follow',
-    headers: { 'user-agent': 'inkcast/0.1 (+https://github.com/inkcast)' },
-  });
-  if (!res.ok) throw new Error(`fetch failed for ${url}: ${res.status} ${res.statusText}`);
-  const body = await res.text();
+  let body: string;
+  let type: string;
+  if (providerEnv().INKCAST_PUBLIC_SOURCES === '1') {
+    const result = await fetchPublicText(parsed);
+    body = result.body;
+    type = result.contentType;
+  } else {
+    const res = await fetch(parsed, {
+      redirect: 'follow',
+      headers: { 'user-agent': 'inkcast/0.1 (+https://github.com/inkcast)' },
+    });
+    if (!res.ok) throw new Error(`fetch failed for ${url}: ${res.status} ${res.statusText}`);
+    body = await res.text();
+    type = res.headers.get('content-type') ?? '';
+  }
   report(opts, { stage: 'ingest', pct: 45, note: `fetched ${body.length} bytes` });
 
-  const type = res.headers.get('content-type') ?? '';
   if (type.includes('text/markdown') || parsed.pathname.endsWith('.md')) {
     return { text: body, kind: 'markdown', ref: parsed.href };
   }

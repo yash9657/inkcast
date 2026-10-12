@@ -1,3 +1,4 @@
+import { shareableMediaPath } from '../../../_lib/media';
 /**
  * `GET /api/media/<id>/<path…>` — serve one file out of a project directory.
  *
@@ -108,6 +109,9 @@ async function serve(request: Request, context: Context, headOnly: boolean): Pro
   const session = who.ok ? who.session : who.stranger;
   const verdict = await requireViewable(id, session);
   if (!verdict.ok) return fail(verdict.status, verdict.message);
+
+  if (verdict.via === 'shared' && !shareableMediaPath(segments ?? [], verdict.project.videoPath))
+    return fail(403, 'Only playback media is available through this share link.');
 
   const resolved = await resolveMediaFile(dir, segments ?? []);
   if (!resolved.ok) {

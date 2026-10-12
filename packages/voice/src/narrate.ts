@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * The voice stage.
  *
@@ -255,7 +256,7 @@ export type NarrateResult = {
 };
 
 function envNumber(name: string, fallback: number): number {
-  const raw = process.env[name];
+  const raw = providerEnv()[name];
   if (!raw) return fallback;
   const value = Number.parseFloat(raw);
   return Number.isFinite(value) ? value : fallback;
@@ -1325,7 +1326,7 @@ export async function narrate(
    * themselves: the chain simply walked past its own head and the run went on
    * looking completely ordinary. That is how "ElevenLabs was never getting
    * caught" was true and invisible at the same time — the key was in the vault,
-   * the vault had not been hydrated into `process.env` on this code path
+   * the vault had not been hydrated into `providerEnv()` on this code path
    * (`apps/web/lib/keys.ts` is the other half of that fix), `available()`
    * returned false, and one `log.debug` line was the entire record.
    *

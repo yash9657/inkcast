@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * Structured cloud model calls. The legacy filename/API remains compatible with
  * callers; provider selection chooses Fireworks or the optional Anthropic SDK.
@@ -46,21 +47,21 @@ export function anthropicAvailable(): boolean {
 export function plannerModel(opts?: { model?: string; adapter?: string }): string {
   return (
     opts?.model ??
-    process.env.INKCAST_PLANNER_MODEL ??
-    textModel(DEFAULT_MODEL, process.env, opts?.adapter)
+    providerEnv().INKCAST_PLANNER_MODEL ??
+    textModel(DEFAULT_MODEL, providerEnv(), opts?.adapter)
   );
 }
 export async function anthropicClient(opts?: { adapter?: string }): Promise<Client | undefined> {
-  const provider = textProvider(process.env, opts?.adapter);
+  const provider = textProvider(providerEnv(), opts?.adapter);
   if (provider === 'heuristic') return undefined;
-  if (provider === 'fireworks') return fireworksClient(process.env.FIREWORKS_API_KEY!);
+  if (provider === 'fireworks') return fireworksClient(providerEnv().FIREWORKS_API_KEY!);
   const mod = await optionalImport<{ default: AnthropicCtor } | AnthropicCtor>(
     '@anthropic-ai/sdk',
     'falling back to the heuristic planner',
   );
   if (!mod) return undefined;
   const Ctor = (mod as { default?: AnthropicCtor }).default ?? (mod as AnthropicCtor);
-  const client = new Ctor({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const client = new Ctor({ apiKey: providerEnv().ANTHROPIC_API_KEY! });
   client.provider = 'anthropic';
   return client;
 }

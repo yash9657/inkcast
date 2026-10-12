@@ -86,6 +86,8 @@ export function toWire(status: ProviderStatus): KeyStatus {
     envVar: status.envVar,
     configured: status.configured,
     source: status.source ?? 'none',
+    ...(status.lastValidated ? { validatedAt: status.lastValidated } : {}),
+    ...(status.lastValidatedOk === null ? {} : { validatedOk: status.lastValidatedOk }),
     ...(status.masked ? { mask: status.masked } : {}),
     ...(status.length === null ? {} : { length: status.length }),
     ...(status.updatedAt === null ? {} : { updatedAt: status.updatedAt }),
@@ -180,11 +182,9 @@ export function describeProbe(probed: Probed, label: string, secret: string): Va
     case 'accepted':
       return out('valid', `${label} accepted the key.`);
     case 'rate-limited':
-      // The request got past authentication to a quota check, so the key is good.
-      // "Invalid" would be wrong here and "unknown" would be timid.
       return out(
-        'valid',
-        `${label} accepted the key, but this account is being rate-limited right now.`,
+        'unknown',
+        `${label} is rate-limited, so this check could not confirm the key. Try again later.`,
       );
     case 'rejected':
       return out(
@@ -193,25 +193,25 @@ export function describeProbe(probed: Probed, label: string, secret: string): Va
       );
     case 'forbidden':
       return out(
-        'invalid',
-        `${label} recognised the key but refused the request, so the key is real and lacks the permission this needs. Check its scopes, and that the account is in good standing.`,
+        'unknown',
+        `${label} refused this metadata check. Check the key's permissions; this does not prove it can or cannot generate.${label === 'ElevenLabs' ? ' This check needs User read permission; narration also needs Text to Speech and Voices access.' : ''}`,
       );
     case 'server-error':
       return out(
         'unknown',
-        `${label} is having trouble at their end, so the key could not be checked. That says nothing about the key — it is saved and will be used.`,
+        `${label} is having trouble at their end, so the key could not be checked. Try checking again later; this does not establish whether the key works.`,
       );
     case 'network':
       return out(
         'unknown',
-        `Could not reach ${label} from this machine, so the key could not be checked. It is saved and will be used.`,
+        `Could not reach ${label} from this machine, so the key could not be checked. Try again when the connection is available.`,
       );
     case 'not-configured':
       return { status: 'unknown', message: `No ${label} key is configured.` };
     default:
       return out(
         'unknown',
-        `${label} answered in a way this check does not recognise, which is neither an acceptance nor a rejection. The key is saved and will be used.`,
+        `${label} answered in a way this check does not recognise, which is neither an acceptance nor a rejection. Try checking again later.`,
       );
   }
 }

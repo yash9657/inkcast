@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 /**
  * `resolveVisuals(sb, dir, opts)` — the visuals stage.
  *
@@ -179,7 +180,7 @@ export async function resolveVisuals(
   const board = boardMetrics(out);
 
   const imagesEnabled =
-    (opts.images ?? (process.env.INKCAST_IMAGES === 'off' ? 'off' : 'auto')) === 'auto';
+    (opts.images ?? (providerEnv().INKCAST_IMAGES === 'off' ? 'off' : 'auto')) === 'auto';
   const provider = imagesEnabled ? detectImageProvider() : 'none';
   if (!imagesEnabled) log.debug('text-to-image lane disabled by options');
   if (provider === 'none' && !iconsAvailable()) {

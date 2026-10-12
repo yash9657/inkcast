@@ -91,8 +91,17 @@ const SourceUrl = z
  * route is the only place that can see all four at once, so it is the only place
  * the rule can be stated once instead of twice.
  */
+export const ProviderSelectionSchema = z
+  .object({
+    planner: z.enum(['fireworks', 'anthropic', 'local']),
+    speech: z.enum(['elevenlabs', 'local']),
+    images: z.enum(['auto', 'local']),
+  })
+  .strict();
+
 export const GenerateFields = z
   .object({
+    providers: ProviderSelectionSchema.optional(),
     text: SourceText.optional(),
     url: SourceUrl.optional(),
     /**

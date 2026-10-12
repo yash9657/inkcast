@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { geometryConstraintProblems } from './geometry-constraints.js';
 import { labelTargetProblems } from './label-anchors.js';
 import { textModel } from '@inkcast/core';
@@ -88,8 +89,8 @@ const BRIEF_VERSION = 'draw/v2';
 export function drawModel(opts?: { drawModel?: string; adapter?: string }): string {
   return (
     opts?.drawModel ??
-    process.env.INKCAST_DRAW_MODEL ??
-    textModel(DEFAULT_DRAW_MODEL, process.env, opts?.adapter)
+    providerEnv().INKCAST_DRAW_MODEL ??
+    textModel(DEFAULT_DRAW_MODEL, providerEnv(), opts?.adapter)
   );
 }
 
@@ -370,7 +371,7 @@ export function drawKey(
     instruction.trim(),
     underlay ? hash(Buffer.from(underlay).toString('base64')) : '',
     {
-      reasoning: process.env.INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+      reasoning: providerEnv().INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
       outputPolicy: FIREWORKS_GENERATION_POLICY,
       model: inputs.model ?? drawModel(),
       context: inputs.context ?? '',
@@ -475,7 +476,7 @@ export type DrawOneOptions = {
 };
 
 function revisionEnabled(opts: DrawOneOptions): boolean {
-  if (process.env.INKCAST_DRAW_FIX === '0') return false;
+  if (providerEnv().INKCAST_DRAW_FIX === '0') return false;
   return opts.revise !== false;
 }
 
@@ -494,7 +495,7 @@ function revisionEnabled(opts: DrawOneOptions): boolean {
  * both ways and compare the frames before deciding this should be the default.
  */
 function revisesEverything(): boolean {
-  return process.env.INKCAST_DRAW_FIX === 'all';
+  return providerEnv().INKCAST_DRAW_FIX === 'all';
 }
 
 /**

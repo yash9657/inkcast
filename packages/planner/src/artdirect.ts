@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textModel } from '@inkcast/core';
 /**
  * The art director: which beats get a generated picture, decided by a pass rather
@@ -80,8 +81,8 @@ export const DEFAULT_ROUTER_MODEL = 'claude-sonnet-5';
 export function routerModel(opts: { routerModel?: string; adapter?: string } = {}): string {
   return (
     opts.routerModel ||
-    process.env.INKCAST_ROUTER_MODEL ||
-    textModel(DEFAULT_ROUTER_MODEL, process.env, opts?.adapter)
+    providerEnv().INKCAST_ROUTER_MODEL ||
+    textModel(DEFAULT_ROUTER_MODEL, providerEnv(), opts?.adapter)
   );
 }
 

@@ -1,3 +1,4 @@
+import { providerEnv } from '@inkcast/core';
 import { textProvider, textModel } from '@inkcast/core';
 /**
  * Which provider each stage will actually use, decided from env only.
@@ -35,7 +36,7 @@ export type Providers = {
 
 const CLAUDE_DEFAULT = 'claude-opus-5';
 
-export function plannerProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
+export function plannerProvider(env: NodeJS.ProcessEnv = providerEnv()): ProviderChoice {
   const name = textProvider(env);
   return {
     name,
@@ -63,7 +64,7 @@ export function plannerProvider(env: NodeJS.ProcessEnv = process.env): ProviderC
  */
 export function voiceProvider(
   voiceId: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = providerEnv(),
 ): ProviderChoice {
   const id = (voiceId ?? env.INKCAST_VOICE ?? 'af_heart').trim();
   const key =
@@ -108,7 +109,7 @@ export function voiceProvider(
  */
 export const ELEVENLABS_DEFAULT_MODEL = 'eleven_multilingual_v2';
 
-export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = process.env): string {
+export function voiceEngine(provider: string, env: NodeJS.ProcessEnv = providerEnv()): string {
   if (provider !== 'elevenlabs') return '';
   return env.ELEVENLABS_MODEL_ID || ELEVENLABS_DEFAULT_MODEL;
 }
@@ -197,7 +198,7 @@ export function billedVoiceChoice(
   };
 }
 
-export function imageProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
+export function imageProvider(env: NodeJS.ProcessEnv = providerEnv()): ProviderChoice {
   if (env.REPLICATE_API_TOKEN) {
     return { name: 'replicate', cloud: true, why: 'REPLICATE_API_TOKEN is set' };
   }
@@ -205,7 +206,7 @@ export function imageProvider(env: NodeJS.ProcessEnv = process.env): ProviderCho
   return { name: 'builtin', cloud: false, why: 'no image provider key set' };
 }
 
-export function providers(voiceId?: string, env: NodeJS.ProcessEnv = process.env): Providers {
+export function providers(voiceId?: string, env: NodeJS.ProcessEnv = providerEnv()): Providers {
   return {
     planner: plannerProvider(env),
     voice: voiceProvider(voiceId, env),

@@ -129,7 +129,7 @@ const ROUTES: Record<string, { guard: Guard; mutates: boolean; why: string }> = 
     why: "records a validation result against the caller's own record",
   },
   'providers/route.ts': {
-    guard: 'unauthenticated',
+    guard: 'account',
     mutates: false,
     why: "the create form calls it before a session has made anything; on hosted it reports the caller's own keys and never the operator's",
   },

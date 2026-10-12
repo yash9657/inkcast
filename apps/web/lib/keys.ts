@@ -1,116 +1,138 @@
-/**
- * Stored keys, made effective for the studio's server process.
- *
- * ## Why this is in `lib/` and not next to the settings route
- *
- * It used to live in `app/api/keys/_store.ts`, which made it reachable only from
- * the code that is *about* keys — the settings page and `/api/providers`. That
- * placement was the bug: every stage adapter decides its provider by reading
- * `process.env` (`packages/pipeline/src/providers.ts`), a stored key only takes
- * effect once `hydrateEnv()` has copied it there, and the routes that actually
- * spend money — `POST /api/generate`, `POST /api/projects/<id>/rerender`,
- * `POST /api/projects/<id>/edit` — never called it. Keys reached the pipeline
- * only because a settings-page or studio-status fetch happened to hydrate as a
- * side effect first.
- *
- * On a warm dev server that is invisible. On a freshly restarted `next dev`
- * process it is the whole difference between a film narrated by ElevenLabs and
- * one narrated by Kokoro, between a lesson authored by Claude and one authored
- * by the heuristic, and between a figure lane that runs and one that does not —
- * silently, every time, with the keys sitting perfectly readable in the vault.
- *
- * So hydration is a `lib/` concern now: the money paths import it directly, and
- * `app/api/keys/_store.ts` delegates here so there is still exactly one memo.
- *
- * ## The memo, and why it is on `globalThis`
- *
- * Hydration costs a scrypt derivation on the vault backend and `GET /api/keys`
- * is polled by an open settings tab, so the result is memoised. `next dev`
- * re-evaluates modules on edit, and a fresh module-level `false` would re-run
- * hydration on every hot reload — hence `globalThis`. Every mutation calls
- * `invalidateVault()`, so the memo can never be stale.
- *
- * ## Never throws
- *
- * A locked vault, a missing passphrase or an unreadable entry must degrade to
- * "that stage runs locally", exactly as having no key at all does — the same
- * rule the CLI's `hydrateKeys()` obeys. A render must not fail because the
- * keychain was busy.
- */
-
-import { hydrateEnv as hydrateFromVault, installRedaction } from '@inkcast/keyvault';
-import type { KeyvaultOptions } from '@inkcast/keyvault';
-
+import path from 'node:path';
+import {
+  PROVIDER_SPECS,
+  createKeyvault,
+  installRedaction,
+  redact,
+  redactDeep,
+  withSecretRedaction,
+} from '@inkcast/keyvault';
+import { accountKeys } from '../app/api/_lib/deployment';
+import { readOwnerKey } from '../app/api/_lib/secrets';
+import { ownerTagFor, type Session } from '../app/api/_lib/session';
+import { loadCore, PROJECTS_DIR } from './store';
 import type { JobRunner } from './jobs';
+import { defaultSelection, type ProviderSelection } from './provider-selection';
 
-type HydrationState = { hydrated: boolean };
+installRedaction();
 
-const scope = globalThis as typeof globalThis & { __inkcastKeyState?: HydrationState };
+// Operational model/delivery settings only. No operator credentials, provider
+// endpoints or unrelated deployment secrets are inherited by account jobs.
+const CONFIG = [
+  'INKCAST_FIREWORKS_MODEL',
+  'INKCAST_FIREWORKS_REASONING',
+  'INKCAST_DRAW_FIX',
+  'INKCAST_FIGURE_MODEL',
+  'ELEVENLABS_MODEL_ID',
+  'INKCAST_VOICE_WPM',
+  'INKCAST_VOICE_SPEED',
+  'INKCAST_VOICE_PAD',
+] as const;
 
-function state(): HydrationState {
-  return (scope.__inkcastKeyState ??= { hydrated: false });
+export async function defaultProviders(session: Session): Promise<ProviderSelection> {
+  const keys = accountKeys()
+    ? await (
+        await import('../app/api/keys/_account')
+      ).accountKeyStatuses({
+        tag: ownerTagFor(session),
+        session,
+        signedIn: session.kind === 'user',
+      })
+    : await (await import('../app/api/keys/_store')).keyStatuses();
+  return defaultSelection(keys);
 }
 
-/**
- * Force the next `hydrateEnv()` to do real work.
- *
- * Called by every vault mutation. A job runner that starts minutes after a key
- * was saved re-reads storage because of this.
- */
-export function invalidateVault(): void {
-  state().hydrated = false;
-}
-
-/**
- * Copy stored keys into `process.env`. Idempotent, and cheap after the first call.
- *
- * `opts` exists for tests, which pin a sandbox vault and hydrate into their own
- * `target` object; production passes nothing. Passing `opts` also bypasses the
- * memo, because a test that pins a different vault must not be answered from a
- * previous test's cached "already done".
- */
-export async function hydrateEnv(
-  opts?: KeyvaultOptions & { target?: NodeJS.ProcessEnv },
-): Promise<void> {
-  // Installed here rather than at module load so importing this file has no side
-  // effect, but still before a single key is read — the point of the patch is
-  // that a key cannot reach a log line, and hydration is where keys start moving.
-  installRedaction();
-
-  if (opts) {
-    await run({ interactive: false, ...opts });
-    return;
+/** Resolve at job admission, never while a job sits in the queue. */
+export async function credentialEnvironment(
+  session: Session,
+  selection: ProviderSelection,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<NodeJS.ProcessEnv> {
+  const isolated = accountKeys(env);
+  const snapshot: NodeJS.ProcessEnv = isolated ? { NODE_ENV: env.NODE_ENV } : { ...env };
+  for (const spec of Object.values(PROVIDER_SPECS)) {
+    for (const name of spec.envVars) delete snapshot[name];
   }
-  const s = state();
-  if (s.hydrated) return;
-  await run({ interactive: false });
-  // Only a successful pass may be memoised. A vault that was locked at 10:00 and
-  // unlocked at 10:05 has to be readable by the 10:05 render, and memoising the
-  // failure would pin the whole process to the degraded answer.
-  s.hydrated = true;
-}
-
-async function run(opts: KeyvaultOptions & { target?: NodeJS.ProcessEnv }): Promise<void> {
-  try {
-    await hydrateFromVault(opts);
-  } catch {
-    /* Degrade to local stages; see the header. */
+  if (isolated)
+    for (const name of CONFIG) {
+      if (env[name] !== undefined) snapshot[name] = env[name];
+    }
+  if (isolated) {
+    snapshot.INKCAST_PUBLIC_SOURCES = '1';
+    snapshot.INKCAST_CACHE_DIR = path.join(
+      PROJECTS_DIR,
+      '.account-cache',
+      ownerTagFor(session, env),
+    );
   }
+  snapshot.INKCAST_PLANNER = selection.planner;
+  snapshot.INKCAST_IMAGES = selection.images === 'local' ? 'off' : 'auto';
+  snapshot.INKCAST_VOICE = selection.speech === 'elevenlabs' ? 'elevenlabs' : 'kokoro';
+  if (selection.planner === 'fireworks') {
+    for (const name of [
+      'INKCAST_LESSON_MODEL',
+      'INKCAST_PLANNER_MODEL',
+      'INKCAST_DRAW_MODEL',
+      'INKCAST_ROUTER_MODEL',
+    ])
+      delete snapshot[name];
+  }
+  const wanted = [
+    ...(selection.planner === 'local' ? [] : [selection.planner]),
+    ...(selection.speech === 'local' ? [] : (['elevenlabs'] as const)),
+    ...(selection.images === 'local' ? [] : (['replicate', 'fal'] as const)),
+  ];
+  const vault = isolated ? undefined : createKeyvault({ interactive: false, track: false, env });
+  for (const provider of wanted) {
+    let key: string | undefined;
+    try {
+      key = isolated
+        ? await readOwnerKey({ owner: ownerTagFor(session, env), provider }, env)
+        : await vault!.getKey(provider);
+    } catch {
+      throw new Error(
+        `Your ${provider} key cannot be read. Replace it in Settings before creating this video.`,
+      );
+    }
+    if (!key && provider !== 'replicate' && provider !== 'fal') {
+      throw new Error(`Add your ${provider} key in Settings, or select the local option.`);
+    }
+    if (key) snapshot[PROVIDER_SPECS[provider].envVars[0]!] = key;
+  }
+  return snapshot;
 }
 
-/**
- * Wrap a background job so that stored keys are in the environment before it runs.
- *
- * The wrap is what makes this correct rather than merely likely. A job can sit in
- * the render queue for minutes, and hydration at *request* time answers the
- * question "what keys existed when the button was pressed" — which is the wrong
- * question when the user pasted a key into settings while their film was waiting.
- * The route hydrates too (so the run is already keyed by the time the 202 is
- * written), but this is the call that decides what the stages see.
- */
-export function withKeys(run: JobRunner): JobRunner {
-  return async (onProgress, ctx) => {
-    await hydrateEnv();
-    return run(onProgress, ctx);
-  };
+/** Redact before crossing back out of the scope, including errors and SSE notes. */
+export async function runWithKeys<T>(
+  session: Session,
+  selection: ProviderSelection,
+  work: () => Promise<T>,
+): Promise<T> {
+  const env = await credentialEnvironment(session, selection);
+  const secrets = Object.values(PROVIDER_SPECS).flatMap((spec) =>
+    spec.envVars.map((name) => env[name]).filter((key): key is string => Boolean(key)),
+  );
+  const core = await loadCore();
+  return withSecretRedaction(secrets, () =>
+    core.withProviderEnv(env, async () => {
+      try {
+        return await work();
+      } catch (err) {
+        const error = new Error(redact(err instanceof Error ? err.message : String(err)));
+        if (err instanceof Error) error.name = err.name;
+        const stage = (err as { stage?: unknown } | null)?.stage;
+        if (typeof stage === 'string') Object.assign(error, { stage: redact(stage) });
+        throw error;
+      }
+    }),
+  );
+}
+
+export function withKeys(
+  session: Session,
+  selection: ProviderSelection,
+  run: JobRunner,
+): JobRunner {
+  return (onProgress, ctx) =>
+    runWithKeys(session, selection, () => run((progress) => onProgress(redactDeep(progress)), ctx));
 }

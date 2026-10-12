@@ -1,3 +1,4 @@
+import { clerkConfigured } from '../_lib/clerk';
 /**
  * The hosted half of `/api/keys`: whose key is this, and what may they do with it.
  *
@@ -58,6 +59,7 @@ import {
   readOwnerKey,
   readOwnerSummary,
   secretsConfigured,
+  secretHint,
   writeOwnerSecret,
   type SecretSummary,
 } from '../_lib/secrets';
@@ -106,6 +108,18 @@ export async function accountOwner(
   env: NodeJS.ProcessEnv = process.env,
   options: IdentityOptions = {},
 ): Promise<OwnerResult> {
+  if (
+    (env.CLERK_SECRET_KEY?.trim() || env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim()) &&
+    !clerkConfigured(env)
+  ) {
+    return {
+      ok: false,
+      response: fail(
+        503,
+        'Account authentication is not fully configured. No keys can be accessed.',
+      ),
+    };
+  }
   if (!secretsConfigured(env)) {
     // Unreachable on a correctly booted hosted box — `_lib/secrets.ts` refuses to
     // finish importing without a master key — and answered rather than thrown
@@ -165,16 +179,15 @@ export function withAccountCookie<R extends CookieSink>(response: R, owner: Acco
 /**
  * Every provider's status for one account. Masks and timestamps only.
  *
- * All four providers are always listed, configured or not, because the settings
+ * All providers are always listed, configured or not, because the settings
  * page renders a row per provider and a missing row reads as a broken page rather
  * than as an unset key. `source: 'vault'` for a stored key: the client's parser
  * accepts `env | vault | keychain` and this genuinely is an encrypted file, which
  * makes it the honest member of that set — `keychain` would be a lie on Linux and
  * `env` would claim the operator supplied it.
  *
- * Nothing here unseals anything: every field comes from the cleartext metadata
- * beside the ciphertext. A `GET` that had to decrypt four credentials to render a
- * page would be four chances to leak one.
+ * Stored credentials are opened only to verify readability and authenticate the
+ * display metadata. Plaintext never joins the returned status object.
  */
 export async function accountKeyStatuses(
   owner: AccountOwner,
@@ -183,7 +196,24 @@ export async function accountKeyStatuses(
   const stored = new Map<string, SecretSummary>(
     (await listOwnerSecrets(owner.tag, env)).map((entry) => [entry.provider, entry]),
   );
-  return PROVIDER_IDS.map((id) => toAccountWire(id, stored.get(id)));
+  return Promise.all(
+    PROVIDER_IDS.map(async (id) => {
+      const status = toAccountWire(id, stored.get(id));
+      if (status.configured) {
+        const read = await accountKeyPlaintext(owner, id, env);
+        if (!read.ok)
+          return {
+            id,
+            envVar: status.envVar,
+            source: status.source,
+            configured: false,
+            unreadable: true,
+          };
+        return { ...status, mask: secretHint(read.key), length: read.key.length };
+      }
+      return status;
+    }),
+  );
 }
 
 function toAccountWire(id: ProviderId, stored: SecretSummary | undefined): KeyStatus {
@@ -218,6 +248,7 @@ function toAccountWire(id: ProviderId, stored: SecretSummary | undefined): KeySt
  * and describing a KDF that is not running would be worse than describing none.
  */
 export type AccountVaultInfo = {
+  scope: 'account';
   backend: 'vault';
   ready: boolean;
   why: string;
@@ -230,9 +261,10 @@ export type AccountVaultInfo = {
 
 export function accountVaultInfo(): AccountVaultInfo {
   return {
+    scope: 'account',
     backend: 'vault',
     ready: true,
-    why: 'Your keys are encrypted on the server with a key held only in its environment, one random data key per stored key, and are tied to your account so no other account can decrypt them. They are never shown again, not even to you.',
+    why: 'Keys are encrypted at rest on this server and scoped to your account. Inkcast decrypts them to call your selected providers. Server operators with access to the encryption secret can also decrypt them. Only masked previews are returned to your browser.',
     path: null,
     cipher: 'AES-256-GCM (envelope: a random data key per record, sealed under the server key)',
     kdf: null,
@@ -274,7 +306,7 @@ export async function deleteAccountKey(
  * Kept as its own named function rather than letting a route reach into
  * `_lib/secrets.ts`, so that `grep -n accountKeyPlaintext apps/web` lists every
  * place on the hosted path where a credential is in scope. Today that is one
- * place: the validate route, which puts it in an outbound header.
+ * the validate route. Job admission separately resolves credentials in lib/keys.ts.
  *
  * The result shape mirrors `_store.ts`'s `effectiveKey` deliberately, because the
  * two failures need opposite words. `missing` means nothing was stored: paste one.
@@ -310,8 +342,9 @@ export async function recordAccountValidation(
   provider: ProviderId,
   ok: boolean,
   env: NodeJS.ProcessEnv = process.env,
+  checkedKey?: string,
 ): Promise<void> {
-  await markOwnerSecretValidated({ owner: owner.tag, provider }, ok, env);
+  await markOwnerSecretValidated({ owner: owner.tag, provider }, ok, env, checkedKey);
 }
 
 /* ---------------------------------------------------------------- validation */

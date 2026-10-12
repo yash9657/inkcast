@@ -1,37 +1,6 @@
-/**
- * The studio's view of `@inkcast/keyvault`: one vault, shared with the CLI.
- *
- * ## Why this file is thin
- *
- * It used to be a second vault. The studio wrote `<repo>/.inkcast/keys.json` with
- * its own AES-GCM code while the CLI wrote the macOS keychain, so a key set in one
- * was invisible to the other and `/api/keys` reported `configured: false` for a
- * key that plainly existed. Two implementations of one security boundary is one
- * too many — the duplicate is gone and everything below delegates.
- *
- * What remains here is the stateful part that is genuinely the studio's own: the
- * memoised hydration a long-lived server needs, and the provenance a settings page
- * shows. The pure translations — status to wire shape, probe verdict to prose,
- * redaction — live in `_wire.ts`, where they can be tested without a vault.
- *
- * ## How a stored key actually takes effect
- *
- * The stages decide their provider by reading `process.env` (see
- * `packages/pipeline/src/providers.ts`), which is the one mechanism the CLI, the
- * studio and a CI run all share. So the vault does not introduce a second
- * mechanism; it *populates the first one*. `hydrateEnv()` copies stored keys into
- * `process.env` — overriding any value the environment already carried, because
- * the key the user pasted is the one that must run — and every route that can
- * precede a render calls it. The two rules that keep this honest — a stored key
- * wins, and what we injected (or overrode) we can restore — live in
- * `packages/keyvault/src/hydrate.ts`.
- *
- * ## Secrecy
- *
- * `installRedaction()` runs once at module load, which patches `console` so that a
- * key cannot reach a log line even from code that never heard of this package.
- * `effectiveKey()` is the only function here that yields plaintext; exactly one
- * route calls it, and puts the result in an outbound request header.
+/** Local-machine adapter for the CLI-compatible keychain/vault.
+ * Account deployments never load this module. No web request hydrates process.env;
+ * job credentials are resolved into an isolated scope in lib/keys.ts.
  */
 
 import { existsSync } from 'node:fs';
@@ -47,7 +16,6 @@ import {
   type StorageInfo,
 } from '@inkcast/keyvault';
 
-import { hydrateEnv, invalidateVault } from '@/lib/keys';
 import { REPO_ROOT } from '@/lib/store';
 import { providerInfo, type ProviderId } from '@/components/settings/catalog';
 import {
@@ -75,35 +43,15 @@ installRedaction();
  * `interactive: false` makes that explicit at every call.
  */
 function vault() {
-  return createKeyvault({ interactive: false });
+  return createKeyvault({ interactive: false, track: false });
 }
-
-/* ------------------------------------------------------------------ hydration */
-
-/**
- * Hydration itself lives in `@/lib/keys`, and these are re-exports so that the
- * settings routes can keep importing it from here.
- *
- * It moved because it was needed somewhere this module has no business being
- * imported: the routes that spend money. `POST /api/generate` must put stored
- * keys in `process.env` before the pipeline reads them, and a render route
- * reaching into `app/api/keys/` for that would be a route depending on another
- * route's private helper. The memo is `globalThis`-pinned in one place, so the
- * settings page and a render still share exactly one hydration.
- */
-export { hydrateEnv, invalidateVault };
 
 /* -------------------------------------------------------------------- status */
 
 export async function keyStatuses(): Promise<KeyStatus[]> {
-  await hydrateEnv();
-  // Provenance is resolved against the *real* environment — `realEnv()` reverses
-  // this process's own hydration injections, restoring any value they overrode.
-  // Without it, status is read back through the very variables hydration just
-  // wrote, and every stored key reports as coming from an environment variable
-  // the user never set. The bookkeeping behind it survives `next dev`'s module
-  // re-evaluation — see the `globalThis` note in `packages/keyvault/src/hydrate.ts`.
-  return (await createKeyvault({ interactive: false, env: realEnv() }).listProviders()).map(toWire);
+  return (
+    await createKeyvault({ interactive: false, track: false, env: realEnv() }).listProviders()
+  ).map(toWire);
 }
 
 export async function keyStatus(id: ProviderId): Promise<KeyStatus> {
@@ -117,7 +65,6 @@ export async function keyStatus(id: ProviderId): Promise<KeyStatus> {
 /** Store a key. Returns the masked status — never the key. */
 export async function saveKey(id: ProviderId, key: string): Promise<KeyStatus> {
   await vault().setKey(id as Provider, key);
-  invalidateVault();
   return keyStatus(id);
 }
 
@@ -134,11 +81,6 @@ export type DeleteOutcome = {
 
 export async function deleteKey(id: ProviderId): Promise<DeleteOutcome> {
   const removed = await vault().deleteKey(id as Provider);
-  invalidateVault();
-  // Re-hydrate rather than deleting the variable here: `hydrateEnv()` retracts
-  // only what it injected itself, so a key the environment supplies survives and
-  // one we injected is dropped — which is exactly the distinction below.
-  await hydrateEnv();
   const status = await keyStatus(id);
   return { removed, stillFromEnv: status.source === 'env', status };
 }
