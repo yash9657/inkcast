@@ -279,7 +279,9 @@ export function figurePrompt(prompt: string): string {
     'on white paper, clean confident outlines, flat semantic colour fills, clearly separated ' +
     'parts, plain white background, no background scenery, no frame, ' +
     'no text, no lettering, no labels, no captions, no watermark, ' +
-    'whole subject in frame not cropped'
+    'whole subject in frame not cropped, reserve clear space around the subject for editable ' +
+    'vector labels, consistent viewpoint, uncluttered silhouette, only the structures explicitly ' +
+    'requested, no decorative symbols or invented measurements'
   );
 }
 
@@ -527,7 +529,7 @@ export function illustrationKey(
   const shape = size.width === size.height ? [] : [`${size.width}x${size.height}`];
   const token = kind === 'figure' ? figureModelToken(model) : '';
   const tier = token ? [token] : [];
-  return `${sanitiseId(id)}-${hash('illustration/v2', kind, prompt.trim(), ...shape, ...tier).slice(0, 10)}`;
+  return `${sanitiseId(id)}-${hash(kind === 'figure' ? 'figure-prompt/v3' : 'illustration/v2', kind, prompt.trim(), ...shape, ...tier).slice(0, 10)}`;
 }
 
 export type IllustrationRaster = {

@@ -10,7 +10,7 @@ test('a zero-key run names the lesson stage as the major loss, with a fix', () =
   const lesson = found.find((d) => d.stage === 'lesson');
   assert.ok(lesson, 'the lesson stage must report itself as degraded without a key');
   assert.equal(lesson.severity, 'major');
-  assert.equal(lesson.fix, 'inkcast keys set anthropic');
+  assert.equal(lesson.fix, 'inkcast keys set fireworks');
   // Every entry carries exactly one runnable command.
   for (const d of found) {
     assert.match(d.fix, /^inkcast /);
@@ -48,7 +48,7 @@ test('a degradation formats as one readable line ending in the fix', () => {
   const [first] = degradations(providers('af_heart', noKeys));
   const line = formatDegradation(first!);
   assert.ok(line.startsWith('lesson: '));
-  assert.ok(line.includes('Fix: inkcast keys set anthropic'));
+  assert.ok(line.includes('Fix: inkcast keys set fireworks'));
 });
 
 test('a paid voice key is actually used, and a pin is how you refuse it', () => {

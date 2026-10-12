@@ -25,6 +25,7 @@ import type {
   OnProgress,
   OnSpend,
   QcReport,
+  QcCheck,
   Storyboard,
   StoryboardMeta,
 } from '@inkcast/core';
@@ -95,7 +96,7 @@ export type FormatOptions = {
 };
 
 export type LessonStageOptions = FormatOptions & {
-  adapter?: 'auto' | 'anthropic' | 'heuristic';
+  adapter?: 'auto' | 'anthropic' | 'fireworks' | 'heuristic';
   model?: string;
   audience?: string;
   objective?: string;
@@ -152,7 +153,8 @@ export type LessonStageOptions = FormatOptions & {
    * derived author writes the lesson. Everything downstream reported Claude and a
    * Claude-sized bill for a lesson Claude never saw (`projects/qc53-doc`).
    */
-  onAuthor?: (author: 'anthropic' | 'heuristic') => void;
+  onAuthor?: (author: 'anthropic' | 'fireworks' | 'heuristic') => void;
+  diagnosticsDir?: string;
 };
 
 export type CompileStageOptions = FormatOptions & {
@@ -228,7 +230,7 @@ type LessonStageModule = {
     /** The engine that will speak — the length estimate is per provider. */
     voiceProvider?: string;
   }): PresetShape;
-  resolveLessonAdapter(opts: LessonStageOptions): 'anthropic' | 'heuristic';
+  resolveLessonAdapter(opts: LessonStageOptions): 'anthropic' | 'fireworks' | 'heuristic';
   readLessonFile(file: string): Promise<Lesson>;
   parseLesson(input: unknown): Lesson;
   saveLesson(dir: string, lesson: Lesson): Promise<string>;
@@ -238,6 +240,7 @@ type LessonStageModule = {
    * it, one line each (plan 3.4). Optional and read defensively — see `versionOf`.
    */
   lessonDrawingDefects?: unknown;
+  missingLessonDrawings: (lesson: Lesson) => string[];
   /**
    * The cut-payload lines out of a stage's problem list (plan 5.1). Optional and read
    * defensively — see `versionOf` — and the planner owns it because the planner owns the
@@ -371,6 +374,7 @@ type CheckModule = {
     opts?: {
       gates?: 'strict' | 'degrade';
       inherited?: { id: string; findings: string[]; severity?: 'fail' | 'warn'; note?: string }[];
+      inheritedChecks?: QcCheck[];
       /** Tier 2's keyed half — see `frame-vision.ts`. Absent means it is skipped. */
       vision?: VisionPass;
     },
@@ -480,6 +484,7 @@ export async function loadLessonStage(
     'parseLesson',
     'saveLesson',
     'loadLesson',
+    'missingLessonDrawings',
   ])) as unknown as LessonStageModule;
 }
 

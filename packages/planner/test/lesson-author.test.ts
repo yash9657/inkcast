@@ -25,7 +25,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import type { Lesson } from '@inkcast/core';
+import { lessonBeats, type Lesson } from '@inkcast/core';
 import { readLessonFile } from '../src/lesson-io.js';
 import { resolveLessonAdapter, teachLesson } from '../src/lesson.js';
 
@@ -108,26 +108,45 @@ test('a lesson the model really wrote is still reported as the model’s', async
   // The other half, and the one a careless fix breaks: reporting `heuristic` for
   // everything would pass the test above and under-bill every keyed run.
   const shipped: Lesson = await readLessonFile(SHIPPED);
-  const api = await fakeApi(() => ({
+  const api = await fakeApi((n) => ({
     status: 200,
     body: {
       id: 'msg_test',
       type: 'message',
       role: 'assistant',
       model: 'claude-opus-5',
-      content: [{ type: 'tool_use', id: 'tu_1', name: 'emit_lesson', input: shipped }],
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tu_1',
+          name: n === 1 ? 'emit_lesson' : 'review_source',
+          input:
+            n === 1
+              ? shipped
+              : {
+                  beats: lessonBeats(shipped).map(({ id }) => ({
+                    id,
+                    supported: true,
+                    quotes: [],
+                    reason: 'Consistent.',
+                  })),
+                  issues: [],
+                },
+        },
+      ],
       stop_reason: 'tool_use',
       usage: { input_tokens: 1200, output_tokens: 3400 },
     },
   }));
   const authors: string[] = [];
-  const lesson = await withKeyedApi(api.url, () =>
-    teachLesson('Gradient descent', {
-      adapter: 'anthropic',
-      onAuthor: (a) => authors.push(a),
-    }),
-  );
-  await api.close();
+  let lesson: Lesson;
+  try {
+    lesson = await withKeyedApi(api.url, () =>
+      teachLesson('Gradient descent', { adapter: 'anthropic', onAuthor: (a) => authors.push(a) }),
+    );
+  } finally {
+    await api.close();
+  }
 
   assert.ok(api.calls() > 0, 'the stage must really have asked the API');
   assert.deepEqual(authors, ['anthropic']);

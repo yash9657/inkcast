@@ -361,13 +361,14 @@ function check(name: string, ok: boolean, why: string): void {
 /* ---- X-c (3.5): the expensive half of a keyed run appears in the total ---- */
 {
   const anthropic = read('packages/planner/src/anthropic.ts');
+  const modelClient = read('packages/core/src/model-client.ts');
   const cost = read('packages/pipeline/src/cost.ts');
   const drawAnthropic = read('packages/planner/src/draw-anthropic.ts');
   const critic = read('packages/planner/src/draw-critic.ts');
   const underlay = read('packages/pipeline/src/draw-underlay.ts');
   check(
     'X-c: callTool can report the tokens the API counted',
-    /usage\?: \{ input_tokens\?: number; output_tokens\?: number \}/.test(anthropic) &&
+    /usage\?: \{ input_tokens\?: number; output_tokens\?: number \}/.test(modelClient) &&
       /res\.usage\?\.input_tokens/.test(anthropic),
     'the provider counts the tokens for us and the pipeline has stopped reading them',
   );

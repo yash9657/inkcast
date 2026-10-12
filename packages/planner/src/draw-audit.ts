@@ -428,6 +428,23 @@ export function defectLines(defects: Defect[]): string {
  * is what this reports. A correction that fixed everything leaves nothing here, which
  * is the correct record of it having worked.
  */
+/** Required generated pictures that never acquired geometry. Characters use a local rig. */
+export function missingLessonDrawings(lesson: Lesson): string[] {
+  const steps = [
+    lesson.hook,
+    lesson.anchor,
+    ...lesson.steps,
+    lesson.worked,
+    lesson.misconception,
+    lesson.recap,
+  ];
+  return steps.flatMap((step) =>
+    (step?.visuals ?? [])
+      .filter((intent) => intent.kind === 'draw' && !intent.character && !intent.marks?.length)
+      .map((intent) => `Missing drawing: ${intent.describe.slice(0, 160)}`),
+  );
+}
+
 export function lessonDrawingDefects(lesson: Lesson): string[] {
   const steps: LessonStep[] = [
     lesson.hook,

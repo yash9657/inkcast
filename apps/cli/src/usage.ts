@@ -25,7 +25,7 @@ export function usage(color: boolean): string {
   return `${c.bold('inkcast')} — open-source AI explainer videos. A topic in, a hand-drawn whiteboard lesson out.
 
 ${h('START HERE')}
-  ${f('inkcast keys set anthropic')}               store a key — this is what makes the lessons good
+  ${f('inkcast keys set fireworks')}               configure open-weight planning and visual review
   ${f('inkcast teach')} "gradient descent"         teach a topic from scratch
   ${f('inkcast teach')} "the Krebs cycle" --short  a 9:16 vertical short
 
@@ -94,7 +94,7 @@ ${h('THE PIPELINE')}
   ${c.dim('`--via document` skips the lesson stage and summarises instead. It is the')}
   ${c.dim("renderer's zero-key test fixture, not a route to a video worth watching.")}
 
-${c.dim(`Everything runs with no API keys, but not equally well: without an Anthropic key the
+${c.dim(`Everything runs with no API keys, but not equally well: without a cloud planning key the
 lesson is derived from document structure instead of taught, and the CLI will say so.
 Exit codes: 0 success, 1 failed, 2 bad usage.`)}
 `;

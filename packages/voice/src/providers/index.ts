@@ -9,7 +9,7 @@
  */
 import type { Logger } from '@inkcast/core';
 import type { PhraseSplit } from '../phrase.js';
-import { logger } from '@inkcast/core';
+import { logger, textProvider } from '@inkcast/core';
 import { createElevenLabsProvider } from './elevenlabs.js';
 import { createKokoroProvider } from './kokoro.js';
 import { createSilenceProvider } from './silence.js';
@@ -42,6 +42,7 @@ export {
   elevenLabsModel,
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_QUALITY_MODEL,
   ELEVENLABS_USD_PER_CREDIT,
 } from './elevenlabs.js';
 
@@ -63,7 +64,8 @@ const KEYED_CHAIN: readonly VoiceProviderId[] = ['elevenlabs', 'kokoro', 'system
 /**
  * The chain for this environment, and the one place "which voice do you get" is decided.
  *
- * **A present `ELEVENLABS_API_KEY` wins.** It did not until now, and the reason it did not
+ * Fireworks selects the local speech chain. Otherwise a present
+ * `ELEVENLABS_API_KEY` wins. Previously the reason it did not
  * was invisible: the chain was ordered local-first and Kokoro is always available, so a
  * user who pasted an ElevenLabs key got the 82M-parameter local model and a `pipeline.json`
  * that said `kokoro/af_heart`. Nothing was broken and nothing was reported; the key was
@@ -76,6 +78,7 @@ const KEYED_CHAIN: readonly VoiceProviderId[] = ['elevenlabs', 'kokoro', 'system
  * delivery *despite* a key. See `pinnedProvider`.
  */
 export function defaultChain(env: NodeJS.ProcessEnv = process.env): VoiceProviderId[] {
+  if (textProvider(env) === 'fireworks') return ['kokoro', 'system', 'silence'];
   return env.ELEVENLABS_API_KEY ? [...KEYED_CHAIN] : [...DEFAULT_CHAIN];
 }
 

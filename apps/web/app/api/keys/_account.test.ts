@@ -131,13 +131,14 @@ function row(body: Record<string, never>, id: string): Row {
 
 /* ------------------------------------------------------------- the empty state */
 
-test('a hosted GET describes four providers and what protects them', async () => {
+test('a hosted GET describes all supported providers and what protects them', async () => {
   const out = await read(await GET(request('/api/keys', {}, alice.token)));
   assert.equal(out.status, 200);
   assert.deepEqual((out.body.keys as unknown as Row[]).map((entry) => entry.id).sort(), [
     'anthropic',
     'elevenlabs',
     'fal',
+    'fireworks',
     'replicate',
   ]);
   for (const entry of out.body.keys as unknown as Row[]) assert.equal(entry.configured, false);

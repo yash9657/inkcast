@@ -140,6 +140,7 @@ export {
   VoiceProviderError,
   ELEVENLABS_FLASH_MODEL,
   ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_QUALITY_MODEL,
   ELEVENLABS_USD_PER_CREDIT,
 } from './providers/index.js';
 export { SAY_NOT_FOR_PUBLISHING, sayRateForWpm } from './providers/system.js';

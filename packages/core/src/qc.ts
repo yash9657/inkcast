@@ -70,6 +70,14 @@ export type QcReport = {
   fill?: number[];
   /** Present once Tier 2 exists: `run`, or why it did not. */
   tier2?: string;
+  /** Check coverage, distinct from `ok` (which only means no blocking failure). */
+  verification?: {
+    state: 'failed' | 'incomplete' | 'advisories' | 'checked';
+    skipped: string[];
+    warnings: string[];
+    /** No visual/layout check proves factual correctness. */
+    semantics: 'not-checked' | 'checked';
+  };
 };
 
 /** The checks that failed. */
@@ -99,6 +107,20 @@ export function qcReport(
     problems: of('fail'),
     advisories: of('warn'),
     ...extra,
+    verification: {
+      state: checks.some((c) => c.status === 'fail')
+        ? 'failed'
+        : checks.some((c) => c.status === 'skip')
+          ? 'incomplete'
+          : checks.some((c) => c.status === 'warn')
+            ? 'advisories'
+            : 'checked',
+      skipped: checks.filter((c) => c.status === 'skip').map((c) => c.id),
+      warnings: checks.filter((c) => c.status === 'warn').map((c) => c.id),
+      semantics: checks.some((c) => c.id === 'semantic-explanation' && c.status === 'pass')
+        ? 'checked'
+        : 'not-checked',
+    },
   };
 }
 
@@ -131,7 +153,14 @@ export function qcSkip(id: string, note: string, tier: QcTier = 1): QcCheck {
 /** The line a human wants when the gate stops a render. */
 export function describeQc(report: QcReport): string {
   const bad = failed(report);
-  if (bad.length === 0) return 'the board passed every quality check';
+  if (bad.length === 0) {
+    const skipped = report.checks.filter((c) => c.status === 'skip');
+    const warned = report.checks.filter((c) => c.status === 'warn');
+    if (skipped.length)
+      return `no blocking failures; ${skipped.length} checks did not run (${skipped.map((c) => c.id).join(', ')})`;
+    if (warned.length) return `no blocking failures; ${warned.length} checks reported advisories`;
+    return 'the board passed the checks that ran; factual accuracy requires semantic review';
+  }
   const total = bad.reduce((n, c) => n + c.findings.length, 0);
   return (
     `${total} quality problem${total === 1 ? '' : 's'} in ${bad.length} check` +

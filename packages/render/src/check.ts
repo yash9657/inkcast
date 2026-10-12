@@ -1,3 +1,4 @@
+import { speechSyncCheck } from './speech-sync.js';
 /**
  * `check(sb, dir, opts)` — the quality gate, as a stage (plan item 3.1; audit S9-a,
  * S9-b).
@@ -114,6 +115,8 @@ export type CheckOptions = {
   gates?: GateMode;
   /** Verdicts from earlier stages. See `InheritedProblems`. */
   inherited?: InheritedProblems[];
+  /** Already judged upstream; preserve skip/fail and tier instead of assuming pass. */
+  inheritedChecks?: QcCheck[];
   /** Skip writing `qc.json` — for callers that only want the verdict. */
   write?: boolean;
   /**
@@ -154,6 +157,7 @@ export async function check(
 
   const checks: QcCheck[] = [
     qcCheck('storyboard', critiqueStoryboard(sb)),
+    speechSyncCheck(sb, plan),
     qcCheck('ink-on-ink', of(report.blocking, 'ink-on-ink')),
     qcCheck('off-frame', of(report.blocking, 'off-frame')),
     qcCheck('overrun', of(report.blocking, 'overrun')),
@@ -202,6 +206,8 @@ export async function check(
       }),
     );
   }
+
+  checks.push(...(opts.inheritedChecks ?? []));
 
   const looked = await lookAtFrames(sb, dir, plan, opts);
   checks.push(...looked.checks);

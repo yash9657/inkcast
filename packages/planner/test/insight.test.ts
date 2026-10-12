@@ -77,17 +77,12 @@ test('every preset keeps the cardiac payoff, and the trimmer says why it ran lon
   }
 });
 
-test('keeping the payoff costs one beat of runtime, and the cost is pinned', () => {
-  // The honest price of the fix, in the units the trimmer thinks in. Dropping `step7` took
-  // the `standard` estimate to 165s (still 15s over the 150s target); keeping it lands at
-  // 181s. A slowdown that lengthens every beat would be trading one defect for another, so
-  // the bound is asserted rather than described: one beat, not a general inflation.
-  const seconds = lessonSeconds(adaptLesson(CARDIAC, PRESETS.standard), PRESETS.standard);
-  assert.ok(seconds > 175 && seconds < 185, `standard estimate is ${seconds.toFixed(1)}s`);
-  assert.ok(
-    seconds - PRESETS.standard.maxSeconds < 35,
-    'keeping one beat must not turn a 15s overrun into a runaway',
-  );
+test('keeping complete teaching reports the runtime cost instead of cutting its conclusion', () => {
+  const problems: string[] = [];
+  const shaped = adaptLesson(CARDIAC, PRESETS.standard, { onProblem: (p) => problems.push(p) });
+  assert.equal(shaped.steps[6]!.narration, CARDIAC.steps[6]!.narration);
+  assert.ok(lessonSeconds(shaped, PRESETS.standard) > PRESETS.standard.maxSeconds);
+  assert.ok(problems.some((p) => p.startsWith('script-duration:')));
 });
 
 /* ------------------------------------------- the shipped lessons do not move */
@@ -106,32 +101,15 @@ test('neither shipped lesson has a beat above the arrival threshold', () => {
   }
 });
 
-test('the shipped lessons still trim to the beats they always trimmed to', () => {
-  const [gd, lon] = shipped as [Lesson, Lesson];
-
-  const gdShort = adaptLesson(gd, PRESETS.short);
-  assert.deepEqual(
-    gdShort.steps.map((s) => s.idea),
-    [
-      'That hillside is really a graph',
-      'The slope tells you which way is down',
-      'How big a step is the one knob you choose',
-    ],
-  );
-  assert.equal(gdShort.misconception, undefined);
-
-  const lonShort = adaptLesson(lon, PRESETS.short);
-  assert.deepEqual(
-    lonShort.steps.map((s) => s.idea),
-    [
-      'Longitude is a difference between two clocks',
-      'A carpenter built the clock the astronomers could not',
-    ],
-  );
-
-  // Nothing is dropped at `standard` on either, which is the other half of the pin.
+test('duration alone no longer deletes shipped teaching steps', () => {
   for (const lesson of shipped) {
-    assert.equal(adaptLesson(lesson, PRESETS.standard).steps.length, lesson.steps.length);
+    for (const preset of [PRESETS.standard, PRESETS.short]) {
+      const shaped = adaptLesson(lesson, preset);
+      assert.deepEqual(
+        shaped.steps.map((s) => s.narration),
+        lesson.steps.map((s) => s.narration),
+      );
+    }
   }
 });
 
@@ -142,7 +120,9 @@ test('a lesson with no core insight spares nothing', () => {
   // and those must trim exactly as they did.
   const blank: Lesson = { ...CARDIAC, coreInsight: '' };
   assert.equal(insightArrival(blank), undefined);
-  assert.ok(adaptLesson(blank, PRESETS.standard).steps.length < CARDIAC.steps.length);
+  assert.ok(
+    adaptLesson(blank, { ...PRESETS.standard, maxBeats: 8 }).steps.length < CARDIAC.steps.length,
+  );
 });
 
 test('at most one beat is ever spared, however many serve the insight', () => {

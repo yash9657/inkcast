@@ -72,6 +72,10 @@ type Probe = {
 };
 
 const PROBES: Record<Provider, Probe> = {
+  fireworks: {
+    url: 'https://api.fireworks.ai/inference/v1/models',
+    init: (key) => ({ method: 'GET', headers: { Authorization: `Bearer ${key}` } }),
+  },
   anthropic: {
     url: 'https://api.anthropic.com/v1/models?limit=1',
     init: (key) => ({

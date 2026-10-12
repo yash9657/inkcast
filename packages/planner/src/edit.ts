@@ -1,3 +1,4 @@
+import { textProvider } from '@inkcast/core';
 /**
  * Natural-language editing of a storyboard.
  *
@@ -220,14 +221,9 @@ export async function editStoryboardDetailed(
   instruction: string,
   opts: EditOptions = {},
 ): Promise<{ storyboard: Storyboard; report: EditReport }> {
-  const adapter =
-    opts.adapter && opts.adapter !== 'auto'
-      ? opts.adapter
-      : process.env.ANTHROPIC_API_KEY
-        ? 'anthropic'
-        : 'heuristic';
+  const adapter = textProvider(process.env, opts.adapter);
 
-  if (adapter === 'anthropic') {
+  if (adapter !== 'heuristic') {
     const patched = await anthropicEdit(sb, instruction, opts);
     if (patched) {
       const out =
@@ -259,7 +255,7 @@ export async function editStoryboardDetailed(
 
   if (report.needsKey.length) {
     log.warn(
-      `set ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new content`,
+      `set FIREWORKS_API_KEY or ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new content`,
     );
   }
   if (report.unsupported.length) {

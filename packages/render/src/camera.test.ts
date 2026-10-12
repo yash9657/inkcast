@@ -624,3 +624,22 @@ test('a vertical board is composed heavier, not cropped', () => {
   assert.ok(tall.strokeWidth / tall.scale > wide.strokeWidth / wide.scale);
   assert.ok(tall.type.caption / tall.scale > wide.type.caption / wide.scale);
 });
+
+test('a newly composed recap stays close enough to read its own diagram', () => {
+  const sb = lessonStoryboard();
+  const last = sb.scenes.at(-1)!;
+  last.elements.push({
+    id: 'recap-mechanism',
+    type: 'shape',
+    shape: 'rect',
+    fill: false,
+    persist: true,
+    at: { x: 1400, y: 1460, w: 160, h: 80 },
+    enter: { at: 0, duration: 0.3, style: 'draw' },
+  });
+  const shot = resolveFraming(sb, FRAME).at(-1)!;
+  assert.ok(shot.derived);
+  assert.ok(shot.target!.h < 300, 'old panels do not shrink a new recap diagram');
+  const view = viewRect(shot.camera, sb.canvas, FRAME);
+  for (const el of last.elements) assert.ok(rectContains(view, elementBounds(el)));
+});

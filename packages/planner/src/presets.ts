@@ -594,18 +594,6 @@ export function clampNarration(narration: string, maxWords: number): string {
 /* ------------------------------------------------------------------ trimming */
 
 /**
- * Two beats get a longer leash when a lesson is squeezed.
- *
- * The hook is usually a question, and a question cut off before the question mark
- * is not a hook. The worked example is where the numbers are, and a worked example
- * trimmed to "you are at three, the slope is plus four" has thrown away the only
- * thing it was for. Everything else can lose a sentence without losing its job.
- */
-function wordBudget(preset: Preset, role: 'hook' | 'worked' | 'other'): number {
-  return role === 'other' ? preset.maxWordsPerBeat : Math.round(preset.maxWordsPerBeat * 1.6);
-}
-
-/**
  * The silence a beat is allowed to *ask* for, once the format has had its say.
  *
  * Two ceilings, and they are different rules rather than one rule twice. The vertical
@@ -638,7 +626,10 @@ function trimStep(
   const visuals = pickVisuals(step.visuals, preset.visualsPerBeat);
   return {
     ...step,
-    narration: clampNarration(step.narration, wordBudget(preset, role)),
+    // A renderer preset cannot decide which sentence carries the explanation. Fit the
+    // complete script before drawing; if that is unavailable, retain whole explanation
+    // units and report the overrun instead of silently discarding their conclusions.
+    narration: step.narration.trim(),
     visuals,
     hold: cappedHold(step, preset, role),
   };
@@ -947,7 +938,7 @@ export function misconceptionCutInBoard(
   if (scenes.some((s) => s.role === 'misconception')) return [];
   return [
     `${MISCONCEPTION_CUT_PREFIX} — "${lesson.misconception.idea}" — is not on this board, ` +
-      `cut to fit the ${preset.maxSeconds}s ${preset.name} budget, so this film never names ` +
+      `cut while adapting the ${preset.name} board (requested ${preset.maxSeconds}s), so this film never names ` +
       'the wrong belief it creates. Ask for shorter beats, or cast it at a longer preset.',
   ];
 }
@@ -1067,9 +1058,9 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
    */
   const countBinds = preset.countBinds ?? preset.board !== 'wipe';
 
-  const overBudget = (l: Lesson) =>
-    (countBinds && lessonBeats(l).length > preset.maxBeats) ||
-    lessonSeconds(l, preset) > preset.maxSeconds;
+  // Runtime fitting belongs to the reviewed script pass. A deterministic preset
+  // cannot know whether a disposable-looking beat carries a necessary explanation.
+  const overBudget = (l: Lesson) => countBinds && lessonBeats(l).length > preset.maxBeats;
 
   let shaped = withoutDoomed();
   while (overBudget(shaped)) {
@@ -1100,19 +1091,27 @@ export function adaptLesson(lesson: Lesson, preset: Preset, opts?: StageOptions)
     candidates.sort((a, b) => scoreOf(a) - scoreOf(b) || b.localeCompare(a));
     const victim = candidates[0]!;
     doomed.add(victim);
-    log.debug(`dropped ${victim} to fit ${preset.maxSeconds}s — nothing derives from it`);
+    log.debug(
+      `dropped ${victim} to fit ${preset.maxBeats} board regions — nothing derives from it`,
+    );
     noteProblem(
       opts,
       victim === 'misconception'
         ? `${MISCONCEPTION_CUT_PREFIX} — "${lesson.misconception?.idea ?? ''}" — was cut to fit the ` +
-            `${preset.maxSeconds}s ${preset.name} budget, so this film never names the wrong ` +
+            `${preset.maxBeats}-region ${preset.name} board, so this film never names the wrong ` +
             'belief it creates. Ask for shorter beats, or cast it at a longer preset.'
         : `beat ${victim} ("${beatIdea(lesson, victim)}") was cut to fit the ` +
-            `${preset.maxSeconds}s ${preset.name} budget — nothing surviving derives from it`,
+            `${preset.maxBeats}-region ${preset.name} board — nothing surviving derives from it`,
     );
     shaped = withoutDoomed();
   }
 
+  const seconds = lessonSeconds(shaped, preset);
+  if (seconds > preset.maxSeconds)
+    noteProblem(
+      opts,
+      `script-duration: ${Math.round(seconds)}s exceeds the ${preset.maxSeconds}s target; complete explanations were preserved. Rewrite the script before publishing.`,
+    );
   // Ids are positional, so anything dropped above renumbered the survivors.
   remapDerivations(shaped, lesson, doomed);
   return shaped;

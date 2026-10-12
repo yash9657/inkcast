@@ -1,10 +1,17 @@
 # Inkcast
 
+The preferred cloud path now uses a Fireworks key for lesson authoring, vector diagrams,
+edits and visual review, plus local Kokoro speech. The default is
+`accounts/fireworks/models/deepseek-v4p1-flash` (catalog checked 2026-10-12).
+See [provider setup and data handling](docs/FIREWORKS.md). Raster illustration generation
+still uses the optional fal/Replicate adapters; Fireworks retired image/audio inference.
+
+
 **Say what you want to understand. Get a hand-drawn whiteboard lesson that actually
 teaches it.**
 
 ```bash
-inkcast keys set anthropic          # the step that makes it good
+inkcast keys set fireworks          # open-weight planning, diagrams and visual review
 inkcast teach "gradient descent"    # -> projects/<id>/out.mp4
 ```
 
@@ -47,21 +54,21 @@ This is step one, before the quickstart, because it is the difference between a
 video that teaches and a video that recites.
 
 ```bash
-inkcast keys set anthropic        # prompted, hidden, never echoed or logged
+inkcast keys set fireworks        # prompted, hidden, never echoed or logged
 inkcast keys list                 # masked previews and where each key lives
 inkcast keys validate             # one cheap live call per configured provider
-inkcast keys delete anthropic     # forget it
+inkcast keys delete fireworks     # forget it
 ```
 
 Keys are stored in your **macOS keychain**, or in an AES-256-GCM vault file
 (`~/.inkcast/vault.json`, `0600`) on other platforms. The CLI and the studio share
-one store, so you set a key once. An exported `ANTHROPIC_API_KEY` always wins over a
-stored one — `inkcast keys list` tells you which is winning, because a shadowed
+one store, so you set a key once. An exported provider variable (for example `FIREWORKS_API_KEY`) wins over its
+stored key — `inkcast keys list` tells you which is winning, because a shadowed
 credential you cannot see is worse than no credential.
 
-Bring your own key: Inkcast has no account, no proxy and no telemetry. Your key goes
-to Anthropic and nowhere else, and your source material never leaves the machine
-unless you set a cloud key.
+Bring your own key: Inkcast has no account, no proxy and no telemetry. Each key is sent only to its corresponding provider. Source material is sent to
+the selected cloud model when cloud generation is enabled; rendering stays local.
+See [Fireworks setup and data handling](docs/FIREWORKS.md) for the open-weight path.
 
 Two other keys are optional upgrades: `elevenlabs` for a publishable narrator, and
 `replicate` or `fal` for illustrated objects and characters. Neither changes whether
@@ -123,7 +130,7 @@ The first version of this README headlined **$0.00 per minute** while shipping
 something that taught nothing. Optimising for the free provider was the wrong
 variable, and we are not going to make that mistake twice. So, plainly:
 
-**With an Anthropic key**, Claude writes the lesson: a hook that is a concrete
+**With a Fireworks or Anthropic key**, the selected model writes the lesson: a hook that is a concrete
 question rather than a definition, an everyday anchor the abstraction maps onto, one
 new idea per beat with a reason instead of an assertion, a worked example with real
 numbers, and the specific misconception a learner forms — then the plan has to
@@ -137,10 +144,10 @@ bare topic with no document it has almost nothing to work from. The CLI says so
 before it starts, and tells you the one command that fixes it:
 
 ```
-degraded lesson — no Anthropic key. the lesson is derived from structure rather than
+degraded lesson — no cloud planner key. the lesson is derived from structure rather than
          taught from first principles — no invented anchor, no worked example, no
          named misconception. This is the biggest single quality difference in Inkcast.
-         fix: inkcast keys set anthropic
+         fix: inkcast keys set fireworks
 ```
 
 The zero-key path exists so the renderer can be tested, so a contributor can work
@@ -494,8 +501,9 @@ Quality first, price second — that ordering is the correction. What a run cost
 | visuals    | built-in icons + procedural plots/ink | FLUX-class on Replicate / fal  | ~$0.003 per image          |
 | render     | Playwright + ffmpeg, your CPU         | — (there is no cloud renderer) | —                          |
 
-The configuration we recommend — **Anthropic for the lesson, everything else local**
-— costs a few cents per video and nothing per minute of runtime. Adding a cloud
+The open-weight configuration uses **Fireworks for model calls and Kokoro for local speech**.
+See [the current model and measured-cost policy](docs/FIREWORKS.md); paid retries and
+drawing review count toward the video cost. Adding a cloud
 voice puts you in the region of **$0.20 per finished minute**, which is where the
 per-minute figure actually comes from. A fully local run costs exactly $0.00 and is
 the weakest output Inkcast produces; that is a floor for development and CI, not a
@@ -527,18 +535,18 @@ each behind a different price point. Inkcast has no tiers.
 | Stage      | Runs local & free                                            | Key                  | What the key buys                                                                         | Missing key behaviour                           |
 | ---------- | ------------------------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | ingest     | ✅ always                                                    | —                    | —                                                                                         | —                                               |
-| lesson     | ⚠️ derived from structure                                    | `anthropic`          | **The teaching itself**: anchor, derivation, worked example, misconception, revision pass | Derived lesson, and the CLI names the cost      |
+| lesson     | ⚠️ derived from structure                                    | `fireworks` or `anthropic` | **The teaching itself**: anchor, derivation, worked example, misconception, revision pass | Derived lesson, and the CLI names the cost      |
 | storyboard | ✅ always — plots, ink, regions, cues, camera                | —                    | —                                                                                         | —                                               |
 | voice      | ✅ Kokoro-82M (28 voices; macOS `say` only as a build check) | `elevenlabs`         | More natural prosody, more languages, cloning                                             | Kokoro, which is genuinely listenable           |
 | visuals    | ✅ plots, paths, procedural diagrams, built-in icons         | `replicate` or `fal` | Illustrated objects and characters                                                        | Icon fallback, stated plainly rather than faked |
 | render     | ✅ Playwright + ffmpeg                                       | —                    | —                                                                                         | —                                               |
 
 Set keys with `inkcast keys set <provider>`, or export the environment variable
-(`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`) — see
+(`FIREWORKS_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`) — see
 [`.env.example`](.env.example). Rules the whole project keeps: **local is always
 available**, a cloud provider is used only when its key is present, a missing or
-rejected key degrades with a clear line naming the fix — never a crash — and no
-degradation is ever silent.
+rejected key produces a diagnostic naming the fix. In strict mode, a failed cloud
+lesson blocks before narration instead of publishing heuristic fallback content.
 
 The one caveat to "works offline": the local voice needs a one-time ~92 MB model
 download. If it fails, the voice stage says so and falls back rather than failing.

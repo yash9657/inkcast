@@ -15,7 +15,7 @@
  * a video that reads a document aloud.
  */
 
-export const PROVIDER_IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+export const PROVIDER_IDS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
@@ -68,6 +68,24 @@ export type ProviderInfo = {
 };
 
 export const PROVIDERS: readonly ProviderInfo[] = [
+  {
+    id: 'fireworks',
+    label: 'Fireworks',
+    envVar: 'FIREWORKS_API_KEY',
+    envVars: ['FIREWORKS_API_KEY'],
+    stage: 'plan',
+    role: 'Plans, draws and reviews',
+    unlocks:
+      'Open-weight models write lessons, compose vector diagrams and review rendered frames. Preferred when configured. Pair with local Kokoro speech; raster illustration generation needs a separate image provider.',
+    without: 'Uses another configured planning provider, or the limited local document planner.',
+    rank: 1,
+    console: {
+      href: 'https://app.fireworks.ai/settings/users/api-keys',
+      label: 'app.fireworks.ai',
+    },
+    cost: 'Depends on model, tokens and revision count',
+    looksLike: { minLength: 20, describe: 'your Fireworks API key' },
+  },
   {
     id: 'anthropic',
     label: 'Anthropic',

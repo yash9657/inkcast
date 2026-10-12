@@ -397,7 +397,11 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
     const own = scene.elements.map((el) => elementBounds(el, boxes));
     const ownUnion = unionAll(own);
     const key = scene.region ?? null;
-    const recap = scene.role === 'recap';
+    // A newly composed recap is a diagram to read. Only a recap that points at
+    // existing ink needs the board-wide view; persistence does not require zooming out.
+    const recap =
+      scene.role === 'recap' &&
+      !scene.elements.some((el) => ['asset', 'shape', 'arrow', 'equation'].includes(el.type));
     const held = recap ? boardHistory : key === null ? [] : (regionHistory.get(key) ?? []);
     // Ink whose last scene has gone by is not on the board, so it is not in frame
     // and it is not in the fill either. Under `accumulate` nothing ever expires.
@@ -405,7 +409,8 @@ export function resolveFraming(sb: Storyboard, frame: FrameSize): SceneFraming[]
     const visible = [...history, ...own];
     // A narration-only beat on a board we have not drawn into yet has nothing to
     // frame, so `target` stays null and the author's camera stands.
-    const target = key === null && !recap ? null : unionRects(unionAll(history), ownUnion);
+    const target =
+      key === null && scene.role !== 'recap' ? null : unionRects(unionAll(history), ownUnion);
     shots.push({
       scene,
       history,

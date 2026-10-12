@@ -68,6 +68,10 @@ export const Mark = z.object({
    * beat, an emphasis, or a motion refers to.
    */
   id: z.string(),
+  /** Exact spoken phrase that introduces this part; resolved against measured audio. */
+  cue: z.string().trim().min(1).optional(),
+  /** Circle radius is computed to pass through this point marker, preserving its centre. */
+  circleThrough: z.string().min(1).optional(),
   kind: z.enum(['rect', 'ellipse', 'line', 'stroke', 'arrow', 'label', 'hatch', 'dots', 'math']),
   /** Left edge / first coordinate, for the box-shaped kinds. */
   x: z.number().optional(),
@@ -104,6 +108,13 @@ export const Mark = z.object({
   dashed: z.boolean().default(false),
   /** `label`: the words, spelled as they should appear. */
   text: z.string().optional(),
+  /** A label's semantic target. Its leader is derived after layout, never guessed. */
+  target: z
+    .object({
+      partId: z.string().min(1),
+      anchor: z.enum(['center', 'top', 'bottom', 'left', 'right']).default('center'),
+    })
+    .optional(),
   /**
    * `math`: TeX source, no delimiters — `\frac{dv}{dt} = -\frac{g}{L}\theta`, not
    * `$...$`.
@@ -519,6 +530,20 @@ export const LessonStep = z.object({
 
 export const Lesson = z.object({
   version: z.literal(1),
+  /** Model review of the final script against supplied source; never a proof of truth. */
+  sourceReview: z
+    .object({
+      version: z.literal(1),
+      model: z.string(),
+      sourceHash: z.string(),
+      contentHash: z.string(),
+      grounded: z.boolean(),
+      checkedBeats: z.array(z.string()),
+      evidence: z.array(
+        z.object({ id: z.string(), quotes: z.array(z.string()), reason: z.string() }),
+      ),
+    })
+    .optional(),
   topic: z.string(),
   /** Who this is pitched at; drives vocabulary and how much is assumed. */
   audience: z.string().default('a curious beginner with no background'),

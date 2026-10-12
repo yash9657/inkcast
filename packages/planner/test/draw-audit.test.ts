@@ -7,6 +7,7 @@ import {
   defectScore,
   defectSummary,
   lessonDrawingDefects,
+  missingLessonDrawings,
 } from '../src/draw-audit.js';
 import { cardFill, inkHitsBox, inkOf, markInk } from '../src/draw-geom.js';
 import { cleanMarks, prepareMarks } from '../src/drawing.js';
@@ -512,4 +513,24 @@ test('a thin card never outranks a name nobody can read', () => {
   const thin = defectScore([{ kind: 'thin-card', ids: [], note: '' }]);
   const onInk = defectScore([{ kind: 'label-on-ink', ids: [], note: '' }]);
   assert.ok(thin < onInk, `thin-card ${thin} must weigh less than label-on-ink ${onInk}`);
+});
+
+test('cloud drawing completeness distinguishes missing geometry from local characters', () => {
+  const lesson = structuredClone(CARDIAC);
+  lesson.hook.visuals = [
+    { kind: 'draw', describe: 'satellite never drawn' },
+    { kind: 'draw', describe: 'a library character', character: { id: 'guide' } },
+    {
+      kind: 'draw',
+      describe: 'drawn satellite',
+      marks: [mark({ id: 'body', kind: 'rect', x: 50, y: 50, w: 80, h: 80 })],
+    },
+  ] as never;
+  const problems = missingLessonDrawings(lesson);
+  assert.ok(problems.some((line) => line.includes('satellite never drawn')));
+  assert.ok(
+    !problems.some(
+      (line) => line.includes('library character') || line.includes('drawn satellite'),
+    ),
+  );
 });

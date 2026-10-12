@@ -1,3 +1,4 @@
+import { textModel } from '@inkcast/core';
 /**
  * The art director: which beats get a generated picture, decided by a pass rather
  * than asked for in a brief.
@@ -76,8 +77,12 @@ export const MAX_FIGURES = 4;
 /** The model that makes the call. Cheap: this is one judgement, not an essay. */
 export const DEFAULT_ROUTER_MODEL = 'claude-sonnet-5';
 
-export function routerModel(opts: { routerModel?: string } = {}): string {
-  return opts.routerModel || process.env.INKCAST_ROUTER_MODEL || DEFAULT_ROUTER_MODEL;
+export function routerModel(opts: { routerModel?: string; adapter?: string } = {}): string {
+  return (
+    opts.routerModel ||
+    process.env.INKCAST_ROUTER_MODEL ||
+    textModel(DEFAULT_ROUTER_MODEL, process.env, opts?.adapter)
+  );
 }
 
 /** Which lane a beat's picture belongs in. */
@@ -221,7 +226,7 @@ export async function routeFigures(lesson: Lesson, opts: LessonOptions = {}): Pr
   const work = routable(lesson);
   if (!work.length) return [];
 
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   if (!c) return [];
   const schema = await figureRouteJsonSchema();
   if (!schema) return [];
@@ -243,7 +248,8 @@ export async function routeFigures(lesson: Lesson, opts: LessonOptions = {}): Pr
       { name: TOOL, description: 'Choose the drawing lane for each beat.' },
       2000,
       opts.onSpend
-        ? (u) => noteSpend(opts, { lane: 'art-director', provider: 'anthropic', ...u })
+        ? (u) =>
+            noteSpend(opts, { lane: 'art-director', provider: c.provider ?? 'anthropic', ...u })
         : undefined,
     );
   } catch (err) {

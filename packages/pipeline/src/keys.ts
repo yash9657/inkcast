@@ -225,7 +225,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // a beat it derives from them — so the brief this stage sends is different text for
   // identical inputs, which is the test this constant applies. Without the bump a re-cast
   // of any prompt already on disk is briefed at eight beats and twenty words from cache.
-  lesson: 16,
+  lesson: 20,
   // 4: the planner stopped pre-resolving assets against lucide, so an entity's id is
   // now a slug of what the beat described rather than an icon slug — every asset id in
   // every storyboard moved, and the visuals keyed to them with it.
@@ -285,7 +285,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // when the film fitted its runtime, so every `explainer` and `deepdive` storyboard on
   // disk is a different artefact for identical inputs. `standard`/`short`/`square`
   // accumulate and are byte-identical, but this constant is per stage, not per preset.
-  storyboard: 18,
+  storyboard: 23,
   // 6: a clause is synthesised with the narration either side of it handed to the engine
   // as context, and the delivery settings are pinned per request rather than inherited
   // from whatever the voice has stored. Both change the audio for narration that never
@@ -314,7 +314,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // `authoredHold` — which is what keeps a *second* run from re-synthesising the film
   // it just paid for, and is therefore the field this bump exists to introduce rather
   // than merely to invalidate.
-  voice: 9,
+  voice: 13,
   // 8: a traced illustration's paths are placed where the vectoriser said they go, and an
   // asset may ask for its box to be met exactly. See the note above.
   // 9: the figure lane. An asset of kind `figure` resolves to an `<image>` wrapper rather
@@ -343,7 +343,7 @@ export const STAGE_CODE_VERSION: Record<StageName, number> = {
   // (`serializePen`), with reading time reserved at the end of every beat. Every item
   // in every plan has a different `start` and `dur`; nothing about *what* is drawn
   // moved. `renderFingerprint` hashes the plan, so this bump and that hash agree.
-  render: 7,
+  render: 9,
 };
 
 /** The version prefix every one of a stage's cache keys carries. */

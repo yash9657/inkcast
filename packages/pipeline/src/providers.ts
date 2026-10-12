@@ -1,3 +1,4 @@
+import { textProvider, textModel } from '@inkcast/core';
 /**
  * Which provider each stage will actually use, decided from env only.
  *
@@ -35,22 +36,18 @@ export type Providers = {
 const CLAUDE_DEFAULT = 'claude-opus-5';
 
 export function plannerProvider(env: NodeJS.ProcessEnv = process.env): ProviderChoice {
-  const want = (env.INKCAST_PLANNER ?? '').trim();
-  const key = Boolean(env.ANTHROPIC_API_KEY);
-  if (want === 'local' || want === 'heuristic') {
-    return { name: 'heuristic', cloud: false, why: 'INKCAST_PLANNER=local' };
-  }
-  if (!key) {
-    return {
-      name: 'heuristic',
-      cloud: false,
-      why: want
-        ? `INKCAST_PLANNER=${want} but ANTHROPIC_API_KEY is unset`
-        : 'ANTHROPIC_API_KEY is unset',
-    };
-  }
-  const model = want === '' || want === 'anthropic' || want === 'claude' ? CLAUDE_DEFAULT : want;
-  return { name: 'anthropic', cloud: true, why: 'ANTHROPIC_API_KEY is set', model };
+  const name = textProvider(env);
+  return {
+    name,
+    cloud: name !== 'heuristic',
+    why:
+      name === 'heuristic'
+        ? 'local selected or no selected provider key'
+        : `${name} selected; key configured`,
+    ...(name !== 'heuristic'
+      ? { model: env.INKCAST_LESSON_MODEL || textModel(CLAUDE_DEFAULT, env) }
+      : {}),
+  };
 }
 
 /**
@@ -69,13 +66,19 @@ export function voiceProvider(
   env: NodeJS.ProcessEnv = process.env,
 ): ProviderChoice {
   const id = (voiceId ?? env.INKCAST_VOICE ?? 'af_heart').trim();
-  const key = Boolean(env.ELEVENLABS_API_KEY);
+  const key =
+    Boolean(env.ELEVENLABS_API_KEY) &&
+    (textProvider(env) !== 'fireworks' || /^elevenlabs(:|$)/i.test(id));
   const pinned = PINNED_LOCAL.exec(id)?.[1]?.toLowerCase() ?? '';
   if (pinned || !key) {
     return {
       name: pinned === 'say' || pinned === 'system' ? 'say' : 'kokoro',
       cloud: false,
-      why: pinned ? `voice "${id}" is pinned to a local provider` : 'ELEVENLABS_API_KEY is unset',
+      why: pinned
+        ? `voice "${id}" is pinned to a local provider`
+        : textProvider(env) === 'fireworks'
+          ? 'Fireworks profile uses local speech'
+          : 'ELEVENLABS_API_KEY is unset',
       // A bare provider name is its own model id; a prefixed one carries the voice after it.
       model: id.replace(/^(?:kokoro|local|say|system):/i, '') || id,
     };

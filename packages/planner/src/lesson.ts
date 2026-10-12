@@ -1,3 +1,4 @@
+import { textProvider, FIREWORKS_GENERATION_POLICY } from '@inkcast/core';
 /**
  * Stage 2 — lesson. Document (or a bare topic) in, `Lesson` out.
  *
@@ -15,7 +16,7 @@
  * `critiqueLesson`, so a weak plan is caught before it costs a render.
  */
 import type { Lesson } from '@inkcast/core';
-import { hash, isFresh, logger, markFresh, report } from '@inkcast/core';
+import { hash, isFresh, logger, markFresh, noteProblem, report } from '@inkcast/core';
 import { anthropicAvailable } from './anthropic.js';
 import { deriveLesson } from './lesson-derive.js';
 import { anthropicLesson, lessonModel } from './lesson-anthropic.js';
@@ -26,25 +27,23 @@ import type { LessonInput, LessonOptions, PlannerAdapter } from './types.js';
 const log = logger('planner:lesson');
 
 /** Bump when lesson output changes in a way that should invalidate caches. */
-export const LESSON_VERSION = 1;
+export const LESSON_VERSION = 3;
 
 const CACHE_KEY = 'lesson';
 
 /** Which lesson author a given set of options resolves to, in this environment. */
 export function resolveLessonAdapter(opts: LessonOptions = {}): Exclude<PlannerAdapter, 'auto'> {
-  const wanted = opts.adapter ?? 'auto';
-  if (wanted === 'heuristic') return 'heuristic';
-  if (wanted === 'anthropic') {
-    if (anthropicAvailable()) return 'anthropic';
-    log.warn('ANTHROPIC_API_KEY is not set — deriving a lesson from the document instead');
-    return 'heuristic';
-  }
-  return anthropicAvailable() ? 'anthropic' : 'heuristic';
+  return textProvider(process.env, opts.adapter);
 }
 
 function inputHash(input: LessonInput, opts: LessonOptions, adapter: string): string {
   const doc = typeof input === 'string' ? { title: input, text: input } : input;
   return hash(LESSON_VERSION, adapter, doc.title, doc.text, {
+    fireworksReasoning: process.env.INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+    fireworksOutputPolicy: FIREWORKS_GENERATION_POLICY,
+    language: opts.language,
+    style: opts.style,
+    drawModel: opts.drawModel,
     audience: opts.audience,
     objective: opts.objective,
     brief: opts.brief,
@@ -52,7 +51,7 @@ function inputHash(input: LessonInput, opts: LessonOptions, adapter: string): st
     aspect: opts.aspect,
     maxSeconds: opts.maxSeconds,
     wordsPerSecond: opts.wordsPerSecond,
-    model: adapter === 'anthropic' ? lessonModel(opts) : undefined,
+    model: adapter !== 'heuristic' ? lessonModel(opts) : undefined,
   });
 }
 
@@ -84,9 +83,15 @@ export async function teachLesson(input: LessonInput, opts: LessonOptions = {}):
   report(opts, { stage: 'lesson', pct: 5, note: `${adapter} lesson author` });
 
   let lesson: Lesson | undefined;
-  if (adapter === 'anthropic') {
+  if (adapter !== 'heuristic') {
     lesson = await anthropicLesson(input, opts, preset.maxSeconds);
-    if (!lesson) log.warn('the model did not produce a usable lesson — deriving one instead');
+    if (!lesson) {
+      log.warn('the model did not produce a usable lesson — deriving one instead');
+      noteProblem(
+        opts,
+        'lesson-author: cloud generation failed; this lesson is a local fallback, not a cloud-authored explanation',
+      );
+    }
   }
   // The fallback that used to be invisible from outside. `adapter` above is what the
   // environment resolved to; this is what wrote the lesson, and on a keyless — or, more

@@ -86,7 +86,7 @@ after(async () => {
 
 test('the help text leads with a key and the teach command', () => {
   const text = usage(false);
-  assert.match(text, /inkcast keys set anthropic/);
+  assert.match(text, /inkcast keys set fireworks/);
   assert.match(text, /inkcast teach/);
   assert.match(text, /ingest → lesson → storyboard → voice → visuals → render/);
   // Do not repeat the MVP's headline claim.
@@ -138,7 +138,7 @@ test('providers reports the stages in pipeline order and how to upgrade them', a
   };
   assert.equal(parsed.local, true);
   const lesson = parsed.degraded.find((d) => d.stage === 'lesson');
-  assert.equal(lesson?.fix, 'inkcast keys set anthropic');
+  assert.equal(lesson?.fix, 'inkcast keys set fireworks');
 });
 
 /* -------------------------------------------------------------------- keys */
@@ -153,7 +153,7 @@ test('keys list reports every provider and where a key would come from', async (
   assert.equal(parsed.backend.backend, 'vault');
   assert.deepEqual(
     parsed.providers.map((p) => p.provider),
-    ['anthropic', 'elevenlabs', 'replicate', 'fal'],
+    ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'],
   );
   assert.ok(parsed.providers.every((p) => !p.configured));
 });
@@ -162,7 +162,7 @@ test('keys validate with nothing configured succeeds and says what to do', async
   // Runs before anything is stored, so it never makes a network call.
   const res = await cli(['keys', 'validate']);
   assert.equal(res.code, 0);
-  assert.match(res.out, /inkcast keys set anthropic/);
+  assert.match(res.out, /inkcast keys set fireworks/);
 });
 
 test('keys set stores a key, list masks it, delete removes it', async () => {

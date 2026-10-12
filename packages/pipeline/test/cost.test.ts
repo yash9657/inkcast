@@ -346,3 +346,45 @@ test('a spend entry with no tokens and no images cannot invent a line', () => {
   assert.deepEqual(report.lines, []);
   assert.equal(report.local, true);
 });
+
+test('Fireworks uses its own token rates and does not double-count authored lesson estimates', () => {
+  const p = providers(undefined, { FIREWORKS_API_KEY: 'fake', ELEVENLABS_API_KEY: 'also-fake' });
+  assert.equal(p.planner.name, 'fireworks');
+  assert.equal(p.voice.name, 'kokoro');
+  const cost = costOf(board(), {
+    providers: p,
+    sourceChars: 10000,
+    storyboardChars: 8000,
+    narratedChars: 0,
+    lessonAuthored: true,
+    spend: [
+      {
+        lane: 'lesson',
+        provider: 'fireworks',
+        model: p.planner.model,
+        inTokens: 1000,
+        outTokens: 1000,
+      },
+    ],
+  });
+  assert.equal(cost.lines.length, 1);
+  assert.equal(cost.usd, 0.0015);
+  assert.equal(cost.estimated, true, 'list-price estimates are not invoices');
+});
+
+test('unknown Fireworks pricing remains unpriced even without token telemetry', () => {
+  const p = providers(undefined, {
+    FIREWORKS_API_KEY: 'fake',
+    INKCAST_FIREWORKS_MODEL: 'accounts/custom/models/new',
+  });
+  const report = costOf(board(), {
+    providers: p,
+    sourceChars: 1000,
+    storyboardChars: 2000,
+    narratedChars: 0,
+    lessonAuthored: true,
+  });
+  assert.equal(report.lines[0]?.unpriced, true);
+  assert.equal(report.usd, 0);
+  assert.equal(report.local, false);
+});

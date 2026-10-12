@@ -42,7 +42,7 @@ const UNSUPPORTED = new Set([
  * field from the *lesson* tool only; the drawing author's own tool schema is built from
  * `Mark` itself, which has no `marks` property, so it is unaffected.
  */
-const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg', 'inkBox', 'marks'];
+const STAGE_OWNED = ['durationSec', 'audioPath', 'words', 'svg', 'inkBox', 'marks', 'sourceReview'];
 
 type Json = Record<string, unknown>;
 
@@ -102,7 +102,22 @@ export async function storyboardJsonSchema(): Promise<Json | undefined> {
  * with a title on it.
  */
 export async function lessonJsonSchema(): Promise<Json | undefined> {
-  return toJsonSchema(Lesson, 'the Anthropic lesson author needs it to describe a Lesson');
+  const schema = await toJsonSchema(
+    Lesson,
+    'the Anthropic lesson author needs it to describe a Lesson',
+  );
+  const requireTitles = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    const object = node as Json;
+    const props = object.properties as Json | undefined;
+    if (props?.idea && props.narration && props.title)
+      object.required = [...new Set([...((object.required as string[]) ?? []), 'title'])];
+    for (const child of Object.values(object))
+      if (Array.isArray(child)) child.forEach(requireTitles);
+      else if (child && typeof child === 'object') requireTitles(child);
+  };
+  requireTitles(schema);
+  return schema;
 }
 
 /**

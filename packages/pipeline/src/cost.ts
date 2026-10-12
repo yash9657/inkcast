@@ -39,6 +39,12 @@ const PRICES = {
     'claude-sonnet-4-6': { in: 3, out: 15 },
     'claude-haiku-4-5': { in: 1, out: 5 },
   } as Record<string, { in: number; out: number }>,
+  // https://app.fireworks.ai/models/fireworks/deepseek-v4p1-flash (2026-10-12).
+  // Uncached standard rate. Cached-input discounts are not estimated here.
+  fireworks: { 'accounts/fireworks/models/deepseek-v4p1-flash': { in: 0.3, out: 1.2 } } as Record<
+    string,
+    { in: number; out: number }
+  >,
   /** ElevenLabs Creator tier: ~$22 per 100,000 credits => $0.00022/credit. */
   elevenlabsPerCredit: 0.00022,
   /** FLUX-class text-to-image on Replicate/fal: ~$0.003 per 1024px image. */
@@ -80,6 +86,7 @@ export type CostLine = {
   /** What the number was computed from, shown verbatim in `--json` output. */
   basis: string;
   estimated: boolean;
+  unpriced?: boolean;
 };
 
 export type CostReport = {
@@ -151,9 +158,11 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
   // lesson, and was charged a cent for the system prompt it never sent.
   const authoredChars = input.lessonChars ?? input.storyboardChars;
   const lessonRan = input.lessonAuthored !== false && authoredChars > 0;
-  if (planner.cloud && lessonRan) {
+  if (!(input.spend ?? []).some((s) => s.lane === 'lesson') && planner.cloud && lessonRan) {
     const model = planner.model ?? 'claude-opus-5';
-    const price = PRICES.anthropic[model] ?? { in: 5, out: 25 };
+    const known = planner.name === 'fireworks' ? PRICES.fireworks[model] : PRICES.anthropic[model];
+    const unpriced = planner.name === 'fireworks' && !known;
+    const price = known ?? (unpriced ? { in: 0, out: 0 } : { in: 5, out: 25 });
     // The planner also sends a system prompt and the JSON schema; ~2k tokens.
     const inTok = input.sourceChars / CHARS_PER_TOKEN + 2000;
     const outTok = authoredChars / CHARS_PER_TOKEN;
@@ -164,7 +173,10 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
       stage: 'lesson',
       provider: `${planner.name}/${model}`,
       usd,
-      basis: `~${Math.round(inTok)} in + ~${Math.round(outTok)} out tokens at $${price.in}/$${price.out} per MTok`,
+      ...(unpriced ? { unpriced: true } : {}),
+      basis: unpriced
+        ? `~${Math.round(inTok)} in + ~${Math.round(outTok)} out tokens; model price unavailable, excluded from USD subtotal`
+        : `~${Math.round(inTok)} in + ~${Math.round(outTok)} out tokens at $${price.in}/$${price.out} per MTok`,
       estimated: true,
     });
   }
@@ -216,7 +228,19 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
       continue;
     }
     if (g.inTok === 0 && g.outTok === 0) continue;
-    const price = PRICES.anthropic[model ?? ''] ?? { in: 5, out: 25 };
+    const known = (provider === 'fireworks' ? PRICES.fireworks : PRICES.anthropic)[model ?? ''];
+    if (!known && provider === 'fireworks') {
+      lines.push({
+        stage: lane,
+        provider: `${provider}/${model}`,
+        usd: 0,
+        estimated: true,
+        unpriced: true,
+        basis: `${g.inTok} in + ${g.outTok} out tokens; model price unavailable, excluded from USD subtotal`,
+      });
+      continue;
+    }
+    const price = known ?? { in: 5, out: 25 };
     lines.push({
       stage: lane,
       provider: `${provider}${model ? `/${model}` : ''}`,
@@ -226,7 +250,7 @@ export function costOf(sb: Storyboard, input: CostInputs): CostReport {
         `as reported by the API, at $${price.in}/$${price.out} per MTok`,
       // Not an estimate: the provider counted these tokens, we did not divide characters
       // by four to guess them.
-      estimated: false,
+      estimated: provider === 'fireworks',
     });
   }
 
@@ -256,6 +280,7 @@ export function emptyCost(): CostReport {
 /** `$0.00` for free runs, `~$0.0123` for estimated ones. */
 export function formatCost(c: CostReport): string {
   if (c.local) return '$0.00';
+  if (c.lines.some((l) => l.unpriced)) return `≥$${c.usd.toFixed(4)} (incomplete)`;
   const digits = c.usd > 0 && c.usd < 0.01 ? 4 : 2;
   return `${c.estimated ? '~' : ''}$${c.usd.toFixed(digits)}`;
 }

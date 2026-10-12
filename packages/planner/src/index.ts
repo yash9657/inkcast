@@ -147,6 +147,7 @@ export {
   defectScore,
   defectSummary,
   lessonDrawingDefects,
+  missingLessonDrawings,
 } from './draw-audit.js';
 export type { Defect, DefectKind } from './draw-audit.js';
 export { reviseDrawing, FIX_VERSION } from './draw-critic.js';

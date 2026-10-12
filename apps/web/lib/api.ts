@@ -346,7 +346,7 @@ export type StageProvider = {
 
 /** The masked view of one credential. A key value never appears here. */
 export type KeyState = {
-  id: 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
+  id: 'fireworks' | 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
   envVar: string;
   configured: boolean;
   /** `keychain` on macOS, where `@inkcast/keyvault` uses the OS keychain. */
@@ -417,7 +417,7 @@ function parseStageProvider(raw: unknown): StageProvider {
   };
 }
 
-const KEY_IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+const KEY_IDS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 function parseKeyState(raw: unknown): KeyState | undefined {
   const rec = asRecord(raw);

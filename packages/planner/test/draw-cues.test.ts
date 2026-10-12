@@ -138,3 +138,13 @@ test('without narration a drawing is unchanged, cues and all', () => {
     [],
   );
 });
+
+test('explicit spoken cues beat inferred mark order, including a small drawing', () => {
+  const text = 'The receiver listens first. The satellite comes next.';
+  const marks = [
+    { ...box('satellite'), cue: 'satellite comes' },
+    { ...box('receiver'), cue: 'receiver listens' },
+  ];
+  assert.deepEqual(cueMarks(marks, text), ['satellite comes', 'receiver listens']);
+  assert.deepEqual(cueMarks([{ ...marks[0]!, cue: 'invented words' }], text), [undefined]);
+});

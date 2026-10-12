@@ -1,0 +1,206 @@
+{
+  "date": "2026-10-12",
+  "projectId": "gps-fireworks-v3-20261012",
+  "accepted": false,
+  "reason": "Output limit fixed; factual and visual acceptance failures remain.",
+  "reference": {
+    "url": "https://www.youtube.com/watch?v=-hzueYK3rk0",
+    "title": "Golpo Canvas Technical Style Compact Mode - How GPS Calculates Your Location",
+    "mode": "Script Only Mode, according to public video description",
+    "review": "Full auto-caption transcript and sampled playback frames; no blinded learner test or complete subjective audio review."
+  },
+  "candidate": {
+    "track": "Source-assisted lesson and drawing generation",
+    "video": "../../../projects/gps-fireworks-v3-20261012/out.mp4",
+    "durationSec": 163.066667,
+    "targetSec": 150,
+    "frame": [
+      1920,
+      1080
+    ],
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "drawingsRequested": 11,
+    "drawingsProduced": 11,
+    "marks": 251,
+    "generationModel": "accounts/fireworks/models/deepseek-v4p1-flash",
+    "voice": {
+      "provider": "kokoro",
+      "model": "onnx-community/Kokoro-82M-v1.0-ONNX",
+      "voiceId": "af_heart",
+      "requested": "kokoro",
+      "observed": true,
+      "chars": {
+        "kokoro": 1721
+      },
+      "problems": [
+        "scene 9 (s8): 1 of 35 word timings end after the narration does \u2014 \"off\" at 18.66s against 18.63s of audio. Every reveal cued on a word past the end fires late, and the fractions stay in range so no board assertion can see it (audit N-1)"
+      ]
+    },
+    "speechWordsPerMinuteApprox": 127.4,
+    "speechRateMethod": "Whitespace words in final script / measured scene narration seconds, excluding explicit holds; this does not measure naturalness.",
+    "cost": {
+      "usd": 0.1621,
+      "perMinuteUsd": 0.0596,
+      "local": false,
+      "estimated": true,
+      "lines": [
+        {
+          "stage": "lesson",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.0252,
+          "basis": "2 calls, 24207 in + 14951 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        },
+        {
+          "stage": "script-fit",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.0077,
+          "basis": "2 calls, 3789 in + 5474 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        },
+        {
+          "stage": "art-director",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.0037,
+          "basis": "1 call, 2483 in + 2426 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        },
+        {
+          "stage": "underlay",
+          "provider": "fal",
+          "usd": 0.003,
+          "basis": "1 image generated at $0.003 each",
+          "estimated": true
+        },
+        {
+          "stage": "figure",
+          "provider": "fal",
+          "usd": 0.009,
+          "basis": "3 images generated at $0.003 each",
+          "estimated": true
+        },
+        {
+          "stage": "drawing",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.085,
+          "basis": "13 calls, 40342 in + 60773 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        },
+        {
+          "stage": "drawing-fix",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.0233,
+          "basis": "3 calls, 10388 in + 16800 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        },
+        {
+          "stage": "frame-vision",
+          "provider": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+          "usd": 0.0052,
+          "basis": "1 call, 8663 in + 2183 out tokens as reported by the API, at $0.3/$1.2 per MTok",
+          "estimated": true
+        }
+      ]
+    },
+    "costScope": "Completed v3 run only; interrupted v1/v2 costs are unavailable and excluded. Rates are estimates, not invoices. Four fal rasters mean this is not a single-provider benchmark.",
+    "stageMilliseconds": {
+      "ingest": 2,
+      "lesson": 296148,
+      "storyboard": 49,
+      "voice": 70047,
+      "visuals": 1628,
+      "check": 23059,
+      "render": 89672
+    },
+    "qc": {
+      "state": "advisories",
+      "skipped": [],
+      "warnings": [
+        "lesson",
+        "drawing",
+        "stages",
+        "blank-run",
+        "frame-vision"
+      ],
+      "semantics": "not-checked"
+    },
+    "qcAdvisories": [
+      "step writes the term \"speed of light\", which is not in its narration",
+      "the drawing \"Four blank boxes in a row across the board, the first three \" has 2 standing defects (label-on-ink\u00d72): the label \"clock offset\" (860,148) is written across box-clock (rect) \u2014 move the words into empty space, or add a short arrow from them to the part \u00b7 the label \"one measurement\" (135,350) is written across link-1 (line) \u2014 move the words into empty space, or add a short arrow from them to the part",
+      "the drawing \"Four circles overlapping so that they all pass through one s\" has 2 standing defects (label-on-ink\u00d71 off-canvas\u00d71): the label \"2D schematic\" (205,520) is written across circle-measurement-4 (ellipse) \u2014 move the words into empty space, or add a short arrow from them to the part \u00b7 the drawing runs 58 below y=560 \u2014 the canvas is 1000x560 and everything has to be inside it; bring circle-measurement-4 in",
+      "the drawing \"A short sum written out large in the middle of the board: th\" has 1 standing defect (off-canvas\u00d71): the drawing runs 21 left of x=0 \u2014 the canvas is 1000x560 and everything has to be inside it; bring label-phone in",
+      "script-duration: 151s exceeds the 150s target; complete explanations were preserved. Rewrite the script before publishing.",
+      "2.1s of blank paper from 10.6s (scenes s0, s1): 2 consecutive frames under 0.5% ink, against a 2.0s ceiling \u2014 the board went out and the film kept running",
+      "2.1s of blank paper from 22.4s (scenes s2): 2 consecutive frames under 0.5% ink, against a 2.0s ceiling \u2014 the board went out and the film kept running",
+      "at 92.5s (scene s6), a vision pass reports ink written through other ink: The top \"one measurement\" is written straight through the top borders of the first and second boxes; a second \"one measurement\" is written across the edges of the two small middle boxes; the bottom \"clock offset\" sits on the phone outline.",
+      "at 105.3s (scene s7), a vision pass reports ink written through other ink: \"2D schematic\" is written through the lower-left circle outline.",
+      "at 141.7s (scene s9), a vision pass reports ink written through other ink: \"altitude\" is written through the bottom border of the left panel."
+    ]
+  },
+  "blockingReviewFindings": [
+    {
+      "category": "correctness",
+      "scene": 11,
+      "finding": "Recap says three spheres cross at a point, contradicting the earlier two-point explanation without explaining physical disambiguation."
+    },
+    {
+      "category": "correctness",
+      "scene": 9,
+      "finding": "The worked example does not clearly distinguish 300 metres of range error from actual position error; one blink is also a misleading description of a microsecond."
+    },
+    {
+      "category": "correctness",
+      "scene": 10,
+      "finding": "The fourth fixes your clock wording suggests separate satellite roles, rather than a joint solve of the four unknowns."
+    },
+    {
+      "category": "coverage",
+      "finding": "Broadcast orbital information and suitable satellite geometry are not adequately explained."
+    },
+    {
+      "category": "geometry",
+      "scene": 8,
+      "finding": "The four drawn range rings do not all pass through the highlighted receiver/fix. Free coordinate generation has not enforced the claimed geometric constraint."
+    },
+    {
+      "category": "legibility",
+      "finding": "Labels are markedly smaller than headings. Frame review and the model critic identify writing through box/circle/panel outlines."
+    },
+    {
+      "category": "timing",
+      "finding": "QC reports two 2.1-second near-blank runs; narration timing includes a word ending 30 ms after its narration segment. Subjective cadence remains unverified."
+    }
+  ],
+  "qualitativeReferenceComparison": "Golpo sampled frames integrate coordinated multi-panel scenes with consistent contour weight and larger, more legible captions. Inkcast v3 is still mostly independent per-beat diagrams with uneven stroke weights and small labels. This is an observed craft gap, not a numerical parity score.",
+  "priorAttempts": [
+    {
+      "projectId": "gps-baseline-20261012",
+      "outcome": "Anthropic account credits exhausted; heuristic fallback video, not accepted."
+    },
+    {
+      "projectId": "gps-fireworks-20261012",
+      "outcome": "16000-token lesson request truncated; interrupted fallback run."
+    },
+    {
+      "projectId": "gps-fireworks-v2-20261012",
+      "outcome": "Lesson authored; repeated approximately 8000-token drawing truncation; interrupted."
+    }
+  ],
+  "validation": {
+    "workspaceTests": 1272,
+    "passed": 1269,
+    "skipped": 3,
+    "failed": 0,
+    "typecheck": "passed",
+    "sourceAudit": "passed",
+    "additionalPipelineRetest": "101 passed after final stage loader/preview corrections"
+  },
+  "nextImplementationPriority": [
+    "Source-claim review with repair and rejection before drawing",
+    "Constraint-based range geometry and semantic label validation",
+    "Legible label scale and geometry-aware caption placement",
+    "Measured reveal timing and whole-film audio review",
+    "Explicit single-provider profile plus a local open-weight image service"
+  ]
+}

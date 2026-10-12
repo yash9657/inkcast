@@ -1,3 +1,4 @@
+import { textProvider } from '@inkcast/core';
 /**
  * The zero-key lesson author.
  *
@@ -610,9 +611,10 @@ export function deriveLesson(
   // advice for someone who set one and had it rejected. Verification with a
   // deliberately invalid key hit exactly that — the 401 was reported correctly one
   // line above, and then this line told them they had no key at all.
-  const why = process.env.ANTHROPIC_API_KEY
-    ? 'the Anthropic key did not work, so this lesson was derived from the document structure rather than taught.'
-    : 'no ANTHROPIC_API_KEY, so this lesson was derived from the document structure rather than taught.';
+  const why =
+    textProvider() !== 'heuristic'
+      ? 'cloud generation did not work, so this lesson was derived from the document structure rather than taught.'
+      : 'no cloud planner selected, so this lesson was derived from the document structure rather than taught.';
   log.warn(
     why,
     'It keeps the shape of a lesson (hook, anchor, steps, recap) but it cannot invent an anchor, a worked example or the misconception a learner actually forms. A working key is what makes this good.',

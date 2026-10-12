@@ -1,0 +1,94 @@
+{
+  "auditDate": "2026-10-12",
+  "commit": "24f2a6a53cd5dfe26ef9b9579c927b61c5d24269",
+  "scope": "Existing saved artifacts; not fresh generation; whitespace-delimited word counts; duration from ffprobe. Counts do not judge factual correctness.",
+  "artifacts": [
+    {
+      "project": "gclose7-h2h",
+      "topic": "How Day and Night Happen in Your Town",
+      "lessonWords": 354,
+      "storyboardWords": 144,
+      "scenes": 10,
+      "videoDurationSec": 81.2,
+      "elementKinds": {
+        "text": 47,
+        "path": 65,
+        "shape": 14,
+        "asset": 4,
+        "arrow": 22
+      },
+      "motionElements": 0,
+      "morphElements": 0,
+      "emphasisElements": 0
+    },
+    {
+      "project": "gclose8-fatceil",
+      "topic": "How Day and Night Happen in Your Town",
+      "lessonWords": 354,
+      "storyboardWords": 144,
+      "scenes": 10,
+      "videoDurationSec": 82.067,
+      "elementKinds": {
+        "text": 47,
+        "path": 71,
+        "shape": 14,
+        "asset": 4,
+        "arrow": 22
+      },
+      "motionElements": 0,
+      "morphElements": 0,
+      "emphasisElements": 0
+    },
+    {
+      "project": "gclose6-keyed",
+      "topic": "Why heavy and light objects fall together",
+      "lessonWords": 266,
+      "storyboardWords": 144,
+      "scenes": 8,
+      "videoDurationSec": 78.167,
+      "elementKinds": {
+        "text": 30,
+        "asset": 2,
+        "arrow": 17,
+        "path": 25,
+        "shape": 12,
+        "plot": 1,
+        "emphasis": 3
+      },
+      "motionElements": 0,
+      "morphElements": 0,
+      "emphasisElements": 3
+    },
+    {
+      "project": "cardiac10",
+      "topic": "The Cardiac Conduction System",
+      "lessonWords": 421,
+      "storyboardWords": 348,
+      "scenes": 10,
+      "videoDurationSec": 158.267,
+      "elementKinds": {
+        "text": 54,
+        "path": 98,
+        "arrow": 33,
+        "asset": 4,
+        "shape": 22
+      },
+      "motionElements": 0,
+      "morphElements": 0,
+      "emphasisElements": 0
+    }
+  ],
+  "validation": {
+    "typecheck": "passed",
+    "recursiveTests": {
+      "pass": 939,
+      "fail": 5,
+      "skip": 21,
+      "downstreamNotReached": ["pipeline", "web", "cli"],
+      "failureDiagnosis": "Playwright Chromium executable absent; render/check tests expected pass/fail verdicts and received skip."
+    },
+    "auditcheck": "passed",
+    "freshEndToEndGeneration": false,
+    "paidModelCalls": false
+  }
+}

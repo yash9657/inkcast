@@ -43,6 +43,9 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   LETTERS_PER_WORD,
+  lessonSourceCheck,
+  qcCheck,
+  qcReport,
   critiqueLesson,
   laneGapLines,
   lessonOrderAdvisories,
@@ -265,7 +268,7 @@ export type LessonResult = {
    * "which of these four" is the single strongest predictor of whether the video
    * teaches anything.
    */
-  author: 'anthropic' | 'heuristic' | 'supplied' | 'none';
+  author: 'anthropic' | 'fireworks' | 'heuristic' | 'supplied' | 'none';
   /** Which route produced it. */
   route: 'lesson' | 'document';
   /**
@@ -454,6 +457,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   const spend: ModelSpend[] = [];
   const supplied = input.lesson !== undefined;
   const metaOverrides = resolveMetaOverrides(input.meta);
+
   const provs = detectProviders(metaOverrides.voice);
   const degraded = degradations(provs, { via: route, lessonSupplied: supplied });
   for (const d of degraded) {
@@ -590,6 +594,7 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
   // `supplied` is the honest starting value because that branch never reaches the stage.
   let author: LessonResult['author'] = 'supplied';
   const lessonOpts: LessonStageOptions = {
+    diagnosticsDir: run.dir,
     drawPreview: drawing.preview,
     drawUnderlay: underlays.underlay,
     // The other half of the same seam, and the one the figure lane was missing. Without
@@ -676,6 +681,15 @@ async function design_(run: Run, input: CastInput): Promise<Design> {
          * the run that was *meant* to add pictures being the exact run that could not.
          */
         images: provs.images.name,
+        generation: {
+          fireworksReasoning: process.env.INKCAST_FIREWORKS_REASONING ?? 'bounded-default',
+          language: metaOverrides.language ?? 'en',
+          style: metaOverrides.style ?? 'marker',
+          drawModel: process.env.INKCAST_DRAW_MODEL ?? 'default',
+          routerModel: process.env.INKCAST_ROUTER_MODEL ?? 'default',
+          figureModel: process.env.INKCAST_FIGURE_MODEL ?? 'default',
+          drawingRevision: process.env.INKCAST_DRAW_FIX ?? 'default',
+        },
       },
     );
 
@@ -825,6 +839,30 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
   const design = await design_(run, input);
   const { planner, doc, stageProblems } = design;
   const provs = design.providers;
+  const authorFailures =
+    design.author === 'heuristic' && provs.planner.cloud
+      ? [
+          'Cloud lesson generation failed; a diagnostic fallback was saved. Fix provider access or generation limits and regenerate before narration.',
+        ]
+      : [];
+  const missingDrawings =
+    design.lesson && (design.author === 'fireworks' || design.author === 'anthropic')
+      ? planner.missingLessonDrawings(design.lesson)
+      : [];
+  if (run.gates === 'strict' && (authorFailures.length || missingDrawings.length)) {
+    await writeFile(
+      path.join(run.dir, 'qc.json'),
+      JSON.stringify(
+        qcReport('strict', [
+          qcCheck('lesson-author', authorFailures),
+          qcCheck('drawing-completeness', missingDrawings),
+        ]),
+        null,
+        2,
+      ),
+    );
+    throw new StageError('lesson', [...authorFailures, ...missingDrawings].join('\n'));
+  }
   const metaOverrides = resolveMetaOverrides(input.meta);
 
   /* --------------------------------------------------------- 3. storyboard */
@@ -1128,6 +1166,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
     return check(sb!, run.dir, {
       gates: run.gates,
       ...(eyes ? { vision: eyes.vision } : {}),
+      inheritedChecks: [lessonSourceCheck(design.lesson)],
       inherited: [
         // Advisory, and it stays advisory: the lesson stage revises against this
         // critique and accepts what it cannot fix, so a surviving problem is a
@@ -1150,6 +1189,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // (plan 3.4) — so a cached re-run reports the same standing defects instead of
         // reporting nothing because the lane did not run.
         { id: 'drawing', findings: drawingDefects(design.lesson, planner) },
+        { id: 'drawing-completeness', findings: missingDrawings, severity: 'fail' },
         // What earlier stages told us they degraded this run: the planner minting an
         // asset it never declared, a lane that could not draw what was asked for, a
         // correction the critic rejected.
@@ -1158,6 +1198,16 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
         // has to *block*, and severity is a property of a check rather than of a
         // finding.
         { id: 'stages', findings: otherStageProblems },
+        {
+          id: 'lesson-author',
+          findings:
+            design.author === 'heuristic' && design.providers.planner.cloud
+              ? [
+                  'Cloud lesson author failed; the saved lesson is a local fallback. Restore provider access and regenerate the lesson.',
+                ]
+              : [],
+          severity: 'fail',
+        },
         // The film planted an error and then ended (plan 5.1).
         //
         // Its own id rather than a severity on `stages`, because a `qcCheck` id is a
@@ -1199,7 +1249,14 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       ],
     });
   });
-  run.bus.done('check', qc.ok ? 'passed' : `${qc.problems.length} problem(s)`);
+  run.bus.done(
+    'check',
+    qc.ok
+      ? qc.verification?.state === 'checked'
+        ? 'checks completed; semantics not certified'
+        : `checks ${qc.verification?.state ?? 'completed'}`
+      : `${qc.problems.length} problem(s)`,
+  );
 
   /* ------------------------------------------------------------- 7. render */
 
@@ -1293,7 +1350,9 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
      * Both conditions, not just the skip: `design.author` also covers `'supplied'` and
      * `'none'`, where no model ran and there was never a cache entry to skip.
      */
-    lessonAuthored: design.author === 'anthropic' && !run.skipped.includes('lesson'),
+    lessonAuthored:
+      (design.author === 'anthropic' || design.author === 'fireworks') &&
+      !run.skipped.includes('lesson'),
   });
   const now = new Date().toISOString();
   const state: PipelineState = {
@@ -1343,7 +1402,7 @@ export async function cast(input: CastInput, opts: CastOptions = {}): Promise<Ca
       // `lesson` is the accurate label ("who wrote it"); `planner` is kept because
       // the studio's library and older `pipeline.json` files both speak it.
       lesson:
-        design.author === 'anthropic' && provs.planner.model
+        (design.author === 'anthropic' || design.author === 'fireworks') && provs.planner.model
           ? `${provs.planner.name}/${provs.planner.model}`
           : design.author,
       planner: provs.planner.model
@@ -1498,10 +1557,18 @@ export async function rerender(
       gates,
       // The lesson is not re-read on this path, so its critique is carried from the
       // last run rather than recomputed — the teaching did not change.
+      inheritedChecks: [lessonSourceCheck()],
       inherited: [{ id: 'lesson', findings: previous?.lesson?.problems ?? [] }],
     });
   });
-  bus.done('check', qc.ok ? 'passed' : `${qc.problems.length} problem(s)`);
+  bus.done(
+    'check',
+    qc.ok
+      ? qc.verification?.state === 'checked'
+        ? 'checks completed; semantics not certified'
+        : `checks ${qc.verification?.state ?? 'completed'}`
+      : `${qc.problems.length} problem(s)`,
+  );
 
   // `--emit-plan` here as well as in `cast()`, and this is the path that wants it most:
   // re-voicing comes through `rerender`, and re-voicing is what moves the schedule. A

@@ -247,7 +247,10 @@ const DRIFT = 0.25;
 export function cueMarks(marks: readonly Mark[], narration: string): (string | undefined)[] {
   const out: (string | undefined)[] = new Array(marks.length).fill(undefined);
   const tokens = tokenize(narration);
-  if (!tokens.length || marks.length < GESTURE_MARKS) return out;
+  const explicit = marks.map((mark) =>
+    mark.cue && narration.includes(mark.cue) ? mark.cue : undefined,
+  );
+  if (!tokens.length || marks.length < GESTURE_MARKS) return explicit;
   const keys = tokens.map((t) => key(t.word));
   const n = marks.length;
 
@@ -302,6 +305,7 @@ export function cueMarks(marks: readonly Mark[], narration: string): (string | u
   // A drawing the narration names nothing in is not a drawing this can time. Spreading it
   // over words chosen only by arithmetic is the guess `cues.ts` already makes and the one
   // the intent's single cue was introduced to stop, so it is handed back untouched.
-  if (!anchors.length || !placed) return new Array(n).fill(undefined);
-  return out;
+  const inferred =
+    !anchors.length || !placed ? new Array<string | undefined>(n).fill(undefined) : out;
+  return inferred.map((cue, i) => explicit[i] ?? cue);
 }

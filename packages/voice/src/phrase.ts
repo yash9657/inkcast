@@ -1,23 +1,7 @@
 /**
- * Phrase splitting — how the voice stage learns where the words actually are.
- *
- * Cue resolution needs to know, in seconds, when a particular phrase is spoken.
- * There are three ways to get that: guess (what the planner did), run a forced
- * aligner (a Python dependency we will not take), or **synthesise in phrases and
- * measure each one**. The third is exact by construction: if a phrase is its own
- * clip, its start and end are arithmetic, not estimation.
- *
- * So narration is cut on sentence and clause boundaries, each piece is
- * synthesised and measured, and the pieces are re-joined with a deliberate gap.
- * Two details make that sound like speech rather than a splice:
- *
- * 1. **Punctuation is preserved on each phrase.** A clause handed to the engine
- *    as "and you want to reach the valley below," keeps its comma and therefore
- *    keeps continuation intonation. Strip the comma and every clause ends on a
- *    terminal fall, which is what makes naive chunking sound chopped.
- * 2. **Clause splits are conservative.** A comma only becomes a cut when both
- *    sides are substantial (`MIN_CLAUSE_WORDS`), so "w, the weight," never
- *    becomes three clips.
+ * A synthesis unit and its measured timing. Neural voices use one scene paragraph
+ * so the model owns sentence transitions; legacy engines can still split clauses
+ * or sentences. Word alignment is independent of the synthesis unit.
  */
 import { splitSentences } from '@inkcast/core';
 
@@ -87,13 +71,13 @@ export type Phrase = {
   sentenceWords: number;
 };
 
-export type PhraseSplit = 'clause' | 'sentence';
+export type PhraseSplit = 'clause' | 'sentence' | 'paragraph';
 
 export type SplitOptions = {
   /**
    * `clause` cuts inside sentences at commas, semicolons and colons, which buys
    * sub-sentence cue precision. `sentence` is the conservative mode for engines
-   * whose prosody suffers from short inputs.
+   * whose prosody suffers from short inputs. `paragraph` keeps the whole scene together.
    */
   mode?: PhraseSplit;
   minClauseWords?: number;
@@ -143,6 +127,14 @@ export function splitClauses(sentence: string, minWords = MIN_CLAUSE_WORDS): str
  */
 export function splitPhrases(text: string, opts: SplitOptions = {}): Phrase[] {
   const mode = opts.mode ?? 'clause';
+  // A scene is one utterance: let the engine shape its sentence transitions.
+  // Alignment comes from timestamps, not artificial cuts in the speech.
+  if (mode === 'paragraph') {
+    const paragraph = text.trim();
+    return paragraph
+      ? [{ text: paragraph, sentence: 0, endsSentence: true, sentenceWords: wordCount(paragraph) }]
+      : [];
+  }
   const sentences = splitSentences(text);
   const phrases: Phrase[] = [];
 
