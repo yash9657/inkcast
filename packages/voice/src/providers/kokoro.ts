@@ -221,13 +221,42 @@ export function unloadKokoro(): void {
 
 /* ------------------------------------------------------------------ chunking */
 
+/**
+ * Cut one sentence longer than `maxChars` at clause punctuation, then at spaces.
+ *
+ * kokoro-js tokenises with `truncation: true` at 510 phoneme tokens and says
+ * nothing: a ~680-character sentence comes back as ~27 s of audio that simply
+ * stops partway through, measured on this pipeline. A cut at a comma keeps its
+ * comma, so the piece still ends on continuation intonation.
+ */
+function splitLongSentence(sentence: string, maxChars: number): string[] {
+  if (sentence.length <= maxChars) return [sentence];
+  const pieces: string[] = [];
+  let rest = sentence.trim();
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars + 1);
+    let cut = Math.max(
+      window.lastIndexOf(', '),
+      window.lastIndexOf('; '),
+      window.lastIndexOf(': '),
+    );
+    // A clause cut too close to the start would leave a sliver; prefer a space.
+    if (cut < maxChars / 3) cut = window.lastIndexOf(' ');
+    else cut += 1; // keep the punctuation with the piece it closes
+    if (cut <= 0) cut = maxChars; // one unbroken token: cut it, never loop
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
+}
+
 /** Group normalised sentences into synthesis chunks under the length limit. */
 export function chunkForKokoro(text: string, maxChars = MAX_CHUNK_CHARS): string[] {
   if (text.length <= maxChars) return [text];
   const chunks: string[] = [];
   let current = '';
-  for (const sentence of splitSentences(text)) {
-    // A single over-long sentence still has to go through in one piece.
+  for (const sentence of splitSentences(text).flatMap((s) => splitLongSentence(s, maxChars))) {
     if (!current) {
       current = sentence;
     } else if (`${current} ${sentence}`.length <= maxChars) {
@@ -333,9 +362,14 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
       let sampleRate = 0;
 
       for (const chunk of chunks) {
+        const started = performance.now();
         const audio = await tts.generate(chunk, { voice, speed: req.speed });
         if (!audio?.audio?.length) throw new Error('Kokoro returned no samples');
         sampleRate = audio.sampling_rate || 24_000;
+        log.debug(
+          `generate: ${chunk.length} chars → ${(audio.audio.length / sampleRate).toFixed(2)}s ` +
+            `of audio in ${((performance.now() - started) / 1000).toFixed(2)}s`,
+        );
         pieces.push(audio.audio);
       }
 

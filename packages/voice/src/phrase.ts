@@ -73,6 +73,24 @@ export type Phrase = {
 
 export type PhraseSplit = 'clause' | 'sentence' | 'paragraph';
 
+const PHRASE_SPLITS: readonly PhraseSplit[] = ['clause', 'sentence', 'paragraph'];
+
+/**
+ * The deployment's synthesis unit, from `INKCAST_VOICE_UNIT`, or `undefined` to let
+ * the engine choose (`VoiceProvider.preferredSplit` — a scene paragraph for neural
+ * voices). An escape hatch for operators, read from the process environment rather
+ * than a job's provider scope because it describes the box, not an account. An
+ * unknown value is ignored rather than failing a render.
+ */
+export function requestedVoiceUnit(
+  raw: string | undefined = process.env.INKCAST_VOICE_UNIT,
+): PhraseSplit | undefined {
+  const value = raw?.trim().toLowerCase();
+  return value && (PHRASE_SPLITS as readonly string[]).includes(value)
+    ? (value as PhraseSplit)
+    : undefined;
+}
+
 export type SplitOptions = {
   /**
    * `clause` cuts inside sentences at commas, semicolons and colons, which buys

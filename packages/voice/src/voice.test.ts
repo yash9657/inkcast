@@ -32,6 +32,7 @@ import {
   splitPhrases,
   PHRASE_GAP_SEC,
   SENTENCE_GAP_SEC,
+  requestedVoiceUnit,
 } from './phrase.js';
 import type { PhraseTiming } from './phrase.js';
 import {
@@ -232,6 +233,30 @@ test('long narration is chunked on sentence boundaries for Kokoro', () => {
     chunks.join(' ').replace(/\s+/g, ' '),
     sentence.repeat(12).trim().replace(/\s+/g, ' '),
   );
+});
+
+test('kokoro chunking cuts one over-long sentence instead of letting it truncate', () => {
+  // One sentence, no full stop until the end: previously sent whole, and kokoro-js
+  // silently truncated it at 510 phoneme tokens.
+  const clause = 'the excited electron is passed down a chain of proteins like a bucket brigade, ';
+  const sentence = `${clause.repeat(8).trim().replace(/,$/, '')}.`;
+  const chunks = chunkForKokoro(sentence, 200);
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) assert.ok(chunk.length <= 200, `${chunk.length} chars`);
+  // Cut at a comma, which stays with the piece it closes.
+  assert.ok(chunks.slice(0, -1).every((c) => c.endsWith(',')));
+  assert.equal(chunks.join(' '), sentence);
+  // No punctuation and no spaces still terminates.
+  const blob = 'x'.repeat(450);
+  assert.deepEqual(chunkForKokoro(blob, 200), ['x'.repeat(200), 'x'.repeat(200), 'x'.repeat(50)]);
+});
+
+test('INKCAST_VOICE_UNIT selects a synthesis unit, ignoring unknown values', () => {
+  assert.equal(requestedVoiceUnit('sentence'), 'sentence');
+  assert.equal(requestedVoiceUnit(' Paragraph '), 'paragraph');
+  assert.equal(requestedVoiceUnit('clause'), 'clause');
+  assert.equal(requestedVoiceUnit('words'), undefined);
+  assert.equal(requestedVoiceUnit(''), undefined);
 });
 
 test('character alignment folds into word timings', () => {

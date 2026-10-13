@@ -64,7 +64,7 @@ import {
   concatWavs,
 } from './audio.js';
 import type { ClipPart } from './audio.js';
-import { gapAfter, sentenceSpanWarnings, splitPhrases } from './phrase.js';
+import { gapAfter, requestedVoiceUnit, sentenceSpanWarnings, splitPhrases } from './phrase.js';
 import type { Phrase, PhraseSplit, PhraseTiming } from './phrase.js';
 import { resolveSceneCues } from './cue.js';
 import type { CueResolution } from './cue.js';
@@ -905,7 +905,9 @@ export async function narrate(
       // knows whether it can be told what surrounds a fragment. An explicit `--phrase-split`
       // still wins; absent that, a local engine with no context window gets whole sentences
       // rather than four-word clauses read cold. See `VoiceProvider.preferredSplit`.
-      const mode: PhraseSplit = opts.phraseSplit ?? active.preferredSplit ?? 'clause';
+      // `INKCAST_VOICE_UNIT` sits between the two: an operator override for a box.
+      const mode: PhraseSplit =
+        opts.phraseSplit ?? requestedVoiceUnit() ?? active.preferredSplit ?? 'clause';
       const phrases = splitPhrases(text, { mode });
       // This scene's own rate. `cadence` is the storyboard's single pacing decision —
       // it also fixed `scene.hold`, upstream — so a beat written to be delivered
@@ -985,6 +987,9 @@ export async function narrate(
       }
 
       if (!timing) {
+        // Wall clock for synthesis and alignment, logged with the scene so a slow
+        // host shows *which* work is slow (see docs/DEPLOY_VERCEL.md, Measured).
+        const synthStarted = performance.now();
         if (!phrases.length) {
           log.warn(
             `scene ${i + 1} (${scene.id}) has no speakable narration — writing a short pause`,
@@ -1091,7 +1096,8 @@ export async function narrate(
         log.info(
           `scene ${i + 1}/${total}: ${timing.narrationSec.toFixed(2)}s` +
             (timing.holdSec > 0 ? ` + ${timing.holdSec.toFixed(2)}s hold` : '') +
-            ` · ${phrases.length} phrase${phrases.length === 1 ? '' : 's'} → ${rel}`,
+            ` · ${phrases.length} phrase${phrases.length === 1 ? '' : 's'} → ${rel}` +
+            ` in ${((performance.now() - synthStarted) / 1000).toFixed(1)}s (${mode})`,
         );
       }
 
