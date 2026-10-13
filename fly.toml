@@ -1,0 +1,174 @@
+# Inkcast on Fly.io — the same image docker-compose.yml runs.
+#
+# ############################################################################
+# # READ THIS BEFORE YOU DEPLOY: there is no free tier that can host this.   #
+# ############################################################################
+#
+# Fly's free allowance is three shared-cpu-1x machines with **256 MB** of RAM.
+# One Inkcast render is four headless Chromium contexts and four ffmpeg encoders
+# running concurrently (`packages/render/src/render.ts` opens a capture *and* an
+# encoder per segment inside one `Promise.all`), and a measured render of a 176 s
+# 1080p film peaked at **3.5 GB of summed RSS across 44 processes**. A 256 MB
+# machine does not OOM at concurrency 2 — it OOMs before the first browser
+# finishes starting.
+#
+# So this file asks for `shared-cpu-2x` with **4096 MB** and a **volume**, which
+# is a paid configuration. That is not a limitation of this file; it is what the
+# workload is. docs/DEPLOY.md works through the arithmetic and lists which free
+# tiers can and cannot host this (short version: none of the 256 MB–1 GB
+# container tiers, and none of the ones with only ephemeral disk).
+#
+# If the budget is genuinely zero, the honest options are in docs/DEPLOY.md under
+# "If you have no money": run it locally, or run it on a machine you already pay
+# for. A deployment that OOMs on its first render is worse than no deployment,
+# because it looks like the product is broken.
+#
+#   fly volumes create inkcast_data --size 20 --region <region>
+#   fly secrets set ANTHROPIC_API_KEY=... ELEVENLABS_API_KEY=...
+#   fly deploy
+#
+# ----------------------------------------------------------------------------
+
+# Becomes <app>.fly.dev, so it is the closest thing to a hostname in this file.
+# CHANGE IT — it must be globally unique on Fly, and this value is a placeholder,
+# not a name anyone owns. `fly launch` will offer to pick one.
+app = "inkcast-studio-changeme"
+primary_region = "iad"
+
+[build]
+dockerfile = "Dockerfile"
+
+[build.args]
+# Left empty on purpose. Fly assigns `https://<app>.fly.dev` and the app derives
+# absolute share URLs from the request's Host and X-Forwarded-Proto headers when
+# this is blank (`app/share/[id]/page.tsx`), so an empty value is correct and
+# works. Set it once a real domain is attached — `metadataBase`
+# (app/layout.tsx:28) has no request to fall back on, so Open Graph images stay
+# relative until it is set.
+#
+# It is a *build* arg as well as a runtime env because Next inlines a
+# NEXT_PUBLIC_ variable into the client bundle the moment a client component
+# reads one. See the same note in docker-compose.yml.
+INKCAST_PUBLIC_URL = ""
+
+[env]
+INKCAST_HOSTED = "1"
+INKCAST_PROJECTS = "/data/projects"
+INKCAST_HOME = "/data/state"
+NEXT_TELEMETRY_DISABLED = "1"
+
+# Fly's proxy appends the client address to X-Forwarded-For, exactly like Caddy,
+# so the rate limiter's default of one trusted appending hop is already right —
+# it reads the rightmost entry (`trustedProxyHops` in ratelimit.ts).
+#
+# The important difference from the compose deployment: there is no Caddyfile
+# here to *overwrite* the header, so the chain Fly delivers is
+# `<whatever the client sent>, <the address Fly saw>`. Reading from the right is
+# what keeps that safe. Do not raise this number without a second appending proxy
+# actually being in the path; too high fails closed into the shared
+# `unattributable` bucket, which is safe but limits everyone together.
+INKCAST_TRUSTED_PROXY_HOPS = "1"
+
+# Secrets, never [env]. Anything in [env] is in the image's metadata and in
+# `fly config show`.
+#
+# INKCAST_SESSION_SECRET is the one that is not optional. With INKCAST_HOSTED=1
+# above and no secret, `requireSessionSecret` (app/api/_lib/session.ts:118)
+# throws at module import and the machine serves 500s on every route that touches
+# a session — a deploy that passes its health check and is nonetheless dead. There
+# is no default by design: "a fallback key would be a key every reader of this
+# source also has". Minimum 24 characters.
+#
+#   fly secrets set INKCAST_SESSION_SECRET="$(openssl rand -hex 32)"
+#   fly secrets set ANTHROPIC_API_KEY=... ELEVENLABS_API_KEY=... \
+#                   REPLICATE_API_TOKEN=... FAL_KEY=... INKCAST_BYPASS_TOKEN=...
+#
+# The provider keys above are all genuinely optional — with none of them the
+# planner uses its heuristic and the voice uses the baked-in Kokoro. Every
+# provider adapter reads process.env directly (see docs/DEPLOY.md, "Server
+# keys"), and Fly injects secrets as environment variables, so secrets are all
+# that is needed — no vault, no passphrase.
+
+# The volume. Not optional, and the reason is not "nice to have durability":
+# without it, `/data` is the machine's ephemeral filesystem, so every deploy and
+# every machine restart destroys every film — including the ones whose /share/
+# links people have already posted. It also throws away `/data/state/cache`, the
+# cross-project asset cache that makes the tenth video cheaper than the first.
+#
+# 20 GB is about 600 finished films at the measured ~33 MB each, which the 48 h
+# janitor sweep keeps well clear of. /api/health reports free space; watch it.
+[mounts]
+source = "inkcast_data"
+destination = "/data"
+
+[[vm]]
+size = "shared-cpu-2x"
+memory = "4096mb"
+# Swap does not make this fit in less memory — swapping a Chromium render is slow
+# enough to look like a hang. It buys headroom against a *spike* so that the
+# second concurrent render degrades instead of being killed outright, which is
+# the difference between one slow film and a restarted machine that loses two.
+swap_size_mb = 1024
+
+[http_service]
+internal_port = 3000
+force_https = true
+
+# ---------------------------------------------------------------------------
+# The two settings that would otherwise silently destroy work.
+#
+# `auto_stop_machines` is Fly's headline cost saver: idle machines suspend. It is
+# actively dangerous here. A render is a four-minute background job behind a
+# request that already returned 202, so from the proxy's point of view a box
+# rendering a film has no traffic at all — the only open connection is an SSE
+# stream that is quiet between stage boundaries. Auto-stop would suspend the
+# machine mid-render, and the user would watch a progress bar for a job that no
+# longer exists.
+#
+# `min_machines_running = 1` for the same reason plus one more: the job registry
+# and the rate limiter are in-process (see the storage note in ratelimit.ts), so
+# a cold start loses every queued job and every rate-limit bucket.
+auto_stop_machines = false
+auto_start_machines = true
+min_machines_running = 1
+
+# Hard ceiling of one. Scaling this service out does not work today: two machines
+# each keep half a rate limit, neither can see the other's jobs, and both write
+# the same volume. `fly scale count 2` is a correctness bug, not a capacity
+# increase.
+[http_service.concurrency]
+type = "requests"
+# Well above the ~2 in-flight renders, because most requests are cheap: polling
+# /api/health, serving finished mp4s, the studio's own page loads. The thing that
+# actually limits renders is the in-process semaphore (D1), not the proxy.
+soft_limit = 50
+hard_limit = 100
+
+[[http_service.checks]]
+grace_period = "45s"
+interval = "30s"
+method = "GET"
+timeout = "5s"
+path = "/api/health"
+# /api/health answers 200 for both `ok` and `degraded` deliberately — its own
+# header explains that restarting a container does not create disk space and does
+# kill every render in flight. Only an unreadable projects volume answers 503,
+# which for this deployment means the mount above is broken: the one condition
+# where replacing the machine is the right response.
+
+# ---------------------------------------------------------------------------
+# The janitor.
+#
+# There is no second process here the way there is in docker-compose.yml — a Fly
+# machine runs one command — so the 48 h sweep has to be driven from outside or
+# from inside the app. Either works; pick one and write it down:
+#
+#   Outside (recommended, and it is auditable):
+#     fly machine run --schedule daily --volume inkcast_data:/data \
+#       <image> node /app/scripts/janitor.mjs
+#
+#   Inside: the one-line in-process wiring in docs/DEPLOY.md under
+#   "Wiring the janitor in-process".
+#
+# Without one of them, `/data` fills at ~33 MB per generation and the first
+# symptom is ffmpeg failing partway through a mux.

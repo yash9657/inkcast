@@ -5,17 +5,6 @@ import { Slider as SliderPrimitive } from '@base-ui/react/slider';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A slider. Single value or a range — pass an array to `value`/`defaultValue`
- * and Base UI renders one thumb per entry.
- *
- *   <Slider defaultValue={1} min={0.5} max={2} step={0.1} label="Pace" />
- *   <Slider defaultValue={[2, 8]} min={0} max={12} label="Trim" />
- *
- * `label`/`showValue` render the readout; the value uses tabular figures so it
- * does not jitter while dragging. `format` takes `Intl.NumberFormatOptions`,
- * which is how you get "1.4×" or "68%" without formatting by hand.
- */
 export type SliderProps = WithClass<SliderPrimitive.Root.Props> & {
   label?: React.ReactNode;
   showValue?: boolean;
@@ -63,17 +52,24 @@ export function Slider({
           'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}
       >
-        <SliderPrimitive.Track className="inset-shadow-well relative h-1.5 w-full rounded-full bg-muted">
-          <SliderPrimitive.Indicator className="absolute h-full rounded-full bg-primary" />
+        {}
+        <SliderPrimitive.Track className="inset-shadow-well relative h-2 w-full rounded-md border border-border bg-muted">
+          <SliderPrimitive.Indicator className="absolute h-full rounded-md bg-primary" />
           {Array.from({ length: thumbCount }, (_unused, i) => (
             <SliderPrimitive.Thumb
               key={i}
               index={i}
               className={cn(
-                'size-4 rounded-full border border-input bg-card shadow-xs',
-                'transition-[box-shadow,scale] duration-fast ease-out',
-                'focus-ring outline-none',
-                'hover:scale-110 data-dragging:scale-110 data-dragging:shadow-md',
+                // The thumb keeps the pill (§4: slider thumbs are geometrically
+                // round) and loses its shadow: `shadow-xs`/`shadow-md` are
+                // aliases for 6px offset planes now, and a 16px dot casting a
+                // 6px hard shadow across its own rail reads as a rendering bug.
+                // Dragging turns the thumb accent instead — a state you can see
+                // under your own finger, which a shadow on the far side is not.
+                'size-4 rounded-pill border border-input bg-card',
+                'transition-[background-color,scale] duration-fast ease-out',
+                'focus-ring outline-none focus-visible:ring-2 focus-visible:ring-background',
+                'hover:scale-110 data-dragging:scale-110 data-dragging:bg-primary',
               )}
             />
           ))}

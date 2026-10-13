@@ -16,6 +16,9 @@
 import { NextResponse } from 'next/server';
 import type { z } from 'zod';
 
+import { limitMessage } from './ratelimit';
+import type { Denied } from './ratelimit';
+
 // Imported for its module side effect as much as its exports: `lib/store` is the
 // environment bootstrap, and importing it here means no route can reach the
 // pipeline before `INKCAST_PROJECTS` is settled. See the header of that file.
@@ -39,12 +42,106 @@ export const unprocessable = (error: string, details?: string[]) => fail(422, er
 export const serverError = (error: string) => fail(500, error);
 
 /**
+ * 403 for a project that exists but is not the caller's.
+ *
+ * Deliberately *not* a 404. Project ids are unguessable, so a caller holding one
+ * either owns it or was given the link, and telling the second person "no such
+ * project" when they can see the id in their address bar reads as a bug rather
+ * than a rule. The 404-instead-of-403 dodge is for resources whose existence is
+ * itself a secret; a shareable video is the opposite of that.
+ */
+export const forbidden = (error: string) => fail(403, error);
+
+/**
+ * 413 for a request that is well-formed but larger than the hosted deployment
+ * will carry. Distinct from `badRequest` because the client's fix is different:
+ * nothing is malformed, there is simply too much of it.
+ */
+export const tooLarge = (error: string) => fail(413, error);
+
+/**
+ * 429, with the copy and the wait that `ratelimit.ts` computed.
+ *
+ * Two things travel with it. `Retry-After` in seconds, because that is the only
+ * part of a 429 that automated clients read — without it a retry loop hammers a
+ * box that is already saying no. And the friendly sentence in `error`, which the
+ * studio renders directly (see this file's header): a bare 429 shows up in the UI
+ * as "Too Many Requests", which tells a user neither what the limit is nor when
+ * it lifts. `limit` and `retryAfterSec` are structured alongside so the client can
+ * render a countdown instead of re-parsing English.
+ */
+export function tooManyRequests(denied: Denied) {
+  return json<ApiError & { limit: Denied['limit']; retryAfterSec: number }>(
+    { error: limitMessage(denied), limit: denied.limit, retryAfterSec: denied.retryAfterSec },
+    429,
+    { 'Retry-After': String(denied.retryAfterSec) },
+  );
+}
+
+/**
+ * True on the shared deployment, false in the local studio.
+ *
+ * The distinction earns its keep in three places: the rate limiter is inert
+ * locally (see `limiterEnabled`), the source-text cap only applies to text we
+ * are paying to plan, and D5 hides the BYOK settings UI when the server holds
+ * the keys. It is a single env var (`INKCAST_HOSTED=1`) rather than a guess at
+ * `NODE_ENV`, because "production build" and "public deployment" are not the
+ * same claim — `next build && next start` on a laptop is the former, not the
+ * latter, and a laptop must not inherit a stranger's limits.
+ */
+export function isHosted(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.INKCAST_HOSTED === '1';
+}
+
+/**
+ * A refusal for an endpoint that only makes sense on a desktop install, or
+ * `undefined` when the caller may proceed.
+ *
+ * Written because hiding a panel is not the same as closing a door, and the two
+ * had drifted apart. `/settings` correctly stops rendering the BYOK form when
+ * `INKCAST_HOSTED=1` — but `/api/keys` and `/api/keys/validate` were still live
+ * behind it, unlinked and unguarded, and they read, write and delete entries in
+ * the *operator's* vault. On a public box that is a stranger with the path
+ * exfiltrating the Anthropic and ElevenLabs keys that pay for everybody's films.
+ * `grep -rn isHosted apps/web/app/api/keys/` returned nothing at all before this.
+ *
+ * 404 rather than 403, and deliberately: a 403 confirms there is a vault here to
+ * come back for, and the honest description of a hosted deployment is that this
+ * route does not exist on it. The `what` phrase names the feature and not the
+ * mechanism, so the body is useful to the one person who sees it legitimately —
+ * an operator who set `INKCAST_HOSTED=1` on their own laptop and then wondered
+ * where their keys went.
+ *
+ * Returns a value instead of throwing so a handler's existing `try`/`catch`
+ * cannot turn a deliberate refusal into a 500: `if (const off) return off` at the
+ * top of the handler, before anything touches the vault.
+ */
+export function offOnHostedBox(what: string) {
+  if (!isHosted()) return undefined;
+  return fail(404, `${what} is not available on this deployment`);
+}
+
+/**
  * 409 for an operation that cannot proceed while a run is in flight.
  *
  * Deleting or editing a project mid-render would corrupt it in a place far from
  * the request that caused it, so the conflict is reported here instead — with the
  * stream URL, so the client can wait for the run rather than guess.
  */
+/**
+ * 501 for an operation a Blob-storage deployment cannot perform.
+ *
+ * Edit and re-render resume from the stage outputs a project directory keeps —
+ * per-scene audio, the visuals sidecar, the stage caches — and a stateless
+ * deployment deliberately keeps only the finished film (see
+ * `KEPT_ARTEFACTS` in `@inkcast/cloud`). Saying so beats a 500 from a missing file.
+ */
+export const unavailableOnBlob = (what: string) =>
+  fail(
+    501,
+    `${what} is not available on this deployment: it keeps only the finished film, not the intermediate files ${what.toLowerCase()} resumes from. Generate the film again instead.`,
+  );
+
 export const conflictingJob = (id: string) =>
   json<ApiError & { projectId: string; streamUrl: string }>(
     {

@@ -10,7 +10,7 @@ test('a zero-key run names the lesson stage as the major loss, with a fix', () =
   const lesson = found.find((d) => d.stage === 'lesson');
   assert.ok(lesson, 'the lesson stage must report itself as degraded without a key');
   assert.equal(lesson.severity, 'major');
-  assert.equal(lesson.fix, 'inkcast keys set anthropic');
+  assert.equal(lesson.fix, 'inkcast keys set fireworks');
   // Every entry carries exactly one runnable command.
   for (const d of found) {
     assert.match(d.fix, /^inkcast /);
@@ -48,5 +48,31 @@ test('a degradation formats as one readable line ending in the fix', () => {
   const [first] = degradations(providers('af_heart', noKeys));
   const line = formatDegradation(first!);
   assert.ok(line.startsWith('lesson: '));
-  assert.ok(line.includes('Fix: inkcast keys set anthropic'));
+  assert.ok(line.includes('Fix: inkcast keys set fireworks'));
+});
+
+test('a paid voice key is actually used, and a pin is how you refuse it', () => {
+  // The regression: a user pasted an ElevenLabs key and the render came back
+  // `kokoro/af_heart`. Nothing failed — the old rule asked whether the *voice id* looked
+  // local, and `af_heart` does, so a key was silently never reached. An id names a voice,
+  // not a provider.
+  const keyed: NodeJS.ProcessEnv = { ELEVENLABS_API_KEY: 'el-test' };
+  const withKey = providers('af_heart', keyed).voice;
+  assert.equal(withKey.name, 'elevenlabs');
+  assert.equal(withKey.cloud, true);
+  // The escape hatch has to be discoverable from the report itself.
+  assert.match(withKey.why, /kokoro:af_heart/);
+
+  // Pinned: free delivery despite the key, and the voice survives the prefix.
+  const pinned = providers('kokoro:af_heart', keyed).voice;
+  assert.equal(pinned.name, 'kokoro');
+  assert.equal(pinned.cloud, false);
+  assert.equal(pinned.model, 'af_heart');
+
+  // No key, no cloud, whatever the id says.
+  assert.equal(providers('rachel', noKeys).voice.name, 'kokoro');
+  assert.equal(providers('rachel', noKeys).voice.cloud, false);
+  // A bare provider name still names its provider — `--voice say` has always meant this.
+  assert.equal(providers('say', keyed).voice.name, 'say');
+  assert.equal(providers('say', keyed).voice.model, 'say');
 });

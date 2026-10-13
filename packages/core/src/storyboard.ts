@@ -13,18 +13,59 @@
  * the core quality differentiator — learners keep their spatial context.
  */
 import { z } from 'zod';
+import { cueTokens, narrationTokens } from './speech.js';
+import { DEFAULT_STYLE, isStyleId, styleIds } from './stylepack.js';
 
 /** Canvas units. The camera is what maps these to output pixels. */
-export const Point = z.object({ x: z.number(), y: z.number() });
+// `.finite()` everywhere and positive extents (plan 2.3): a NaN coordinate or a
+// zero-width box is never a design, it is an upstream arithmetic bug — and unchecked
+// it survives all the way to a frame that renders wrong with no error naming it.
+export const Point = z.object({ x: z.number().finite(), y: z.number().finite() });
 
 export const Box = z.object({
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  w: z.number().finite().positive(),
+  h: z.number().finite().positive(),
 });
 
 /* ------------------------------------------------------------------ assets */
+
+/**
+ * A pointer into the curated asset library (`assets/library/`).
+ *
+ * The library is how quality compounds: a drawing we chose is reviewed like code
+ * and reused across videos, rather than re-synthesised per project and different
+ * every time. This type is what a storyboard carries instead of a bare slug.
+ */
+export const AssetRef = z.object({
+  /** Library path, e.g. `figures/standing` or `symbols/physics/force-vector`. */
+  path: z.string(),
+  /**
+   * Which version of that asset to draw.
+   *
+   * Optional on the way *in* and pinned on the way *out*: a reference with no
+   * version resolves to the newest one the library has, and the visuals stage
+   * writes back the number it actually used. So authoring stays easy while a
+   * finished storyboard is exact — improving `figures/standing` to v2 leaves every
+   * storyboard that already resolved v1 rendering v1, which is the whole point.
+   * Versions are files, not manifest entries (`<path>.v<N>.svg`), because a version
+   * that is not on disk cannot be pinned.
+   */
+  version: z.number().int().positive().optional(),
+  /** Pose for a character, state for a symbol. Step 5 (`CharacterRig`) reads it. */
+  variant: z.string().optional(),
+  /**
+   * Which ink mode draws it, overriding the library's own declaration.
+   *
+   * Normally absent: the asset knows its nature better than the caller does — a
+   * force vector is `crisp` because an arrow read for direction should not wobble,
+   * a figure is `sketch` because that is the whole look — so the manifest states it
+   * once and every reference inherits it. This field exists for the case where a
+   * board wants the same symbol drawn the other way.
+   */
+  ink: z.enum(['crisp', 'sketch']).optional(),
+});
 
 /**
  * An entity drawn once and reused everywhere it appears.
@@ -35,15 +76,48 @@ export const Box = z.object({
  */
 export const Asset = z.object({
   id: z.string().describe('stable slug, e.g. "rover" or "http-request"'),
-  kind: z.enum(['illustration', 'icon', 'diagram', 'image']),
+  /**
+   * Which lane draws it.
+   *
+   * `figure` is the odd one and the important one: a colour teaching picture, kept as a
+   * raster and revealed under a swept mask, because tracing it to ink would erase the hues
+   * that carry the teaching. Everything else is vectorised and redrawn in the board's own
+   * hand. See `docs/PLAN-FIGURE-LANE.md`.
+   */
+  kind: z.enum(['illustration', 'icon', 'diagram', 'image', 'figure']),
   /** Prompt used to synthesise the asset when it has no `svg` yet. */
   prompt: z.string().optional(),
+  /**
+   * The curated drawing this entity *is*, when there is one.
+   *
+   * Takes precedence over `prompt`: a reference names a thing we already drew, so
+   * there is nothing to synthesise and nothing to match. The visuals stage also
+   * fills this in when it recognises an unreferenced entity as a library asset, so
+   * a second run resolves by path instead of guessing its way back to the same
+   * drawing.
+   */
+  ref: AssetRef.optional(),
   /** Resolved hand-drawn vector content, filled in by the visuals stage. */
   svg: z.string().optional(),
   /** Locked so regeneration stays visually identical. */
   seed: z.number().int().optional(),
+  /**
+   * How the resolved artwork meets its element's box. Absent means the usual: fit the
+   * ink inside the box with a little breathing room, centred.
+   *
+   * `exact` means the box *is* where this ink goes, to the unit. It exists for the
+   * hybrid drawing lane, where a generated picture of a real object carries composed
+   * marks naming its parts: the planner sized the box from a trace of this very image,
+   * so every leader arrow on the board is aimed at coordinates that only mean anything
+   * if the picture lands precisely there. Four percent of breathing room is enough to
+   * take an arrow off the structure it names.
+   *
+   * Optional and never defaulted — a default writes the field onto every asset of every
+   * storyboard on disk.
+   */
+  fit: z.enum(['contain', 'exact']).optional(),
   /** Provenance, for cache invalidation and attribution. */
-  source: z.enum(['generated', 'builtin', 'user-upload', 'diagram']).optional(),
+  source: z.enum(['generated', 'builtin', 'user-upload', 'diagram', 'library']).optional(),
 });
 
 /* ---------------------------------------------------------------- elements */
@@ -70,6 +144,30 @@ export const Enter = z.object({
    * found, the voice stage warns and falls back to `at`.
    */
   cue: z.string().optional(),
+  /**
+   * Which word of the spoken narration `cue` starts on — PIPELINE.md step 8's
+   * `entersAtWord`, shipped as plan item 4.1.
+   *
+   * An index into `narrationTokens(scene.narration)`: the scene's narration
+   * normalised as it will be spoken, then tokenised (`core/src/speech.ts`, the one
+   * tokeniser both ends of this contract count with). Written by the compiler,
+   * which has the narration in front of it, and read by the voice stage, which has
+   * the measured phrases.
+   *
+   * The docs argued for this shape years before it existed and the argument holds:
+   * "a phrase has to be found again by the aligner and can fail to match or match
+   * twice; an index cannot". The search it replaces was tolerant by necessity —
+   * exact, then a 50% prefix, then an in-order fuzzy window at `MIN_CUE_SCORE`
+   * 0.6 — and a tolerant search on a phrase that occurs twice will silently anchor
+   * a reveal to the wrong occurrence, with "matched loosely" as the only trace.
+   *
+   * `cue` stays beside it, and not as decoration: it is what makes a stale index
+   * *detectable*. The voice stage checks that the word at this index is still the
+   * word the cue starts with, so narration edited without recompiling is named
+   * rather than silently mis-anchored. Absent means an older storyboard, which the
+   * phrase search still resolves for one release.
+   */
+  cueWord: z.number().int().min(0).optional(),
   /** Seconds spent animating in. The renderer clamps this to fit the scene. */
   duration: z.number().positive().default(0.8),
   style: z.enum(['draw', 'write', 'fade', 'pop', 'grow']).default('draw'),
@@ -92,10 +190,91 @@ export const Motion = z.object({
   trail: z.boolean().default(false),
 });
 
+/**
+ * An element that begins as another one already on the board, and becomes itself.
+ *
+ * This exists for the single most important move in an explanation: the moment an
+ * abstraction *arrives out of* the concrete thing the learner already accepted.
+ * The hillside you were standing on becomes the loss curve; the axes are drawn
+ * around it. Without this the two are separate drawings in separate places, and
+ * the claim that they are the same thing is carried entirely by narration — which
+ * is exactly the point at which a learner stops following.
+ *
+ * `fromId` must already be on the board (drawn by this scene or an earlier one and
+ * `persist`ed). The renderer interpolates the source's geometry into this
+ * element's, holding the hand-drawn wobble steady so it reads as one shape being
+ * reshaped rather than a crossfade between two pictures. Both must therefore *have*
+ * interpolable geometry: a `path` can morph into a `path` or into a `plot` (whose
+ * first curve is the target), and anything else is ignored with a warning.
+ */
+export const Morph = z.object({
+  /** Id of the element this one grows out of. */
+  fromId: z.string(),
+  from: z.number().min(0).max(1).default(0),
+  to: z.number().min(0).max(1).default(0.45),
+  easing: z.enum(['linear', 'ease', 'ease-in', 'ease-out']).default('ease'),
+  /**
+   * Fade the source out as this takes over. Almost always right — leaving it up
+   * means the old shape sits under the new one — but a morph that splits one thing
+   * into two wants the original kept.
+   */
+  retire: z.boolean().default(true),
+  /**
+   * Other elements whose ink this replaces, faded out alongside `fromId`.
+   *
+   * A drawing is rarely one stroke. The hillside comes with fog across it and a
+   * figure standing on it, and those belong to the hill rather than to the graph it
+   * becomes: left up, the fog lies across the finished axes and the walker stands in
+   * mid-air where the slope used to be. Naming them explicitly rather than inferring
+   * them from id prefixes keeps the renderer free of the planner's naming habits.
+   */
+  retires: z.array(z.string()).default([]),
+});
+
+/**
+ * Which ink draws an element, named by what it is *for*.
+ *
+ * The board's rule has always been one ink for structure and one accent to mark things
+ * up, and the reason is worth keeping in view: a hue per scene, or per element, is how a
+ * whiteboard turns into a rainbow that carries no information at all. This does not
+ * relax that rule — it is four names, closed, and every one of them has to earn its use
+ * by telling two things apart that the learner would otherwise confuse.
+ *
+ * The case it exists for is the one a single ink genuinely cannot draw. In a beat where
+ * an electron loops one way round a circuit while a lithium ion crosses the other way,
+ * both paths are lines, both cross the same gap, and in one colour they are a tangle —
+ * the picture is *there* and it does not teach, because the whole idea is that these two
+ * things go different ways. That is not decoration; it is the distinction the beat is
+ * about, and there is no arrangement of one ink that makes it.
+ *
+ * - `ink` — the default, and what almost everything is. Structure: containers, parts,
+ *   outlines, the drawing itself.
+ * - `accent` — the one thing this beat is about. What moves, what changes, what the
+ *   narration is pointing at.
+ * - `contrast` — the thing that must not be confused with the accent, and only that.
+ *   The second path, the opposing charge, the "before" against the "after".
+ * - `muted` — context that has already been explained and is now scaffolding, so the
+ *   eye goes past it to what is new.
+ *
+ * The renderer maps these onto the board's palette; nothing upstream names a colour.
+ */
+export const Tone = z.enum(['ink', 'accent', 'contrast', 'muted']);
+export type Tone = z.infer<typeof Tone>;
+
 const ElementBase = {
   id: z.string(),
   at: Box,
   enter: Enter.default({}),
+  /**
+   * Which ink draws this. Absent is the structural ink.
+   *
+   * Optional rather than defaulted, and that is load-bearing: a default would write
+   * `"tone":"ink"` onto every element of every storyboard on disk, which changes the
+   * compiled bytes of two lessons that are pinned to compile identically and every
+   * hash any tool takes of them — a schema change masquerading as a content change.
+   * Absent means absent, and the renderer reads it as the ink it always used.
+   */
+  tone: Tone.optional(),
   /**
    * Whether the element survives past its own scene.
    *
@@ -104,10 +283,30 @@ const ElementBase = {
    * wipes every eight seconds.
    */
   persist: z.boolean().default(true),
+  /**
+   * Id of the last scene this element is still on the board for.
+   *
+   * Only meaningful with `persist: false`, and only on a wiping board: it is how one
+   * card outlives its own scene without living forever. A cell can be drawn across
+   * several beats — the hillside the anchor walks down, the plot the bridge beat
+   * grows out of it — and `morph.fromId` reshapes ink drawn two scenes earlier. A
+   * blanket `persist: false` fades that ink at its own scene's end and the morph
+   * bends a shape whose alpha is already zero, silently. So the beats sharing a cell
+   * name the last of them here and go out together.
+   *
+   * Optional and never defaulted, for the reason `tone` above is: a default would
+   * write a key onto every element of every storyboard on disk.
+   */
+  persistUntil: z.string().optional(),
   /** Optional explicit z-order; defaults to declaration order. */
   z: z.number().int().optional(),
   /** Optional movement along a path, after the element has entered. */
   motion: Motion.optional(),
+  /**
+   * Optional: enter by being reshaped out of another element rather than by being
+   * drawn from nothing. Only meaningful for elements with interpolable geometry.
+   */
+  morph: Morph.optional(),
 };
 
 export const TextElement = z.object({
@@ -116,6 +315,82 @@ export const TextElement = z.object({
   text: z.string(),
   /** Visual weight, not a raw font size — the renderer owns the type scale. */
   role: z.enum(['title', 'heading', 'body', 'label', 'caption']).default('body'),
+  align: z.enum(['left', 'center', 'right']).default('left'),
+});
+
+/**
+ * Real typeset mathematics, as glyph outlines rather than as a line of text.
+ *
+ * Arithmetic set as text is the defect this replaces. A `text` element carrying
+ * `w ← 3 − 0.1 × 4 = 2.6` is a string in a handwriting font: the minus sign is
+ * whatever the font's hyphen looks like, a fraction cannot be written at all, and
+ * a superscript is a smaller character sitting on the baseline. None of that is a
+ * typo the learner forgives — it is the notation being wrong.
+ *
+ * The `tex` is the source of truth and is typeset by the visuals stage, so the
+ * geometry is exact vector and the ink mode is `crisp` (see `PIPELINE.md` — a
+ * wobbled integral sign is a different integral sign).
+ */
+export const EquationElement = z.object({
+  ...ElementBase,
+  type: z.literal('equation'),
+  /**
+   * TeX source, without surrounding delimiters: `\frac{a}{b}`, not `$\frac{a}{b}$`.
+   *
+   * Not validated here. A TeX error is a typesetting outcome rather than a schema
+   * violation, and refusing to parse the storyboard over one would lose the whole
+   * video for a bad exponent — the visuals stage warns and falls back to drawing
+   * the source as text instead.
+   */
+  tex: z.string(),
+  /**
+   * `true` sets it as a display equation (centred, full-size operators, limits
+   * above and below a sum); `false` sets it inline, sized to sit in running text.
+   */
+  display: z.boolean().default(true),
+  /** Where the equation sits in `at` when it does not fill the box. */
+  align: z.enum(['left', 'center', 'right']).default('center'),
+});
+
+/**
+ * A source listing, set in monospace and syntax-highlighted (plan item 6.2).
+ *
+ * Same defect, same remedy, one lane over from `equation`. Code used to reach the board
+ * as a `text` element: a listing lettered in a handwriting face, wrapped at proportional
+ * advances. That loses the two things a listing *is*. Indentation carries the block
+ * structure of the program, and proportional widths destroy it — a `for` body and the
+ * line after it stop being distinguishable. And nothing marks which words are the
+ * language and which are the author's, so a reader has to parse a picture of code with
+ * none of the help every editor they have ever used gives them.
+ *
+ * The `code` is the source of truth. The visuals stage tokenises it, sets it on a
+ * character grid in the vendored monospace face and emits every glyph as an exact
+ * outline, so the ink mode is `crisp` — for the reason the equation lane gives, twice
+ * over: a wobbled `l` is a `1`.
+ */
+export const CodeElement = z.object({
+  ...ElementBase,
+  type: z.literal('code'),
+  /**
+   * The listing itself, newline-separated, exactly as it should appear.
+   *
+   * Not wrapped and never re-indented: what the author wrote is what is set, because
+   * re-flowing code changes what it means. A line too long for the box shrinks the whole
+   * block rather than breaking, so the geometry stays a faithful quotation — see
+   * `resolveCode`.
+   */
+  code: z.string(),
+  /**
+   * The language, as a Shiki grammar id (`python`, `typescript`, `sql`, …).
+   *
+   * `text` is the honest answer when the language is unknown, and it is the default: an
+   * unhighlighted listing in the right face with the right indentation is already most
+   * of the value, while highlighting a snippet as the wrong language marks the wrong
+   * words and is worse than not marking any. A grammar this build does not carry falls
+   * back to `text` with a warning rather than failing the render.
+   */
+  lang: z.string().default('text'),
+  /** Where the block sits in `at` when the fitted grid is narrower than the box. */
   align: z.enum(['left', 'center', 'right']).default('left'),
 });
 
@@ -305,6 +580,8 @@ export const PathElement = z.object({
 
 export const Element = z.discriminatedUnion('type', [
   TextElement,
+  EquationElement,
+  CodeElement,
   AssetElement,
   ShapeElement,
   ArrowElement,
@@ -347,8 +624,32 @@ export const Scene = z.object({
    * screen. A learner needs a breath before the next idea, and a longer pause
    * after a question so they can attempt an answer. Without this every gap is
    * unintended dead air.
+   *
+   * Derived from `cadence` rather than copied from the lesson — see `Cadence` in
+   * `lesson.ts`. The two are set together so they cannot disagree.
    */
   hold: z.number().min(0).default(0),
+  /**
+   * How this beat is delivered, carried through from the lesson.
+   *
+   * The voice stage reads it for this scene's speech rate, and `hold` above was
+   * derived from it. That is the point: one decision reaches both, so a beat
+   * delivered as a quick aside cannot also be followed by a long silence.
+   *
+   * Optional so a storyboard written before this existed still parses; absent means
+   * the voice stage uses its global target rate, which is what every scene got
+   * before.
+   */
+  cadence: z.enum(['slow_deliberate', 'building_energy', 'punchy']).optional(),
+  /**
+   * Phrases of `narration` that carry this beat's weight, verbatim and already
+   * checked to occur in it.
+   *
+   * Spoken with more room and drawn with more weight. Validated upstream
+   * (`resolveEmphasis`), so anything here is known to be findable — a consumer may
+   * fail to place it, but not because the phrase was never in the text.
+   */
+  emphasis: z.array(z.string()).default([]),
 
   /* ---- filled in by the voice stage; do not author by hand ---- */
   /** Measured duration of this scene's synthesised narration, in seconds. */
@@ -361,16 +662,58 @@ export const Scene = z.object({
 
 /* -------------------------------------------------------------- storyboard */
 
+/**
+ * What the board does between beats.
+ *
+ * `accumulate` is the whiteboard this repo was built as: nothing is wiped, beats
+ * share regions, and the camera pulls back over the finished board at the recap.
+ * `wipe` is one idea, one card — every beat draws into the same frame-shaped cell
+ * and its ink goes out when the narration stops, so the subject owns the frame
+ * instead of being one tile of eleven. Measured on `projects/cardiac8f`: mean ink
+ * 5.7% of pixels against the benchmark's 14.4%, with the renderer itself warning
+ * "mean content fill 25% of frame — the board is mostly whitespace".
+ *
+ * A mode rather than a new default, because the two shipped lessons are pinned to
+ * compile byte-identically and they are the only proof a presentation change did
+ * not silently rewrite every existing video.
+ */
+export const BoardMode = z.enum(['accumulate', 'wipe']);
+export type BoardMode = z.infer<typeof BoardMode>;
+
 export const StoryboardMeta = z.object({
   language: z.string().default('en'),
   aspect: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
   palette: z.enum(['mono', 'color']).default('color'),
   fps: z.number().int().positive().default(30),
-  /** Ink personality. `marker` is the default whiteboard look. */
-  style: z.enum(['marker', 'pencil', 'chalk', 'ink']).default('marker'),
+  /**
+   * Ink personality — the id of a style pack (plan item 7.3).
+   *
+   * A string checked against `styles/` rather than a four-name union, because a style is
+   * a JSON file now and a fifth one must not need a schema edit. The check is still a
+   * *rejection*: an unknown id fails to parse here, at the seam, rather than reaching a
+   * stage that would fall back to the marker and draw the film in the wrong hand.
+   */
+  style: z
+    .string()
+    .refine(isStyleId, (v) => ({
+      message: `unknown ink style "${v}" — this tree has ${styleIds().join(', ')} (a style is a JSON file in styles/)`,
+    }))
+    .default(DEFAULT_STYLE),
   voice: z.string().default('af_heart'),
   /** Trailing silence after the last scene, so endings do not feel clipped. */
   outroSec: z.number().min(0).default(1.2),
+  /**
+   * What the board does between beats. Absent *is* `accumulate`, everywhere.
+   *
+   * Optional and never `.default('accumulate')`, and this one is not a style
+   * preference: `cast.ts` runs the compiler's output back through
+   * `parseStoryboard`, so a zod default would write `"board":"accumulate"` into
+   * every project's `storyboard.json` on disk, move `renderFingerprint` — which
+   * hashes the whole storyboard — and invalidate every cached render. `sbhash`
+   * hashes `compileLesson()` *before* that reparse, so it would report the pinned
+   * lessons byte-identical while every project moved.
+   */
+  board: BoardMode.optional(),
 });
 
 export const Storyboard = z.object({
@@ -390,9 +733,12 @@ export type Storyboard = z.infer<typeof Storyboard>;
 export type Scene = z.infer<typeof Scene>;
 export type Element = z.infer<typeof Element>;
 export type Asset = z.infer<typeof Asset>;
+export type AssetRef = z.infer<typeof AssetRef>;
 export type Camera = z.infer<typeof Camera>;
 export type StoryboardMeta = z.infer<typeof StoryboardMeta>;
 export type TextElement = z.infer<typeof TextElement>;
+export type EquationElement = z.infer<typeof EquationElement>;
+export type CodeElement = z.infer<typeof CodeElement>;
 export type AssetElement = z.infer<typeof AssetElement>;
 export type ShapeElement = z.infer<typeof ShapeElement>;
 export type ArrowElement = z.infer<typeof ArrowElement>;
@@ -403,6 +749,7 @@ export type PathElement = z.infer<typeof PathElement>;
 export type Curve = z.infer<typeof Curve>;
 export type PlotOverlay = z.infer<typeof PlotOverlay>;
 export type Motion = z.infer<typeof Motion>;
+export type Morph = z.infer<typeof Morph>;
 
 /* ------------------------------------------------------------- derivations */
 
@@ -442,4 +789,206 @@ export function frameSize(aspect: StoryboardMeta['aspect']): { w: number; h: num
 
 export function parseStoryboard(input: unknown): Storyboard {
   return Storyboard.parse(input);
+}
+
+/* --------------------------------------------------------------- the critique */
+
+/**
+ * Structural critique of a storyboard — `critiqueLesson`'s missing sibling
+ * (audit S3-c, plan item 3.2).
+ *
+ * The lesson graph has been checked since the lesson stage existed: a
+ * `derivedFrom` naming no beat, a character who is not in the cast, an emphasis
+ * phrase the narration does not contain. The *board* graph had no equivalent, and
+ * it carries just as many references — `morph.fromId`, `emphasis.targetId`,
+ * `assetId`, `persistUntil`, a plot overlay's `curveId`, a diagram edge's node
+ * ids, and every `enter.cue` that has to be findable in the words it is cued to.
+ * Each of those, when it dangles, is silent: the renderer skips a morph whose
+ * source it cannot find, draws an emphasis around nothing, resolves an asset
+ * element to no artwork, and falls back from a cue to a guessed fraction. The
+ * board still renders, and what it renders is missing the move the beat was about.
+ *
+ * Everything here is a *dangling reference or a duplicate id* — facts, not taste.
+ * There is no "too many elements" or "this camera is too wide" in this function:
+ * those are judgements, they live in the gate stage as advisories, and mixing them
+ * in is how a structural check becomes unenforceable. Two rules keep it that way:
+ *
+ *  - **Nothing may forward-reference.** A morph grows out of ink already on the
+ *    board and an emphasis marks up something already drawn, so both have to name
+ *    an element from this scene or an earlier one. This is the same rule
+ *    `critiqueLesson` applies to `derivedFrom`, for the same reason.
+ *  - **On a wiping board, "on the board" is a window, not for ever.** A reference
+ *    to ink whose `persistUntil` has passed is exactly as dangling as one to an
+ *    element that was never drawn — it names a shape whose alpha is already zero.
+ *    That is the failure `persistUntil`'s own documentation warns about, and this
+ *    is where it is caught.
+ *
+ * Returns human-readable problems; empty means it passes.
+ */
+export function critiqueStoryboard(sb: Storyboard): string[] {
+  const problems: string[] = [];
+  const sceneIndex = new Map<string, number>();
+  sb.scenes.forEach((s, i) => {
+    if (sceneIndex.has(s.id)) {
+      problems.push(`two scenes share the id "${s.id}" — every reference to it is ambiguous`);
+      return;
+    }
+    sceneIndex.set(s.id, i);
+  });
+
+  const assetIds = new Set(sb.assets.map((a) => a.id));
+  const wipes = sb.meta.board === 'wipe';
+
+  /** Where each element was drawn, and the last scene index it is still ink. */
+  type Life = { scene: number; until: number };
+  const life = new Map<string, Life>();
+  sb.scenes.forEach((scene, i) => {
+    for (const el of scene.elements) {
+      if (life.has(el.id)) {
+        problems.push(
+          `two elements share the id "${el.id}" (scene ${scene.id} and scene ` +
+            `${sb.scenes[life.get(el.id)!.scene]?.id ?? '?'}) — the board keys geometry by ` +
+            'id, so one of them silently replaces the other',
+        );
+        continue;
+      }
+      // Persistence, read the way `heldBounds` and the renderer read it: an
+      // accumulating board never wipes, so `persist` means for ever; a wiping board
+      // honours `persistUntil` and otherwise ends the ink with its own scene.
+      const until = el.persist
+        ? sb.scenes.length - 1
+        : wipes && el.persistUntil !== undefined
+          ? (sceneIndex.get(el.persistUntil) ?? i)
+          : i;
+      life.set(el.id, { scene: i, until });
+    }
+  });
+
+  /** A reference to ink: does it exist, was it drawn yet, is it still there. */
+  const inkAt = (id: string, at: number, what: string, where: string): void => {
+    const found = life.get(id);
+    if (!found) {
+      problems.push(`${where} ${what} "${id}", which is not an element on this board`);
+      return;
+    }
+    if (found.scene > at) {
+      problems.push(
+        `${where} ${what} "${id}", which is not drawn until scene ` +
+          `${sb.scenes[found.scene]?.id ?? found.scene} — nothing may forward-reference`,
+      );
+      return;
+    }
+    if (found.until < at) {
+      problems.push(
+        `${where} ${what} "${id}", whose ink left the board after scene ` +
+          `${sb.scenes[found.until]?.id ?? found.until} — the reference is to a shape that is ` +
+          'no longer there',
+      );
+    }
+  };
+
+  sb.scenes.forEach((scene, i) => {
+    const where = `scene ${scene.id}`;
+    for (const el of scene.elements) {
+      const at = `${where}: "${el.id}"`;
+      if (el.enter.cue !== undefined) {
+        const cue = el.enter.cue.trim().toLowerCase();
+        if (cue && !scene.narration.toLowerCase().includes(cue)) {
+          problems.push(
+            `${at} is cued to "${el.enter.cue}", which is not in its scene's narration — ` +
+              'the cue cannot be placed on a word and the reveal falls back to a guess',
+          );
+        }
+      }
+      // A cue index that no longer names its own cue's first word. Caught here
+      // because here is the cheapest place it can be: the alternative is finding
+      // out from the voice stage, a minute of synthesis later, on a run that has
+      // already spent money. The usual cause is narration edited without
+      // recompiling — `set-narration` re-derives for exactly this reason.
+      if (el.enter.cueWord !== undefined) {
+        const words = narrationTokens(scene.narration);
+        const first = cueTokens(el.enter.cue ?? '')[0];
+        const found = words[el.enter.cueWord];
+        if (found === undefined) {
+          problems.push(
+            `${at} is cued at word ${el.enter.cueWord}, but its narration has only ` +
+              `${words.length} spoken word${words.length === 1 ? '' : 's'} — the index and the ` +
+              'narration were written by different versions of this scene',
+          );
+        } else if (first !== undefined && found !== first) {
+          problems.push(
+            `${at} is cued at word ${el.enter.cueWord}, which is "${found}", but its cue ` +
+              `"${el.enter.cue}" starts on "${first}" — the narration changed after it was compiled`,
+          );
+        }
+      }
+      if (el.persistUntil !== undefined) {
+        if (!sceneIndex.has(el.persistUntil)) {
+          problems.push(`${at} persists until scene "${el.persistUntil}", which does not exist`);
+        } else if ((sceneIndex.get(el.persistUntil) as number) < i) {
+          problems.push(
+            `${at} persists until scene "${el.persistUntil}", which comes before the scene that ` +
+              'draws it — the ink is asked to leave before it arrives',
+          );
+        } else if (el.persist) {
+          problems.push(
+            `${at} is persistent and also names persistUntil "${el.persistUntil}" — one of the ` +
+              'two is a mistake, and the renderer believes `persist`',
+          );
+        }
+      }
+      if (el.morph) {
+        inkAt(el.morph.fromId, i, 'morphs out of', at);
+        for (const retired of el.morph.retires) inkAt(retired, i, 'retires', at);
+      }
+      switch (el.type) {
+        case 'emphasis':
+          inkAt(el.targetId, i, 'emphasises', at);
+          break;
+        case 'asset':
+          if (!assetIds.has(el.assetId)) {
+            problems.push(
+              `${at} draws asset "${el.assetId}", which this storyboard does not declare — ` +
+                'the visuals stage has nothing to resolve and the element draws nothing',
+            );
+          }
+          break;
+        case 'diagram': {
+          const nodes = new Set(el.nodes.map((n) => n.id));
+          for (const edge of el.edges) {
+            for (const end of [edge.from, edge.to]) {
+              if (!nodes.has(end)) {
+                problems.push(
+                  `${at} has an edge to node "${end}", which the diagram has no node for`,
+                );
+              }
+            }
+          }
+          break;
+        }
+        case 'plot': {
+          const curves = new Set(el.curves.map((c) => c.id));
+          for (const overlay of el.overlays) {
+            if (overlay.kind === 'annotate') continue;
+            if (!curves.has(overlay.curveId)) {
+              problems.push(
+                `${at} has a ${overlay.kind} overlay on curve "${overlay.curveId}", which this ` +
+                  'plot does not draw',
+              );
+            }
+            if (overlay.kind === 'shade' && overlay.toCurveId && !curves.has(overlay.toCurveId)) {
+              problems.push(
+                `${at} shades to curve "${overlay.toCurveId}", which this plot does not draw`,
+              );
+            }
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  });
+
+  return problems;
 }

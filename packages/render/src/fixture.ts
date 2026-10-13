@@ -10,8 +10,13 @@
  * Not exported from the package's public API — these are test fixtures, not
  * content.
  */
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
+import { resolveVisuals } from '@inkcast/visuals';
+import { compilePlan } from './compile.js';
 
 const RING_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
@@ -321,6 +326,69 @@ export function lessonStoryboard(overrides: { fps?: number } = {}): Storyboard {
 }
 
 /**
+ * The same board, wiping: one card at a time, and the ink goes out with the words.
+ *
+ * Derived from `lessonStoryboard` rather than authored beside it so the two differ
+ * in exactly the thing under test — the mode, the persistence and the holds — and a
+ * geometry change cannot make a wipe assertion pass by accident.
+ *
+ * Three deliberate choices:
+ *
+ * - **Holds of 0.9s.** The wipe fade lands inside the silence rather than after it,
+ *   so it needs a silence to land in. Compiled lessons hold 0.6–2.55s; the
+ *   accumulate fixture holds 0–0.4s, which is below the 0.2–0.55s fade and would
+ *   test the fallback instead of the feature.
+ * - **`persistUntil` on the hook's hillside.** The next beat rolls a ball down that
+ *   path. A card several beats draw together goes out with the last of them, and
+ *   this is the fixture's instance of it.
+ * - **A drawn recap, which then stays.** Under `wipe` there is no board behind the
+ *   recap to pull back over, so it has to draw a summary or the film ends on a
+ *   heading over nothing — and that closing card keeps `persist: true`, exactly as
+ *   the compiler leaves it, because a wipe makes room for the next card and there is
+ *   no next card. This is also what makes the fixture a mixed board rather than a
+ *   uniform one: the renderer has to fade some items and hold others.
+ */
+export function wipeStoryboard(overrides: { fps?: number } = {}): Storyboard {
+  const base = lessonStoryboard(overrides);
+  // The hill is drawn by the hook and ridden by the anchor: one card, two beats.
+  const heldUntil: Record<string, string> = { hill: 'anchor', ask: 'anchor', loss: 'slope' };
+  const last = base.scenes.length - 1;
+  const scenes = base.scenes.map((scene, i) => ({
+    ...scene,
+    hold: 0.9,
+    elements: scene.elements.map((el) => ({
+      ...el,
+      persist: i === last,
+      ...(heldUntil[el.id] ? { persistUntil: heldUntil[el.id] } : {}),
+    })),
+  }));
+  const recap = scenes.at(-1);
+  if (recap) {
+    recap.elements = [
+      ...recap.elements,
+      {
+        id: 'summary',
+        type: 'diagram',
+        layout: 'flow',
+        nodes: [
+          { id: 'a', label: 'slope' },
+          { id: 'b', label: 'step' },
+          { id: 'c', label: 'flat' },
+        ],
+        edges: [
+          { from: 'a', to: 'b' },
+          { from: 'b', to: 'c' },
+        ],
+        persist: true,
+        at: { x: 900, y: 1140, w: 1400, h: 320 },
+        enter: { at: 0, duration: 0.4, style: 'draw' },
+      } as (typeof recap.elements)[number],
+    ];
+  }
+  return parseStoryboard({ ...base, meta: { ...base.meta, board: 'wipe' }, scenes });
+}
+
+/**
  * The same lesson composed for 9:16: a tall canvas the camera walks down.
  *
  * Deliberately not a crop of the landscape board — the ink is stacked vertically,
@@ -429,4 +497,43 @@ export function verticalStoryboard(overrides: { fps?: number } = {}): Storyboard
       },
     ],
   });
+}
+
+/* --------------------------------------------------------------- the sidecar */
+
+/**
+ * Resolve a storyboard's visuals into a scratch directory, and hand back the path.
+ *
+ * Needed because the renderer no longer derives plot geometry — it reads what the
+ * visuals stage recorded (see `visuals.ts`). A test that compiles a plan against an
+ * empty directory therefore gets a labelled placeholder frame where a plot should be,
+ * which is the *correct* degradation and useless for testing plots.
+ *
+ * That this helper has to exist is the point rather than an inconvenience: it makes
+ * the stage dependency real in the tests instead of letting the renderer quietly
+ * reconstruct what it should be consuming. The one test that genuinely wants the
+ * degradation asserts on it directly.
+ *
+ * `images: 'off'` because no test may reach the network, and each call gets its own
+ * directory so a cached sidecar can never make a later assertion pass.
+ */
+export async function withVisuals(sb: Storyboard): Promise<{ dir: string; sb: Storyboard }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-render-test-'));
+  const resolved = await resolveVisuals(sb, dir, { images: 'off', force: true });
+  return { dir, sb: resolved };
+}
+
+/**
+ * Resolve a storyboard's visuals and compile its plan, in one call.
+ *
+ * The shape most tests want: they are asserting on drawn geometry, and drawn geometry
+ * now comes from the sidecar. Returns the plan only — a test that also needs the
+ * enriched storyboard or the directory should use `withVisuals` directly.
+ */
+export async function planWithVisuals(
+  sb: Storyboard,
+  opts: Parameters<typeof compilePlan>[2] = {},
+): Promise<ReturnType<typeof compilePlan>> {
+  const resolved = await withVisuals(sb);
+  return compilePlan(resolved.sb, resolved.dir, opts);
 }

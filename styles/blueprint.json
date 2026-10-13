@@ -1,0 +1,65 @@
+{
+  "id": "blueprint",
+  "name": "Blueprint",
+  "description": "Drafting-table navy: white ink on deep blue, cyan for the thing being explained and warm orange for the thing it must not be confused with. The cleanest line of the five \u2014 a blueprint is drawn against a straight edge, so the roughness sits well under chalk's. Lettered in Architects Daughter, which is the hand this board is named after. See docs/PLAN-GOLPO-CLOSE.md \u00a75.",
+  "hand": {
+    "fontFamily": "Architects Daughter",
+    "fontFiles": ["architectsdaughter", "architects-daughter", "architects"],
+    "tracking": 0.018,
+    "textOpacity": 0.94
+  },
+  "pen": {
+    "width": 4.0,
+    "weight": 1.15,
+    "inkSpeed": 2000,
+    "art": {
+      "unit": 84,
+      "baseAngle": 154,
+      "follow": 0.35,
+      "parts": [
+        {
+          "d": "M -10 0 L 10 -2 L 11 -78 Q 11 -82 7 -82 L -7 -82 Q -11 -82 -11 -78 Z",
+          "fill": "#f7f5f0",
+          "stroke": "#c9c6bf",
+          "strokeWidth": 2
+        },
+        {
+          "d": "M -5 -8 L -1 -8 L -1 -76 L -5 -76 Z",
+          "fill": "rgba(255,255,255,0.75)"
+        }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 1.15,
+    "bowing": 1.1,
+    "multiStroke": true,
+    "curveFitting": 0.96,
+    "maxRandomnessOffset": 2.2,
+    "strokeOpacity": 0.94,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": {
+      "style": "hachure",
+      "weight": 2.0,
+      "hachureAngle": -30,
+      "hachureGap": 10
+    }
+  },
+  "sketch": {
+    "roughness": 1.1,
+    "bowing": 1.0,
+    "passes": 2,
+    "cap": "round",
+    "opacity": 0.92
+  },
+  "palette": {
+    "paper": "#14304a",
+    "ink": "#eef4f8",
+    "inkSoft": "#9db8cc",
+    "grid": "rgba(255,255,255,0.06)",
+    "accent": "#53c8e8",
+    "contrast": "#ff8a3d",
+    "highlight": "rgba(83,200,232,0.18)"
+  }
+}

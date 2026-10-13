@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { builtinMetrics } from '../src/fontmetrics.js';
+import { builtinMetrics } from '@inkcast/core';
 import { inkStyleFor, roleFontSize } from '../src/style.js';
 import { serialiseSvg } from '../src/svg.js';
 import { layoutText, revealMaskAt, scaleTextLayout, textSvg, wordAt } from '../src/text.js';

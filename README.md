@@ -1,10 +1,17 @@
 # Inkcast
 
+The preferred cloud path now uses a Fireworks key for lesson authoring, vector diagrams,
+edits and visual review, plus local Kokoro speech. The default is
+`accounts/fireworks/models/deepseek-v4p1-flash` (catalog checked 2026-10-12).
+See [provider setup and data handling](docs/FIREWORKS.md). Raster illustration generation
+still uses the optional fal/Replicate adapters; Fireworks retired image/audio inference.
+
+
 **Say what you want to understand. Get a hand-drawn whiteboard lesson that actually
 teaches it.**
 
 ```bash
-inkcast keys set anthropic          # the step that makes it good
+inkcast keys set fireworks          # open-weight planning, diagrams and visual review
 inkcast teach "gradient descent"    # -> projects/<id>/out.mp4
 ```
 
@@ -23,13 +30,14 @@ which is the most important section in this file.
 
 ## Contents
 
+- [Architecture](#architecture)
 - [Set up your key first](#set-up-your-key-first)
 - [Quickstart](#quickstart)
 - [What we claim, and what we do not](#what-we-claim-and-what-we-do-not)
 - [The lesson stage: why summarising was the wrong model](#the-lesson-stage-why-summarising-was-the-wrong-model)
 - [What the board can draw: plot, path, motion](#what-the-board-can-draw-plot-path-motion)
 - [Vertical shorts are a first-class output](#vertical-shorts-are-a-first-class-output)
-- [Architecture](#architecture)
+- [Pipeline internals](#pipeline-internals)
 - [The Storyboard IR](#the-storyboard-ir)
 - [Editing: the lesson, then the drawing](#editing-the-lesson-then-the-drawing)
 - [Cost, honestly](#cost-honestly)
@@ -41,27 +49,258 @@ which is the most important section in this file.
 
 ---
 
+## Architecture
+
+Inkcast is one deterministic pipeline with two hosts. The CLI and a self-hosted
+studio run it in-process against a `projects/<id>/` directory. The hosted product
+(`inkcast.video`) splits it across **two Vercel projects and one private Blob
+store**: the studio does auth and bookkeeping, and a container renders one film
+per request. This section is the map. The [pipeline internals](#pipeline-internals)
+section and [`docs/DEPLOY_VERCEL.md`](docs/DEPLOY_VERCEL.md) have the detail.
+
+| Diagram                                                        | What it shows                                                          |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [System context](docs/architecture/system-context.svg)         | Actors, Vercel projects, Blob, Clerk, local models, optional providers |
+| [Deployment & job lifecycle](docs/architecture/deployment.svg) | One film as a sequence across browser, studio, Blob and container      |
+| [Render pipeline](docs/architecture/render-pipeline.svg)       | The seven stages, the voice/check/render internals, measured budget    |
+| [Packages](docs/architecture/packages.svg)                     | The pnpm workspace dependency graph                                    |
+
+![Inkcast system context](docs/architecture/system-context.svg)
+
+### Context and goals
+
+- **The video is a pure function of an IR.** A topic or document becomes a `Lesson`,
+  then a `Storyboard` (zod, `packages/core`), then frames. Every stage only enriches
+  the storyboard, so any film can be read, edited, diffed and re-rendered byte for byte.
+- **Zero keys must work.** Local planner, Kokoro voice and built-in figures make a real
+  film offline. Keys (Fireworks, Anthropic, ElevenLabs, fal/Replicate) buy quality.
+  They are never required.
+- **Hosted on managed, scale-to-zero infrastructure.** No database, no queue, no VM.
+  State is a handful of Blob objects per film.
+- **Hard budget.** A hosted film must finish in **under 800 s on 2 vCPU / 4 GB**.
+
+Non-goals for the hosted path: films longer than the `explainer` preset (≤ 75 s),
+edit and re-render (both answer 501, because they need intermediate files that are
+deliberately not kept), and queueing with ETAs.
+
+### Components
+
+| Component                  | Code                                                         | Runs on                                                             | Responsibility                                                                                                      | Durable state                       |
+| -------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Studio                     | `apps/web`                                                   | Vercel project `inkcast`, Node Functions (Standard)                 | UI, Clerk/session identity, rate limits, sealing account keys, dispatching films, SSE progress, gating media        | none of its own (Blob)              |
+| Render service             | `apps/render-service`                                        | Vercel project `inkcast-render`, container from `Dockerfile.vercel` | `POST /run`: one film per request; runs `cast()`; writes progress and artefacts                                     | none (`/tmp`, wiped per run)        |
+| Pipeline + stages          | `packages/pipeline`, `planner`, `voice`, `visuals`, `render` | inside the render container (hosted) or in-process (CLI, self-host) | ingest → lesson → storyboard → voice → visuals → check → render                                                     | project directory                   |
+| Cloud adapter              | `packages/cloud`                                             | studio and render service                                           | Blob paths, the `job.json` schema and staleness rule, the `/run` wire protocol. Inert unless `INKCAST_STORAGE=blob` | —                                   |
+| Key vault                  | `packages/keyvault`                                          | CLI, studio, render service                                         | BYOK storage (keychain / AES-256-GCM vault), secret redaction for logs and errors                                   | keychain or `~/.inkcast/vault.json` |
+| Blob store                 | Vercel Blob, **private**, connected to both projects         | Vercel                                                              | `meta.json`, `job.json`, `out.mp4`, `thumbnail.png`, `storyboard.json`, `captions.vtt`, sealed account keys         | yes                                 |
+| Local models               | Kokoro-82M v1.0 ONNX, Whisper `tiny.en` timestamped          | baked into the render image (`INKCAST_OFFLINE=1`)                   | narration and word-level alignment, on CPU                                                                          | weights in `/app/.models`           |
+| Identity (optional)        | Clerk                                                        | external                                                            | accounts on `inkcast.video`. Without it, signed anonymous cookies                                                   | external                            |
+| Model providers (optional) | Fireworks (preferred), Anthropic, ElevenLabs, fal, Replicate | external                                                            | lesson authoring, drawings and review; cloud voice; raster art                                                      | —                                   |
+
+### One film on Vercel
+
+![Deployment and job lifecycle](docs/architecture/deployment.svg)
+
+1. `POST /api/generate` (studio) validates the session and source, writes `meta.json` and
+   a `queued` `job.json`, and answers **202** at once.
+2. In `after()` (route `maxDuration = 800`) the studio resolves the film's provider
+   environment and calls `POST <INKCAST_RENDER_URL>/run` with a bearer token. It holds
+   that request open for the whole render. A Vercel container lives only as long as its
+   request, so fire-and-forget would let the platform freeze it mid-render.
+3. The render service answers `503` if it is already rendering, and the studio retries
+   for up to 3 minutes (`BUSY_RETRY_MS`) while Fluid compute adds an instance. Otherwise
+   it runs `cast()` in `/tmp` and writes `job.json` on every stage change, at most every
+   5 s otherwise, plus a 20 s heartbeat.
+4. The browser's `GET /api/generate/[id]/stream` is a different Function instance. It
+   polls `job.json` every 2 s and replays it as the same SSE events the in-process job
+   registry emits, so client code is identical across hosts.
+5. On success the container uploads `out.mp4` plus three small artefacts, marks the job
+   `done`, returns a terminal NDJSON line, and deletes its project directory. The studio
+   writes the final `meta.json`. If the dispatcher was lost, `store.ts` reconciles the
+   record from `job.json` on the next read.
+6. `GET /api/media/[id]/out.mp4` checks owner or share status, then streams the private
+   blob (Range forwarded). There are no public film URLs.
+
+### The render pipeline in depth
+
+![Render pipeline](docs/architecture/render-pipeline.svg)
+
+| Stage        | Package            | Does                                                                                    | Writes                                     | Hosted time (ref. film)            |
+| ------------ | ------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------- |
+| `ingest`     | `@inkcast/planner` | file / URL / text → normalised markdown (`SourceDoc`). Skipped for a bare topic         | `source.json`                              | ≈ 0 s                              |
+| `lesson`     | `@inkcast/planner` | decides _what to teach_: LLM author + critique + revision, or a local derivation        | `lesson.json`                              | ≈ 0 s keyless; model latency keyed |
+| `storyboard` | `@inkcast/planner` | `compileLesson` → scenes, regions, plots, cues, camera                                  | `storyboard.json`                          | ≈ 0 s                              |
+| `voice`      | `@inkcast/voice`   | synthesise, **measure**, align, resolve cues → `scene.durationSec`, `enter.at`, `words` | `audio/scene-NNN.wav` + timing sidecars    | **≈ 50 s**                         |
+| `visuals`    | `@inkcast/visuals` | every element → hand-drawn vector strokes, plots, equations, morphs, assets             | visuals sidecar                            | ≈ 1 s                              |
+| `check`      | `@inkcast/render`  | the quality gate over the finished board. Strict mode stops here, before any encode     | `qc.json`                                  | **≈ 9 s**                          |
+| `render`     | `@inkcast/render`  | Chromium frames → ffmpeg segments → concat + narration mux                              | `out.mp4`, `captions.vtt`, `thumbnail.png` | **≈ 64 s**                         |
+
+**Ordering is load-bearing: voice runs before visuals and render.** Element timing is
+resolved against measured audio, never a planner's guess. A diagram that lands two seconds
+before the sentence naming it reads as drift even when the audio is sample-accurate.
+
+**Voice** (`packages/voice/src/narrate.ts`), per scene:
+
+- **Unit.** `--phrase-split` ?? `INKCAST_VOICE_UNIT` (`clause` | `sentence` | `paragraph`)
+  ?? the provider's `preferredSplit()`. Kokoro prefers `paragraph`, so one call speaks
+  the whole scene and keeps sentence-to-sentence prosody. The cache key carries
+  `continuous-scene-v1`, the neighbouring scenes' text, the effective unit and the
+  delivery settings, so changing any of them re-voices only the affected scenes.
+- **Synthesis.** `chunkForKokoro()` packs sentences into chunks of ≤ 320 characters. Without
+  it, kokoro-js silently truncates at 510 phoneme tokens: a long sentence comes back as
+  audio that stops mid-word. The ONNX call is synchronous on the Node event loop.
+- **Measurement.** Phrase spans come from WAV samples. Clause gaps, breaths and
+  `Scene.hold` are modelled as real silence, so `scene.durationSec` is measured.
+- **Alignment.** Whisper `tiny.en` (transformers.js, cross-attention DTW) gives word times,
+  mapped monotonically onto our own tokens. A load failure or weak match falls back to
+  phrase timing and never fails a render.
+- **Cues.** Each `Enter.cue` (a verbatim narration phrase) resolves to `enter.at`.
+  `check` later asserts that labels land within 1 s of their spoken word
+  (`speech-visual-sync`).
+
+**Check** (`packages/render/src/check.ts`) runs everything that was already asserted
+somewhere, in one place, before the expensive part: storyboard reference graph (including
+`morph.fromId`), ink-on-ink, off-frame, overrun, illegible, pen, dwell, vacancy, thin fill,
+density, a realized-text sweep (the one check that launches Chromium), and speech/visual
+sync. It never calls a model. Repair loops live upstream, where the work is still cheap.
+
+**Render** (`packages/render/src/render.ts`) builds a page whose `window.seek(t)` is pure,
+so a frame is a function of `t` alone. The film is cut into segments on scene boundaries.
+A pool of `INKCAST_RENDER_WORKERS` (2 on Vercel) Chromium contexts captures frames with
+CDP `Page.captureScreenshot` and pipes them into one `libx264` encoder per segment (crf 18,
+30 fps). Segments are joined by stream copy and the narration is muxed as AAC. Segments
+are keyed by a hash of everything that changes their pixels, so a local re-render re-encodes
+only what moved.
+
+### Key design decisions and trade-offs
+
+| Decision                                                                     | Why                                                                                                                                                                        | What it costs                                                                                                                                                                        |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Local Kokoro + Whisper by default**, hosted TTS opt-in                     | $0 per minute; works offline and keyless; deterministic and cacheable per scene; no narration text leaves the box; weights baked into the image, so no cold download       | CPU time (voice is ≈ 40 % of wall clock); a synchronous ONNX call blocks the event loop; prosody below ElevenLabs, which stays one key away                                          |
+| **Frames rendered by headless Chromium**, not a video model or a canvas port | Real fonts, text and SVG; MathJax/roughjs reused as-is; deterministic, so segments parallelise and cache; output is inspectable (`preview.html`)                           | Native payload (Chromium + ffmpeg + ONNX) needs a container; render is CPU-bound (≈ 52 % of wall clock); memory caps parallelism at 2 workers on 4 GB                                |
+| **Vercel container service** rather than AWS (ECS/Batch/Lambda) or Fly       | One platform and one `git push` for studio and renderer; Blob connects with a click; scales to zero; Fluid compute adds instances under load; no infrastructure to operate | 800 s hard ceiling per request; 4 GB / 2 vCPU maximum size; multi-GB image means cold starts of seconds; no native queue. `docs/DEPLOY.md` keeps the Docker/Fly single-box path open |
+| **One held request per film** (`after()` + NDJSON), not a queue or Workflow  | Fewest moving parts that work; a film finishes in one invocation with a wide margin                                                                                        | The studio Function is billed for memory-time while it waits; no mid-film resume (a killed film restarts from scratch); longer formats would need segment fan-out or Vercel Workflow |
+| **Progress through `job.json` in Blob**                                      | The starting request, the stream and the renderer are three instances; Blob is the only shared medium; browser code is unchanged                                           | ≈ 44 writes and ≈ 160 reads per film; up to 2 s of extra progress latency; liveness inferred from write recency (see the risk below)                                                 |
+| **Private Blob, served only via `/api/media`**                               | Access is decided by the endpoint that serves the file (owner, or share). A public store would mint an unauthenticated URL per film                                        | Every view streams through a Function                                                                                                                                                |
+| **Stateless renderer: keep 4 artefacts, discard the rest**                   | Storage ≈ the MP4 (4–15 MB per film); no stale cache can leak between requests on a reused instance                                                                        | No hosted edit or re-render (501); a retry repeats every stage                                                                                                                       |
+| **One film per instance**                                                    | A 1080p render peaks at ≈ 3 GB; two would not fit in 4 GB                                                                                                                  | Concurrency equals instances equals cost. There is no admission control beyond the per-IP limiter                                                                                    |
+
+### Performance budget
+
+Ceiling: **800 s** (the container's max duration and the studio's `after()` are both 800 s).
+Reference film: 74 s, 8 scenes, 1080p `explainer`, no provider keys, image built from
+`Dockerfile.vercel`, container capped with `--cpus 2 --memory 4g`.
+
+| Host                                     | voice  | check | render | total       | peak memory      |
+| ---------------------------------------- | ------ | ----- | ------ | ----------- | ---------------- |
+| native `linux/arm64`, 2 vCPU / 4 GB      | ≈ 50 s | ≈ 9 s | ≈ 64 s | **≈ 124 s** | **≈ 3.0 GB** / 4 |
+| emulated `linux/amd64` (Rosetta, no AVX) | —      | —     | —      | **≈ 291 s** | —                |
+
+- **Headroom.** About 6× under the ceiling natively, and about 2.7× even emulated. Vercel's
+  x86 vCPUs are slower per core than Apple silicon, so budget 1.5–2.5× on the CPU-bound
+  stages. A keyed lesson adds model latency (logs have recorded ~145 s for a keyed
+  lesson), while ElevenLabs removes most of the voice time. See
+  [DEPLOY_VERCEL.md → Measured](docs/DEPLOY_VERCEL.md#measured) for the methodology and an
+  earlier run on a heavily loaded host.
+- **Memory.** About 1 GB of headroom at 2 workers. Do not raise `INKCAST_RENDER_WORKERS` on
+  this size. Memory is the first thing a third worker spends.
+- **Known risk: event-loop blocking vs. the stale timeout.** Each Kokoro call is a
+  synchronous ONNX inference that blocks Node for its whole duration, measured at
+  10–21 s per scene call (the upper end on the emulated image). Progress writes and the 20 s
+  heartbeat are timers on that same loop, so **no `job.json` write happens during a call**.
+  Readers presume a job dead after `STALE_AFTER_MS = 3 min` of silence
+  (`packages/cloud/src/job.ts`). That leaves a wide margin on two real cores and a thin one
+  on a host starved far below that. Mitigations, in order of preference: run synthesis
+  in a `worker_thread` so the heartbeat keeps ticking (not yet implemented); set
+  `INKCAST_VOICE_UNIT=sentence` (shorter calls, choppier delivery); and watch the
+  per-scene `in Xs` lines.
+
+### Failure modes
+
+| Failure                                       | Detected by                                     | What the user sees                                  | Recovery                                                            |
+| --------------------------------------------- | ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
+| Every render instance reached is busy         | `503` from `/run` → `RenderServiceBusy`         | "Starting a renderer…" queue message                | Studio retries for ≤ 3 min, then fails the job                      |
+| Render killed (800 s, OOM, deploy, `SIGTERM`) | no `job.json` write for 3 min → `settleStale()` | error naming the last stage                         | Start again; hosted runs keep no stage cache                        |
+| Studio dispatcher dies mid-run                | the render request is cut off                   | progress continues while the container writes       | `store.ts` reconciles `meta.json` from `job.json` on read           |
+| A stage throws                                | `StageError` carrying `stage` and `cause`       | error with the stage name and root cause            | Fix the input or key and rerun; locally, finished stages are cached |
+| Board fails the gate (`strict`)               | `check` → `qc.json`                             | error before any frame is drawn                     | Edit the lesson or storyboard and rerun                             |
+| Provider key missing or rejected              | provider resolution / validation                | degradation stated (`degrade.ts`) or a strict block | Local fallback (Kokoro, derived lesson, icons) or fix the key       |
+| Whisper cannot load or match                  | aligner match fraction                          | nothing (phrase-level timing)                       | Automatic fallback; never fails a render                            |
+| SSE stream reaches 270 s                      | stream closes by design                         | nothing                                             | `EventSource` reconnects and the current state is replayed          |
+
+### Security
+
+- **Identity.** Clerk via `apps/web/proxy.ts` when configured. Otherwise a signed
+  anonymous cookie (`INKCAST_SESSION_SECRET`). See [`docs/AUTH.md`](docs/AUTH.md).
+- **Abuse controls.** Mutating routes check `Origin` against `INKCAST_PUBLIC_URL`.
+  `INKCAST_HOSTED=1` adds a per-IP limiter (held in memory per instance, so it is
+  looser than configured), a 20k-character source cap and the `explainer` preset only.
+- **Studio → renderer.** The bearer token (≥ 24 chars) is compared in constant time
+  over SHA-256 digests. The body is ≤ 1 MB and zod-validated. An optional
+  `x-vercel-protection-bypass` handles protected deployments.
+- **Keys and isolated jobs.** With accounts on, each account's keys are sealed (AES-256-GCM
+  under `INKCAST_SECRET_KEY`) in private Blob. The studio resolves a per-film
+  `providerEnv`. With `isolated: true` the renderer uses exactly that, so no key
+  configured on the render project can reach an account's film. Provider keys are stripped
+  from the container's own environment, redacted from logs and errors
+  (`installRedaction`, `withSecretRedaction`), and never written to Blob.
+- **Data.** The Blob store is private. `/api/media` enforces owner or share access and
+  refuses `meta.json` and `job.json`. An uploaded source must be this project's own blob
+  path, and repository paths are confined to the image checkout.
+- **Sandbox.** Chromium runs without its sandbox inside the container. The instance is the
+  isolation boundary: one film per instance, and `/tmp` is wiped after each run.
+
+### Observability
+
+| Signal                   | Where                          | Example / content                                                                                               |
+| ------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Per-film stage timings   | `inkcast-render` runtime logs  | `[render-service] <id> cast finished: ingest=…s lesson=…s storyboard=…s voice=…s visuals=…s check=…s render=…s` |
+| Per-scene synthesis time | `inkcast-render` logs, `info`  | `scene 2/8: 8.41s · 1 phrase → audio/scene-001.wav in 10.3s (paragraph)`                                        |
+| Live progress            | `job.json` → SSE → studio UI   | `stage`, overall `pct` (weighted: render 47, voice 22, visuals 12, …), `stagePct`, `note`                       |
+| Liveness                 | `GET /health` on both projects | `{"ok":true,"service":"inkcast-render","busy":false}`; studio reports Blob + renderer config                    |
+| Quality verdict          | `qc.json` (local projects)     | every check, its tier and its findings                                                                          |
+| Run record               | `pipeline.json` (local)        | timings, providers, cost estimate                                                                               |
+
+The gap is metrics: there are no counters or traces yet. Grepping `cast finished:` is the
+current SLO instrument. A log drain or Vercel custom metrics on stage seconds would be the
+next step.
+
+### Running locally vs. deploying
+
+| Mode                         | How                                                                                      | State                                | Pipeline runs                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------- |
+| CLI                          | `inkcast teach "<topic>"`, `cast <file\|url\|lesson.json>`                               | `projects/<id>/`                     | in-process                      |
+| Local studio                 | `pnpm dev` → `localhost:3000`                                                            | `projects/` + in-memory job registry | in the Next.js server process   |
+| Single box (Docker, Fly, VM) | [`docs/DEPLOY.md`](docs/DEPLOY.md)                                                       | a volume                             | in the studio process           |
+| Render container, locally    | `docker buildx build -f Dockerfile.vercel …`, `docker run --cpus 2 --memory 4g …`        | Blob (real or emulated)              | container, one film per request |
+| Vercel (`inkcast.video`)     | [`docs/DEPLOY_VERCEL.md`](docs/DEPLOY_VERCEL.md): two projects, one Blob store, env vars | private Blob                         | `inkcast-render` container      |
+
+Everything Vercel-specific is behind `INKCAST_STORAGE=blob`. Without it, the studio,
+the CLI and Docker behave exactly as before.
+
+---
+
 ## Set up your key first
 
 This is step one, before the quickstart, because it is the difference between a
 video that teaches and a video that recites.
 
 ```bash
-inkcast keys set anthropic        # prompted, hidden, never echoed or logged
+inkcast keys set fireworks        # prompted, hidden, never echoed or logged
 inkcast keys list                 # masked previews and where each key lives
 inkcast keys validate             # one cheap live call per configured provider
-inkcast keys delete anthropic     # forget it
+inkcast keys delete fireworks     # forget it
 ```
 
 Keys are stored in your **macOS keychain**, or in an AES-256-GCM vault file
 (`~/.inkcast/vault.json`, `0600`) on other platforms. The CLI and the studio share
-one store, so you set a key once. An exported `ANTHROPIC_API_KEY` always wins over a
-stored one — `inkcast keys list` tells you which is winning, because a shadowed
+one store, so you set a key once. An exported provider variable (for example `FIREWORKS_API_KEY`) wins over its
+stored key — `inkcast keys list` tells you which is winning, because a shadowed
 credential you cannot see is worse than no credential.
 
-Bring your own key: Inkcast has no account, no proxy and no telemetry. Your key goes
-to Anthropic and nowhere else, and your source material never leaves the machine
-unless you set a cloud key.
+Bring your own key: Inkcast has no account, no proxy and no telemetry. Each key is sent only to its corresponding provider. Source material is sent to
+the selected cloud model when cloud generation is enabled; rendering stays local.
+See [Fireworks setup and data handling](docs/FIREWORKS.md) for the open-weight path.
 
 Two other keys are optional upgrades: `elevenlabs` for a publishable narrator, and
 `replicate` or `fal` for illustrated objects and characters. Neither changes whether
@@ -123,7 +362,7 @@ The first version of this README headlined **$0.00 per minute** while shipping
 something that taught nothing. Optimising for the free provider was the wrong
 variable, and we are not going to make that mistake twice. So, plainly:
 
-**With an Anthropic key**, Claude writes the lesson: a hook that is a concrete
+**With a Fireworks or Anthropic key**, the selected model writes the lesson: a hook that is a concrete
 question rather than a definition, an everyday anchor the abstraction maps onto, one
 new idea per beat with a reason instead of an assertion, a worked example with real
 numbers, and the specific misconception a learner forms — then the plan has to
@@ -137,10 +376,10 @@ bare topic with no document it has almost nothing to work from. The CLI says so
 before it starts, and tells you the one command that fixes it:
 
 ```
-degraded lesson — no Anthropic key. the lesson is derived from structure rather than
+degraded lesson — no cloud planner key. the lesson is derived from structure rather than
          taught from first principles — no invented anchor, no worked example, no
          named misconception. This is the biggest single quality difference in Inkcast.
-         fix: inkcast keys set anthropic
+         fix: inkcast keys set fireworks
 ```
 
 The zero-key path exists so the renderer can be tested, so a contributor can work
@@ -285,7 +524,7 @@ you off.
 
 ---
 
-## Architecture
+## Pipeline internals
 
 ```
               ┌────────┐  SourceDoc  ┌────────┐  Lesson  ┌────────────┐
@@ -494,8 +733,9 @@ Quality first, price second — that ordering is the correction. What a run cost
 | visuals    | built-in icons + procedural plots/ink | FLUX-class on Replicate / fal  | ~$0.003 per image          |
 | render     | Playwright + ffmpeg, your CPU         | — (there is no cloud renderer) | —                          |
 
-The configuration we recommend — **Anthropic for the lesson, everything else local**
-— costs a few cents per video and nothing per minute of runtime. Adding a cloud
+The open-weight configuration uses **Fireworks for model calls and Kokoro for local speech**.
+See [the current model and measured-cost policy](docs/FIREWORKS.md); paid retries and
+drawing review count toward the video cost. Adding a cloud
 voice puts you in the region of **$0.20 per finished minute**, which is where the
 per-minute figure actually comes from. A fully local run costs exactly $0.00 and is
 the weakest output Inkcast produces; that is a floor for development and CI, not a
@@ -527,18 +767,18 @@ each behind a different price point. Inkcast has no tiers.
 | Stage      | Runs local & free                                            | Key                  | What the key buys                                                                         | Missing key behaviour                           |
 | ---------- | ------------------------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | ingest     | ✅ always                                                    | —                    | —                                                                                         | —                                               |
-| lesson     | ⚠️ derived from structure                                    | `anthropic`          | **The teaching itself**: anchor, derivation, worked example, misconception, revision pass | Derived lesson, and the CLI names the cost      |
+| lesson     | ⚠️ derived from structure                                    | `fireworks` or `anthropic` | **The teaching itself**: anchor, derivation, worked example, misconception, revision pass | Derived lesson, and the CLI names the cost      |
 | storyboard | ✅ always — plots, ink, regions, cues, camera                | —                    | —                                                                                         | —                                               |
 | voice      | ✅ Kokoro-82M (28 voices; macOS `say` only as a build check) | `elevenlabs`         | More natural prosody, more languages, cloning                                             | Kokoro, which is genuinely listenable           |
 | visuals    | ✅ plots, paths, procedural diagrams, built-in icons         | `replicate` or `fal` | Illustrated objects and characters                                                        | Icon fallback, stated plainly rather than faked |
 | render     | ✅ Playwright + ffmpeg                                       | —                    | —                                                                                         | —                                               |
 
 Set keys with `inkcast keys set <provider>`, or export the environment variable
-(`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`) — see
+(`FIREWORKS_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `REPLICATE_API_TOKEN`, `FAL_KEY`) — see
 [`.env.example`](.env.example). Rules the whole project keeps: **local is always
 available**, a cloud provider is used only when its key is present, a missing or
-rejected key degrades with a clear line naming the fix — never a crash — and no
-degradation is ever silent.
+rejected key produces a diagnostic naming the fix. In strict mode, a failed cloud
+lesson blocks before narration instead of publishing heuristic fallback content.
 
 The one caveat to "works offline": the local voice needs a one-time ~92 MB model
 download. If it fails, the voice stage says so and falls back rather than failing.
@@ -563,8 +803,8 @@ inkcast providers                      what each stage will use, and what it giv
 Lesson options: `--depth quick|standard|deep`, `--objective`, `--audience`,
 `--brief`, `--seconds <n>`, `--lesson <path>`.
 Format options: `--short`, `--aspect 16:9|9:16|1:1`, `--preset standard|short|square`,
-`--title`, `--voice`, `--lang`, `--style marker|pencil|chalk|ink`,
-`--palette mono|color`.
+`--title`, `--voice`, `--lang`, `--style <id>` (the ids in `styles/`: `marker`,
+`pencil`, `chalk`, `ink`, plus any you add), `--palette mono|color`.
 Run options: `--out`, `--project`, `--force`, `--open`, `--json`, `--verbose`,
 `--quiet`, `--via lesson|document`.
 
@@ -593,6 +833,8 @@ Failures name the stage that broke, keep the original cause, and suggest the fix
 
 Inkcast is local-first, so "self-hosting" is just running it somewhere else. No
 database, no queue, no object store — a project is a directory.
+(The hosted Vercel topology, which does use an object store, is in
+[Architecture](#architecture) and [`docs/DEPLOY_VERCEL.md`](docs/DEPLOY_VERCEL.md).)
 
 ```bash
 git clone <your fork> && cd inkcast
@@ -648,8 +890,9 @@ Contributions are welcome, and the bar is concrete rather than ceremonial.
 
 Good first contributions: a hand-authored lesson in `examples/lessons/` for a topic
 you know well (no key needed, and the most useful thing you can add), a new named
-curve function, an ink style, another local voice engine, a document format for
-`ingest`, or better `--json` output for scripting.
+curve function, **an ink style — a JSON file in `styles/` and no TypeScript at all**,
+another local voice engine, a document format for `ingest`, or better `--json` output
+for scripting.
 
 ---
 

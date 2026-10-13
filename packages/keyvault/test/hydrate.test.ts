@@ -5,7 +5,14 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createKeyvault, dehydrate, hydrateEnv, hydratedProviders, lock } from '../src/index.js';
+import {
+  createKeyvault,
+  dehydrate,
+  hydrateEnv,
+  hydratedProviders,
+  lock,
+  realEnv,
+} from '../src/index.js';
 import { FAKE, sandbox } from './helpers.js';
 
 test('hydrateEnv populates the canonical variable from storage', async () => {
@@ -21,7 +28,7 @@ test('hydrateEnv populates the canonical variable from storage', async () => {
     assert.equal(target.ANTHROPIC_API_KEY, FAKE.anthropic);
     assert.equal(target.FAL_KEY, FAKE.fal);
     assert.deepEqual(result.injected.sort(), ['anthropic', 'fal']);
-    assert.deepEqual(result.missing.sort(), ['elevenlabs', 'replicate']);
+    assert.deepEqual(result.missing.sort(), ['elevenlabs', 'fireworks', 'replicate']);
     assert.deepEqual(result.fromEnv, []);
   } finally {
     dehydrate(target);
@@ -30,7 +37,7 @@ test('hydrateEnv populates the canonical variable from storage', async () => {
   }
 });
 
-test('hydrateEnv never overwrites a key the real environment supplied', async () => {
+test('hydrateEnv overrides a key the environment supplied, and restores it', async () => {
   const box = sandbox();
   const fromShell = 'sk-ant-api03-FromTheShell00001111222233334444555566667777';
   const target: NodeJS.ProcessEnv = { ANTHROPIC_API_KEY: fromShell };
@@ -38,9 +45,74 @@ test('hydrateEnv never overwrites a key the real environment supplied', async ()
     await createKeyvault(box.opts()).setKey('anthropic', FAKE.anthropic);
     const result = await hydrateEnv({ ...box.opts({ env: target }), target });
 
-    assert.equal(target.ANTHROPIC_API_KEY, fromShell, 'the visible value must win');
-    assert.deepEqual(result.fromEnv, ['anthropic']);
-    assert.ok(!result.injected.includes('anthropic'));
+    // The pasted key is the deliberate one, so it displaces the shell's — a
+    // stale export must not keep running renders on the wrong account.
+    assert.equal(target.ANTHROPIC_API_KEY, FAKE.anthropic, 'the stored key must win');
+    assert.deepEqual(result.injected, ['anthropic']);
+    assert.ok(!result.fromEnv.includes('anthropic'));
+
+    // What was overridden can be put back exactly: retraction is a restore, not
+    // a delete, or dehydrating would erase a variable the user set themselves.
+    dehydrate(target);
+    assert.equal(target.ANTHROPIC_API_KEY, fromShell, "the shell's own value comes back");
+    assert.deepEqual(
+      Object.keys(target).filter((k) => k.startsWith('INKCAST_')),
+      [],
+      'retraction leaves no bookkeeping behind',
+    );
+  } finally {
+    dehydrate(target);
+    lock();
+    box.cleanup();
+  }
+});
+
+test('deleting a key restores the environment value it was overriding', async () => {
+  const box = sandbox();
+  const fromShell = 'sk-ant-api03-FromTheShell99998888777766665555444433332222';
+  const target: NodeJS.ProcessEnv = { ANTHROPIC_API_KEY: fromShell };
+  try {
+    const kv = createKeyvault(box.opts());
+    await kv.setKey('anthropic', FAKE.anthropic);
+    await hydrateEnv({ ...box.opts({ env: target }), target });
+    assert.equal(target.ANTHROPIC_API_KEY, FAKE.anthropic);
+
+    await kv.deleteKey('anthropic');
+    const after = await hydrateEnv({ ...box.opts({ env: target }), target });
+
+    assert.equal(target.ANTHROPIC_API_KEY, fromShell, 'the shell value resurfaces');
+    assert.ok(after.fromEnv.includes('anthropic'), 'and is reported as the source');
+  } finally {
+    dehydrate(target);
+    lock();
+    box.cleanup();
+  }
+});
+
+test('a second hydration recognises the first one from the environment alone', async () => {
+  const box = sandbox();
+  const target: NodeJS.ProcessEnv = {};
+  try {
+    await createKeyvault(box.opts()).setKey('anthropic', FAKE.anthropic);
+    await hydrateEnv({ ...box.opts({ env: target }), target });
+
+    // The bookkeeping must live in the environment itself: `next dev` evaluates
+    // route bundles in separate realms with separate `globalThis`, so a second
+    // module copy has nothing else to consult. Before this was true, that copy
+    // recorded the first copy's injection as a shell value to preserve — and the
+    // vault key masqueraded as an environment variable forever after.
+    assert.equal(target.INKCAST_INJECTED_ANTHROPIC_API_KEY, '1', 'the marker is in the env');
+    await hydrateEnv({ ...box.opts({ env: target }), target });
+    assert.equal(
+      'INKCAST_SHADOWED_ANTHROPIC_API_KEY' in target,
+      false,
+      'a re-run must not mistake the injection for a shell value and shadow it',
+    );
+    assert.equal(
+      'ANTHROPIC_API_KEY' in realEnv(target),
+      false,
+      'the real environment never supplied this key',
+    );
   } finally {
     dehydrate(target);
     lock();
@@ -97,12 +169,12 @@ test('dehydrate removes only what we injected', async () => {
   try {
     await createKeyvault(box.opts()).setKey('anthropic', FAKE.anthropic);
     await hydrateEnv({ ...box.opts({ env: target }), target });
-    assert.ok(hydratedProviders().includes('anthropic'));
+    assert.ok(hydratedProviders(target).includes('anthropic'));
 
     dehydrate(target);
     assert.equal('ANTHROPIC_API_KEY' in target, false, 'our injection should be gone');
     assert.equal(target.REPLICATE_API_TOKEN, fromShell, "the shell's own variable must survive");
-    assert.deepEqual(hydratedProviders(), []);
+    assert.deepEqual(hydratedProviders(target), []);
   } finally {
     dehydrate(target);
     lock();

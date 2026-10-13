@@ -50,12 +50,12 @@ export function degradations(
   if (!p.planner.cloud && opts.via !== 'document' && !opts.lessonSupplied) {
     out.push({
       stage: 'lesson',
-      missing: 'no Anthropic key',
+      missing: 'no cloud planning key selected',
       effect:
         'the lesson is derived from structure rather than taught from first principles — no ' +
         'invented anchor, no worked example, no named misconception. This is the biggest ' +
         'single quality difference in Inkcast.',
-      fix: 'inkcast keys set anthropic',
+      fix: 'inkcast keys set fireworks',
       severity: 'major',
     });
   }
@@ -70,7 +70,7 @@ export function degradations(
       fix: 'inkcast cast … --voice af_heart',
       severity: 'major',
     });
-  } else if (!p.voice.cloud) {
+  } else if (!p.voice.cloud && p.planner.name !== 'fireworks' && !p.voice.why.includes('pinned')) {
     out.push({
       stage: 'voice',
       missing: 'no ElevenLabs key',
@@ -87,8 +87,9 @@ export function degradations(
       stage: 'visuals',
       missing: 'no image model key',
       effect:
-        'plots, paths and diagrams are unaffected, but illustrated objects and characters fall ' +
-        'back to the built-in icon set — there is no icon for a Greek hero.',
+        'plots, paths, diagrams and anything in the curated library are unaffected, and a ' +
+        'character comes from the hand-drawn cast rather than an icon. Objects outside the ' +
+        'library fall back to the built-in icon set — there is no icon for a trebuchet.',
       fix: 'inkcast keys set replicate',
       severity: 'minor',
     });

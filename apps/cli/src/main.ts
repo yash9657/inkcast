@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { styleIds } from '@inkcast/core';
 import type { StoryboardMeta } from '@inkcast/core';
 import type { CliContext } from './env.js';
 import { paint } from './ui.js';
@@ -20,11 +21,31 @@ import { usage } from './usage.js';
 import { hydrateKeys } from './vault.js';
 
 const ASPECTS = ['16:9', '9:16', '1:1'] as const;
-const STYLES = ['marker', 'pencil', 'chalk', 'ink'] as const;
+/*
+ * The style list is *loaded*, not literal (plan 7.3): a style is a JSON file in `styles/`,
+ * so a fifth one has to be accepted by the flag and printed in the help without either
+ * being edited. `styleIds()` reads that directory once and both callers ask it — see
+ * `usage.ts`, and the mirror test in `test/flags.test.ts` that holds the two together the
+ * way the preset list is held.
+ */
 const PALETTES = ['mono', 'color'] as const;
-const PRESETS = ['standard', 'short', 'square'] as const;
+/*
+ * The third copy of this list, and the one that *rejects*. `packages/planner/src/presets.ts`
+ * defines the presets, `packages/pipeline/src/stages.ts` mirrors the names into the stage
+ * contract, and this validates the flag — so `explainer`, missing from the second and third,
+ * was a preset the planner had and no user could ask for: `readFlags` threw
+ * `--preset must be one of standard | short | square, got "explainer"`.
+ *
+ * Kept as a local literal rather than imported from the planner because `oneOf` needs a
+ * runtime array and the CLI must be able to parse flags and print usage before any stage
+ * package is loaded — the whole point of `stages.ts`'s lazy thunks. `usage.ts` carries the
+ * same four names in prose and has to move with this line; there is no way to make a help
+ * string a compile error, so the pair is checked in `test/flags.test.ts` instead.
+ */
+const PRESETS = ['standard', 'short', 'square', 'explainer', 'deepdive'] as const;
 const DEPTHS = ['quick', 'standard', 'deep'] as const;
 const ROUTES = ['lesson', 'document'] as const;
+const BOARDS = ['accumulate', 'wipe'] as const;
 
 const COMMANDS = [
   'teach',
@@ -49,11 +70,13 @@ export type Flags = {
   aspect?: (typeof ASPECTS)[number];
   lang?: string;
   voice?: string;
-  style?: (typeof STYLES)[number];
+  style?: string;
   palette?: (typeof PALETTES)[number];
   preset?: (typeof PRESETS)[number];
   depth?: (typeof DEPTHS)[number];
   via?: (typeof ROUTES)[number];
+  /** What the board does between beats. See `--board` in `usage.ts`. */
+  board?: (typeof BOARDS)[number];
   /** Hard runtime target in seconds. */
   seconds?: number;
   audience?: string;
@@ -66,6 +89,20 @@ export type Flags = {
   port?: number;
   force: boolean;
   open: boolean;
+  /**
+   * `--degrade`: run with the quality gates in log-and-continue mode. The default
+   * is strict — a detected defect (uncovered glyph, equation fallback, missing
+   * font, missed cue on a dominant visual) stops the run before the encode.
+   */
+  degrade: boolean;
+  /**
+   * `--emit-plan`: also write the compiled render plan to `<project>/plan.json`.
+   *
+   * A report, never an input — nothing reads it back (see `emitPlan` in
+   * `@inkcast/render`). Off by default because a plan written on every run is a
+   * derived copy that can drift out of step with the storyboard it came from.
+   */
+  emitPlan: boolean;
 };
 
 export class UsageError extends Error {}
@@ -88,6 +125,7 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         palette: { type: 'string' },
         preset: { type: 'string' },
         depth: { type: 'string' },
+        board: { type: 'string' },
         seconds: { type: 'string' },
         audience: { type: 'string' },
         objective: { type: 'string' },
@@ -98,6 +136,8 @@ export async function run(argv: string[], ctx: CliContext): Promise<number> {
         project: { type: 'string' },
         port: { type: 'string' },
         force: { type: 'boolean', short: 'f', default: false },
+        degrade: { type: 'boolean', default: false },
+        'emit-plan': { type: 'boolean', default: false },
         open: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
         verbose: { type: 'boolean', default: false },
@@ -212,6 +252,8 @@ export function readFlags(values: Record<string, unknown>): Flags {
   const flags: Flags = {
     force: values.force === true,
     open: values.open === true,
+    degrade: values.degrade === true,
+    emitPlan: values['emit-plan'] === true,
   };
   if (typeof values.title === 'string') flags.title = values.title;
   if (typeof values.out === 'string') flags.out = values.out;
@@ -223,13 +265,26 @@ export function readFlags(values: Record<string, unknown>): Flags {
   if (typeof values.brief === 'string') flags.brief = values.brief.trim();
   if (typeof values.lesson === 'string') flags.lesson = values.lesson;
   if (typeof values.aspect === 'string') flags.aspect = oneOf('aspect', values.aspect, ASPECTS);
-  if (typeof values.style === 'string') flags.style = oneOf('style', values.style, STYLES);
+  if (typeof values.style === 'string') flags.style = oneOf('style', values.style, styleIds());
   if (typeof values.palette === 'string') {
     flags.palette = oneOf('palette', values.palette, PALETTES);
   }
   if (typeof values.preset === 'string') flags.preset = oneOf('preset', values.preset, PRESETS);
   if (typeof values.depth === 'string') flags.depth = oneOf('depth', values.depth, DEPTHS);
   if (typeof values.via === 'string') flags.via = oneOf('via', values.via, ROUTES);
+  if (typeof values.board === 'string') flags.board = oneOf('board', values.board, BOARDS);
+
+  // Refused rather than ignored. `--via document` never reaches `compileLesson`, and
+  // the document planners compose their own boards, so accepting `--board` on that
+  // route would print a mode nothing performs — the same silent no-op that let `wipe`
+  // ship with nothing able to ask for it. Two flags that contradict each other are a
+  // question for the user, not something to resolve on their behalf.
+  if (flags.board && flags.via === 'document') {
+    throw new UsageError(
+      '--board only applies to the lesson route; --via document summarises and composes ' +
+        'its own board. Drop one of the two.',
+    );
+  }
 
   // `--short` is the headline form of "9:16 vertical, short-form pacing". It sets
   // both the aspect and the preset, because a short is not a cropped landscape

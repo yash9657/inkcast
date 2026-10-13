@@ -1,114 +1,93 @@
-/**
- * `GET /api/providers` — what this machine can currently do, and what it cannot.
- *
- * The whole project's promise is that it runs with zero API keys, so the studio
- * should be able to *show* that rather than assert it. The provider table is read
- * straight from the pipeline's own decision function, so this endpoint and
- * `inkcast providers` can never disagree.
- *
- * It carries three things beyond that table, each of which exists because the
- * studio has to make a decision the browser cannot make for itself:
- *
- *  - `keys` — masked key status, so the create form can warn *before* a render
- *    that the output will be a summary rather than a lesson.
- *  - `warnings` — the degradations in plain language, ordered by how much they
- *    cost the finished video.
- *  - `accepts` — the exact `meta` field names `POST /api/generate` will validate,
- *    read from its schema. The create form sends only fields that appear here, so
- *    a client that has learned about a new option cannot 400 against a server
- *    that has not. See `lib/api.ts`.
- *
- * Hydrating the vault here is load-bearing, not incidental: this is the endpoint
- * the create form calls before any render, so it is the point at which a key
- * saved on the settings page becomes visible to the stages. See
- * `app/api/keys/_vault/index.ts`.
- */
-
-import { json, unexpected } from '../_lib/http';
+import { fail, json, unexpected } from '../_lib/http';
+import { accountKeys } from '../_lib/deployment';
+import { guardRequest } from '../_lib/request-guard';
+import { resolveIdentity, setSessionCookie, ownerTagFor } from '../_lib/session';
 import { META_KEYS } from '../_lib/schemas';
-import { loadPipeline } from '@/lib/store';
-import { PROVIDERS, STAGE_LABEL, type ProviderStage } from '@/components/settings/catalog';
-import { hydrateEnv, keyStatuses, type KeyStatus } from '../keys/_vault/index.js';
+import { STUDIO_PRESETS, HOSTED_PRESET } from '@/lib/jobs';
+import { isHosted, loadCore, loadPipeline } from '@/lib/store';
+import { defaultSelection, selectedVoice } from '@/lib/provider-selection';
+import { PROVIDERS } from '@/components/settings/catalog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
-    // Saved keys become environment variables before the pipeline reads them.
-    await hydrateEnv();
-
+    const who = await resolveIdentity(request);
+    if (!who.ok) return fail(who.status, who.message);
+    const account = accountKeys();
+    let keys;
+    if (account) {
+      const { accountKeyStatuses, accountOwner } = await import('../keys/_account');
+      const owner = await accountOwner(request);
+      if (!owner.ok) return owner.response;
+      keys = await accountKeyStatuses({
+        tag: ownerTagFor(who.session),
+        session: who.session,
+        signedIn: who.via === 'user',
+      });
+    } else {
+      keys = await (await import('../keys/_store')).keyStatuses();
+    }
+    const selection = defaultSelection(keys);
+    // Availability markers only: no credentials are needed to describe choices.
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: process.env.NODE_ENV,
+      INKCAST_PLANNER: selection.planner,
+    };
+    for (const key of keys)
+      if (key.configured) {
+        const name = PROVIDERS.find((provider) => provider.id === key.id)!.envVar;
+        env[name] = 'configured';
+      }
     const { providers, fullyLocal } = await loadPipeline();
-    const chosen = providers();
-    const keys = await keyStatuses();
-
-    return json({
-      providers: chosen,
-      /** True when nothing in a run leaves this machine and nothing can be billed. */
-      local: fullyLocal(chosen),
-      projectsDir: process.env.INKCAST_PROJECTS ?? null,
-      keys,
-      /** Which key each stage would need to reach its better path. */
-      needs: {
-        plan: 'anthropic',
-        voice: 'elevenlabs',
-        images: keys.find((k) => k.id === 'replicate')?.configured ? 'replicate' : 'fal',
-      } satisfies Record<ProviderStage, string>,
-      warnings: warningsFor(keys),
-      /** `meta` fields this build's generate endpoint validates. */
-      accepts: META_KEYS,
-    });
+    const chosen = providers(selectedVoice(selection), env);
+    const warnings: string[] = [];
+    if (!chosen.planner.cloud)
+      warnings.push(
+        'Local planning makes a basic document summary. Add Fireworks for authored lessons and diagrams.',
+      );
+    if (!chosen.voice.cloud)
+      warnings.push(
+        'Local narration uses Kokoro in English. Add ElevenLabs for cloud speech and native word timings.',
+      );
+    if (!chosen.images.cloud)
+      warnings.push(
+        'Illustrations use built-in assets. Generated raster artwork needs a separate fal or Replicate key.',
+      );
+    for (const key of keys) {
+      if (key.unreadable)
+        warnings.push(`Your ${key.id} key cannot be read. Replace it in Settings.`);
+      if (key.validatedOk === false)
+        warnings.push(
+          `Your ${key.id} key failed its last check. Check its permissions or replace it.`,
+        );
+    }
+    const { stylePacks } = await loadCore();
+    return setSessionCookie(
+      json({
+        providers: chosen,
+        selection,
+        local: fullyLocal(chosen),
+        keys,
+        credentialScope: account ? 'account' : 'machine',
+        projectsDir: account ? null : (process.env.INKCAST_PROJECTS ?? null),
+        warnings,
+        accepts: META_KEYS,
+        formats: isHosted() ? [HOSTED_PRESET] : [...STUDIO_PRESETS],
+        styles: [...stylePacks().values()]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((pack) => ({
+            id: pack.id,
+            label: pack.name,
+            hint: pack.id === 'blueprint' ? 'White ink on a deep blue board' : pack.description,
+          })),
+      }),
+      who.session,
+    );
   } catch (err) {
     return unexpected('providers', err);
   }
-}
-
-/**
- * The degradations, worst first.
- *
- * Ordered by effect on the finished video rather than by pipeline order, because
- * the list is advice: a reader who fixes only the first item should have fixed the
- * thing that mattered most. Planning is first by a wide margin — it decides
- * whether the video teaches at all, while the other two decide how it looks and
- * sounds while doing it.
- */
-function warningsFor(keys: readonly KeyStatus[]): string[] {
-  const configured = new Set(keys.filter((k) => k.configured).map((k) => k.id));
-  const out: string[] = [];
-
-  if (!configured.has('anthropic')) {
-    out.push(
-      'No Anthropic key: the local planner splits the document into beats instead of building a lesson, so the video will summarise rather than teach.',
-    );
-  }
-  if (!configured.has('elevenlabs')) {
-    out.push(
-      'No ElevenLabs key: narration is synthesised locally in English only, and there are no word-level timings to land visuals on.',
-    );
-  }
-  if (!configured.has('replicate') && !configured.has('fal')) {
-    out.push(
-      'No Replicate or fal key: illustrations come from the built-in icon set, so there are no drawn objects, characters or scenes.',
-    );
-  }
-
-  for (const key of keys) {
-    if (key.unreadable) {
-      const label = PROVIDERS.find((p) => p.id === key.id)?.label ?? key.id;
-      out.push(
-        `The saved ${label} key can no longer be decrypted — INKCAST_VAULT_SECRET or .inkcast/vault.key changed. Paste it again in settings.`,
-      );
-    }
-    if (key.shadowedByEnv) {
-      out.push(
-        `${key.envVar} is set in the environment, so the ${STAGE_LABEL[stageOf(key.id)].toLowerCase()} key saved in the vault is being ignored.`,
-      );
-    }
-  }
-
-  return out;
-}
-
-function stageOf(id: KeyStatus['id']): ProviderStage {
-  return PROVIDERS.find((p) => p.id === id)?.stage ?? 'plan';
 }

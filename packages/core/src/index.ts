@@ -1,4 +1,25 @@
+export * from './rect.js';
+export * from './camera.js';
 export * from './storyboard.js';
 export * from './lesson.js';
+export * from './lanes.js';
+export * from './terms.js';
 export * from './log.js';
+export * from './fontmetrics.js';
+export * from './codegrid.js';
+export * from './speech.js';
+export * from './drift.js';
+export * from './palette.js';
+export * from './stylepack.js';
+export * from './inktime.js';
+export * from './gates.js';
+export * from './qc.js';
 export * from './project.js';
+
+export * from './model-provider.js';
+export * from './model-client.js';
+export { lessonReviewHash, lessonSourceCheck } from './lesson-review.js';
+
+export { providerEnv, withProviderEnv, redactProviderSecrets } from './provider-context.js';
+
+export { fetchPublicText, isPublicAddress, publicDestination } from './public-fetch.js';

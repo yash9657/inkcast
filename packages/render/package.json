@@ -10,10 +10,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-page.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test src/compile.test.ts src/camera.test.ts src/geom.test.ts src/motion.test.ts src/plot.test.ts src/page.test.ts src/render.test.ts"
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@inkcast/core": "workspace:*",
+    "@inkcast/visuals": "workspace:*",
     "playwright": "^1.62.0"
   }
 }

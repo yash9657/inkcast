@@ -1,0 +1,109 @@
+# Inkcast render service — the container Vercel builds and runs for rendering.
+#
+# Vercel detects a `Dockerfile.vercel` at the root of a project and serves every
+# request to that project from this image (Container Runtime). It is deployed as
+# its own Vercel project (root directory = repository root), separate from the
+# studio (root directory = apps/web); see docs/DEPLOY_VERCEL.md.
+#
+# What runs here: `apps/render-service` — a small HTTP server that renders one film
+# per request with the ordinary pipeline (lesson, voice, visuals, Chromium capture,
+# ffmpeg) and writes progress and the finished MP4 to Vercel Blob. Nothing is kept
+# on this container's disk between requests.
+#
+# How it differs from the root `Dockerfile` (the self-hosted, single-box studio):
+#   - no Next.js build: only the render service and the packages it imports are
+#     installed (`--filter @inkcast/render-service...`), which drops Next, React and
+#     the UI dependencies from the image;
+#   - runs as root on port 80, Vercel's default container port (set PORT on the
+#     project to change it). Chromium is launched without its sandbox, which is
+#     Playwright's default; the instance itself is the isolation boundary;
+#   - plain Dockerfile syntax (no BuildKit cache mounts or heredocs), so it builds
+#     on any builder.
+#
+# Build and run locally (OrbStack / Docker Desktop):
+#   docker buildx build --platform linux/amd64 -f Dockerfile.vercel -t inkcast-render .
+#   docker run --rm -p 8080:80 --cpus 2 --memory 4g \
+#     -e INKCAST_RENDER_TOKEN=... -e BLOB_READ_WRITE_TOKEN=... inkcast-render
+
+ARG NODE_VERSION=22-bookworm-slim
+ARG PNPM_VERSION=10.33.0
+
+# --------------------------------------------------------------------- deps
+FROM node:${NODE_VERSION} AS deps
+ARG PNPM_VERSION
+ENV CI=1 PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+WORKDIR /app
+
+# Manifests only, so a source edit does not reinstall. Every workspace manifest is
+# copied because pnpm validates the lockfile against the whole workspace, even
+# when only part of it is installed.
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc package.json ./
+COPY apps/cli/package.json            apps/cli/
+COPY apps/web/package.json            apps/web/
+COPY apps/render-service/package.json apps/render-service/
+COPY packages/cloud/package.json      packages/cloud/
+COPY packages/core/package.json       packages/core/
+COPY packages/keyvault/package.json   packages/keyvault/
+COPY packages/pipeline/package.json   packages/pipeline/
+COPY packages/planner/package.json    packages/planner/
+COPY packages/render/package.json     packages/render/
+COPY packages/visuals/package.json    packages/visuals/
+COPY packages/voice/package.json      packages/voice/
+
+RUN pnpm install --frozen-lockfile --prod --filter "@inkcast/render-service..." \
+ && rm -rf /pnpm/store
+
+# ------------------------------------------------------------------ weights
+# The Kokoro voice and the Whisper word aligner, baked so a cold instance never
+# downloads them. Its own stage so a source change does not re-fetch 130 MB.
+FROM deps AS weights
+ENV INKCAST_MODEL_CACHE=/app/.models
+COPY apps/render-service/scripts/warm-weights.mjs apps/render-service/scripts/
+RUN cd apps/render-service && node scripts/warm-weights.mjs && du -sh /app/.models
+
+# ------------------------------------------------------------------ runtime
+FROM node:${NODE_VERSION} AS runtime
+ENV NODE_ENV=production \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    INKCAST_MODEL_CACHE=/app/.models \
+    INKCAST_OFFLINE=1 \
+    INKCAST_STORAGE=blob \
+    INKCAST_RENDER_WORKERS=2 \
+    INKCAST_PROJECTS=/tmp/inkcast/projects \
+    INKCAST_HOME=/tmp/inkcast/state \
+    INKCAST_LOG=info
+# INKCAST_VOICE_UNIT is deliberately unset: Kokoro speaks a scene paragraph per call,
+# measured no slower than sentence-per-call. Set it to `sentence` only as an escape
+# hatch (see docs/DEPLOY_VERCEL.md, Measured).
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=deps /app/ /app/
+
+# Chromium plus the system libraries it needs, at the revision the installed
+# Playwright expects. The full build, not `--only-shell`: the render stage checks
+# for `chromium.executablePath()` before it launches.
+RUN cd packages/render && npx --no-install playwright install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/* \
+ && chmod -R a+rX /ms-playwright
+
+COPY tsconfig.base.json ./
+COPY packages/ packages/
+COPY apps/render-service/ apps/render-service/
+COPY assets/ assets/
+COPY styles/ styles/
+COPY examples/ examples/
+COPY --from=weights /app/.models /app/.models
+
+# Fail the build, not the first render, if any of the native pieces is missing.
+RUN cd apps/render-service && node scripts/verify-image.mjs && ffmpeg -version | head -1
+
+# `tsx` is the render service's own dependency, so it resolves from its directory.
+WORKDIR /app/apps/render-service
+EXPOSE 80
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "--import", "tsx", "src/main.ts"]

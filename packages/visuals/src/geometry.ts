@@ -11,7 +11,7 @@
  * so roughjs became an untyped `any` there, which `noImplicitAny` rejects. A
  * triple-slash reference travels with the import graph, so both programs agree.
  *
- * Two roughjs facts drive the design of this module (both verified in
+ * Three roughjs facts drive the design of this module (the first two verified in
  * `docs/research/tech-stack.md` §2):
  *
  * 1. `rough.generator()` needs no `document`, and `generator.toPaths()` already
@@ -20,6 +20,14 @@
  *    without options poisons `defaultOptions`, after which `seed` stops working
  *    and assets mutate between renders. Every call here therefore goes through
  *    `inkPaths()`, which always passes `{ seed, randomizer: undefined }`.
+ * 3. **`seed: 0` means "no seed".** roughjs's `Random.next()` tests `if (this.seed)`
+ *    and falls through to `Math.random()` when it is falsy, so zero is the one seed
+ *    value that is *not* reproducible. `baseOptions` maps it to 1 for that reason;
+ *    see the note there.
+ *
+ * The two ink modes (`DrawContext.ink`) are the other thing to read before
+ * changing anything here — one flag, applied in one place, deciding whether a
+ * mark is perturbed at all.
  */
 import roughEsm from 'roughjs/bundled/rough.esm.js';
 import type {
@@ -58,6 +66,22 @@ export type InkPath = {
 
 export type StrokeWeight = 'hairline' | 'light' | 'normal' | 'bold';
 
+/**
+ * Which ink draws a mark. A property of the *thing being drawn*, not of the build:
+ * both modes coexist in one frame and both reveal the same way, so the difference
+ * is the path and never the motion.
+ *
+ * - **`crisp`** — the geometry is used as computed. Plotted curves, equations,
+ *   auto-laid-out edges: anything a learner reads a number or a symbol off, where
+ *   the wobble is what makes a minus sign ambiguous and a data point a lie.
+ * - **`sketch`** — roughjs perturbs it, which is the whole look. Hillsides,
+ *   characters, arrows, containers, annotations: anything read as a feeling.
+ *
+ * `sketch` is the default, so a lane that has not thought about this keeps the
+ * hand it already had.
+ */
+export type InkMode = 'crisp' | 'sketch';
+
 /** Everything a lane needs to draw one mark. */
 export type DrawContext = {
   style: InkStyle;
@@ -68,6 +92,8 @@ export type DrawContext = {
   weight?: StrokeWeight;
   opacity?: number;
   group?: string;
+  /** Perturbed, or exact? Defaults to `sketch`. */
+  ink?: InkMode;
 };
 
 /** Create a generator carrying the style's personality as its defaults. */
@@ -102,16 +128,56 @@ export function ctxFor(
   return { style, gen: createGenerator(style), seed, ...over };
 }
 
+/**
+ * What `ink: 'crisp'` overrides, and why this list is pinned.
+ *
+ * **`roughness: 0` is the master switch.** Every displacement roughjs applies goes
+ * through `_offset`, which multiplies by `roughness` — so zero alone removes the
+ * bowing, the vertex jitter and the curve-fitting slop, and `gen.path(d)` then
+ * returns `d` *verbatim* (segment for segment, with a `moveto` inserted per
+ * segment). The other flags are already implied by it; they are here to state the
+ * intent, so a future crisp-ish mode at nonzero roughness still keeps its vertices.
+ *
+ * **The seed is pinned**, which is not redundant. Crisp output has no randomness in
+ * its *geometry*, but roughjs still draws from its RNG to pick the `divergePoint`
+ * parameterising the degenerate cubic it emits for a straight segment. Left on the
+ * mark's own seed, two identical crisp axes would differ in their control points
+ * while lying on exactly the same line — reproducible, but not comparable. Pinning
+ * makes a crisp `d` a pure function of the geometry asked for.
+ *
+ * That is also why the list must not be edited casually: each zeroed offset still
+ * *consumes* an RNG draw, so adding or removing one moves the stream and reshuffles
+ * those interior control points. The geometry is unaffected; the bytes are not.
+ */
+const CRISP: RoughOptions = {
+  seed: 1,
+  roughness: 0,
+  bowing: 0,
+  maxRandomnessOffset: 0,
+  curveFitting: 1,
+  preserveVertices: true,
+  // A second pass reads as a real hand when it lands somewhere slightly different.
+  // With nothing to displace it, it lands exactly on the first and is just double
+  // ink over a line the learner is meant to read a value off.
+  disableMultiStroke: true,
+  disableMultiStrokeFill: true,
+};
+
 function baseOptions(ctx: DrawContext, bump: number, over: RoughOptions = {}): RoughOptions {
-  return {
+  const base: RoughOptions = {
     // Both halves of the reproducibility contract: an explicit seed, and
     // clearing the RNG roughjs would otherwise reuse from a previous call.
-    seed: (ctx.seed + bump * 7919) % 0x7fffffff,
+    // Zero is the one value that means *unseeded* (see fact 3 in the header), and
+    // this expression can land on it, so it is nudged off.
+    seed: (ctx.seed + bump * 7919) % 0x7fffffff || 1,
     randomizer: undefined,
     stroke: ctx.colour ?? ctx.style.ink,
     strokeWidth: strokeWidthFor(ctx.style, ctx.weight ?? 'normal'),
     ...over,
   };
+  // Last, so that a call site asking for its own roughness — several ask for a
+  // fraction of the style's — cannot quietly reintroduce a wobble into a crisp mark.
+  return ctx.ink === 'crisp' ? { ...base, ...CRISP } : base;
 }
 
 /**
@@ -148,7 +214,26 @@ export function inkPaths(
   return out;
 }
 
-/** Roughen existing path data (icons, vectorised rasters, glyph-free traces). */
+/**
+ * Ink existing path data (icons, vectorised rasters, glyph outlines, traces).
+ *
+ * ## Why crisp does not go through roughjs at all
+ *
+ * At `roughness: 0` roughjs reproduces every control point exactly — but it re-emits
+ * the result **one subpath per segment**, inserting a `moveto` before each curve and
+ * dropping the `Z` that closed the contour. For a stroked line that is invisible: each
+ * `moveto` lands on the previous segment's endpoint, so the same pixels are drawn.
+ *
+ * For a *filled* path it is fatal. A glyph outline arrives as forty independent open
+ * curves with no closed contour left to fill, and the letter renders as an outline with
+ * a hollow middle — which is exactly how the equation lane first came out. So crisp
+ * takes our own round-trip instead, which preserves subpaths and closes and only
+ * normalises precision.
+ *
+ * This is what makes "the path is used verbatim" (`PIPELINE.md`) true rather than
+ * nearly true, and it is the same funnel either way — one place still decides how ink
+ * is laid down.
+ */
 export function roughenPathData(
   ctx: DrawContext,
   d: string,
@@ -156,6 +241,22 @@ export function roughenPathData(
   over: RoughOptions = {},
 ): InkPath[] {
   if (!d.trim()) return [];
+  if (ctx.ink === 'crisp') {
+    const exact = pathToString(parsePath(d));
+    if (!exact) return [];
+    const fill = over.fill;
+    return [
+      {
+        d: exact,
+        stroke: over.stroke ?? ctx.colour ?? ctx.style.ink,
+        strokeWidth: over.strokeWidth ?? strokeWidthFor(ctx.style, ctx.weight ?? 'normal'),
+        fill: fill && fill !== 'none' ? fill : 'none',
+        opacity: ctx.opacity ?? ctx.style.strokeOpacity,
+        length: pathLength(exact),
+        ...(ctx.group ? { group: ctx.group } : {}),
+      },
+    ];
+  }
   return inkPaths(ctx, bump, (o) => ctx.gen.path(d, o), over);
 }
 

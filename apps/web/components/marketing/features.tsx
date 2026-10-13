@@ -72,12 +72,21 @@ const FEATURES: Feature[] = [
   {
     title: `Runs on your laptop for ${COST_LOCAL}.`,
     ir: 'no env vars required',
+    /*
+     * This card needs no `signInRequired` branch, and the one word that makes
+     * that true is "yourself". The claim was "No account, no key, no network",
+     * which is a fact about the software that reads as a fact about the button
+     * at the top of this page — and the moment the hosted site grew a sign-in,
+     * that reading became false. Attaching the claim to the act of running it
+     * makes it true on every deployment there will ever be, which is a better
+     * outcome than two variants of a sentence to keep in step.
+     */
     body: (
       <>
-        No account, no key, no network. The planner is a deterministic structure-aware pass, the
-        narration is Kokoro through ONNX, the artwork is a built-in icon set with procedural
-        diagrams. Cloud providers are opt-in adapters behind env vars; a missing key logs a warning
-        and keeps going.
+        Run it yourself and there is no account, no key and no network. The planner is a
+        deterministic structure-aware pass, the narration is Kokoro through ONNX, the artwork is a
+        built-in icon set with procedural diagrams. Cloud providers are opt-in adapters behind env
+        vars; a missing key logs a warning and keeps going.
       </>
     ),
     Icon: HardDriveIcon,
@@ -123,8 +132,13 @@ export function Features() {
           <Reveal as="li" key={feature.title} index={i} className="flex">
             <Card className="w-full gap-4">
               <CardHeader>
+                {/* The same bordered accent square as `how-it-works.tsx`. It was
+                    a soft `bg-primary/12` lozenge; the tint is now the
+                    `accent-soft` token and the edge is real, because in this
+                    system a fill without an edge reads as a smudge
+                    (docs/DESIGN.md §5, §11). */}
                 <span
-                  className="mb-2 grid size-9 place-items-center rounded-lg bg-primary/12 text-primary"
+                  className="mb-2 grid size-10 place-items-center border border-accent-border bg-accent-soft text-accent-strong"
                   aria-hidden
                 >
                   <feature.Icon className="size-4" />

@@ -1,20 +1,16 @@
+import { providerEnv } from '@inkcast/core';
 /**
- * The opt-in Anthropic planner adapter.
- *
- * Selected only when `ANTHROPIC_API_KEY` is set. It asks Claude for a
- * scene-by-scene plan through a **forced tool call** whose `input_schema` is the
- * Storyboard schema itself, so the model cannot reply with prose. zod is still
- * the gate: on a validation failure we retry once with the errors fed back, and
- * if that also fails the caller falls back to the heuristic planner. A missing
- * key, a missing SDK, a rate limit or a bad response can therefore never crash
- * the pipeline — they only cost you the upgrade.
+ * Structured cloud model calls. The legacy filename/API remains compatible with
+ * callers; provider selection chooses Fireworks or the optional Anthropic SDK.
+ * Forced tools constrain output shape; schema and semantic checks remain separate.
+ * Callers decide whether provider failure may degrade or must block the run.
  */
 import type { Asset, Storyboard } from '@inkcast/core';
-import { logger, parseStoryboard, report } from '@inkcast/core';
+import { logger, noteProblem, parseStoryboard, report } from '@inkcast/core';
 import { ICONS } from './icons.js';
 import { optionalImport } from './optional.js';
 import { storyboardJsonSchema } from './schema.js';
-import type { PlanOptions, SourceDoc } from './types.js';
+import type { PlanOptions, SourceDoc, PlannerAdapter } from './types.js';
 
 const log = logger('planner:anthropic');
 
@@ -24,53 +20,50 @@ const TOOL = 'emit_storyboard';
 
 /* ------------------------------------------------------------- SDK surface */
 
-type ContentBlock = { type: string; name?: string; input?: unknown; text?: string };
-type MessageResponse = { content: ContentBlock[]; stop_reason?: string | null };
-export type Message = { role: 'user' | 'assistant'; content: string };
-type CreateBody = {
-  model: string;
-  max_tokens: number;
-  system: string;
-  messages: Message[];
-  tools: {
-    name: string;
-    description: string;
-    input_schema: Record<string, unknown>;
-  }[];
-  tool_choice: { type: 'tool'; name: string };
-};
-export type Client = { messages: { create(body: CreateBody): Promise<MessageResponse> } };
+export type {
+  ModelMessage as Message,
+  ModelImage as ImagePart,
+  ModelText as TextPart,
+  ModelClient as Client,
+} from '@inkcast/core';
+import { fireworksClient, textProvider, textModel } from '@inkcast/core';
+import type {
+  ModelMessage as Message,
+  ModelImage as ImagePart,
+  ModelClient as Client,
+} from '@inkcast/core';
+export type CallSpend = (spend: { model: string; inTokens: number; outTokens: number }) => void;
 type AnthropicCtor = new (opts: { apiKey: string }) => Client;
-
-/** True when the cloud planner can be used at all. */
+export function imagePart(png: Uint8Array): ImagePart {
+  return {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: Buffer.from(png).toString('base64') },
+  };
+}
+/** Legacy name retained for callers; availability now includes Fireworks. */
 export function anthropicAvailable(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return textProvider() !== 'heuristic';
 }
-
-export function plannerModel(opts?: { model?: string }): string {
-  return opts?.model ?? process.env.INKCAST_PLANNER_MODEL ?? DEFAULT_MODEL;
+export function plannerModel(opts?: { model?: string; adapter?: string }): string {
+  return (
+    opts?.model ??
+    providerEnv().INKCAST_PLANNER_MODEL ??
+    textModel(DEFAULT_MODEL, providerEnv(), opts?.adapter)
+  );
 }
-
-/**
- * A constructed Anthropic client, or `undefined` when the key or the SDK is
- * missing. Shared with the lesson adapter so there is one place that decides
- * whether the cloud path is available at all.
- */
-export async function anthropicClient(): Promise<Client | undefined> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return undefined;
+export async function anthropicClient(opts?: { adapter?: string }): Promise<Client | undefined> {
+  const provider = textProvider(providerEnv(), opts?.adapter);
+  if (provider === 'heuristic') return undefined;
+  if (provider === 'fireworks') return fireworksClient(providerEnv().FIREWORKS_API_KEY!);
   const mod = await optionalImport<{ default: AnthropicCtor } | AnthropicCtor>(
     '@anthropic-ai/sdk',
     'falling back to the heuristic planner',
   );
   if (!mod) return undefined;
   const Ctor = (mod as { default?: AnthropicCtor }).default ?? (mod as AnthropicCtor);
-  try {
-    return new Ctor({ apiKey: key });
-  } catch (err) {
-    log.warn('could not construct the Anthropic client', err as Error);
-    return undefined;
-  }
+  const client = new Ctor({ apiKey: providerEnv().ANTHROPIC_API_KEY! });
+  client.provider = 'anthropic';
+  return client;
 }
 
 /* -------------------------------------------------------------- the prompt */
@@ -153,6 +146,7 @@ export async function callTool(
     description: 'Emit the finished storyboard for this document.',
   },
   maxTokens = 16000,
+  spend?: CallSpend,
 ): Promise<unknown> {
   const res = await c.messages.create({
     model,
@@ -168,6 +162,17 @@ export async function callTool(
     ],
     tool_choice: { type: 'tool', name: tool.name },
   });
+  // Reported before the response is judged: the tokens were spent whether or not the
+  // model emitted a usable tool call, and a failed expensive call is exactly the kind
+  // of cost that used to appear in nobody's total.
+  if (spend) {
+    spend({
+      model,
+      inTokens: res.usage?.input_tokens ?? 0,
+      outTokens: res.usage?.output_tokens ?? 0,
+    });
+  }
+  if (res.failure) throw new Error(res.failure);
   const block = res.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
   if (!block || block.input === undefined) {
     throw new Error(
@@ -197,7 +202,7 @@ export async function anthropicPlan(
   doc: SourceDoc,
   opts: PlanOptions = {},
 ): Promise<Storyboard | undefined> {
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;
@@ -243,9 +248,9 @@ export async function anthropicPlan(
 export async function anthropicEdit(
   sb: Storyboard,
   instruction: string,
-  opts: { model?: string } = {},
+  opts: { model?: string; adapter?: PlannerAdapter } = {},
 ): Promise<Storyboard | undefined> {
-  const c = await anthropicClient();
+  const c = await anthropicClient(opts);
   if (!c) return undefined;
   const schema = await storyboardJsonSchema();
   if (!schema) return undefined;
@@ -275,7 +280,7 @@ Rules:
       return undefined;
     }
     try {
-      return parseStoryboard(carryOver(raw, sb));
+      return parseStoryboard(carryOver(raw, sb, opts));
     } catch (err) {
       const detail = errorDetail(err);
       log.warn(`edited storyboard failed validation (attempt ${attempt + 1})`, detail);
@@ -316,22 +321,33 @@ function normalise(raw: unknown, doc: SourceDoc, opts: PlanOptions): unknown {
     voice: opts.voice ?? 'af_heart',
     fps: opts.fps ?? 30,
   };
-  ensureAssets(sb);
+  ensureAssets(sb, opts);
   return sb;
 }
 
-function carryOver(raw: unknown, previous: Storyboard): unknown {
+function carryOver(raw: unknown, previous: Storyboard, opts?: PlanOptions): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const sb = { ...(raw as Loose) };
   sb.version = 1;
   if (typeof sb.title !== 'string' || !sb.title.trim()) sb.title = previous.title;
   if (typeof sb.canvas !== 'object' || !sb.canvas) sb.canvas = previous.canvas;
-  ensureAssets(sb);
+  ensureAssets(sb, opts);
   return sb;
 }
 
-/** Every referenced assetId must exist in the library, or the visuals stage stalls. */
-function ensureAssets(sb: Loose): void {
+/**
+ * Every referenced assetId must exist in the library, or the visuals stage stalls.
+ *
+ * The mint is a repair, and it is now a *loud* one (audit S3-d, plan item 3.2). What
+ * it papers over is the storyboard's dangling-`assetId` defect — the class
+ * `critiqueStoryboard` blocks on everywhere else — and it papers over it by inventing
+ * an entity from the id's own words: an element asking for `mitochondrion` gets an
+ * illustration prompted "mitochondrion", which is either exactly right or a
+ * confidently drawn guess at what the model meant, and nobody ever finds out which.
+ * At `log.debug` that decision was invisible in a four-minute render. So it says so,
+ * and where the caller is collecting problems it says so durably.
+ */
+function ensureAssets(sb: Loose, opts?: PlanOptions): void {
   const assets: Asset[] = Array.isArray(sb.assets) ? (sb.assets as Asset[]) : [];
   const known = new Set(assets.filter((a) => a && typeof a.id === 'string').map((a) => a.id));
   const builtin = new Set(ICONS.map((i) => i.slug));
@@ -343,13 +359,18 @@ function ensureAssets(sb: Loose): void {
       const id = el.assetId;
       if (typeof id !== 'string' || !id || known.has(id)) continue;
       known.add(id);
+      const kind = builtin.has(id) ? 'icon' : 'illustration';
       assets.push({
         id,
-        kind: builtin.has(id) ? 'icon' : 'illustration',
+        kind,
         prompt: id.replace(/[-_]+/g, ' '),
         source: builtin.has(id) ? 'builtin' : 'generated',
       });
-      log.debug(`added missing asset "${id}" referenced by an element`);
+      const note =
+        `the planner drew asset "${id}" without declaring it — minted as a ${kind} prompted ` +
+        `"${id.replace(/[-_]+/g, ' ')}", which is a guess at what it meant`;
+      log.warn(note);
+      noteProblem(opts, note);
     }
   }
   sb.assets = assets;

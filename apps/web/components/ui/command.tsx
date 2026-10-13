@@ -7,32 +7,17 @@ import { SearchIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
 
-/**
- * A command palette (⌘K) and the filterable list it is built from.
- *
- * Standalone list (for an inline picker — a voice, a language, a scene):
- *   <Command>
- *     <CommandInput placeholder="Find a voice…" />
- *     <CommandList>
- *       <CommandEmpty>No matches.</CommandEmpty>
- *       <CommandGroup heading="Voices">
- *         <CommandItem value="af_heart" onSelect={pick}>Heart</CommandItem>
- *       </CommandGroup>
- *     </CommandList>
- *   </Command>
- *
- * As a palette, wrap it in `CommandDialog`, which supplies the required
- * accessible name via a visually hidden title.
- *
- * cmdk owns filtering, scoring and arrow-key navigation. Do not filter the
- * children yourself — pass everything and let it score.
- */
 export function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        'flex size-full flex-col overflow-hidden rounded-xl bg-popover text-popover-foreground',
+        // No border and no shadow of its own. Standalone it is an inline region
+        // inside somebody else's bordered box; as a palette it is the only child
+        // of `DialogContent`, which already supplies the ink frame and
+        // `shadow-overlay`. A second border here would draw a line 0px from the
+        // dialog's.
+        'flex size-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
         className,
       )}
       {...props}
@@ -73,8 +58,15 @@ export function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
+    // Full ink here, unlike `CommandSeparator` two functions down, and the
+    // distinction is structural rather than inconsistent: this rule divides the
+    // palette into two regions that behave differently — one you type into, one
+    // you arrow through — whereas a separator groups rows inside a single list.
+    // The reference system treats the two the same way: a section boundary is a
+    // real line, a list divider is a hairline.
     <div className="flex h-12 items-center gap-2.5 border-b border-border px-4">
       <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      {}
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
@@ -124,7 +116,11 @@ export function CommandGroup({
       className={cn(
         'overflow-hidden text-foreground',
         '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5',
-        '[&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:text-muted-foreground',
+        // Mono, like every other uppercase micro-label in the system. The third
+        // face exists for exactly this job (plan item C2: "JetBrains Mono ->
+        // timecodes, figures, mono labels") and a 10px all-caps group heading in
+        // the body face is indistinguishable from small body text.
+        '[&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:text-muted-foreground',
         className,
       )}
       {...props}
@@ -142,7 +138,21 @@ export function CommandItem({
       className={cn(
         'relative flex cursor-default items-center gap-2.5 rounded-md px-2 py-2',
         'text-sm text-foreground outline-none select-none',
-        'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
+        // The selected row carries a shape as well as a tint, and this is an
+        // accessibility fix rather than a flourish. cmdk drives selection through
+        // `aria-activedescendant`, so the highlighted item never takes focus and
+        // never gets a focus ring — the tint is the ONLY signal, which is the one
+        // thing docs/DESIGN.md §8 forbids ("never convey state by colour alone").
+        // The accent surface is a 4.5%-tinted paper; on a bright screen at an
+        // angle it is close to invisible, and to a user with low colour
+        // discrimination it is nothing at all.
+        //
+        // A left edge in the accent is the brutalist answer and costs no layout:
+        // the transparent border is present in every state, so the text does not
+        // move 2px when the highlight arrives, which a `data-[selected]:border-l-2`
+        // on its own would have made it do while the user held the arrow key down.
+        'border-l-2 border-transparent',
+        'data-[selected=true]:border-primary data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
         'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         '[&_svg]:text-muted-foreground data-[selected=true]:[&_svg]:text-current',
@@ -160,7 +170,12 @@ export function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn('-mx-1.5 my-1.5 h-px bg-border', className)}
+      // Subtle, not ink. The palette always lives inside a bordered surface, and
+      // a full-ink rule inside a 1px-ink frame reads as the surface being cut in
+      // two rather than as a divider — the case docs/DESIGN.md §2 added
+      // `--border-subtle` for, and the same call the select and dropdown
+      // separators make.
+      className={cn('-mx-1.5 my-1.5 h-px bg-border-subtle', className)}
       {...props}
     />
   );
@@ -170,7 +185,7 @@ export function CommandShortcut({ className, ...props }: React.ComponentProps<'s
   return (
     <span
       data-slot="command-shortcut"
-      className={cn('tabular ml-auto pl-4 text-2xs text-muted-foreground', className)}
+      className={cn('tabular ml-auto pl-4 font-mono text-2xs text-muted-foreground', className)}
       {...props}
     />
   );

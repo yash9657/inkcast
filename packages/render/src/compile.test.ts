@@ -19,6 +19,22 @@ import type { GeomPrim, SvgPrim, TextPrim } from './types.js';
 
 const DIR = '/tmp/inkcast-compile-test';
 
+/**
+ * The brand plate's item id.
+ *
+ * Named here because it is the one item in a plan that no element asked for, so every
+ * test that enumerates a whole board has to say what it does about it rather than
+ * quietly matching a length. `~` is the same separator a plot's phases use — element
+ * ids are slugs from every author we have (`planner/src/compile.ts` `eid`, the LLM
+ * schema's "stable slug"), so it keeps the plate out of their namespace.
+ */
+const PLATE = 'inkcast~brand';
+
+/** Everything an element actually asked for, with the outro's watermark removed. */
+function authored<T extends { id: string }>(items: readonly T[]): T[] {
+  return items.filter((i) => i.id !== PLATE);
+}
+
 test('the same storyboard compiles to a byte-identical plan', () => {
   const sb = fixtureStoryboard();
   const a = JSON.stringify(compilePlan(sb, DIR));
@@ -58,14 +74,20 @@ test('enter.at is a fraction of its own scene, clamped inside it', () => {
   const title = byId.get('title');
   assert.ok(title);
   assert.equal(title.start, 0);
-  assert.equal(title.dur, 0.45);
+  // An authored `duration` is what the mark *asks* for, and a ceiling rather than a
+  // promise since `serializePen` landed (plan 1.2). This fixture is a 0.8-second
+  // scene carrying five marks — five marks cannot be drawn one at a time in 0.8
+  // seconds at the lengths they asked for, so the whole beat is compressed together.
+  // Real beats are ten to twenty seconds and never reach this branch.
+  assert.ok(title.dur > 0 && title.dur <= 0.45);
 
-  // at: 0.55 of an 0.8s scene.
+  // at: 0.55 of an 0.8s scene. Delayed from 0.44 by the marks in front of it, which
+  // is the schedule doing its job: at 0.44 it was being drawn while `flow` still was.
   const link = byId.get('link');
   assert.ok(link);
-  assert.ok(Math.abs(link.start - 0.44) < 1e-9);
-  // 0.3s would run 0.06s past the end of the scene, so it is clamped to fit.
-  assert.ok(link.dur <= 0.8 - link.start + 1e-9);
+  assert.ok(link.start >= 0.44 - 1e-9, 'the schedule may delay a mark, never advance it');
+  // Nothing may finish after the scene does — the reason the beat was compressed.
+  assert.ok(link.start + link.dur <= 0.8 + 1e-6);
 
   // Scene 2 elements are offset by scene 1's measured duration.
   const note = byId.get('note');
@@ -94,10 +116,16 @@ test('items are ordered by explicit z, then declaration order', () => {
       },
     ],
   });
+  const items = compilePlan(sb, DIR).items;
   assert.deepEqual(
-    compilePlan(sb, DIR).items.map((i) => i.id),
+    authored(items).map((i) => i.id),
     ['below', 'first', 'second', 'above'],
   );
+  // The brand plate is appended after the sort, not sorted into it, and that is a
+  // decision rather than an accident: a watermark has to paint over the board it signs,
+  // and `z` is authored per element, so any beat that raised its own `z` would otherwise
+  // draw over the mark. Last in the array is last in the DOM is on top.
+  assert.equal(items[items.length - 1]?.id, PLATE);
 });
 
 test('emphasis effects resolve against their target, and survive a bad target', () => {
@@ -404,6 +432,78 @@ test('a hold is deliberate silence the visual stays up through', () => {
   assert.equal(q.sceneEnd, 3.5);
 });
 
+test('a card held across beats goes out with the beat that still needs it', () => {
+  // The wipe schedule has one case it cannot honour — an anchor whose hold is shorter
+  // than the fade would be, where fading from the last word finishes after the next
+  // card has cut in. It used to answer that with `undefined`, which is not "no
+  // schedule": it is `sceneEnd`, and `sceneEnd` is the item's *own* scene. So the one
+  // element that needs `persistUntil` most, the drawing a later beat morphs, was the
+  // one whose fade fell back to leaving with the beat that drew it — and the morph
+  // then bent a shape already at alpha 0. Unreachable on the shipped lessons, whose
+  // holds are 0.65s and up against a 0.55s maximum fade, so nothing else can see it.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'a card two beats draw',
+    meta: { board: 'wipe', outroSec: 0.2 },
+    scenes: [
+      {
+        id: 's0',
+        narration: 'You are walking downhill in fog.',
+        durationSec: 2,
+        hold: 0.9,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'hill',
+            type: 'shape',
+            shape: 'ellipse',
+            persist: false,
+            // The anchor still needs it: it is the shape scene 1 reshapes.
+            persistUntil: 's1',
+            at: { x: 0, y: 0, w: 400, h: 200 },
+            enter: { at: 0, duration: 0.3, style: 'draw' },
+          },
+        ],
+      },
+      {
+        id: 's1',
+        narration: 'The hill is a curve.',
+        durationSec: 2,
+        // 0.15s of silence against a 0.2s fade: too short to fade inside, which is the
+        // branch under test.
+        hold: 0.15,
+        camera: { x: 0, y: 0 },
+        elements: [
+          {
+            id: 'curve',
+            type: 'shape',
+            shape: 'rect',
+            persist: false,
+            at: { x: 0, y: 0, w: 400, h: 200 },
+            enter: { at: 0, duration: 0.3, style: 'draw' },
+            morph: { fromId: 'hill', from: 0.12, to: 0.62, easing: 'ease', retire: true },
+          },
+        ],
+      },
+    ],
+  });
+  const plan = compilePlan(sb, DIR);
+  const hill = plan.items.find((i) => i.id === 'hill');
+  const curve = plan.items.find((i) => i.id === 'curve');
+  assert.ok(hill && curve);
+
+  const anchorEnd = (plan.scenes[1]?.start ?? 0) + (plan.scenes[1]?.dur ?? 0);
+  assert.equal(hill.sceneEnd, 2.9, 'its own scene ends at 2.9s');
+  assert.equal(hill.fadeAt, anchorEnd, 'and it leaves with the scene that names it');
+  assert.ok(hill.fadeAt > curve.start + curve.dur, 'so the morph has something to bend');
+
+  // The control, and the reason `fadeAt` stays absent where it would say nothing: an
+  // element on the same short-held scene that no later beat needs already fades at
+  // `sceneEnd`, which is that same number.
+  assert.equal(curve.fadeAt, undefined);
+  assert.equal(curve.sceneEnd, anchorEnd);
+});
+
 test('an enter cue lands on the word that names it', () => {
   const words = [
     { word: 'That', start: 0, end: 0.2 },
@@ -512,4 +612,268 @@ test('the plan records how much of the frame carries ink', () => {
   assert.equal(plan.aspect, '16:9');
   assert.equal(plan.typeScale, plan.scale, '16:9 needs no type gain');
   assert.ok(plan.safe.left > 0 && plan.safe.bottom > 0);
+});
+
+test('an equation with no typeset geometry falls back to its TeX as text', () => {
+  // `DIR` has no `visuals.json`, so this is the real degradation path: a project whose
+  // visuals stage has not run. Drawing nothing where the worked example belongs is the
+  // one outcome that is not allowed, so the source goes up as handwriting instead.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'eq fallback',
+    scenes: [
+      {
+        id: 's0',
+        narration: 'three minus a tenth of four is two point six',
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'sum',
+            type: 'equation',
+            tex: 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6',
+            at: { x: 460, y: 420, w: 1000, h: 200 },
+          },
+        ],
+      },
+    ],
+  });
+  let plan!: ReturnType<typeof compilePlan>;
+  const warned = capture(() => {
+    plan = compilePlan(sb, DIR);
+  });
+  const prims = authored(plan.items).flatMap((i) => i.prims);
+  assert.equal(prims.length, 1, 'expected exactly one fallback prim');
+  const prim = prims[0] as TextPrim;
+  assert.equal(prim.kind, 'text');
+  assert.equal(prim.text, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
+  assert.match(warned, /no typeset geometry/, 'the fallback must say why it happened');
+
+  // The same board under the strict gate: raw TeX in the handwriting font is the D1
+  // defect, so the compile stops and names the equation instead of shipping it.
+  assert.throws(
+    () => compilePlan(sb, DIR, { gates: 'strict' }),
+    /no typeset geometry.*strict quality gate/s,
+  );
+});
+
+test('a listing with no set geometry stops the strict compile', () => {
+  // The code lane's half of the same rule (plan item 6.2), and it is the sharper one: an
+  // equation drawn as raw TeX is bad notation, while a listing drawn as handwriting has
+  // lost its *indentation*, which is the block structure of the program. `DIR` has no
+  // `visuals.json`, so this is the real degradation path — a project whose visuals stage
+  // has not run, or a listing that would not set.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'code fallback',
+    scenes: [
+      {
+        id: 's0',
+        narration: 'the remainder lands you on one slot',
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'lookup',
+            type: 'code',
+            lang: 'python',
+            code: 'def get(self, key):\n    return self.slots[hash(key) % 8]',
+            at: { x: 460, y: 420, w: 1000, h: 200 },
+          },
+        ],
+      },
+    ],
+  });
+  let plan!: ReturnType<typeof compilePlan>;
+  const warned = capture(() => {
+    plan = compilePlan(sb, DIR);
+  });
+  const prims = authored(plan.items).flatMap((i) => i.prims);
+  assert.equal(prims.length, 1, 'expected exactly one fallback prim');
+  const prim = prims[0] as TextPrim;
+  assert.equal(prim.kind, 'text');
+  assert.match(prim.text, /^def get\(self, key\):/, 'the source goes up, not a placeholder');
+  assert.match(warned, /has no set geometry/, 'the fallback must say why it happened');
+
+  assert.throws(
+    () => compilePlan(sb, DIR, { gates: 'strict' }),
+    /has no set geometry.*strict quality gate/s,
+  );
+});
+
+/* ------------------------------------------------- A6: the professional-at-a-glance layer */
+
+/**
+ * Every coordinate pair in a path `d`, in order.
+ *
+ * The sketch primitives emit `M x y C x y x y x y ...` and nothing else, so pulling
+ * the numbers out pairwise and reading the first and last pair is enough to answer
+ * the only questions these tests ask of a stroke: where did the hand start, where did
+ * it stop, and did it stay level on the way. Parsing rather than string-matching
+ * because the roughening is seeded — the digits change whenever a seed does, and a
+ * test that pinned them would fail for a reason that has nothing to do with A6.
+ */
+function pointsOf(d: string): [number, number][] {
+  const nums = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) out.push([nums[i] as number, nums[i + 1] as number]);
+  return out;
+}
+
+/**
+ * A one-scene board with a heading and the level accent rule under it.
+ *
+ * The rule is authored exactly as `planner/src/compile.ts` `titleRule` authors it —
+ * a two-point accent path, level, no wider than the heading's box and centred on it —
+ * because `titleRules` matches on that geometry rather than on an id, and a fixture
+ * that cheated by naming the element `..._rule` would pass while the shipped planner
+ * output failed.
+ */
+function signedBoard(outroSec: number, extra: unknown[] = [], role = 'heading') {
+  return parseStoryboard({
+    version: 1,
+    title: 'signed board',
+    meta: { fps: 30, outroSec, style: 'marker', palette: 'color' },
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    scenes: [
+      {
+        id: 's0',
+        narration: 'a patch of cells at the top fires',
+        durationSec: 2,
+        camera: { x: 960, y: 540 },
+        elements: [
+          {
+            id: 'head',
+            type: 'text',
+            text: 'A patch of cells at the top fires',
+            role,
+            at: { x: 200, y: 100, w: 900, h: 80 },
+          },
+          {
+            id: 'rule',
+            type: 'path',
+            tone: 'accent',
+            points: [
+              { x: 200, y: 200 },
+              { x: 1100, y: 200 },
+            ],
+            at: { x: 200, y: 196, w: 900, h: 8 },
+          },
+          ...extra,
+        ],
+      },
+    ],
+  });
+}
+
+test('the outro is signed, and only when there is outro enough to sign it', () => {
+  // A6 was written, tested at the primitive level, and never called — `sketchBrandMark`
+  // and `BRAND_MARK` sat in `sketch.ts` with zero call sites while a rendered outro frame
+  // carried no plate at all. So this test is deliberately about the *wiring*, not the
+  // geometry: that `compilePlan` emits the item, inside the window A6 specifies, on a
+  // board that asked for nothing. `sketch.test.ts` owns whether the mark is shaped right.
+  assert.equal(
+    compilePlan(signedBoard(0.4), DIR).items.find((i) => i.id === PLATE),
+    undefined,
+    'a 0.4s outro is too short to sign — the mark would land on the last spoken word',
+  );
+
+  const plan = compilePlan(signedBoard(1.6), DIR);
+  const plate = plan.items.find((i) => i.id === PLATE);
+  assert.ok(plate, 'a 1.6s outro must carry the brand plate');
+  assert.ok(
+    plate.start >= plan.duration - 1.2 - 1e-6,
+    `plate starts at ${plate.start}s of ${plan.duration}s — A6 gives it the last 1.2s only`,
+  );
+  // Finished strictly before the end, which is the whole point of drawing for less time
+  // than the window lasts: the frame a viewer screenshots is the last one, and a mark
+  // still being drawn on it is not a watermark.
+  assert.ok(
+    plate.start + plate.dur < plan.duration,
+    `plate is still being drawn at the final frame (${plate.start}+${plate.dur} vs ${plan.duration})`,
+  );
+  assert.equal(plate.persist, true, 'the board ends with the mark, so it never fades');
+  assert.equal(plate.prims.length, 2, 'the shared identity has a tile and ink-to-play glyph');
+  const filled = plate.prims.filter((p) => (p as GeomPrim).fill !== 'none');
+  assert.equal(filled.length, 2, 'both parts stay visible in the final frame');
+  assert.notEqual(
+    (filled[0] as GeomPrim).fill,
+    (filled[1] as GeomPrim).fill,
+    'the glyph contrasts with its tile',
+  );
+});
+
+test('the brand plate goes to the emptiest corner of the last frame', () => {
+  // Stated as a rule rather than a fixed corner because a fixed corner is how a
+  // watermark ends up on top of a recap. Only ink that is still up can collide, so the
+  // blocker has to persist — a faded element is not in the way of anything.
+  // The canvas is 1920×1080 and the camera holds all of it at zoom 1, so the canvas
+  // midpoint is the frame midpoint and a `center` tuple names its own quadrant.
+  const cornerOf = (item: { center: [number, number] }) =>
+    `${item.center[1] > 540 ? 'bottom' : 'top'}-${item.center[0] > 960 ? 'right' : 'left'}`;
+
+  const empty = compilePlan(signedBoard(1.6), DIR).items.find((i) => i.id === PLATE);
+  assert.ok(empty);
+  assert.equal(cornerOf(empty), 'bottom-right', 'four empty corners tie toward the signature');
+
+  const blocked = compilePlan(
+    signedBoard(1.6, [
+      {
+        id: 'recap',
+        type: 'shape',
+        shape: 'rect',
+        persist: true,
+        at: { x: 1200, y: 700, w: 600, h: 300 },
+      },
+    ]),
+    DIR,
+  ).items.find((i) => i.id === PLATE);
+  assert.ok(blocked);
+  assert.notEqual(
+    cornerOf(blocked),
+    'bottom-right',
+    'held ink in the bottom-right must push the mark out of it',
+  );
+});
+
+test("a heading's accent rule is drawn as an underline, not as a level rule", () => {
+  // This replaces a treatment rather than adding one. The failure mode it guards is
+  // the generic two-point branch drawing its level stroke *as well as* the underline —
+  // so the count is exact and the identity is checked by shape.
+  //
+  // A heading's rule is two strokes since parity item 5: one confident pass out and a
+  // shorter one back, which is what a hand does to a title it means (see
+  // `UnderlineSpec.double`). A body line's is still one. Both numbers are stated,
+  // because "however many it happens to produce" is what this test exists to refuse.
+  const ruleOf = (sb: ReturnType<typeof signedBoard>, strokes: number) => {
+    const item = compilePlan(sb, DIR).items.find((i) => i.id === 'rule');
+    assert.ok(item, 'the accent rule must still be an item');
+    assert.equal(item.prims.length, strokes, 'the rule is exactly its own gesture');
+    return pointsOf((item.prims[0] as GeomPrim).d);
+  };
+
+  const pts = ruleOf(signedBoard(1.6), 2);
+  const first = pts[0] as [number, number];
+  const last = pts[pts.length - 1] as [number, number];
+  // Overshoot: the hand runs past the last letter. 0.22 of a 62-unit heading is ~13
+  // canvas units, well clear of the roughening's own jitter.
+  assert.ok(
+    last[0] > 1100 + 5,
+    `underline must run past the words (ends at x=${last[0]}, words end at 1100)`,
+  );
+  // Lift: the right end sits higher than the left. This is the assertion that a level
+  // `sketchAlong` stroke cannot pass, and so it is the one that proves which primitive ran.
+  assert.ok(
+    first[1] - last[1] > 4,
+    `underline must lift to the right (left y=${first[1]}, right y=${last[1]})`,
+  );
+
+  // The same path under a body line is not a title rule and keeps today's treatment.
+  // `titleRules` matches on geometry, so this is what stops it claiming every level
+  // accent stroke on the board — a plot's baseline, a timeline's axis.
+  const plain = ruleOf(signedBoard(1.6, [], 'body'), 1);
+  const plainFirst = plain[0] as [number, number];
+  const plainLast = plain[plain.length - 1] as [number, number];
+  assert.ok(
+    Math.abs(plainFirst[1] - plainLast[1]) < 4,
+    `a non-heading rule must stay level (${plainFirst[1]} vs ${plainLast[1]})`,
+  );
 });

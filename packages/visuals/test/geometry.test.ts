@@ -5,13 +5,14 @@ import {
   arrowPaths,
   ctxFor,
   emphasisPaths,
+  roughenPathData,
   seedFrom,
   shapePaths,
   type InkPath,
   type ShapeKind,
 } from '../src/geometry.js';
 import { inkStyleFor, type InkStyleName } from '../src/style.js';
-import { parsePath, pathBBox, pathLength } from '../src/svg.js';
+import { parsePath, pathBBox, pathLength, samplePath } from '../src/svg.js';
 
 const BOX = { x: 40, y: 60, w: 320, h: 180 };
 const SEED = seedFrom('geometry-test');
@@ -166,4 +167,100 @@ test('a circle-highlight surrounds its target rather than sitting inside it', ()
   const box = pathBBox(paths[0]?.d ?? '');
   assert.ok(box.w > BOX.w, 'the loop must be wider than what it circles');
   assert.ok(box.h > BOX.h);
+});
+
+/* ---- the two ink modes -------------------------------------------------- */
+
+const FLAT = { x: 100, y: 300, w: 400, h: 0 };
+
+test('sketch is what a context with no ink mode already drew', () => {
+  // The whole risk of adding a mode is moving the default. Every existing lane
+  // passes no `ink` at all, so the two must be the same drawing byte for byte.
+  const style = inkStyleFor({ style: 'marker', palette: 'color' });
+  for (const shape of SHAPES) {
+    const silent = shapePaths(shape, BOX, ctxFor(style, 4242));
+    const explicit = shapePaths(shape, BOX, { ...ctxFor(style, 4242), ink: 'sketch' });
+    assert.deepEqual(
+      explicit.map((p) => p.d),
+      silent.map((p) => p.d),
+      `${shape}: 'sketch' must be the default, not a new look`,
+    );
+  }
+});
+
+test('a crisp mark has no perturbation left in it', () => {
+  const style = inkStyleFor({ style: 'chalk', palette: 'color' }); // the roughest hand
+  const crisp = (seed: number): InkPath[] =>
+    shapePaths('line', FLAT, { ...ctxFor(style, seed), ink: 'crisp' });
+
+  // Exact: a horizontal line is dead flat, not nearly flat. Chalk's roughness
+  // would otherwise put every sample a couple of units either side. The y itself
+  // is the middle of the box, which `shapePaths` gives a 1-unit height when it is
+  // degenerate — the value is not the point here, the spread is.
+  const flat = crisp(1)[0];
+  assert.ok(flat);
+  // Bounded rather than equal: the samples come from evaluating a cubic, so they
+  // carry float noise of their own. Chalk would wobble by whole units.
+  const ys = samplePath(parsePath(flat.d)).map((p) => p.y);
+  const spread = Math.max(...ys) - Math.min(...ys);
+  assert.ok(spread < 1e-6, `crisp line is not flat (spread ${spread}): ${flat.d}`);
+  assert.equal(pathLength(flat.d), FLAT.w, 'a crisp line is exactly as long as asked');
+
+  // Seed-independent: with no randomness in the geometry, the seed cannot show up
+  // in the bytes either — which is what makes two crisp drawings comparable.
+  assert.deepEqual(
+    crisp(1).map((p) => p.d),
+    crisp(987654).map((p) => p.d),
+    'crisp path data must be a pure function of the geometry asked for',
+  );
+
+  const sketch = shapePaths('line', FLAT, ctxFor(style, 1));
+  assert.notEqual(sketch[0]?.d, crisp(1)[0]?.d, 'crisp and sketch must not be the same drawing');
+});
+
+test('crisp path data is used verbatim, subpaths and closes included', () => {
+  const style = inkStyleFor({ style: 'pencil', palette: 'color' });
+  // Multi-segment and closed, on purpose. A single-segment path cannot catch the bug
+  // this pins: roughjs at zero roughness keeps every control point but re-emits one
+  // subpath *per segment* and drops the `Z`, which is invisible on a stroked line and
+  // ruins a filled one — a glyph outline comes out hollow. The first version of this
+  // test used one cubic and passed while that was broken.
+  const d = 'M10 10 C30 40 70 40 90 10 C110 -20 150 -20 170 10 L170 60 Z';
+  const out = roughenPathData({ ...ctxFor(style, 55), ink: 'crisp' }, d, 0);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.d, d, 'a crisp path must come back out exactly as it went in');
+  assert.equal(out[0]?.d.match(/M/g)?.length, 1, 'crisp must not split the path into subpaths');
+  assert.match(out[0]?.d ?? '', /Z$/, 'crisp must keep the contour closed');
+});
+
+test('a crisp path can carry a fill, which is what a glyph outline is', () => {
+  const style = inkStyleFor({ style: 'marker', palette: 'color' });
+  const out = roughenPathData(
+    { ...ctxFor(style, 7), ink: 'crisp' },
+    'M0 0 L40 0 L40 40 L0 40 Z',
+    0,
+    { fill: '#123456', stroke: '#123456', strokeWidth: 1.5 },
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.fill, '#123456');
+  assert.equal(out[0]?.stroke, '#123456');
+  assert.equal(out[0]?.strokeWidth, 1.5);
+  assert.ok((out[0]?.length ?? 0) > 0, 'the reveal needs a measured length');
+});
+
+test('a crisp mark ignores a call site that asks for its own roughness', () => {
+  // Several plot helpers pass `roughness: style.roughness * 0.75` and friends.
+  // Crisp has to win, or the mode would be quietly overridable per mark.
+  const style = inkStyleFor({ style: 'marker', palette: 'color' });
+  const ctx = { ...ctxFor(style, 12), ink: 'crisp' as const };
+  const plain = roughenPathData(ctx, 'M0 0 C10 20 30 20 40 0', 0);
+  const asked = roughenPathData(ctx, 'M0 0 C10 20 30 20 40 0', 0, {
+    roughness: style.roughness,
+    bowing: style.bowing,
+    maxRandomnessOffset: 4,
+  });
+  assert.deepEqual(
+    asked.map((p) => p.d),
+    plain.map((p) => p.d),
+  );
 });

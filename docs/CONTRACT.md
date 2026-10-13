@@ -25,6 +25,46 @@ Read it before writing any code. Key ideas you must respect:
   large canvas. Elements default to `persist: true` and stay on the board so
   later scenes can annotate them. Wiping the board every scene is the single
   biggest quality failure of competing tools — do not reintroduce it.
+
+  **Re-amended 2026-08-27: the amendment below is superseded and accumulation is
+  the default again, on every preset the studio ships.** The 55.5% → 62.3% fill
+  measurement that bought `wipe` was taken with `fillcheck`, whose `cover` term is
+  a union of bounding boxes and therefore cannot see lines, arrows or a
+  label-heavy card — it rewarded the shape of the thing it could measure
+  (`docs/HANDOFF-GATE-ONE.md`). And `wipe` composes badly with bought silence:
+  every second the voice stage buys so a finished board can be read is a second
+  that board may already have gone, which is `projects/c5caa09eb153` — 52% of the
+  film blank paper (`docs/STATUS.md`, 2026-08-27). `wipe` stays a documented,
+  supported mode, reachable by `--board wipe` and by a preset that asks for it; it
+  is no longer what anyone gets by not choosing. The amendment's own text is kept
+  below because its second claim — that a beat framed at a quarter of the screen
+  is a beat nobody re-reads — is still true, and is now answered by walking the
+  camera over the board rather than by wiping it.
+
+  **Amended 2026-08-21, and the original rule still stands where it was aimed.**
+  Accumulation remains the default and the right answer for a long lesson: at two
+  minutes and up the finished board _is_ the summary, the recap's pull-back over
+  it is the payoff for never having wiped, and that is why `standard`, `short` and
+  `square` all still accumulate. What changed is that we measured the rule at
+  ninety seconds and under, where it does not hold. The evidence: on the same
+  lesson, `--board wipe` moved mean content fill from **55.5% to 62.3%** and
+  regions from **4 to 1** — because at eight beats in a four-cell region a beat is
+  framed at a quarter of the screen, and nobody re-reads beat four at that size.
+  There is no board tour worth taking in a film that ends before the tour would.
+  So the `explainer` preset (`packages/planner/src/presets.ts`) defaults to
+  `board: 'wipe'` and trades the accumulated summary for per-idea framing, and it
+  is the only preset that does. The prohibition it replaces was about wiping
+  _instead of_ having a canvas at all, which is the competitors' failure and is
+  still forbidden: `wipe` keeps the single canvas, the fractional timing and the
+  entity library, and expires ink by `persistUntil` rather than by starting a new
+  slide. Wiping is now a per-preset decision backed by a number, never a global
+  default — and re-defaulting an accumulating preset would move the four pinned
+  storyboard hashes, which is its own reason not to.
+
+  _(End of the superseded amendment. Its closing sentence was checked when it was
+  reversed: the four pinned hashes are taken against `standard`, which never
+  wiped, so flipping `explainer` back does not move them.)_
+
 - **Timing is fractional, then measured.** Authors set `enter.at` as a fraction
   (0–1) of a scene. The voice stage measures real audio and writes
   `scene.durationSec`. Re-voicing in another language reflows automatically.

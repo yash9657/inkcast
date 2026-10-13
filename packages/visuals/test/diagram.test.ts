@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { diagramItems, layoutDiagram, type DiagramKind } from '../src/diagram.js';
-import { builtinMetrics } from '../src/fontmetrics.js';
+import { builtinMetrics } from '@inkcast/core';
 import { ctxFor } from '../src/geometry.js';
 import { inkStyleFor } from '../src/style.js';
 import { containsBox, padBox, pathBBox, pointsBBox, unionBox } from '../src/svg.js';

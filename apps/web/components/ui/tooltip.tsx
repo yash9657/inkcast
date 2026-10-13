@@ -5,23 +5,6 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A tooltip.
- *
- *   <Tooltip>
- *     <TooltipTrigger render={<Button variant="ghost" size="icon" />}>
- *       <UndoIcon />
- *     </TooltipTrigger>
- *     <TooltipContent>Undo last edit</TooltipContent>
- *   </Tooltip>
- *
- * The shared hover delay lives in `Tooltip.Provider` (components/ui/providers.tsx),
- * not here, so moving along a toolbar does not re-wait 280ms per button.
- *
- * A tooltip is a hint, never the only place information exists: it does not
- * appear on touch and it is not read reliably by every assistive technology.
- * If a control needs a name, give it `aria-label` too.
- */
 export const Tooltip = TooltipPrimitive.Root;
 export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipProvider = TooltipPrimitive.Provider;
@@ -44,8 +27,20 @@ export function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           className={cn(
+            // The one overlay with no border, and the only one that does not need
+            // one: docs/DESIGN.md §5 requires a border under a hard shadow because
+            // the shadow is an offset plane and the border is its edge — but this
+            // popup is a solid `--foreground` block, so its fill IS its edge
+            // against every surface in the app. An ink border on an ink tile
+            // would be a line nobody can see, drawn to satisfy a rule about
+            // lines that can.
+            //
+            // `shadow-md` was the deprecated alias here and resolved to
+            // `shadow-none`, giving a tooltip the elevation of a resting input.
+            // A tooltip floats, so it takes `shadow-overlay` like every other
+            // portalled surface (docs/DESIGN.md §11 names this call site).
             'max-w-64 rounded-md bg-foreground px-2.5 py-1.5',
-            'text-xs leading-snug font-medium text-background shadow-md',
+            'text-xs leading-snug font-medium text-background shadow-overlay',
             'origin-[var(--transform-origin)]',
             'transition-[opacity,transform] duration-instant ease-out',
             'data-starting-style:scale-95 data-starting-style:opacity-0',

@@ -10,7 +10,7 @@
  * layout iteration a fast, deterministic, offline voice stage.
  */
 import { logger } from '@inkcast/core';
-import { estimateSpokenSeconds } from '../text.js';
+import { estimateSpokenSeconds } from '@inkcast/core';
 import { TEACHING_WPM_TARGET } from '../voices.js';
 import { writeSilenceWav } from '../audio.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
@@ -57,8 +57,14 @@ export function createSilenceProvider(): VoiceProvider {
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
-      const wpm = req.targetWpm ?? TEACHING_WPM_TARGET;
-      const seconds = estimateClipSeconds(req.text, wpm) / Math.max(0.5, req.speed);
+      // Generate at the declared baseline and let `speed` carry the rate — never
+      // both. `speed` is already `targetWpm / naturalWpm`, and `naturalWpm` above
+      // reports the target, so reading `req.targetWpm` here as well would apply the
+      // same correction twice. That was invisible while every scene shared one global
+      // rate (speed stayed at 1, so squaring it changed nothing); per-scene `cadence`
+      // made it measurable immediately — 140 vs 160 wpm came out as 1.31x instead of
+      // the 1.14x the two rates actually differ by.
+      const seconds = estimateClipSeconds(req.text, TEACHING_WPM_TARGET) / Math.max(0.5, req.speed);
       log.debug(`writing ${seconds.toFixed(2)}s of silence for ${req.text.length} chars`);
       await writeSilenceWav(req.outPath, seconds);
       return {};

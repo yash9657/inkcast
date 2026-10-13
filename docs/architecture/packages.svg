@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" width="1200" height="740" role="img" aria-labelledby="title desc">
+  <title id="title">Inkcast package dependency map</title>
+  <desc id="desc">pnpm workspace: three apps (cli, web, render-service) depend on pipeline and keyvault; web and render-service also depend on cloud. pipeline depends on planner, voice, visuals and render; render depends on visuals; every package except cloud depends on core.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+      .title { font-size: 22px; font-weight: 700; }
+      .sub { font-size: 13px; fill: #475569; }
+      .h { font-size: 15px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .b { font-size: 13px; }
+      .s { font-size: 12px; fill: #475569; }
+      .tier { font-size: 12px; font-weight: 700; fill: #64748b; letter-spacing: 0.06em; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .ml { fill: #581c87; }
+      .on-dark { fill: #ffffff; }
+      .on-dark-dim { fill: #d4d4d8; }
+      .dep { stroke: #475569; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="740" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
+  <text class="title" x="24" y="40">Inkcast packages — pnpm workspace</text>
+  <text class="sub" x="24" y="62">Arrows read "depends on". Workspace packages ship TypeScript source; the studio transpiles them (next.config.ts transpilePackages).</text>
+
+  <!-- tier labels -->
+  <text class="tier" x="24" y="96">APPS · ENTRY POINTS</text>
+  <text class="tier" x="24" y="256">ORCHESTRATION · INFRASTRUCTURE</text>
+  <text class="tier" x="24" y="426">STAGES</text>
+  <text class="tier" x="24" y="606">FOUNDATION</text>
+
+  <!-- row 1: apps -->
+  <rect x="110" y="106" width="240" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="126" y="132">apps/cli</text>
+  <text class="s" x="126" y="152">inkcast · cast commands</text>
+  <text class="s" x="126" y="170">whole pipeline in-process, local disk</text>
+
+  <rect x="480" y="106" width="240" height="84" rx="10" fill="#0a0a0a"/>
+  <text class="h on-dark" x="496" y="132">apps/web</text>
+  <text class="s on-dark-dim" x="496" y="152">studio · Next.js 16 · @clerk/nextjs</text>
+  <text class="s on-dark-dim" x="496" y="170">Vercel project inkcast</text>
+
+  <rect x="850" y="106" width="240" height="84" rx="10" fill="#0a0a0a"/>
+  <text class="h on-dark" x="866" y="132">apps/render-service</text>
+  <text class="s on-dark-dim" x="866" y="152">POST /run · one film per request</text>
+  <text class="s on-dark-dim" x="866" y="170">Vercel project inkcast-render</text>
+
+  <!-- row 2 -->
+  <rect x="110" y="266" width="240" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="126" y="292">keyvault</text>
+  <text class="s" x="126" y="312">BYOK keys: keychain / AES-GCM vault</text>
+  <text class="s" x="126" y="330">secret redaction for logs and errors</text>
+
+  <rect x="480" y="266" width="240" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="496" y="292">pipeline</text>
+  <text class="s" x="496" y="312">teach · cast · rerender · edit</text>
+  <text class="s" x="496" y="330">stage order, cache, progress, cost</text>
+
+  <rect x="850" y="266" width="240" height="84" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="866" y="292">cloud</text>
+  <text class="s" x="866" y="312">Blob store · job.json · /run protocol</text>
+  <text class="s mono" x="866" y="330">@vercel/blob · zod</text>
+
+  <!-- row 3: stages -->
+  <rect x="24" y="436" width="270" height="110" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="40" y="462">planner</text>
+  <text class="s" x="40" y="482">ingest · lesson · storyboard compiler</text>
+  <text class="s" x="40" y="500">LLM lesson and drawing clients</text>
+  <text class="s mono" x="40" y="520">unpdf · mammoth · turndown</text>
+  <text class="s mono" x="40" y="536">cheerio · @anthropic-ai/sdk</text>
+
+  <rect x="314" y="436" width="270" height="110" rx="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="1.5"/>
+  <text class="h ml" x="330" y="462">voice</text>
+  <text class="s ml" x="330" y="482">narrate · measure · cue resolution</text>
+  <text class="s ml" x="330" y="500">Kokoro, Whisper align, ElevenLabs</text>
+  <text class="s ml mono" x="330" y="520">kokoro-js</text>
+  <text class="s ml mono" x="330" y="536">@huggingface/transformers</text>
+
+  <rect x="604" y="436" width="270" height="110" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="620" y="462">visuals</text>
+  <text class="s" x="620" y="482">resolveVisuals: plots, paths, ink,</text>
+  <text class="s" x="620" y="500">equations, code, icons, assets</text>
+  <text class="s mono" x="620" y="520">roughjs · @mathjax/src · shiki</text>
+  <text class="s mono" x="620" y="536">@dagrejs/dagre · lucide-static</text>
+
+  <rect x="894" y="436" width="270" height="110" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="910" y="462">render</text>
+  <text class="s" x="910" y="482">check (quality gate) · render</text>
+  <text class="s" x="910" y="500">frame compiler, page runtime, ffmpeg</text>
+  <text class="s mono" x="910" y="520">playwright (Chromium)</text>
+  <text class="s mono" x="910" y="536">+ ffmpeg on PATH</text>
+
+  <!-- row 4: core -->
+  <rect x="24" y="616" width="1140" height="70" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="40" y="642">core</text>
+  <text class="s" x="96" y="642">Storyboard IR + Lesson IR (zod schemas), project dirs, cache.json freshness, QC report, gates, logging, provider env scope</text>
+  <text class="s" x="40" y="668">Imported by every package and app except @inkcast/cloud, which is deliberately standalone (only @vercel/blob and zod).</text>
+
+  <!-- apps -> row 2 -->
+  <line class="dep" x1="230" y1="190" x2="230" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="320" y1="190" x2="520" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="510" y1="190" x2="330" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="600" y1="190" x2="600" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="690" y1="190" x2="880" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="880" y1="190" x2="690" y2="264" marker-end="url(#arrow)"/>
+  <line class="dep" x1="1000" y1="190" x2="1000" y2="264" marker-end="url(#arrow)"/>
+  <path class="dep" d="M1060,190 V226 H1140 V378 H352 V352" marker-end="url(#arrow)"/>
+  <text class="s" x="1132" y="372" text-anchor="end">render-service → keyvault (redaction, provider specs)</text>
+
+  <!-- pipeline -> stages -->
+  <line class="dep" x1="560" y1="350" x2="170" y2="434" marker-end="url(#arrow)"/>
+  <line class="dep" x1="580" y1="350" x2="450" y2="434" marker-end="url(#arrow)"/>
+  <line class="dep" x1="620" y1="350" x2="740" y2="434" marker-end="url(#arrow)"/>
+  <line class="dep" x1="640" y1="350" x2="1020" y2="434" marker-end="url(#arrow)"/>
+
+  <!-- render -> visuals -->
+  <line class="dep" x1="894" y1="491" x2="876" y2="491" marker-end="url(#arrow)"/>
+
+  <!-- stages -> core -->
+  <line class="dep" x1="159" y1="546" x2="159" y2="614" marker-end="url(#arrow)"/>
+  <line class="dep" x1="449" y1="546" x2="449" y2="614" marker-end="url(#arrow)"/>
+  <line class="dep" x1="739" y1="546" x2="739" y2="614" marker-end="url(#arrow)"/>
+  <line class="dep" x1="1029" y1="546" x2="1029" y2="614" marker-end="url(#arrow)"/>
+  <path class="dep" d="M304,350 V614" marker-end="url(#arrow)"/>
+
+  <!-- legend -->
+  <g transform="translate(24,708)">
+    <rect x="0" y="0" width="18" height="14" rx="3" fill="#0a0a0a"/>
+    <text class="s" x="26" y="12">deployed as a Vercel project</text>
+    <rect x="210" y="0" width="18" height="14" rx="3" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text class="s" x="236" y="12">workspace package / local app</text>
+    <rect x="430" y="0" width="18" height="14" rx="3" fill="#f3e8ff" stroke="#9333ea"/>
+    <text class="s" x="456" y="12">runs local ML models</text>
+    <text class="s mono" x="620" y="12">mono text = notable third-party dependencies</text>
+  </g>
+</svg>

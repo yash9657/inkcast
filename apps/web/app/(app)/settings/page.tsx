@@ -1,39 +1,39 @@
 import type { Metadata } from 'next';
-
 import { KeysPanel } from '@/components/settings/keys-panel';
-
-/**
- * `/settings` — the four keys, and nothing else.
- *
- * This is the first page a new user needs and the only page they need again, so
- * it is one column of provider cards with the recommendation stated once at the
- * top. No tabs, no sections for settings that do not exist yet: everything else
- * the studio can be told is a per-render choice and belongs on the create form,
- * where the decision is actually being made.
- *
- * A server component that renders a client panel with **no props**. That is the
- * shape that guarantees the requirement: no key, and nothing derived from a key,
- * is serialised into this document's HTML or into the client bundle. The panel
- * fetches masked status from `/api/keys` at runtime instead.
- */
+import { accountKeys } from '@/app/api/_lib/deployment';
+import { accessLinks, admitted, readAccess } from '../access';
+import { SignInWall } from '../sign-in-gate';
 
 export const metadata: Metadata = {
-  title: 'Keys',
-  description: 'Paste the API keys that decide how much Inkcast can teach.',
+  title: 'Settings',
+  description: 'Connect your own planning, speech and illustration providers.',
 };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const access = await readAccess();
+  if (!admitted(access))
+    return (
+      <SignInWall
+        heading="Sign in to manage your API keys"
+        lead="Connect providers to your account, then choose which to use for each video."
+        links={accessLinks()}
+        unavailable={access.mode === 'unavailable' ? access.reason : undefined}
+      />
+    );
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex max-w-2xl flex-col gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Keys</h1>
+      <header className="page-heading flex max-w-2xl flex-col gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
         <p className="text-md leading-relaxed text-muted-foreground">
-          Inkcast runs with none of these: it plans with a local heuristic, speaks with Kokoro on
-          this machine, and draws from a built-in icon set, for nothing per minute. Each key below
-          replaces one of those with something better. They are listed in the order that matters.
+          Connect your preferred providers for lesson planning, narration and illustrations. You can
+          also create with local processing and no API keys.
+        </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {accountKeys()
+            ? 'Keys are encrypted on this server and scoped to your account. Only masked previews are shown after saving.'
+            : 'Keys are saved on this machine, in the same store used by the Inkcast CLI.'}
         </p>
       </header>
-
       <KeysPanel />
     </div>
   );

@@ -12,8 +12,12 @@
  *    one is a close-up; by beat four the camera has pulled back to hold the whole
  *    panel, and the recap pulls back over the entire board. The accumulated board
  *    *is* the summary — which is the only reason to use a whiteboard over slides.
+ *
+ * Both of those are arguments about ink that *stays*. `BoardMode: 'wipe'` says none
+ * of it does, and then neither argument holds — see `oneCardBoard` at the foot of
+ * this file, which is the whole of the grid builder under that mode.
  */
-import type { Camera, Scene, StoryboardMeta } from '@inkcast/core';
+import type { BoardMode, Camera, Scene, StoryboardMeta } from '@inkcast/core';
 import type { Box } from './elements.js';
 import { frameSpan } from './layout.js';
 
@@ -40,6 +44,25 @@ export type BoardOptions = {
   maxPerRegion?: number;
   /** Breathing room when framing, in canvas units. */
   margin?: number;
+  /**
+   * Beats that draw into an earlier beat's cell instead of claiming their own,
+   * as `beat -> host beat`.
+   *
+   * This exists for the one move that cannot be laid out beat-locally: an
+   * abstraction arriving *out of* the concrete drawing the learner already
+   * accepted. The hillside becoming the loss curve has to happen where the
+   * hillside is, so that beat shares the anchor's cell and stays in the anchor's
+   * region rather than opening a fresh panel somewhere else on the board.
+   *
+   * A sharing beat also does not count against `maxPerRegion` — it adds no ink of
+   * its own, it reshapes ink that is already there.
+   */
+  sharesCellWith?: ReadonlyMap<number, number>;
+  /**
+   * What the board does between beats. Absent is `accumulate`, which is every path
+   * below this point; `wipe` short-circuits into `oneCardBoard`.
+   */
+  board?: BoardMode;
 };
 
 export type Board = {
@@ -81,13 +104,23 @@ export function phaseOf(role: BeatRole): 'setup' | 'build' | 'practice' | 'recap
 export function groupIntoRegions(
   roles: BeatRole[],
   maxPerRegion = 4,
+  joining: ReadonlySet<number> = new Set(),
 ): { key: string; beats: number[] }[] {
   const max = Math.max(1, maxPerRegion);
   const groups: { phase: string; beats: number[] }[] = [];
+  /** Beats in this group that hold a cell of their own. */
+  const owned = (g: { beats: number[] }): number => g.beats.filter((b) => !joining.has(b)).length;
   roles.forEach((role, i) => {
-    const phase = phaseOf(role);
     const current = groups[groups.length - 1];
-    if (!current || current.phase !== phase || current.beats.length >= max) {
+    // A joining beat reshapes ink an earlier beat drew, so it belongs to that
+    // beat's region whatever phase its own role would put it in — the whole point
+    // is that it happens where the earlier drawing already is.
+    if (current && joining.has(i)) {
+      current.beats.push(i);
+      return;
+    }
+    const phase = phaseOf(role);
+    if (!current || current.phase !== phase || owned(current) >= max) {
       groups.push({ phase, beats: [i] });
       return;
     }
@@ -107,16 +140,29 @@ export function groupIntoRegions(
 
 /* ------------------------------------------------------------------ geometry */
 
-function regionSize(aspect: StoryboardMeta['aspect']): { rw: number; rh: number } {
+/**
+ * A cell is one frame-shaped panel, and that shape is the whole point.
+ *
+ * The camera fits the *union of what has been drawn*, so whenever it is holding a
+ * single cell the cell's aspect ratio is the frame's fill: a 0.9:1 cell shown in a
+ * 1.78:1 frame leaves half the width empty however well the cell itself is packed,
+ * and no amount of work inside the beat can recover it. Verification of the
+ * benchmark found exactly that — "beats with one figure in a two-cell region leave
+ * a visibly empty half" — because a two-beat region was tiled as two tall halves.
+ *
+ * So the cell size is fixed at the frame's ratio and the *region* is sized to hold
+ * however many cells it needs, rather than a fixed region being divided into cells
+ * of whatever shape falls out. Widths are chosen so type quoted for the frame stays
+ * legible at the zoom that holds one cell.
+ */
+function cellSize(aspect: StoryboardMeta['aspect']): { cw: number; ch: number } {
   switch (aspect) {
     case '9:16':
-      // A tall region the camera can hold whole, stacked into a column it walks
-      // down. Wider than the frame's 1080 so type can be large and still fit.
-      return { rw: 1240, rh: 2140 };
+      return { cw: 1000, ch: round((1000 * 16) / 9) };
     case '1:1':
-      return { rw: 1400, rh: 1400 };
+      return { cw: 1080, ch: 1080 };
     default:
-      return { rw: 1840, rh: 1035 };
+      return { cw: 880, ch: round((880 * 9) / 16) };
   }
 }
 
@@ -126,51 +172,79 @@ function regionCols(count: number, aspect: StoryboardMeta['aspect']): number {
   return Math.max(1, Math.min(count, Math.ceil(Math.sqrt(count))));
 }
 
-/** Cells inside a region, chosen so a plot never ends up in a letterbox. */
+/**
+ * Cells inside a region.
+ *
+ * Square-ish for landscape and square output, because a square grid of
+ * frame-shaped cells has a frame-shaped *union* — so the shot that holds the
+ * finished panel is as full as the shots that built it. Vertical output is one
+ * column instead: a tall canvas the camera walks down is the whole trick of the
+ * 9:16 format, and cells side by side would make it pan sideways in a frame that
+ * has no width to spare.
+ */
 export function cellGrid(
   count: number,
   aspect: StoryboardMeta['aspect'],
 ): { cols: number; rows: number } {
   const n = Math.max(1, count);
-  if (aspect === '9:16') {
-    if (n <= 3) return { cols: 1, rows: n };
-    return { cols: 2, rows: Math.ceil(n / 2) };
-  }
-  switch (n) {
-    case 1:
-      return { cols: 1, rows: 1 };
-    case 2:
-      return { cols: 2, rows: 1 };
-    case 3:
-      return { cols: 3, rows: 1 };
-    case 4:
-      return { cols: 2, rows: 2 };
-    default:
-      return { cols: 3, rows: Math.ceil(n / 3) };
-  }
+  if (aspect === '9:16') return { cols: 1, rows: n };
+  const cols = Math.ceil(Math.sqrt(n));
+  return { cols, rows: Math.ceil(n / cols) };
 }
 
-/** Cell boxes in reading order, with the last, short row centred. */
-export function cellBoxes(region: Box, count: number, aspect: StoryboardMeta['aspect']): Box[] {
+/** The region box that holds `count` frame-shaped cells. */
+export function regionBoxFor(
+  count: number,
+  aspect: StoryboardMeta['aspect'],
+): { w: number; h: number } {
   const { cols, rows } = cellGrid(count, aspect);
-  const content: Box = {
+  const { cw, ch } = cellSize(aspect);
+  return {
+    w: round(cols * cw + (cols - 1) * CELL_GAP + REGION_PAD * 2),
+    h: round(rows * ch + (rows - 1) * CELL_GAP + REGION_PAD * 2),
+  };
+}
+
+/**
+ * Cell boxes in reading order, each exactly frame-shaped, with the last short row
+ * centred.
+ *
+ * `region` is expected to have been sized by `regionBoxFor(count, aspect)`. A
+ * region larger than that (they are laid out on a uniform pitch, so the smaller
+ * ones have slack) leaves the extra space around the grid rather than stretching
+ * cells out of shape — which is the one thing this must not do.
+ */
+export function cellBoxes(region: Box, count: number, aspect: StoryboardMeta['aspect']): Box[] {
+  const n = Math.max(1, count);
+  const { cols, rows } = cellGrid(n, aspect);
+  const { cw: idealW, ch: idealH } = cellSize(aspect);
+  const avail: Box = {
     x: region.x + REGION_PAD,
     y: region.y + REGION_PAD,
     w: region.w - REGION_PAD * 2,
     h: region.h - REGION_PAD * 2,
   };
-  const cw = (content.w - CELL_GAP * (cols - 1)) / cols;
-  const ch = (content.h - CELL_GAP * (rows - 1)) / rows;
+  // Shrink to fit a region smaller than the grid wants, but keep the ratio: the
+  // aspect is the reason this function exists.
+  const k = Math.min(
+    1,
+    (avail.w - CELL_GAP * (cols - 1)) / (cols * idealW),
+    (avail.h - CELL_GAP * (rows - 1)) / (rows * idealH),
+  );
+  const cw = idealW * k;
+  const ch = idealH * k;
+  const gridH = rows * ch + (rows - 1) * CELL_GAP;
+  const top = avail.y + (avail.h - gridH) / 2;
   const out: Box[] = [];
-  for (let i = 0; i < Math.max(1, count); i++) {
+  for (let i = 0; i < n; i++) {
     const r = Math.floor(i / cols);
     const c = i % cols;
-    const inRow = Math.min(cols, Math.max(1, count) - r * cols);
+    const inRow = Math.min(cols, n - r * cols);
     const rowW = inRow * cw + (inRow - 1) * CELL_GAP;
-    const x0 = content.x + (content.w - rowW) / 2;
+    const x0 = avail.x + (avail.w - rowW) / 2;
     out.push({
       x: round(x0 + c * (cw + CELL_GAP)),
-      y: round(content.y + r * (ch + CELL_GAP)),
+      y: round(top + r * (ch + CELL_GAP)),
       w: round(cw),
       h: round(ch),
     });
@@ -202,10 +276,27 @@ export function unionBox(boxes: Box[]): Box {
  * format: one tall canvas, one continuous downward walk.
  */
 export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
+  // A board that wipes has nothing to lay out: one cell, every beat. Dispatching
+  // here rather than threading the mode through the grid keeps the accumulate path
+  // literally untouched code, which is the cheapest proof there is that the two
+  // pinned lessons still compile byte for byte.
+  if (opts.board === 'wipe') return oneCardBoard(roles, opts);
   const aspect = opts.aspect;
   const margin = opts.margin ?? 80;
-  const groups = groupIntoRegions(roles, opts.maxPerRegion ?? (aspect === '9:16' ? 2 : 4));
-  const { rw, rh } = regionSize(aspect);
+  const shares = opts.sharesCellWith ?? new Map<number, number>();
+  const groups = groupIntoRegions(
+    roles,
+    opts.maxPerRegion ?? (aspect === '9:16' ? 2 : 4),
+    new Set(shares.keys()),
+  );
+  // Each region is sized to the cells it actually needs, so a two-beat panel is not
+  // a four-beat panel with a hole in it. They are then laid out on a *uniform*
+  // pitch — the largest region's size — which keeps the serpentine walk simple and
+  // keeps neighbouring regions a predictable distance apart.
+  const owned = groups.map((g) => g.beats.filter((b) => !shares.has(b)).length);
+  const sizes = owned.map((n) => regionBoxFor(Math.max(1, n), aspect));
+  const rw = Math.max(...sizes.map((s) => s.w));
+  const rh = Math.max(...sizes.map((s) => s.h));
   const cols = regionCols(groups.length, aspect);
   const rows = Math.ceil(groups.length / cols);
   const canvas: Box = {
@@ -220,34 +311,50 @@ export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
     const iCol = i % cols;
     // Serpentine: even rows left to right, odd rows right to left.
     const c = r % 2 === 0 ? iCol : cols - 1 - iCol;
+    const size = sizes[i] as { w: number; h: number };
+    const slotX = REGION_GAP + c * (rw + REGION_GAP);
+    const slotY = REGION_GAP + r * (rh + REGION_GAP);
     return {
       key: g.key,
       beats: g.beats,
       box: {
-        x: REGION_GAP + c * (rw + REGION_GAP),
-        y: REGION_GAP + r * (rh + REGION_GAP),
-        w: rw,
-        h: rh,
+        // Centred in its slot, so the slack a small region leaves is shared with
+        // its neighbours rather than piled up on one side of the board.
+        x: round(slotX + (rw - size.w) / 2),
+        y: round(slotY + (rh - size.h) / 2),
+        w: size.w,
+        h: size.h,
       },
     };
   });
 
   const byBeat = new Map<number, { region: RegionSpec; cell: Box; index: number }>();
   for (const region of regions) {
-    const cells = cellBoxes(region.box, region.beats.length, aspect);
+    // Only beats that draw ink of their own get a cell; the grid is sized to them,
+    // so a sharing beat does not shrink everyone else's panel to hold an empty box.
+    const owners = region.beats.filter((b) => !shares.has(b));
+    const cells = cellBoxes(region.box, owners.length, aspect);
+    const cellOfOwner = new Map(owners.map((b, k) => [b, cells[k] ?? region.box]));
     region.beats.forEach((beat, k) => {
-      byBeat.set(beat, { region, cell: cells[k] ?? region.box, index: k });
+      const host = shares.get(beat);
+      const cell =
+        (host === undefined ? cellOfOwner.get(beat) : cellOfOwner.get(host)) ?? region.box;
+      byBeat.set(beat, { region, cell, index: k });
     });
   }
 
   const span = frameSpan(canvas.w, canvas.h, aspect);
   const wholeBoard = unionBox(regions.map((r) => r.box));
 
+  const { cw, ch } = cellSize(aspect);
+
   function frame(box: Box, transition: number): Camera {
-    const fitRegion = Math.min(span.w / (rw + margin * 2), span.h / (rh + margin * 2));
     const wanted = Math.min(span.w / (box.w + margin * 2), span.h / (box.h + margin * 2));
-    // Zoom in for detail, but never so far that a single caption fills the frame.
-    const zoom = Math.min(Math.max(1, wanted), Math.max(1, fitRegion * 2.1));
+    // One cell is the tightest shot there is. That is a real limit rather than a
+    // taste one: a cell is frame-shaped, so holding exactly one fills the frame,
+    // and zooming past it would crop a beat's own ink to make a caption enormous.
+    const fitCell = Math.min(span.w / (cw + margin * 2), span.h / (ch + margin * 2));
+    const zoom = Math.min(Math.max(1, wanted), Math.max(1, fitCell));
     const visW = span.w / zoom;
     const visH = span.h / zoom;
     return {
@@ -267,23 +374,104 @@ export function planBoard(roles: BeatRole[], opts: BoardOptions): Board {
     cellOf(beat) {
       return byBeat.get(beat)?.cell ?? regions[0]!.box;
     },
+    /**
+     * One beat, one card — and the recap over everything.
+     *
+     * This used to frame the union of every cell drawn so far in the region, so a beat
+     * four of four was shown at a quarter size with three finished cells around it. The
+     * argument for it was that the accumulated board *is* the summary. That argument is
+     * sound and it was being applied to the wrong shots: a viewer following beat four
+     * needs to read beat four, and the board as summary is a thing you want **once**, at
+     * the end, when there is a summary to look at.
+     *
+     * Measured against Golpo (`docs/research/golpo-video-craft.md`), which wipes between
+     * scenes and holds two to four big things centred on each one: ours was 23% frame
+     * fill with elements too small to read, and the pulled-back shots were where the
+     * whitespace was. Holding one cell is what makes a beat a card — the title at the
+     * top, the picture beneath it, filling the frame.
+     *
+     * **Recall is kept, and it is kept where it was actually earned.** A beat that
+     * annotates an earlier beat's drawing draws *into that beat's cell*, so framing "its
+     * own cell" frames the host's finished picture with the new ink arriving on top —
+     * the hillside becoming the loss curve still happens on screen, in one shot. Nothing
+     * is wiped either: the board still accumulates, the recap still pulls back over all
+     * of it, and that shot is now the only wide one in the film, which is what makes it
+     * land.
+     */
     cameraFor(beat, role) {
       const entry = byBeat.get(beat);
       if (!entry) return frame(wholeBoard, 0.9);
-      const drawn = entry.region.beats
-        .slice(0, entry.index + 1)
-        .map((b) => byBeat.get(b)?.cell)
-        .filter((b): b is Box => b !== undefined);
       // The recap earns the widest shot in the video: in landscape it holds the
       // whole board at once, which is the payoff for never having wiped it. In
       // vertical the board is a tall column, so pulling all the way back would
       // make it unreadable — the camera stays on the recap panel instead.
-      const box =
-        role === 'recap' && aspect !== '9:16'
-          ? wholeBoard
-          : unionBox(drawn.length ? drawn : [entry.cell]);
-      return frame(box, 0.9);
+      if (role === 'recap') {
+        return frame(aspect !== '9:16' ? wholeBoard : unionBox([entry.region.box]), 0.9);
+      }
+      return frame(entry.cell, 0.94);
     },
+  };
+}
+
+/**
+ * The board when nothing accumulates: one card, drawn and wiped, over and over.
+ *
+ * A grid exists to hold ink that stays. Under `wipe` none of it stays, so the grid
+ * becomes a lie the camera then has to tour — and the frames say so.
+ * `projects/cardiac8f`, the first film to contain a figure: mean ink 5.7% of pixels
+ * against the benchmark's 14.4%, and the renderer warning "mean content fill 25% of
+ * frame across 10 scenes". At 26.2s two cards share the frame and each subject is
+ * ~40% of its half; at 112.7s one card is alone and it is the best frame this repo
+ * has produced. The difference between those two frames is a grid.
+ *
+ * So there is one cell, sized exactly as `cellSize` sizes any cell — frame-shaped,
+ * for the reason given there — every beat draws into it, and every camera holds it.
+ * The recap included: `cameraFor`'s `wholeBoard` pull-back is unreachable here,
+ * because there is no board behind the card to pull back over.
+ *
+ * The canvas is the cell plus a `REGION_GAP` border, which is deliberate slack
+ * rather than composition: `fitCamera` in core re-derives every one of these
+ * cameras from the ink actually drawn, and the border is the room it has to breathe
+ * when a beat's ink sits against an edge of the cell.
+ */
+function oneCardBoard(roles: BeatRole[], opts: BoardOptions): Board {
+  const aspect = opts.aspect;
+  const margin = opts.margin ?? 80;
+  const { cw, ch } = cellSize(aspect);
+  const cell: Box = { x: REGION_GAP, y: REGION_GAP, w: cw, h: ch };
+  const canvas: Box = { x: 0, y: 0, w: cw + REGION_GAP * 2, h: ch + REGION_GAP * 2 };
+  const region: RegionSpec = {
+    key: 'board',
+    beats: roles.map((_, i) => i),
+    box: cell,
+  };
+  // Every beat gets the same shot, so it is computed once. This is `frame(cell, …)`
+  // with its two clamps collapsed: the cell *is* the frame-shaped cell the accumulate
+  // path clamps to, so `wanted` and `fitCell` are the same number by construction.
+  const span = frameSpan(canvas.w, canvas.h, aspect);
+  const zoom = round(
+    Math.max(1, Math.min(span.w / (cw + margin * 2), span.h / (ch + margin * 2))),
+    4,
+  );
+  const visW = span.w / zoom;
+  const visH = span.h / zoom;
+  const camera: Camera = {
+    x: round(clamp(cell.x + cell.w / 2, visW / 2, canvas.w - visW / 2), 2),
+    y: round(clamp(cell.y + cell.h / 2, visH / 2, canvas.h - visH / 2), 2),
+    zoom,
+    // Every beat shares one region, so the compiler rewrites this to its
+    // same-region pan anyway. Writing that number here keeps the authored camera
+    // and the compiled one from disagreeing for a reader.
+    transition: 0.45,
+  };
+
+  return {
+    canvas,
+    regions: [region],
+    regionOf: () => region,
+    cellOf: () => cell,
+    // A fresh object per beat: the compiler mutates `scene.camera.transition`.
+    cameraFor: () => ({ ...camera }),
   };
 }
 

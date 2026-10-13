@@ -95,15 +95,76 @@ export {
   anthropicLesson,
   anthropicLessonEdit,
   lessonModel,
+  CAST_POSES,
   DEFAULT_LESSON_MODEL,
 } from './lesson-anthropic.js';
+
+/* ------------------------------------------------------------- the drawing lane */
+export {
+  boxAt,
+  buildDrawing,
+  cleanMarks,
+  fitCanvas,
+  fitDrawing,
+  markBounds,
+  prepareMarks,
+  repairLabels,
+  MAX_MARKS,
+} from './drawing.js';
+/* The hybrid lane's placement rules. Exported because the pipeline's seam has to generate
+ * an underlay under exactly the id, prompt, seed and box the compiler will place it at —
+ * see `./underlay.ts` for what a disagreement between the two would look like. */
+export {
+  isTraced,
+  readInkBox,
+  readUnderlay,
+  underlayAsset,
+  underlayInkBox,
+  UNDERLAY_AREA,
+} from './underlay.js';
+/* `prepareMarks` and `auditDrawing` both take one, and which lane it came from decides
+ * whether it is an obstacle — see `underlayInk`. Exported with them, so a caller outside
+ * this package cannot end up building one by hand and guessing `traced`. */
+export type { Underlay } from './draw-geom.js';
+export { assetSeed } from './compile.js';
+export { drawLesson, drawOne, drawKey, drawModel, DEFAULT_DRAW_MODEL } from './draw-anthropic.js';
+export {
+  MAX_FIGURES,
+  DEFAULT_ROUTER_MODEL,
+  applyRoutes,
+  routeFigures,
+  routerModel,
+  type BeatRoute,
+  type Route,
+} from './artdirect.js';
+export type { DrawOneOptions } from './draw-anthropic.js';
+/* The measurement in front of the drawing critic's gate, and the critic itself. Exported
+ * because what decides whether a drawing needs a model is worth being able to run on its
+ * own — `markcheck.mts` is that, and it needs no key. */
+export {
+  auditDrawing,
+  defectLines,
+  defectScore,
+  defectSummary,
+  lessonDrawingDefects,
+  missingLessonDrawings,
+} from './draw-audit.js';
+export type { Defect, DefectKind } from './draw-audit.js';
+export { reviseDrawing, FIX_VERSION } from './draw-critic.js';
+export type { Revision } from './draw-critic.js';
+export { inkOf, markInk, ADRIFT } from './draw-geom.js';
+export type { Ink } from './draw-geom.js';
 export { LESSON_FILE, loadLesson, parseLesson, readLessonFile, saveLesson } from './lesson-io.js';
 export {
   PRESETS,
+  MISCONCEPTION_CUT_PREFIX,
   adaptLesson,
   clampNarration,
   critiqueFor,
   lessonSeconds,
+  misconceptionCutProblems,
+  misconceptionCutInBoard,
+  misconceptionIsPayload,
   pickVisuals,
   resolvePreset,
 } from './presets.js';
@@ -118,6 +179,9 @@ export {
   plotHints,
   axisLabels,
   recipeFor,
+  recipeChosen,
+  worthPlotting,
+  describesAPlot,
   trim,
 } from './plots.js';
 export type { PlotHints, PlotContext } from './plots.js';
@@ -178,7 +242,9 @@ export type { Hints, PlacementHint, LayoutOptions, Span, Grid } from './layout.j
 export type { Box, Point } from './elements.js';
 export {
   FONT,
-  charWidth,
+  handMeasure,
+  handLineHeight,
+  setPlannerHand,
   wrapText,
   measureText,
   diagramSize,
@@ -230,6 +296,7 @@ export type {
   EditOptions,
   EditReport,
   CompileOptions,
+  DrawPreview,
   FormatOptions,
   LessonEditReport,
   LessonInput,

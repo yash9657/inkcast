@@ -122,6 +122,29 @@ export function hypothesisFromChunks(output: unknown): Hypothesis[] {
 /* ------------------------------------------------------------------ mapping */
 
 /**
+ * The minimum fraction of expected tokens that must pair with a transcribed
+ * token for the alignment to be believed.
+ *
+ * Below this, `mapToExpected`'s interpolation is doing nearly all the work: a
+ * transcript that paired zero tokens still yields a plausible-looking uniform
+ * spread between the clip's endpoints — fake word timings, returned as valid,
+ * cached, and logged as "word-exact" (audit S6-b/D8). The aligner discards such
+ * an alignment so the honest measured-phrase fallback engages instead.
+ */
+export const MIN_ALIGN_FRACTION = 0.5;
+
+/** An alignment, with how much of it was actually matched rather than interpolated. */
+export type Alignment = {
+  words: WordTiming[];
+  /**
+   * Paired expected tokens ÷ all expected tokens, in [0, 1]. The honesty number:
+   * 1 means every word was found in the transcript; 0 means every timing below
+   * is interpolation between the clip's endpoints.
+   */
+  fraction: number;
+};
+
+/**
  * Map Whisper's transcript onto the text we asked for.
  *
  * We need one timing per *expected* token, not per transcribed token: cue
@@ -133,13 +156,17 @@ export function hypothesisFromChunks(output: unknown): Hypothesis[] {
  *
  * Monotonicity is the point: speech does not reorder, so an alignment that can
  * only advance cannot invent a timing that goes backwards.
+ *
+ * Returns the paired-token fraction beside the timings, because without it a
+ * fully-interpolated alignment is indistinguishable from a fully-matched one —
+ * the caller, not this function, owns the threshold (`MIN_ALIGN_FRACTION`).
  */
 export function mapToExpected(
   expected: readonly string[],
   hypothesis: readonly Hypothesis[],
-): WordTiming[] {
-  if (!expected.length) return [];
-  if (!hypothesis.length) return [];
+): Alignment {
+  if (!expected.length) return { words: [], fraction: 0 };
+  if (!hypothesis.length) return { words: [], fraction: 0 };
 
   const hyp = hypothesis.map((h) => ({ ...h, key: matchTokens(h.word).join(' ') }));
   const n = expected.length;
@@ -218,7 +245,11 @@ export function mapToExpected(
     if (cur.start < prev.start) cur.start = prev.start;
     if (cur.end < cur.start) cur.end = cur.start;
   }
-  return words.map((w) => ({ word: w.word, start: round3(w.start), end: round3(w.end) }));
+  const paired = pairing.filter((p) => p >= 0).length;
+  return {
+    words: words.map((w) => ({ word: w.word, start: round3(w.start), end: round3(w.end) })),
+    fraction: round3(paired / n),
+  };
 }
 
 function round3(v: number): number {
@@ -231,10 +262,13 @@ export type Aligner = {
   /** True when a model is loaded or loadable. */
   usable(): Promise<boolean>;
   /**
-   * Word timings for `expectedText`, measured from `samples`. Returns an empty
-   * array when alignment is unavailable or failed — never throws.
+   * Word timings for `expectedText`, measured from `samples`, with the paired
+   * fraction they rest on. `words` is empty when alignment is unavailable,
+   * failed, or matched too little to be believed (`fraction` below
+   * `MIN_ALIGN_FRACTION` — still reported, so the caller can record why).
+   * Never throws.
    */
-  align(samples: Float32Array, sampleRate: number, expectedText: string): Promise<WordTiming[]>;
+  align(samples: Float32Array, sampleRate: number, expectedText: string): Promise<Alignment>;
   dispose(): Promise<void>;
 };
 
@@ -251,7 +285,7 @@ export function nullAligner(): Aligner {
       return false;
     },
     async align() {
-      return [];
+      return { words: [], fraction: 0 };
     },
     async dispose() {
       /* nothing loaded */
@@ -351,10 +385,10 @@ export function openAligner(opts: OpenAlignerOptions = {}): Aligner {
 
     async align(samples, sampleRate, expectedText) {
       const expected = matchTokens(expectedText);
-      if (!expected.length || samples.length === 0) return [];
+      if (!expected.length || samples.length === 0) return { words: [], fraction: 0 };
 
       const asr = await load();
-      if (!asr) return [];
+      if (!asr) return { words: [], fraction: 0 };
 
       try {
         const input =
@@ -369,19 +403,31 @@ export function openAligner(opts: OpenAlignerOptions = {}): Aligner {
           do_sample: false,
         });
         const hypothesis = hypothesisFromChunks(output);
-        if (!hypothesis.length) return [];
+        if (!hypothesis.length) return { words: [], fraction: 0 };
 
-        const words = mapToExpected(expected, hypothesis);
+        const { words, fraction } = mapToExpected(expected, hypothesis);
+        // The honesty floor (audit S6-b/D8): an alignment that paired too little
+        // is mostly interpolation wearing real numbers. Discard it — the phrase
+        // fallback is measured arithmetic — but report the fraction so the
+        // sidecar can say what happened.
+        if (fraction < MIN_ALIGN_FRACTION) {
+          log.warn(
+            `word alignment matched only ${Math.round(fraction * 100)}% of expected tokens — ` +
+              'discarding it and using measured phrase boundaries',
+          );
+          return { words: [], fraction };
+        }
         if (!announced) {
           announced = true;
           log.debug(
-            `aligned ${words.length} words from a ${(samples.length / sampleRate).toFixed(2)}s clip`,
+            `aligned ${words.length} words (${Math.round(fraction * 100)}% matched) from a ` +
+              `${(samples.length / sampleRate).toFixed(2)}s clip`,
           );
         }
-        return words;
+        return { words, fraction };
       } catch (err) {
         log.warn('word alignment failed for one clip — using measured phrase boundaries', err);
-        return [];
+        return { words: [], fraction: 0 };
       }
     },
 

@@ -1,5 +1,5 @@
 /**
- * Ink personality.
+ * Ink personality, as this stage draws it.
  *
  * `meta.style` is the single knob that decides whether the board looks like a
  * fat whiteboard marker, a soft pencil, chalk on slate, or a fine liner. It has
@@ -7,10 +7,24 @@
  * multi-stroke behaviour and the handwriting face all move together, otherwise
  * every style looks like the same drawing tinted differently.
  *
+ * Since plan item 7.3 the values are not written here. A style is a JSON file in
+ * `styles/` (`core/src/stylepack.ts`), and this module is the *adapter*: it turns one
+ * pack into the shape rough.js and this lane's own code want. That is what makes a fifth
+ * personality a fifth file — the item's done-bar — and it is why the only judgement left
+ * in here is naming, not numbers.
+ *
  * Numbers are in **canvas units** (the IR's coordinate space, 1920×1080 by
  * default), not output pixels — the camera scales them at render time.
  */
-import type { StoryboardMeta } from '@inkcast/core';
+import {
+  TYPE_REFERENCE_HEIGHT,
+  TYPE_SCALE,
+  paletteFor,
+  styleKey,
+  stylePackFor,
+  stylePalette,
+} from '@inkcast/core';
+import type { LoadedStylePack, StoryboardMeta } from '@inkcast/core';
 
 export type InkStyleName = StoryboardMeta['style'];
 export type Palette = StoryboardMeta['palette'];
@@ -38,11 +52,18 @@ export type InkStyle = {
   linecap: 'round' | 'butt' | 'square';
   linejoin: 'round' | 'miter' | 'bevel';
 
-  /* --- colour --- */
+  /* --- colour ---
+   * Read from `@inkcast/core` — the board's table, or the pack's own `palette` block on
+   * a colour film that declares one (7.3) — never stated here:
+   * this stage's own colour set had drifted to a red accent and an off-by-a-shade
+   * black that the film never painted (plan item 2.2). The field names keep this
+   * lane's vocabulary; the values are the board's. */
   paper: string;
   ink: string;
   accent: string;
+  /** The board palette's `contrast` — the second marker. */
   secondary: string;
+  /** The board palette's `inkSoft`. */
   muted: string;
   highlight: string;
 
@@ -57,130 +78,73 @@ export type InkStyle = {
   textOpacity: number;
 };
 
-/**
- * Font mapping is from `docs/research/design-stack.md` §3, which assigns one
- * OFL handwriting face per ink style. Filenames are matched loosely (the
- * variable fonts ship as e.g. `Caveat[wght].ttf`).
- */
-const STYLES: Record<InkStyleName, Omit<InkStyle, 'palette'>> = {
-  marker: {
-    name: 'marker',
-    roughness: 1.15,
-    bowing: 1.1,
-    strokeWidth: 4.4,
-    disableMultiStroke: false,
-    curveFitting: 0.96,
-    maxRandomnessOffset: 2.2,
-    fillStyle: 'hachure',
-    fillWeight: 2.4,
-    hachureAngle: -41,
-    hachureGap: 9,
-    strokeOpacity: 0.94,
-    linecap: 'round',
-    linejoin: 'round',
-    paper: '#fdfdfb',
-    ink: '#1c1f26',
-    accent: '#d7263d',
-    secondary: '#1b6ca8',
-    muted: '#7b8494',
-    highlight: '#f5c445',
-    fontFamily: 'Shantell Sans',
-    fontFiles: ['shantellsans', 'shantell-sans', 'shantell'],
-    tracking: 0.012,
-    textOpacity: 0.96,
-  },
-  pencil: {
-    roughness: 1.9,
-    name: 'pencil',
-    bowing: 1.7,
-    strokeWidth: 2.5,
-    disableMultiStroke: false,
-    curveFitting: 0.9,
-    maxRandomnessOffset: 2.8,
-    fillStyle: 'hachure',
-    fillWeight: 1.2,
-    hachureAngle: -49,
-    hachureGap: 6,
-    strokeOpacity: 0.74,
-    linecap: 'round',
-    linejoin: 'round',
-    paper: '#fbfaf6',
-    ink: '#3d434f',
-    accent: '#a8503f',
-    secondary: '#4f6d7a',
-    muted: '#98a0ac',
-    highlight: '#cbb994',
-    fontFamily: 'Caveat',
-    fontFiles: ['caveat'],
-    tracking: 0.006,
-    textOpacity: 0.82,
-  },
-  chalk: {
-    name: 'chalk',
-    roughness: 2.3,
-    bowing: 1.9,
-    strokeWidth: 4.0,
-    disableMultiStroke: false,
-    curveFitting: 0.88,
-    maxRandomnessOffset: 3.2,
-    fillStyle: 'cross-hatch',
-    fillWeight: 1.8,
-    hachureAngle: -35,
-    hachureGap: 12,
-    strokeOpacity: 0.86,
-    linecap: 'round',
-    linejoin: 'round',
-    paper: '#1f2a30',
-    ink: '#f2f5f3',
-    accent: '#ffd166',
-    secondary: '#8ecae6',
-    muted: '#a3b4bb',
-    highlight: '#ef8354',
-    fontFamily: 'Gaegu',
-    fontFiles: ['gaegu'],
-    tracking: 0.02,
-    textOpacity: 0.9,
-  },
-  ink: {
-    name: 'ink',
-    roughness: 0.72,
-    bowing: 0.55,
-    strokeWidth: 2.9,
-    disableMultiStroke: true,
-    curveFitting: 0.98,
-    maxRandomnessOffset: 1.2,
-    fillStyle: 'zigzag',
-    fillWeight: 1.6,
-    hachureAngle: -45,
-    hachureGap: 7,
-    strokeOpacity: 1,
-    linecap: 'round',
-    linejoin: 'round',
-    paper: '#fffef8',
-    ink: '#111820',
-    accent: '#bf1b26',
-    secondary: '#00606f',
-    muted: '#5f6b73',
-    highlight: '#e8b419',
-    fontFamily: 'Patrick Hand',
-    fontFiles: ['patrickhand', 'patrick-hand', 'patrick'],
-    tracking: 0.004,
-    textOpacity: 1,
-  },
-};
+type InkPersonality = Omit<
+  InkStyle,
+  'palette' | 'paper' | 'ink' | 'accent' | 'secondary' | 'muted' | 'highlight'
+>;
 
-/** Build the working ink style for a storyboard's meta block. */
+/**
+ * This stage's view of a style pack (plan item 7.3).
+ *
+ * There was a table of four personalities here until then, and the numbers below are
+ * exactly the numbers it held — they live in `styles/*.json` now, so a fifth personality
+ * is a fifth file and this file never learns its name. What is left is the *mapping*: the
+ * pack's vocabulary (`rough.multiStroke`, `pen.width`) into the one rough.js speaks
+ * (`disableMultiStroke`, `strokeWidth`), which is the only reason this function exists
+ * rather than the pack being passed around raw.
+ *
+ * The face still comes with the personality, from the pack's `hand` block, and it is
+ * still the same object `handMetricsFor` measures with in `@inkcast/core` — the planner
+ * reserving a box and this table lettering into it cannot disagree about which face that
+ * is. Colours are not here at all: see `inkStyleFor`.
+ */
+function personalityOf(pack: LoadedStylePack): InkPersonality {
+  return {
+    name: pack.id,
+    roughness: pack.rough.roughness,
+    bowing: pack.rough.bowing,
+    strokeWidth: pack.pen.width,
+    disableMultiStroke: !pack.rough.multiStroke,
+    curveFitting: pack.rough.curveFitting,
+    maxRandomnessOffset: pack.rough.maxRandomnessOffset,
+    fillStyle: pack.rough.fill.style,
+    fillWeight: pack.rough.fill.weight,
+    hachureAngle: pack.rough.fill.hachureAngle,
+    hachureGap: pack.rough.fill.hachureGap,
+    strokeOpacity: pack.rough.strokeOpacity,
+    linecap: pack.rough.lineCap,
+    linejoin: pack.rough.lineJoin,
+    fontFamily: pack.hand.fontFamily,
+    fontFiles: pack.hand.fontFiles,
+    tracking: pack.hand.tracking,
+    textOpacity: pack.hand.textOpacity,
+  };
+}
+
+/**
+ * Build the working ink style for a storyboard's meta block.
+ *
+ * Personality (stroke, roughness, face) comes from the style pack; colour comes from the
+ * one palette table in `@inkcast/core` — or, since 7.3, from the pack's own `palette`
+ * block when it declares one and the film is in colour. Either way it is one answer that
+ * this stage and the renderer both read, so they can never again disagree about what
+ * black, what accent, or what paper the board uses; `packages/pipeline/test/styles.test.ts`
+ * holds the two to it. Mono needs no special-casing here: `paletteFor('mono')` is the
+ * same mono the film is painted with, and a pack may not override it (see `PackPalette`).
+ */
 export function inkStyleFor(meta: Pick<StoryboardMeta, 'style' | 'palette'>): InkStyle {
-  const base = STYLES[meta.style] ?? STYLES.marker;
-  const style: InkStyle = { ...base, palette: meta.palette };
-  if (meta.palette === 'mono') {
-    // Mono is not "grey everything" — it keeps one ink and leans on the muted
-    // tone for secondary marks so hierarchy survives.
-    style.accent = base.ink;
-    style.secondary = base.ink;
-    style.highlight = base.muted;
-  }
-  return style;
+  const pack = stylePackFor(meta.style);
+  const pal = stylePalette(meta.style, meta.palette) ?? paletteFor(meta.palette);
+  return {
+    ...personalityOf(pack),
+    palette: meta.palette,
+    paper: pal.paper,
+    ink: pal.ink,
+    accent: pal.accent,
+    secondary: pal.contrast,
+    muted: pal.inkSoft,
+    highlight: pal.highlight,
+  };
 }
 
 export type InkRole = 'primary' | 'accent' | 'secondary' | 'muted' | 'highlight';
@@ -201,24 +165,35 @@ export function inkColour(style: InkStyle, role: InkRole = 'primary'): string {
 }
 
 /**
- * Type scale for the IR's text roles, as a fraction of canvas height.
+ * Type scale for the IR's text roles, as a fraction of canvas height — derived from
+ * `TYPE_SCALE` in `@inkcast/core` rather than restated here.
  *
- * The renderer owns pixels; we own canvas units. A title at 0.082 of a
- * 1080-unit canvas is ~88 units, which reads as a confident hand-lettered
- * headline at 1080p.
+ * This was the third of three catalogues of one number (`docs/HANDOFF.md`, defect 0), and
+ * being a *fraction* is exactly what let it drift unnoticed: 0.082 of a 1080-tall frame
+ * is 88.6, where the renderer draws a title at 96, so the visuals stage lettered every
+ * title 8% smaller than the renderer does and nothing compared the two. Deriving it makes
+ * that class of drift impossible, and it is not merely deduplication — it is what this
+ * function's own contract already says. Sizing type as a fraction of canvas height
+ * assumes the whole canvas is on screen (`PlotTypeSizes` in `./plot.ts` says so in as
+ * many words), and when the whole canvas is on screen the canvas *is* the frame, so a
+ * fraction of canvas height and a size in output pixels are the same statement. The
+ * fraction is therefore `TYPE_SCALE[role] / TYPE_REFERENCE_HEIGHT`, and nothing else can
+ * be right.
+ *
+ * It stays the *fallback*. Every caller that knows the camera passes the real sizes in
+ * from `boardMetrics` — `resolvePlot`'s `typeSizes`, `resolveOne`'s `board` — because a
+ * renderer framing a region of the board shows a fraction of it and the whole-canvas
+ * assumption is then false by a factor of up to five. This is what a caller with no
+ * camera in hand gets.
  */
-const ROLE_SCALE = {
-  title: 0.082,
-  heading: 0.058,
-  body: 0.04,
-  label: 0.03,
-  caption: 0.024,
-} as const;
+function roleFraction(role: TextRole): number {
+  return TYPE_SCALE[role] / TYPE_REFERENCE_HEIGHT;
+}
 
-export type TextRole = keyof typeof ROLE_SCALE;
+export type TextRole = keyof typeof TYPE_SCALE;
 
 export function roleFontSize(role: TextRole, canvasHeight: number): number {
-  return Math.max(8, (ROLE_SCALE[role] ?? ROLE_SCALE.body) * canvasHeight);
+  return Math.max(8, roleFraction(role in TYPE_SCALE ? role : 'body') * canvasHeight);
 }
 
 /** Stroke width for a given semantic weight, in canvas units. */
@@ -246,7 +221,11 @@ export function strokeWidthFor(
  */
 export function styleFingerprint(style: InkStyle): string {
   return [
-    style.name,
+    // The pack's *identity*, not just its name (plan 7.3). A name was a sufficient
+    // identity only while the numbers behind it were compiled in; now that a user can
+    // edit `styles/marker.json`, a film keyed on the bare name would serve yesterday's
+    // ink from the cache after the pack changed under it.
+    styleKey(style.name),
     style.palette,
     style.roughness,
     style.bowing,

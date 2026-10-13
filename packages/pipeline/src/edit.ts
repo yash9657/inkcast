@@ -34,6 +34,15 @@ export type EditResult = {
   /** Which path produced the ops. */
   via: 'local' | 'anthropic';
   ops: EditOp[];
+  /**
+   * What the edit did to the board's graph — `critiqueStoryboard`, per plan 3.2.
+   *
+   * Empty on a clean edit. Non-empty means the storyboard on disk now names ink that
+   * is not there: this is the one moment a reference can be broken by hand, and the
+   * point of reporting it here is that the next thing the user does is re-render, and
+   * a dangling morph does not fail a render — it just does not happen.
+   */
+  problems: string[];
 };
 
 /**
@@ -71,10 +80,17 @@ export async function editProject(projectId: string, instruction: string): Promi
     via = 'local';
   }
 
-  const { storyboard, applied } = applyOps(current, ops);
+  const { storyboard, applied, problems } = applyOps(current, ops);
   await saveStoryboard(project.dir, storyboard);
   log.info(`applied ${applied.length} change(s) via ${via}`);
-  return { storyboard, applied, via, ops };
+  if (problems.length > 0) {
+    log.warn(
+      `the edited storyboard has ${problems.length} broken reference${problems.length === 1 ? '' : 's'}:\n  - ` +
+        problems.join('\n  - '),
+      'a strict render will stop on these; fix them or re-cast',
+    );
+  }
+  return { storyboard, applied, via, ops, problems };
 }
 
 /* ---------------------------------------------------------------- the LLM bit */
@@ -120,18 +136,9 @@ async function opsFromClaude(
   instruction: string,
   model: string,
 ): Promise<EditOp[]> {
-  // A **literal** specifier, for the same reason `stages.ts` insists on them: an
-  // `import()` of a variable is a context module webpack cannot resolve, so the
-  // studio's production bundle left the SDK out and this whole path collapsed
-  // into the local instruction parser — a key the user paid for, silently
-  // ignored. The SDK is a declared dependency of this package and pure
-  // JavaScript, so bundling it is exactly right; it stays dynamic only so the
-  // no-key path never loads it.
-  const mod = (await import('@anthropic-ai/sdk')) as {
-    default: new (o?: unknown) => AnthropicLike;
-  };
-  const Anthropic = mod.default;
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const { anthropicClient } = await import('@inkcast/planner');
+  const client = await anthropicClient();
+  if (!client) throw new Error('No model provider is available for this edit');
 
   const res = await client.messages.create({
     model,

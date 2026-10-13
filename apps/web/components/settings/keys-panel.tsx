@@ -57,6 +57,7 @@ export function KeysPanel() {
   const [caps, setCaps] = React.useState<Capabilities | undefined>(undefined);
   const [loadError, setLoadError] = React.useState<string | undefined>(undefined);
   const [busy, setBusy] = React.useState<Busy | undefined>(undefined);
+  const pending = React.useRef(false);
   const [validations, setValidations] = React.useState<Partial<Record<ProviderId, Validation>>>({});
 
   const refresh = React.useCallback(async (signal?: AbortSignal) => {
@@ -73,9 +74,16 @@ export function KeysPanel() {
       setVault(snapshot.value.vault);
       setLoadError(undefined);
     } else {
+      setKeys(undefined);
+      setVault(undefined);
+      setCaps(undefined);
       setLoadError(errorMessage(snapshot.reason));
     }
-    if (capabilities.status === 'fulfilled') setCaps(capabilities.value);
+    setCaps(
+      snapshot.status === 'fulfilled' && capabilities.status === 'fulfilled'
+        ? capabilities.value
+        : undefined,
+    );
   }, []);
 
   React.useEffect(() => {
@@ -91,6 +99,8 @@ export function KeysPanel() {
     action: Busy['action'],
     work: () => Promise<{ message: string; description?: string; failed?: boolean }>,
   ) {
+    if (pending.current) return;
+    pending.current = true;
     setBusy({ provider, action });
     try {
       const outcome = await work();
@@ -111,6 +121,7 @@ export function KeysPanel() {
     } catch (err) {
       toast.error('That did not work', { description: errorMessage(err) });
     } finally {
+      pending.current = false;
       setBusy(undefined);
     }
   }
@@ -118,6 +129,10 @@ export function KeysPanel() {
   function onSave(provider: ProviderId, key: string) {
     void run(provider, 'save', async () => {
       const outcome = await saveKey(provider, key);
+      setKeys((current) =>
+        (current ?? []).map((item) => (item.id === provider ? outcome.key : item)),
+      );
+      setValidations((current) => ({ ...current, [provider]: undefined }));
       // Saving and then immediately checking is one intent, so it is one action.
       // A key that saves and silently does not work is the failure this page
       // exists to prevent.
@@ -176,16 +191,44 @@ export function KeysPanel() {
 
   const loading = keys === undefined && loadError === undefined;
   const byId = new Map((keys ?? []).map((key) => [key.id, key]));
-  const anthropic = byId.get('anthropic');
+  const plannerConfigured = byId.get('fireworks')?.configured || byId.get('anthropic')?.configured;
   const imagesConfigured = new Set(
     (keys ?? []).filter((key) => key.configured).map((key) => key.id),
   );
+
+  function renderProvider(provider: (typeof PROVIDERS)[number]) {
+    return (
+      <ProviderCard
+        key={provider.id}
+        provider={provider}
+        account={vault?.scope === 'account'}
+        disabled={busy !== undefined}
+        state={byId.get(provider.id)}
+        siblingConfigured={
+          provider.alternativeTo ? imagesConfigured.has(provider.alternativeTo) : false
+        }
+        busy={busy?.provider === provider.id ? busy.action : undefined}
+        validation={
+          validations[provider.id] ??
+          (byId.get(provider.id)?.validatedAt
+            ? {
+                status: byId.get(provider.id)?.validatedOk ? 'valid' : 'invalid',
+                message: `Last check: ${byId.get(provider.id)?.validatedOk ? 'accepted' : 'not accepted'}. Check again if you have changed the key’s permissions.`,
+              }
+            : undefined)
+        }
+        onSave={onSave}
+        onValidate={onValidate}
+        onDelete={onDelete}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-8">
       <EffectivePipeline caps={caps} loading={loading} />
 
-      {anthropic && !anthropic.configured ? <StartHere /> : null}
+      {keys && !plannerConfigured ? <StartHere /> : null}
 
       {loadError ? (
         <Card className="border-destructive/40">
@@ -194,8 +237,7 @@ export function KeysPanel() {
               Could not read the key status: {loadError}
             </p>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Nothing is broken by this — the studio runs its local pipeline whether or not this
-              page can load. Try again, and if it keeps failing the studio server is not responding.
+              Your keys could not be loaded. Check your connection and sign-in, then try again.
             </p>
             <Button
               variant="outline"
@@ -222,25 +264,25 @@ export function KeysPanel() {
             </Card>
           ))}
         </div>
-      ) : (
+      ) : keys ? (
         <div className="flex flex-col gap-4">
-          {PROVIDERS.map((provider) => (
-            <ProviderCard
-              key={provider.id}
-              provider={provider}
-              state={byId.get(provider.id)}
-              siblingConfigured={
-                provider.alternativeTo ? imagesConfigured.has(provider.alternativeTo) : false
-              }
-              busy={busy?.provider === provider.id ? busy.action : undefined}
-              validation={validations[provider.id]}
-              onSave={onSave}
-              onValidate={onValidate}
-              onDelete={onDelete}
-            />
-          ))}
+          {['fireworks', 'elevenlabs'].map((id) => renderProvider(providerInfo(id as ProviderId)))}
+          <details className="group mt-2">
+            <summary className="cursor-pointer rounded-md py-3 text-md font-medium focus-visible:outline-2 focus-visible:outline-ring">
+              Optional providers · Anthropic, Replicate and fal
+            </summary>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Choose another planner or add generated illustrations. These keys are not needed for
+              Fireworks and ElevenLabs.
+            </p>
+            <div className="flex flex-col gap-4">
+              {PROVIDERS.filter(
+                (provider) => !['fireworks', 'elevenlabs'].includes(provider.id),
+              ).map(renderProvider)}
+            </div>
+          </details>
         </div>
-      )}
+      ) : null}
 
       <VaultNote vault={vault} />
     </div>
@@ -264,9 +306,27 @@ function EffectivePipeline({
 }) {
   const stages = caps
     ? ([
-        { label: 'Plan', chosen: caps.planner },
-        { label: 'Voice', chosen: caps.voice },
-        { label: 'Art', chosen: caps.images },
+        {
+          label: 'Plan',
+          chosen: caps.planner,
+          description: caps.planner.cloud
+            ? 'Authors lessons and diagrams.'
+            : 'Basic document summary.',
+        },
+        {
+          label: 'Voice',
+          chosen: caps.voice,
+          description: caps.voice.cloud
+            ? 'Narration with word timings.'
+            : 'Kokoro narration in English.',
+        },
+        {
+          label: 'Art',
+          chosen: caps.images,
+          description: caps.images.cloud
+            ? 'Generated illustrations when requested.'
+            : 'Built-in assets and diagrams.',
+        },
       ] as const)
     : [];
 
@@ -274,16 +334,20 @@ function EffectivePipeline({
     <Card className="gap-4">
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-foreground">Your next render will use</h2>
+          <h2 className="text-sm font-medium text-foreground">Default providers for new videos</h2>
           {caps ? (
             <Badge variant={caps.local ? 'neutral' : 'default'}>
-              {caps.local ? 'Nothing leaves this machine' : 'Some stages call out'}
+              {caps.local ? 'Local processing' : 'Calls your providers'}
             </Badge>
           ) : null}
         </div>
 
-        {loading || !caps ? (
+        {loading ? (
           <Skeleton className="h-10 w-full" />
+        ) : !caps ? (
+          <p className="text-sm text-muted-foreground">
+            Provider status is unavailable. Retry loading your keys below.
+          </p>
         ) : (
           <>
             <dl className="grid gap-3 sm:grid-cols-3">
@@ -299,7 +363,9 @@ function EffectivePipeline({
                     <StatusDot tone={stage.chosen.cloud ? 'primary' : 'success'} />
                     {stage.chosen.name}
                   </dd>
-                  <dd className="text-xs leading-snug text-muted-foreground">{stage.chosen.why}</dd>
+                  <dd className="text-xs leading-snug text-muted-foreground">
+                    {stage.description}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -321,7 +387,7 @@ function EffectivePipeline({
               </ul>
             ) : (
               <p className="text-xs leading-relaxed text-success">
-                Every stage is on its best available path.
+                You can change these choices for each video in the studio.
               </p>
             )}
           </>
@@ -337,10 +403,8 @@ function StartHere() {
     <Card className={cn('gap-3 border-primary/40 bg-primary/6')}>
       <CardContent className="flex flex-col gap-3">
         <p className="text-md leading-relaxed text-foreground">
-          If you add one key, add the Anthropic one. It is the difference between a video that
-          teaches an idea and a video that reads your document aloud — the planner writes a hook, an
-          everyday anchor, one step at a time with a reason for each, and a worked example with real
-          numbers. Nothing else on this page changes what the viewer learns.
+          Start with Fireworks for authored lessons and diagrams. Add ElevenLabs for narration with
+          word timings. An image provider is optional for generated illustrations.
         </p>
         {/* Outline, not `default`. The page's one primary action is Save on the
             card below — this is the errand you run first, not the thing you came
@@ -349,15 +413,16 @@ function StartHere() {
           variant="outline"
           size="sm"
           className="self-start"
+          nativeButton={false}
           render={
             <a
-              href="https://console.anthropic.com/settings/keys"
+              href="https://app.fireworks.ai/settings/users/api-keys"
               target="_blank"
               rel="noreferrer noopener"
             />
           }
         >
-          Get an Anthropic key
+          Get a Fireworks key
           <ArrowRightIcon aria-hidden />
         </Button>
       </CardContent>
@@ -375,32 +440,54 @@ function VaultNote({ vault }: { vault: VaultInfo | undefined }) {
           <LockIcon className="size-4 text-muted-foreground" aria-hidden />
           Where these are kept
         </h2>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          A saved key is sealed with {vault?.cipher ?? 'AES-256-GCM'} and written to{' '}
-          <span className="font-mono text-foreground">{vault?.path ?? '.inkcast/keys.json'}</span>,
-          owner-readable only, in a directory git already ignores.{' '}
-          {vault?.kdf === 'passphrase' ? (
-            <>
-              It is unsealed with a key derived from{' '}
-              <span className="font-mono">INKCAST_VAULT_SECRET</span>, so the file on disk is
-              useless without that passphrase.
-            </>
-          ) : (
-            <>
-              It is unsealed with <span className="font-mono">.inkcast/vault.key</span>, which sits
-              beside it — so this protects a key from a backup, a synced folder or a stray{' '}
-              <span className="font-mono">grep</span>, not from a program already running as you.
-              Set <span className="font-mono">INKCAST_VAULT_SECRET</span> to require a passphrase
-              instead.
-            </>
-          )}
-        </p>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          A key set in the environment always wins over a saved one, so{' '}
-          <span className="font-mono">.env</span> and your shell keep working exactly as they did.
-          Keys are never sent anywhere but the provider they belong to, and never returned to this
-          page — everything above is a preview of the first six and last four characters.
-        </p>
+        {!vault ? (
+          <p className="text-sm text-muted-foreground">
+            Storage details will appear when key status loads.
+          </p>
+        ) : vault.scope === 'account' ? (
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            {vault.why} Removing a key stops new jobs from using it. A job already running may
+            finish with the key it loaded; revoke the key at the provider to stop all use.
+          </p>
+        ) : vault.backend === 'vault' ? (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            A saved key is sealed with {vault.cipher ?? 'AES-256-GCM'} and written to{' '}
+            <span className="font-mono text-foreground">{vault.path}</span>, owner-readable only, in
+            a directory git already ignores. The sealing key is derived from{' '}
+            <span className="font-mono">INKCAST_VAULT_PASSPHRASE</span>
+            {vault.kdf
+              ? ` with ${vault.kdf.name} (N=${vault.kdf.N}, r=${vault.kdf.r}, p=${vault.kdf.p})`
+              : ''}
+            , so the file on disk is useless without that passphrase.{' '}
+            {vault.ready
+              ? null
+              : 'No passphrase is available right now, so a stored key cannot be unsealed and every stage is running locally.'}
+          </p>
+        ) : (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            A saved key goes into your{' '}
+            <span className="font-mono text-foreground">macOS login keychain</span> — no Inkcast
+            file on disk contains it, so there is nothing here for a backup, a synced folder or a
+            stray <span className="font-mono">grep</span> to pick up. It does not protect a key from
+            a program already running as you; that is the same trust boundary{' '}
+            <span className="font-mono">.env</span> has.
+          </p>
+        )}
+        {vault && vault.scope !== 'account' ? (
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Saved keys take priority over environment keys. Only the selected providers receive
+            credentials and the source, narration or drawing data needed for that stage. Keys are
+            sent to Inkcast for storage and are never returned in full to this page.
+          </p>
+        ) : null}
+        {vault?.legacyPath ? (
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            An older studio vault is still at{' '}
+            <span className="font-mono text-foreground">{vault.legacyPath}</span>. Nothing reads it
+            any more — it was sealed with different material — so any key saved only there needs
+            pasting again above. Delete the file once you have.
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           <Link
             href="/studio"

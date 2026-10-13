@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangleIcon, CheckIcon, RotateCcwIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ClockIcon, RotateCcwIcon } from 'lucide-react';
 
 import {
   Badge,
@@ -22,6 +22,7 @@ import {
   STAGE_COPY,
   type GenerationStage,
   type GenerationState,
+  type QueueState,
   type StageProgress,
 } from '@/lib/use-generation';
 import type { Storyboard } from '@inkcast/core';
@@ -39,6 +40,21 @@ import { resolvedAssetCount } from './board';
  * state, the overall bar is whatever the server last reported (indeterminate
  * until it reports at all — never a fake number), and the storyboard is drawn as
  * it arrives, so the wait teaches you what the tool is doing.
+ *
+ * ## The queue is a state of this screen, not an error page
+ *
+ * On a shared box a run can be *in line* before it is running (D1: two renders
+ * at a time, FIFO, positions and estimates measured — see `lib/jobs.ts`). That
+ * needs saying out loud, with the number, because the alternative is a progress
+ * bar sitting at zero for six minutes, which is indistinguishable from a broken
+ * deployment and is the single most likely reason somebody closes the tab and
+ * never comes back.
+ *
+ * So the honest wait math is the design here rather than an apology bolted onto
+ * it: the place in line is the largest thing on the panel, the sentence beside
+ * it is the server's own measured estimate, and the stage list stays visible
+ * underneath with every stage still pending — because that is the truth, and a
+ * spinner over the top of it would only be hiding it.
  */
 
 export type GenerationViewProps = {
@@ -58,6 +74,7 @@ export function GenerationView({
   retrying = false,
 }: GenerationViewProps) {
   const failed = state.status === 'error';
+  const queued = state.status === 'queued' && state.queue !== undefined;
 
   return (
     <div className="flex flex-col gap-8">
@@ -68,6 +85,11 @@ export function GenerationView({
               <AlertTriangleIcon aria-hidden />
               Stopped
             </Badge>
+          ) : queued ? (
+            <Badge variant="warning">
+              <ClockIcon aria-hidden />
+              In line
+            </Badge>
           ) : (
             <Badge variant="default">
               <StatusDot tone="primary" pulse />
@@ -75,7 +97,9 @@ export function GenerationView({
             </Badge>
           )}
           <p className="tabular text-xs text-muted-foreground">
-            {elapsed(state.elapsedMs)} elapsed
+            {/* The clock restarts when the run is admitted, so this label has to
+                say which of the two things it is counting. */}
+            {elapsed(state.elapsedMs)} {queued ? 'waiting' : 'elapsed'}
           </p>
         </div>
 
@@ -83,7 +107,9 @@ export function GenerationView({
         <p className="max-w-2xl text-sm text-muted-foreground">
           {failed
             ? 'The run stopped part-way. Everything finished before the failing stage is cached, so retrying picks up from there rather than starting over.'
-            : 'This page is live. The project is a directory on disk, so you can close the tab and come back to it — nothing is held in this browser.'}
+            : queued
+              ? 'Nothing has started drawing yet — this film is waiting for a renderer. The place in line is real and it only ever goes down; you can close the tab and come back, because the queue is on the server and not in this browser.'
+              : 'This page is live. The project is a directory on disk, so you can close the tab and come back to it — nothing is held in this browser.'}
         </p>
       </header>
 
@@ -114,15 +140,20 @@ function StagePanel({
   className?: string;
 }) {
   const current = state.stage ? STAGE_COPY[state.stage] : undefined;
+  const queue = state.status === 'queued' ? state.queue : undefined;
 
   return (
     <Card className={cn('gap-5', className)}>
       <CardContent className="flex flex-col gap-5">
-        <Progress
-          value={state.status === 'done' ? 100 : state.pct}
-          label={state.status === 'error' ? 'Stopped' : (current?.title ?? 'Starting')}
-          note={state.note}
-        />
+        {queue ? (
+          <QueueCard queue={queue} waitedMs={state.elapsedMs} />
+        ) : (
+          <Progress
+            value={state.status === 'done' ? 100 : state.pct}
+            label={state.status === 'error' ? 'Stopped' : (current?.title ?? 'Starting')}
+            note={state.note}
+          />
+        )}
 
         <ol className="flex flex-col gap-0.5">
           {GENERATION_STAGES.map((stage) => (
@@ -145,7 +176,7 @@ function StagePanel({
               </Button>
             </div>
           </div>
-        ) : (
+        ) : queue ? null : (
           <p className="text-xs leading-relaxed text-muted-foreground">
             Rendering draws every frame, so it takes the longest by far. The percentage comes from
             the pipeline itself — if it is still, the work is still.
@@ -153,6 +184,44 @@ function StagePanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Where you are in line, and how long that means.
+ *
+ * The position is set in the largest type on the panel because it is the one
+ * fact that answers the user's actual question ("is this going to happen?"), and
+ * the sentence beneath it is the server's own copy, rendered verbatim — the
+ * estimate is derived from measured render durations on *this* box, so the
+ * browser is not entitled to round it, restate it, or replace it with a
+ * reassurance when there is no measurement yet. Where the server says it cannot
+ * put a number on the wait, this component says exactly that.
+ */
+function QueueCard({ queue, waitedMs }: { queue: QueueState; waitedMs: number }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-warning/35 bg-warning/8 p-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="tabular text-3xl leading-none text-foreground">#{queue.position}</span>
+        <span className="text-sm text-muted-foreground">in line</span>
+        <span className="tabular ml-auto text-2xs uppercase text-muted-foreground">
+          waiting {elapsed(waitedMs)}
+        </span>
+      </div>
+
+      <p className="text-md leading-relaxed text-foreground">{queue.message}</p>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {queue.running === 1
+          ? 'One film is being drawn right now. '
+          : queue.running > 1
+            ? `${queue.running} films are being drawn right now. `
+            : ''}
+        A render drives a browser and an encoder for every frame, so this box draws two at a time on
+        purpose: running more at once would not finish any of them sooner, it would just make all of
+        them late. The estimate above comes from how long the last few actually took here.
+      </p>
+    </div>
   );
 }
 
@@ -300,9 +369,11 @@ function BoardSoFar({
             </div>
             <SkeletonText lines={2} />
             <p className="text-xs text-muted-foreground">
-              {state.stages.plan.state === 'active'
-                ? 'Planning the canvas…'
-                : 'Reading the source first.'}
+              {state.status === 'queued'
+                ? 'Nothing has been read or planned yet — this film is still waiting its turn.'
+                : state.stages.plan.state === 'active'
+                  ? 'Planning the canvas…'
+                  : 'Reading the source first.'}
             </p>
           </div>
         )}

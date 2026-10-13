@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { RotateCcwIcon } from 'lucide-react';
+import { RotateCcwIcon, PauseIcon, PlayIcon } from 'lucide-react';
 
 import { Button, inkCirclePath, inkStrokePath } from '@/components/ui';
 import { cn, randomFromSeed } from '@/lib/utils';
@@ -370,6 +370,7 @@ function Handwritten({
 }
 
 export function InkDemo({ className }: { className?: string }) {
+  const [paused, setPaused] = React.useState(false);
   // Remounting the <svg> restarts every CSS animation from its delay, which is
   // the whole implementation of "draw it again" — no timers, no animation API.
   const [run, setRun] = React.useState(0);
@@ -427,15 +428,28 @@ export function InkDemo({ className }: { className?: string }) {
   const descId = `${scope}-desc`;
 
   return (
-    <div ref={root} data-hold={hold ? 'true' : undefined} className={cn('inkcast-demo', className)}>
+    <div
+      ref={root}
+      data-hold={hold || paused ? 'true' : undefined}
+      className={cn('inkcast-demo', className)}
+    >
       {/* React hoists and de-duplicates this, so it is emitted once however many
           boards are on the page. */}
       <style href="inkcast-ink-demo" precedence="medium">
         {STYLESHEET}
       </style>
 
-      <div className="rounded-2xl border border-border bg-card p-2 shadow-lg">
-        <div className="overflow-hidden rounded-lg bg-paper">
+      {/* The frame, and it is the only place on the landing page that spends
+          `shadow-pop`'s accent offset on something that is not a button —
+          docs/DESIGN.md §5 allots exactly one hero frame per page and this is it.
+          `border border-border` is not decoration under that shadow: a hard
+          offset plane with no edge looks like a rendering bug (§10), so the
+          border is the plane's edge. `shadow-lg` used to sit here and now
+          resolves to `shadow-overlay` through the deprecated alias block — the
+          board would have kept a soft-system shadow forever without this edit,
+          which is the exact silent-degradation case §11 was written for. */}
+      <div className="bg-paper">
+        <div className="overflow-hidden border border-border-subtle bg-paper">
           <svg
             key={run}
             viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
@@ -609,14 +623,30 @@ export function InkDemo({ className }: { className?: string }) {
           </svg>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 pt-3 pb-1">
-          <p className="text-xs text-muted-foreground">
-            One canvas, three camera framings, nothing erased.
-          </p>
-          <Button variant="ghost" size="xs" onClick={() => setRun((n) => n + 1)}>
-            <RotateCcwIcon aria-hidden />
-            Draw it again
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground">A closer look at gradient descent</p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={paused ? 'Resume animation' : 'Pause animation'}
+              onClick={() => setPaused((value) => !value)}
+            >
+              {paused ? <PlayIcon aria-hidden /> : <PauseIcon aria-hidden />}
+              {paused ? 'Resume' : 'Pause'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPaused(false);
+                setRun((n) => n + 1);
+              }}
+            >
+              <RotateCcwIcon aria-hidden />
+              Replay
+            </Button>
+          </div>
         </div>
       </div>
     </div>

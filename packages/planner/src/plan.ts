@@ -1,3 +1,5 @@
+import { providerEnv } from '@inkcast/core';
+import { textProvider } from '@inkcast/core';
 /**
  * Stage 2+3 — plan. `SourceDoc` in, `Storyboard` out.
  *
@@ -45,14 +47,7 @@ const ARTEFACT = 'storyboard.json';
 
 /** Which adapter a given set of options resolves to, given the environment. */
 export function resolveAdapter(opts: PlanOptions = {}): Exclude<PlannerAdapter, 'auto'> {
-  const wanted = opts.adapter ?? 'auto';
-  if (wanted === 'heuristic') return 'heuristic';
-  if (wanted === 'anthropic') {
-    if (anthropicAvailable()) return 'anthropic';
-    log.warn('ANTHROPIC_API_KEY is not set — using the local heuristic planner');
-    return 'heuristic';
-  }
-  return anthropicAvailable() ? 'anthropic' : 'heuristic';
+  return textProvider(providerEnv(), opts.adapter);
 }
 
 /** Whether this plan runs the pedagogy stage. Default: yes. */
@@ -66,6 +61,9 @@ function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string, route: st
     lessonVersion: route === 'lesson' ? LESSON_VERSION : undefined,
     compiler: route === 'lesson' ? COMPILER_VERSION : undefined,
     preset: opts.preset,
+    // Only the lesson route can honour it, so only the lesson route may key on it —
+    // and it must, or the same document served the other mode's cached storyboard.
+    board: route === 'lesson' ? opts.board : undefined,
     aspect: opts.aspect,
     palette: opts.palette,
     style: opts.style,
@@ -79,7 +77,7 @@ function inputHash(doc: SourceDoc, opts: PlanOptions, adapter: string, route: st
     objective: opts.objective,
     brief: opts.brief,
     model:
-      adapter === 'anthropic'
+      adapter !== 'heuristic'
         ? route === 'lesson'
           ? lessonModel(opts)
           : plannerModel(opts)
@@ -127,7 +125,7 @@ export async function plan(doc: SourceDoc, opts: PlanOptions = {}): Promise<Stor
     });
   } else {
     report(opts, { stage: 'plan', pct: 2, note: `${adapter} document planner` });
-    if (adapter === 'anthropic') {
+    if (adapter !== 'heuristic') {
       sb = await anthropicPlan(doc, opts);
       if (sb && opts.relayout !== false) {
         // The model chooses the content; the layout engine guarantees the geometry.

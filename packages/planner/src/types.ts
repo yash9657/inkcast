@@ -5,8 +5,75 @@
  * structural: headings and lists in the source are a free outline, and the
  * heuristic planner leans on them heavily.
  */
-import type { Lesson, StageOptions } from '@inkcast/core';
+import type { BoardMode, Lesson, Mark, StageOptions } from '@inkcast/core';
 import type { PresetName } from './presets.js';
+
+/**
+ * Renders a drawing as the board will draw it, so the model that composed it can look.
+ *
+ * The seam exists because of the package graph, and it is worth stating why rather than
+ * routing around it. Rendering means roughjs, real font metrics and Chromium — the visuals
+ * and render stages — and the planner depends on neither and must not start: the planner
+ * is the stage that has to work with no browser installed at all. So the caller that
+ * already has a renderer passes one in, exactly as `illustrations` is how the caller tells
+ * the lesson stage that an image provider exists.
+ *
+ * Returns `undefined` when a picture cannot be produced. That is never an error — a
+ * drawing revised without a render is weaker, not broken.
+ */
+export type DrawPreview = (
+  marks: Mark[],
+  /**
+   * `underlay: true` renders the marks against the whole authoring canvas instead of
+   * fitting them to their own content bounds — the fit an annotated drawing gets on the
+   * real board. Without it the preview shown to the critic is in a different coordinate
+   * space from the picture the marks are annotating, and the two cannot be read together.
+   */
+  opts?: { underlay?: boolean },
+) => Promise<Uint8Array | undefined>;
+
+/**
+ * Generates the picture a drawing will be composed **on top of**, and says where it lands.
+ *
+ * The hybrid lane (`./underlay.ts`): an image for a real object's form, composed marks for
+ * its parts and their names. Same seam and the same reasoning as `DrawPreview` above —
+ * generating means an image provider, tracing means the vectoriser, and the planner
+ * depends on neither. The caller that already has both passes one in.
+ *
+ * `png` is the board **as the author will be shown it**: the traced ink of the generated
+ * image, drawn at `inkBox` on a blank `DRAW_W`x`DRAW_H` canvas. Not the raw raster. That
+ * costs one screenshot and buys the only thing that makes the lane work — the author is
+ * looking at the same coordinate space it is placing marks in, so "the SA node is high in
+ * the right atrium" is a reading of the picture rather than a guess about one.
+ *
+ * `inkBox` is `[x, y, w, h]` in that canvas's units, and is recorded in the lesson so the
+ * compiler can put the image back exactly there without a key or a network.
+ *
+ * `undefined` whenever a picture cannot be produced — no image key, no vectoriser, a
+ * provider error. Never an error: the beat falls back to marks alone, which is the drawing
+ * this lane has always made.
+ */
+export type DrawUnderlay = (
+  prompt: string,
+) => Promise<{ png: Uint8Array; inkBox: number[] } | undefined>;
+
+/**
+ * The same seam for the figure lane, and it hands back one thing less.
+ *
+ * A form's picture is *traced*, so where its ink really landed has to be measured and
+ * carried back as `inkBox`. A figure is never traced — a binary trace erases the hues
+ * that carry its teaching — so it simply claims the box it was given, and the only
+ * thing to return is the board the author will look at.
+ *
+ * `undefined` whenever a picture cannot be produced. The beat still gets its figure on
+ * the board (the compiler mints the asset from the prompt alone), but its marks are
+ * composed without the author having seen it — which is a worse drawing, not a missing
+ * one. See `underlayFor` in `./draw-anthropic.ts`.
+ */
+export type DrawFigure = (
+  prompt: string,
+  box: { x: number; y: number; w: number; h: number },
+) => Promise<Uint8Array | undefined>;
 
 /** One heading and the body text that belongs to it. */
 export type SourceSection = {
@@ -49,7 +116,7 @@ export type IngestInput = {
   url?: string;
 };
 
-export type PlannerAdapter = 'auto' | 'anthropic' | 'heuristic';
+export type PlannerAdapter = 'auto' | 'anthropic' | 'fireworks' | 'heuristic';
 
 /** What the lesson stage will teach: a document, or a bare topic to teach cold. */
 export type LessonInput = SourceDoc | string;
@@ -64,7 +131,8 @@ export type FormatOptions = {
   preset?: PresetName;
   aspect?: '16:9' | '9:16' | '1:1';
   palette?: 'mono' | 'color';
-  style?: 'marker' | 'pencil' | 'chalk' | 'ink';
+  /** A style pack id (plan 7.3) — `styleIds()` is the list, `styles/` is the source. */
+  style?: string;
   voice?: string;
   language?: string;
   fps?: number;
@@ -75,6 +143,15 @@ export type FormatOptions = {
    * from `docs/LESSON-ENGINE.md` rather than the summariser's dump-and-move-on.
    */
   wordsPerSecond?: number;
+  /**
+   * Which voice provider will speak this film — `kokoro`, `elevenlabs`, `say`.
+   *
+   * Distinct from `voice` above, which is the voice *id*. This one exists because
+   * the length estimate is per engine: see `DELIVERED_LPS_BY_PROVIDER` in
+   * `./presets.ts`. Absent means the local rate, which is what every caller that
+   * has not been threaded gets and is the number the pinned hashes are taken at.
+   */
+  voiceProvider?: string;
 };
 
 export type LessonOptions = StageOptions &
@@ -93,14 +170,90 @@ export type LessonOptions = StageOptions &
     objective?: string;
     /** Extra direction for the lesson author (tone, emphasis, constraints). */
     brief?: string;
+    /**
+     * Whether an image generator is configured, so the brief may offer `illustration`.
+     *
+     * The lesson stage has to know, and cannot find out for itself: detection lives in
+     * `@inkcast/visuals`, which the planner does not depend on and should not start. The
+     * caller that already resolved the provider passes it down.
+     *
+     * Offering a lane that is not there is the failure this closes. Without a key an
+     * `illustration` degrades to the icon set and then to a lettered card, so telling the
+     * model to ask for one would trade a matched icon for a letter in a box — which is why
+     * the brief stayed silent about the lane and, on a keyed run, kept steering every
+     * concrete object to `icon`. Same principle as the generated cast pose: do not offer
+     * what may not exist.
+     */
+    illustrations?: boolean;
+    /** Claude model id for the drawing author. Overrides `INKCAST_DRAW_MODEL`. */
+    drawModel?: string;
+    /**
+     * How to render a drawing so the drawing author can be shown its own work.
+     *
+     * Supplied by whoever has a renderer — in practice `@inkcast/pipeline`. Without it the
+     * correction pass still runs, from the measurements alone, which is weaker.
+     */
+    drawPreview?: DrawPreview;
+    /**
+     * How to generate the picture a drawing is composed on top of, for an intent that
+     * asks for one. Without it an `underlay` is ignored and the beat is drawn in marks
+     * alone — see `DrawUnderlay`.
+     */
+    drawUnderlay?: DrawUnderlay;
+    /**
+     * How to generate the colour teaching picture a `figure` beat's marks are composed
+     * on top of. Same seam and the same reason as `drawUnderlay`: the planner depends
+     * on neither an image provider nor Chromium.
+     *
+     * Without it a figure is still minted and still reaches the board — the compiler
+     * needs no key for that — but the marks are composed **blind**, against the generic
+     * drawing brief, and redraw the structure the picture already contains. See
+     * `underlayFor`'s figure branch and `DrawFigure` in `./draw-anthropic.ts`.
+     */
+    drawFigure?: DrawFigure;
+    /**
+     * Whether a drawing with something measurably wrong with it gets a correction call.
+     * Default `true`; `INKCAST_DRAW_FIX=0` turns it off for a whole run.
+     */
+    reviseDrawings?: boolean;
+    /** Persist review drafts and evidence without enabling the planner cache. */
+    diagnosticsDir?: string;
     /** Project directory. When given, `lesson.json` is cached there. */
     dir?: string;
+    /**
+     * Which author **turned out** to write the lesson, reported by the stage.
+     *
+     * `resolveLessonAdapter` answers a different question — "which adapter would run in
+     * this environment" — and the two diverge exactly where it matters: a key that is set
+     * but has no credit resolves to `anthropic`, the request comes back 402, and
+     * `deriveLesson` writes the lesson. Every caller that only had the resolved adapter
+     * then reported a Claude lesson and a Claude-sized bill for a lesson Claude never saw.
+     *
+     * A callback rather than a richer return type, for the reason `onProblem` and
+     * `onSpend` are: `teachLesson` returns a `Lesson` and every caller of it wants a
+     * `Lesson`, so the observation rides beside the result instead of wrapping it.
+     *
+     * Not called when the lesson came from this stage's own cache — nothing here knows who
+     * wrote a file on disk last week. A caller that needs the answer on a cached run has to
+     * have recorded it on the first one.
+     */
+    onAuthor?: (author: Exclude<PlannerAdapter, 'auto'>) => void;
   };
 
 export type CompileOptions = StageOptions &
   FormatOptions & {
     /** Storyboard title. Defaults to the lesson's topic. */
     title?: string;
+    /**
+     * What the board does between beats — `accumulate` (the default) or `wipe`.
+     *
+     * Here rather than on `FormatOptions` above, and the distinction is load-bearing:
+     * `FormatOptions` is shared with the lesson stage and with the document planners,
+     * which compose their own boards and would take the option and ignore it. This bag
+     * belongs to `compileLesson`, the one function that can honour it — offering a lane
+     * that is not there is the failure this repo keeps paying for.
+     */
+    board?: BoardMode;
   };
 
 /** What an edit to a lesson actually did. */
@@ -144,12 +297,25 @@ export type PlanOptions = StageOptions & {
   /** Overrides for `storyboard.meta`. */
   aspect?: '16:9' | '9:16' | '1:1';
   palette?: 'mono' | 'color';
-  style?: 'marker' | 'pencil' | 'chalk' | 'ink';
+  /** A style pack id (plan 7.3) — `styleIds()` is the list, `styles/` is the source. */
+  style?: string;
   voice?: string;
   language?: string;
   fps?: number;
   /** Hard cap on scene count. Default 24. */
   maxScenes?: number;
+  /**
+   * What the board does between beats — `accumulate` (the default) or `wipe`.
+   *
+   * Honoured on `via: 'lesson'`, which compiles through `compileLesson`, and stated
+   * here so the option is reachable from the one other entry point that ends in a
+   * storyboard. `via: 'document'` ignores it, as it ignores `audience` and `brief`:
+   * the document planners compose their own boards. `plan()` hashes it into the
+   * planner's own cache key for the reason `@inkcast/pipeline`'s `keys.ts` gives —
+   * an option that changes the artefact and not the key is served from the cache of
+   * the mode you did not ask for.
+   */
+  board?: BoardMode;
   /**
    * Target words spoken per second, used to size narration so scenes land in
    * the 4–12 second window. Default 2.6 (≈156 wpm, unhurried explainer pace).

@@ -11,7 +11,7 @@
  *
  * installRedaction();                              // once, at process start
  * await setKey('anthropic', key);                  // keychain on macOS, else encrypted vault
- * const key = await getKey('anthropic');           // env first, then storage
+ * const key = await getKey('anthropic');           // storage first, then env
  * await listProviders();                           // masked previews only, never a raw key
  * await validateKey('anthropic');                  // one free metadata call
  * ```
@@ -37,15 +37,24 @@ export {
   listProviders,
   lock,
   setKey,
+  storageInfo,
   validateKey,
   type Backend,
+  type KeyAvailability,
   type KeySource,
   type Keyvault,
   type KeyvaultOptions,
   type ProviderStatus,
+  type StorageInfo,
 } from './store.js';
 
-export { dehydrate, hydrateEnv, hydratedProviders, type HydrateResult } from './hydrate.js';
+export {
+  dehydrate,
+  hydrateEnv,
+  hydratedProviders,
+  realEnv,
+  type HydrateResult,
+} from './hydrate.js';
 
 export {
   describeValidation,
@@ -57,6 +66,7 @@ export {
 export { mask, maskedMiddle } from './mask.js';
 
 export {
+  withSecretRedaction,
   forgetSecrets,
   installRedaction,
   looksRedacted,
@@ -84,4 +94,12 @@ export { GITIGNORE_RULES, gitRoot, metaPath, stateDir, vaultPath } from './paths
 
 export { keychainAvailable, keychainService } from './keychain.js';
 
-export { secretEquals, vaultExists, type VaultEntryInfo } from './vault.js';
+export {
+  secretEquals,
+  vaultExists,
+  vaultKdf,
+  vaultVerify,
+  type VaultEntryInfo,
+  type VaultEntryVerdict,
+  type VaultKdfInfo,
+} from './vault.js';

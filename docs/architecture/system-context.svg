@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" role="img" aria-labelledby="title desc">
+  <title id="title">Inkcast system context</title>
+  <desc id="desc">Browser talks to the Inkcast studio (Next.js on Vercel, Clerk auth). The studio dispatches each film to the inkcast-render container, which runs the pipeline with local Kokoro and Whisper models, headless Chromium and ffmpeg, and writes progress and the finished MP4 to a private Vercel Blob store. Optional external model providers are called with the film's own keys.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+      .title { font-size: 22px; font-weight: 700; }
+      .sub { font-size: 13px; fill: #475569; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 13px; }
+      .s { font-size: 12px; fill: #475569; }
+      .lbl { font-size: 12px; fill: #334155; }
+      .on-dark { fill: #ffffff; }
+      .on-dark-dim { fill: #d4d4d8; }
+      .ml { fill: #581c87; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .edge { stroke: #334155; stroke-width: 1.6; fill: none; }
+      .boundary { stroke: #64748b; stroke-width: 1.5; stroke-dasharray: 7 5; fill: none; }
+    </style>
+  </defs>
+
+  <!-- canvas -->
+  <rect x="0" y="0" width="1200" height="820" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <text class="title" x="32" y="42">Inkcast — system context</text>
+  <text class="sub" x="32" y="64">Hosted deployment on Vercel (INKCAST_STORAGE=blob). The CLI and self-hosted studio run the same pipeline in one process, on local disk.</text>
+
+  <!-- browser -->
+  <rect x="16" y="170" width="130" height="120" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="81" y="206" text-anchor="middle">Creator /</text>
+  <text class="h" x="81" y="226" text-anchor="middle">viewer</text>
+  <text class="s" x="81" y="250" text-anchor="middle">browser</text>
+  <text class="s" x="81" y="268" text-anchor="middle">studio · library</text>
+
+  <!-- Vercel boundary -->
+  <rect class="boundary" x="210" y="96" width="710" height="654" rx="14"/>
+  <text class="s" x="226" y="88" font-weight="600">Vercel team (Pro) · Fluid compute · one region</text>
+
+  <!-- studio (Vercel-managed: black) -->
+  <rect x="228" y="150" width="300" height="190" rx="10" fill="#0a0a0a"/>
+  <text class="h on-dark" x="246" y="178">inkcast · studio</text>
+  <text class="s on-dark-dim" x="246" y="198">apps/web · Next.js 16 · Node Functions</text>
+  <text class="b on-dark" x="246" y="226">inkcast.video</text>
+  <text class="s on-dark-dim" x="246" y="248">Clerk middleware (proxy.ts) · signed sessions</text>
+  <text class="s on-dark-dim" x="246" y="268">per-IP limiter · Origin guard · sealed keys</text>
+  <text class="s on-dark-dim mono" x="246" y="292">POST /api/generate  (after(), 800 s)</text>
+  <text class="s on-dark-dim mono" x="246" y="310">GET  /api/generate/[id]/stream (SSE)</text>
+  <text class="s on-dark-dim mono" x="246" y="328">GET  /api/media/[id]/… (owner check)</text>
+
+  <!-- blob (Vercel-managed: black) -->
+  <rect x="640" y="150" width="256" height="190" rx="10" fill="#0a0a0a"/>
+  <text class="h on-dark" x="658" y="178">Vercel Blob · private</text>
+  <text class="s on-dark-dim" x="658" y="198">store inkcast-media · both projects</text>
+  <text class="s on-dark-dim mono" x="658" y="224">&lt;prefix&gt;/projects/&lt;id&gt;/</text>
+  <text class="s on-dark-dim mono" x="670" y="242">meta.json · job.json</text>
+  <text class="s on-dark-dim mono" x="670" y="260">out.mp4 · thumbnail.png</text>
+  <text class="s on-dark-dim mono" x="670" y="278">storyboard.json</text>
+  <text class="s on-dark-dim mono" x="670" y="296">captions.vtt</text>
+  <text class="s on-dark-dim mono" x="658" y="322">&lt;prefix&gt;/account-keys/</text>
+
+  <!-- render container (Vercel-managed: black) -->
+  <rect x="228" y="410" width="668" height="320" rx="10" fill="#0a0a0a"/>
+  <text class="h on-dark" x="246" y="438">inkcast-render · container service</text>
+  <text class="s on-dark-dim" x="246" y="458">Dockerfile.vercel · Performance 4 GB / 2 vCPU · max duration 800 s · one film per instance · scales to zero</text>
+
+  <!-- render-service -->
+  <rect x="246" y="476" width="300" height="112" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text class="b" x="262" y="500" font-weight="700">apps/render-service</text>
+  <text class="s mono" x="262" y="522">POST /run (bearer) · GET /health</text>
+  <text class="s" x="262" y="542">busy ⇒ 503, the studio retries ≤ 3 min</text>
+  <text class="s" x="262" y="562">providerEnv per film (isolated)</text>
+  <text class="s" x="262" y="580">keys redacted from every log line</text>
+
+  <!-- pipeline -->
+  <rect x="246" y="604" width="300" height="112" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text class="b" x="262" y="628" font-weight="700">@inkcast/pipeline · cast()</text>
+  <text class="s mono" x="262" y="650">ingest → lesson → storyboard →</text>
+  <text class="s mono" x="262" y="668">voice → visuals → check → render</text>
+  <text class="s" x="262" y="692">scratch /tmp/inkcast, wiped after each run</text>
+  <line class="edge" x1="396" y1="588" x2="396" y2="602" marker-end="url(#arrow)" stroke="#94a3b8"/>
+
+  <!-- local models (ML accent) -->
+  <rect x="566" y="476" width="312" height="112" rx="8" fill="#f3e8ff" stroke="#9333ea" stroke-width="1.5"/>
+  <text class="b ml" x="582" y="500" font-weight="700">Local models · baked into the image</text>
+  <text class="s ml" x="582" y="522">Kokoro-82M v1.0 ONNX (kokoro-js) · TTS</text>
+  <text class="s ml" x="582" y="542">Whisper tiny.en timestamped · alignment</text>
+  <text class="s ml" x="582" y="562">ONNX Runtime on CPU · INKCAST_OFFLINE=1</text>
+  <text class="s ml" x="582" y="580">no network, no per-minute cost</text>
+
+  <!-- chromium + ffmpeg -->
+  <rect x="566" y="604" width="312" height="112" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text class="b" x="582" y="628" font-weight="700">Headless Chromium + ffmpeg</text>
+  <text class="s" x="582" y="650">Playwright Chromium (full build)</text>
+  <text class="s" x="582" y="670">2 capture workers → libx264 segments</text>
+  <text class="s" x="582" y="690">concat + AAC narration mux → out.mp4</text>
+
+  <!-- external: Clerk -->
+  <rect x="960" y="150" width="216" height="96" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="976" y="178">Clerk</text>
+  <text class="s" x="976" y="200">identity · accounts (optional)</text>
+  <text class="s mono" x="976" y="220">clerk.inkcast.video</text>
+  <text class="s mono" x="976" y="238">accounts.inkcast.video</text>
+
+  <!-- external: providers -->
+  <rect x="960" y="410" width="216" height="270" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="976" y="438">Model providers</text>
+  <text class="s" x="976" y="456">optional · BYOK per account</text>
+  <text class="b" x="976" y="486" font-weight="600">Fireworks (preferred)</text>
+  <text class="s" x="976" y="504">lessons, drawings, visual review</text>
+  <text class="b" x="976" y="534" font-weight="600">Anthropic</text>
+  <text class="s" x="976" y="552">alternative lesson author</text>
+  <text class="b" x="976" y="582" font-weight="600">ElevenLabs</text>
+  <text class="s" x="976" y="600">cloud voice instead of Kokoro</text>
+  <text class="b" x="976" y="630" font-weight="600">fal · Replicate</text>
+  <text class="s" x="976" y="648">raster illustrations</text>
+  <text class="s" x="976" y="670">none set ⇒ local fallbacks</text>
+
+  <!-- edges -->
+  <!-- browser -> studio -->
+  <line class="edge" x1="146" y1="206" x2="226" y2="206" marker-end="url(#arrow)"/>
+  <text class="lbl" x="152" y="198">HTTPS</text>
+  <line class="edge" x1="226" y1="258" x2="148" y2="258" marker-end="url(#arrow)"/>
+  <text class="lbl" x="152" y="280">SSE, mp4</text>
+
+  <!-- studio <-> blob -->
+  <line class="edge" x1="528" y1="226" x2="638" y2="226" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="lbl" x="584" y="216" text-anchor="middle">meta · job.json</text>
+  <text class="lbl" x="584" y="246" text-anchor="middle">poll 2 s</text>
+  <text class="lbl" x="584" y="264" text-anchor="middle">stream mp4</text>
+
+  <!-- studio -> clerk (over the top) -->
+  <path class="edge" d="M478,150 V122 H1068 V148" marker-end="url(#arrow)"/>
+  <text class="lbl" x="820" y="114" text-anchor="middle">auth() → session · user id</text>
+
+  <!-- studio -> render -->
+  <line class="edge" x1="330" y1="340" x2="330" y2="408" marker-end="url(#arrow)"/>
+  <text class="lbl" x="340" y="364">POST /run · Bearer token</text>
+  <text class="lbl" x="340" y="381">providerEnv · NDJSON, held ≤ 800 s</text>
+
+  <!-- render -> blob -->
+  <line class="edge" x1="800" y1="408" x2="800" y2="342" marker-end="url(#arrow)"/>
+  <text class="lbl" x="790" y="364" text-anchor="end">job.json (≥ 5 s apart, 20 s heartbeat)</text>
+  <text class="lbl" x="790" y="381" text-anchor="end">out.mp4 + 3 small artefacts</text>
+
+  <!-- render -> providers -->
+  <line class="edge" x1="896" y1="540" x2="958" y2="540" marker-end="url(#arrow)"/>
+
+  <!-- legend -->
+  <g transform="translate(32,772)">
+    <rect x="0" y="0" width="18" height="14" rx="3" fill="#0a0a0a"/>
+    <text class="s" x="26" y="12">Vercel-managed</text>
+    <rect x="150" y="0" width="18" height="14" rx="3" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text class="s" x="176" y="12">Inkcast component</text>
+    <rect x="316" y="0" width="18" height="14" rx="3" fill="#f3e8ff" stroke="#9333ea"/>
+    <text class="s" x="342" y="12">local ML model</text>
+    <rect x="462" y="0" width="18" height="14" rx="3" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="s" x="488" y="12">external service</text>
+    <rect x="610" y="0" width="18" height="14" rx="3" fill="none" stroke="#64748b" stroke-dasharray="4 3"/>
+    <text class="s" x="636" y="12">trust / runtime boundary</text>
+  </g>
+</svg>

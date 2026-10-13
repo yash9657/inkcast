@@ -9,13 +9,43 @@
  *
  * Two rules keep that honest, and they mirror `getKey()`'s precedence exactly:
  *
- *   - **The real environment always wins.** A key already in the shell or `.env`
- *     is authoritative and is never overwritten, because a value you can see
- *     being silently shadowed by one you cannot is the worst possible outcome.
- *   - **What we injected, we can retract.** `dehydrate()` removes only the
- *     variables this process set, so deleting a key stops it applying immediately
- *     rather than at the next restart. Variables that came from the environment
- *     are never touched.
+ *   - **A stored key wins.** The key the user deliberately saved is the one the
+ *     stages use, even when the environment already carries a value for the same
+ *     provider. This is the reversal of the original rule, and it was reversed on
+ *     a real failure: a stale exported `ANTHROPIC_API_KEY` kept an unfunded
+ *     account in play while the freshly pasted, working key sat sealed in the
+ *     vault, ignored — and every surface said "configured". Pasting a key is the
+ *     more deliberate act than having a variable in a long-lived shell, so the
+ *     paste is what wins. A run that must use the environment instead can simply
+ *     not store a key, or delete the stored one.
+ *   - **What we injected, we can retract — including what we overrode.** An
+ *     injection leaves the environment's own prior value recoverable, so
+ *     `dehydrate()` and a deleted key restore the environment exactly rather
+ *     than leaving a hole or a leftover.
+ *
+ * ## Why the bookkeeping lives in `process.env` itself
+ *
+ * Two earlier designs failed the same way. A module-level map was emptied by
+ * `next dev` re-evaluating modules while `process.env` kept the injected values,
+ * so a fresh module instance mistook its own package's injections for "the real
+ * environment" and refused to replace them with a newly saved key. Pinning the
+ * map to `globalThis` did not survive either: Next's dev server evaluates route
+ * bundles in separate realms with separate `globalThis` objects, so realm B's
+ * hydration found realm A's injections already sitting in the (process-wide)
+ * environment, with no way to know they were injections — and recorded the vault
+ * key as a shell value to be faithfully preserved.
+ *
+ * `process.env` is the one object that is process-wide by construction — it is
+ * the thing being mutated — so the record of what was done to it lives beside
+ * the mutation, marker and shadow both:
+ *
+ *   - `INKCAST_INJECTED_<VAR>=1` marks `<VAR>` as populated by hydration. Any
+ *     module copy, realm, or even child process can tell an injection from a
+ *     genuine shell export.
+ *   - `INKCAST_SHADOWED_<VAR>` holds the environment's own value when hydration
+ *     displaced one, so retraction is a restore rather than a delete. It is the
+ *     same secret at the same exposure — a second name in an environment that
+ *     already carries the value.
  *
  * ## Why this is opt-in, and the cost of using it
  *
@@ -34,24 +64,51 @@ import { createKeyvault, type KeyvaultOptions } from './store.js';
 
 const log = logger('keyvault:hydrate');
 
-/** Providers whose env var this process populated, and with which variable. */
-const injected = new Map<Provider, string>();
+/** Marks `variable` as populated by hydration rather than by the environment. */
+function markerName(variable: string): string {
+  return `INKCAST_INJECTED_${variable}`;
+}
+
+/** Holds the environment's own value for `variable` while an injection displaces it. */
+function shadowName(variable: string): string {
+  return `INKCAST_SHADOWED_${variable}`;
+}
+
+/** Whether `variable` in `env` was put there by hydration. */
+function isInjected(env: NodeJS.ProcessEnv, variable: string): boolean {
+  return env[markerName(variable)] === '1';
+}
+
+/**
+ * Undo one injection on `env`: restore the displaced shell value if one was
+ * recorded, otherwise remove the variable, and drop the bookkeeping either way.
+ */
+function retract(env: NodeJS.ProcessEnv, variable: string): void {
+  const shadowed = env[shadowName(variable)];
+  if (shadowed === undefined) delete env[variable];
+  else env[variable] = shadowed;
+  delete env[markerName(variable)];
+  delete env[shadowName(variable)];
+}
 
 export type HydrateResult = {
-  /** Providers newly populated from storage by this call. */
+  /** Providers populated from storage by this call — overriding env if it had one. */
   injected: Provider[];
-  /** Providers left alone because the real environment already supplied them. */
+  /** Providers with no stored key whose value comes from the real environment. */
   fromEnv: Provider[];
   /** Providers with nothing available anywhere — these stages run locally. */
   missing: Provider[];
 };
 
 /**
- * Copy stored keys into `env` for any provider the environment did not supply.
+ * Copy stored keys into `env`, overriding any value the environment carries for
+ * the same provider. Providers with nothing stored keep their environment value.
  *
- * Idempotent and safe to call repeatedly. Defaults to `process.env`; pass a
- * different object in tests. A provider whose key cannot be read (no passphrase,
- * a tampered entry) is reported as missing and logged once — never thrown, so one
+ * Idempotent and safe to call repeatedly — a re-run after a key is saved or
+ * deleted converges on storage's current contents, from any module copy or realm
+ * (see the header). Defaults to `process.env`; pass a different object in tests.
+ * A provider whose key cannot be read (no passphrase, a tampered entry) is
+ * treated as having nothing stored and logged once — never thrown, so one
  * unreadable entry cannot stop the other three stages from upgrading.
  */
 export async function hydrateEnv(
@@ -59,51 +116,47 @@ export async function hydrateEnv(
 ): Promise<HydrateResult> {
   const target = opts.target ?? process.env;
 
-  // Resolve against an environment with *our own* injections removed. Without
-  // this, `getKey()`'s env-first precedence would find the variable we set on the
-  // previous pass and report it as configured — so a deleted key would keep
-  // re-injecting itself forever and could never be retracted. Keys the real
-  // environment supplies are still visible, and are short-circuited below.
-  const base = opts.env ?? target;
-  const scrubbed: NodeJS.ProcessEnv = { ...base };
-  for (const name of injected.values()) delete scrubbed[name];
-
-  const kv = createKeyvault({ ...opts, env: scrubbed });
+  // Storage is read through an instance that sees the environment as the shell
+  // supplied it, so a value hydration set can never be mistaken for configuration.
+  const kv = createKeyvault({ ...opts, env: realEnv(opts.env ?? target) });
   const result: HydrateResult = { injected: [], fromEnv: [], missing: [] };
 
   for (const provider of PROVIDERS) {
     const canonical = PROVIDER_SPECS[provider].envVars[0]!;
 
-    // Already in the environment, and not by us: authoritative, hands off.
-    const present = envKey(provider, target);
-    if (present && injected.get(provider) !== present.name) {
-      result.fromEnv.push(provider);
-      continue;
-    }
-
-    let key: string | undefined;
+    let stored: string | undefined;
     try {
-      key = await kv.getKey(provider);
+      stored = await kv.storedKey(provider);
     } catch (err) {
       log.warn(
-        `could not read the stored ${provider} key — that stage will run locally`,
+        `could not read the stored ${provider} key — falling back to the environment`,
         err as Error,
       );
     }
 
-    if (key) {
-      target[canonical] = key;
-      injected.set(provider, canonical);
-      result.injected.push(provider);
-    } else {
-      // Retract a value we previously injected that is no longer stored.
-      const stale = injected.get(provider);
-      if (stale) {
-        delete target[stale];
-        injected.delete(provider);
+    if (stored) {
+      // A genuine shell value is moved into the shadow slot the first time it is
+      // displaced, so a later retraction restores it exactly. On re-runs the
+      // marker says the current value is ours, and the slot is left alone.
+      const current = target[canonical];
+      if (current !== undefined && current !== stored && !isInjected(target, canonical)) {
+        target[shadowName(canonical)] = current;
+        if (current.trim() !== '') {
+          log.info(`the stored ${provider} key overrides ${canonical} from the environment`);
+        }
       }
-      result.missing.push(provider);
+      target[canonical] = stored;
+      target[markerName(canonical)] = '1';
+      result.injected.push(provider);
+      continue;
     }
+
+    // Nothing stored: retract anything hydration previously injected, so a
+    // deleted key stops applying immediately and the shell's own value resurfaces.
+    if (isInjected(target, canonical)) retract(target, canonical);
+
+    if (envKey(provider, target)) result.fromEnv.push(provider);
+    else result.missing.push(provider);
   }
 
   if (result.injected.length > 0) {
@@ -113,22 +166,41 @@ export async function hydrateEnv(
 }
 
 /**
- * Remove every variable `hydrateEnv()` set, leaving the real environment intact.
+ * Remove every variable `hydrateEnv()` set, restoring what the real environment
+ * held there before.
  *
  * Call this after deleting a key, and on shutdown, so an injected credential does
  * not outlive its purpose.
  */
 export function dehydrate(target: NodeJS.ProcessEnv = process.env): Provider[] {
   const removed: Provider[] = [];
-  for (const [provider, name] of injected) {
-    delete target[name];
+  for (const provider of PROVIDERS) {
+    const canonical = PROVIDER_SPECS[provider].envVars[0]!;
+    if (!isInjected(target, canonical)) continue;
+    retract(target, canonical);
     removed.push(provider);
   }
-  injected.clear();
   return removed;
 }
 
-/** Providers whose env var is currently populated by this process. */
-export function hydratedProviders(): Provider[] {
-  return [...injected.keys()];
+/** Providers whose env var is currently populated by hydration. */
+export function hydratedProviders(env: NodeJS.ProcessEnv = process.env): Provider[] {
+  return PROVIDERS.filter((provider) => isInjected(env, PROVIDER_SPECS[provider].envVars[0]!));
+}
+
+/**
+ * `target` as the real environment supplied it: a clone with every injection
+ * reversed — the displaced values restored, the purely-injected ones removed,
+ * and the bookkeeping variables dropped.
+ *
+ * Status paths need this. Without it, provenance is read back through the very
+ * variables hydration wrote, so every stored key reports as coming from an
+ * environment variable the user never set.
+ */
+export function realEnv(target: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const injected = hydratedProviders(target);
+  if (injected.length === 0) return target;
+  const env: NodeJS.ProcessEnv = { ...target };
+  for (const provider of injected) retract(env, PROVIDER_SPECS[provider].envVars[0]!);
+  return env;
 }

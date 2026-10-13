@@ -31,6 +31,8 @@ export async function rerenderCommand(
     const result = await rerender(project.id, {
       onProgress: rep.progress,
       ...(flags.force ? { force: true } : {}),
+      ...(flags.degrade ? { gates: 'degrade' as const } : {}),
+      ...(flags.emitPlan ? { emitPlan: true } : {}),
     });
     rep.stop();
 
@@ -41,6 +43,7 @@ export async function rerenderCommand(
             ok: true,
             projectId: result.projectId,
             videoPath: result.videoPath,
+            ...(result.planPath ? { planPath: result.planPath } : {}),
             durationSec: totalDuration(result.storyboard),
             cost: result.cost,
           },
@@ -53,6 +56,9 @@ export async function rerenderCommand(
       process.stdout.write(
         `\n${c.green('✔')} ${c.bold(sb.title)} ${c.dim(`· ${clock(totalDuration(sb))} · ${secs(Date.now() - started)}`)}\n` +
           `  ${c.dim('video'.padEnd(10))}${pretty(ctx, result.videoPath)}\n` +
+          (result.planPath
+            ? `  ${c.dim('plan'.padEnd(10))}${pretty(ctx, result.planPath)}\n`
+            : '') +
           `  ${c.dim('cost'.padEnd(10))}${formatCost(result.cost)}\n\n`,
       );
     }

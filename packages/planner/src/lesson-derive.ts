@@ -1,3 +1,4 @@
+import { textProvider } from '@inkcast/core';
 /**
  * The zero-key lesson author.
  *
@@ -15,9 +16,10 @@
  * not a claim of equivalence.
  */
 import type { Lesson, LessonStep, VisualIntent } from '@inkcast/core';
-import { Lesson as LessonSchema, logger } from '@inkcast/core';
+import { Lesson as LessonSchema, findTerms, logger, technicalTerms } from '@inkcast/core';
 import type { Beat } from './beats.js';
 import { buildBeats, definitionOf, extractFacts } from './beats.js';
+import { worthPlotting } from './plots.js';
 import { clampNarration, lessonSeconds } from './presets.js';
 import type { Preset } from './presets.js';
 import { composeItems, speakify, writeNarration } from './narration.js';
@@ -25,6 +27,54 @@ import { capitalize, keyTerms, sentences, shorten, stripMarkdown, wordCount } fr
 import type { LessonOptions, SourceDoc } from './types.js';
 
 const log = logger('planner:lesson:derive');
+
+/**
+ * The vocabulary a derived beat writes on the board.
+ *
+ * This is the one thing on this path that is not a compromise. Naming the terms a beat
+ * introduces is not an act of teaching — it is a property of the words, which is exactly
+ * what a heuristic can read — so `technicalTerms` does here what it does for the model:
+ * the board writes ATP as the narrator says ATP, with no key and no network.
+ *
+ * Certainty first, then a little recall. Every initialism and name a beat says is written,
+ * up to the schema's ceiling of three: those are the ones with no argument about them, and
+ * an initialism especially, because the voice stage spells it out letter by letter and
+ * nothing recovers "H₂O" from "aitch two oh". A beat with fewer than two of those tops up
+ * with its best long words, and stops at two — this author reads prose rather than
+ * choosing what to teach, so its third-best guess at what is vocabulary is its worst one.
+ *
+ * Terms are deduplicated across the whole lesson downstream (`planVocabulary`), so a beat
+ * whose offers are all already on the board writes nothing, which is correct.
+ */
+function vocabulary(narration: string): string[] {
+  const certain = findTerms(narration)
+    .filter((t) => t.kind !== 'word')
+    .map((t) => t.text);
+  // `technicalTerms` ranks initialisms and names above long words, so asking it for two
+  // returns the certain one plus the best word when there is only one certain term.
+  return certain.length >= 2 ? certain.slice(0, 3) : technicalTerms(narration, 2);
+}
+
+/**
+ * The grounding every heuristic beat gets, and why it is the same one every time.
+ *
+ * `given` rather than `derived`, because this author has no model of how one beat
+ * follows from another: it lifts the document's own justifying sentence into `because`
+ * and stops there, so it cannot honestly name the earlier beats a claim rests on.
+ * `given` rather than `asserted`, because that sentence is a real reason the learner
+ * can check, not a bare statement.
+ *
+ * A function rather than a shared constant so no two beats alias one `derivedFrom`.
+ */
+function grounded(): Pick<LessonStep, 'from' | 'derivedFrom' | 'emphasis'> {
+  // No emphasis, and no `cadence` either: this author lifts the document's own
+  // sentences and has no opinion about which words carry a beat or how it should be
+  // delivered. Leaving `cadence` unset is not a shrug — `cadenceFor` reads it off the
+  // beat's role and shape, so a no-key lesson is still paced beat by beat rather than
+  // flat. Guessing emphasis from prose would be the other thing: a heuristic dressed
+  // as intent, which is what `lesson-derive` exists to avoid claiming.
+  return { from: 'given', derivedFrom: [], emphasis: [] };
+}
 
 /* -------------------------------------------------------------- doc reading */
 
@@ -36,6 +86,54 @@ const WRONG =
 
 function docSentences(doc: SourceDoc): string[] {
   return sentences(stripMarkdown(doc.text)).filter((s) => wordCount(s) >= 6);
+}
+
+/**
+ * Which of the document's sections a passage came out of, by heading (plan item 5.2).
+ *
+ * This author is the one that can answer the question *exactly*: it does not summarise a
+ * document, it lifts sentences out of it, so the section a beat came from is a fact it
+ * already holds rather than something to infer. That makes the no-key path the place
+ * `sourceRef` is verifiable without a model or a key — the fraction of beats carrying a
+ * ref is measurable from `examples/*.md` alone.
+ *
+ * Three ways in, in order of certainty:
+ *
+ *  1. **A heading handed over by `buildBeats`**, which built the beat out of that
+ *     section's own blocks. Certain.
+ *  2. **The passage opens with a heading.** `docSentences` runs `sentences()` over the
+ *     whole stripped document, so a heading with no full stop after it is glued to the
+ *     first sentence of the section it introduces — which is why "Think of it as a
+ *     compiler" arrives as "What Inkcast actually does Think of it as a compiler". That
+ *     prefix is the strongest evidence there is about where a passage came from, and
+ *     without this rule the strongest evidence was the reason the match failed.
+ *  3. **Containment** — the section whose own text has this passage in it.
+ *
+ * Every answer is a real heading from the document. `buildBeats`' title beat, whose
+ * "heading" is the document *title*, therefore gets nothing, and so does anything lifted
+ * out of the unheaded lead paragraphs before the first heading: there is no section there
+ * to name. An unsourced beat is honest, and a ref pointing at the nearest heading would be
+ * exactly the plausible-looking citation this field exists to make testable.
+ */
+function sectionFor(doc: SourceDoc, hint: string, passage?: string): string | undefined {
+  const headings = doc.sections.map((s) => s.heading.trim()).filter(Boolean);
+  const named = headings.find((h) => h.toLowerCase() === hint.trim().toLowerCase());
+  if (named) return named;
+  const text = stripMarkdown(passage ?? '').trim();
+  const opens = headings.find((h) => text.toLowerCase().startsWith(h.toLowerCase()));
+  if (opens) return opens;
+  const needle = text.slice(0, 80).toLowerCase();
+  if (needle.length < 20) return undefined;
+  const holding = doc.sections.find(
+    (s) => s.heading.trim() !== '' && stripMarkdown(s.text).toLowerCase().includes(needle),
+  );
+  return holding?.heading.trim();
+}
+
+/** `{ sourceRef }` when the passage really is in a named section, `{}` otherwise. */
+function sourced(doc: SourceDoc, hint: string, passage?: string): { sourceRef?: string } {
+  const heading = sectionFor(doc, hint, passage);
+  return heading === undefined ? {} : { sourceRef: heading };
 }
 
 /** The sentence that carries the most information, by content words and numbers. */
@@ -129,10 +227,11 @@ const PLOT_SHAPES: [RegExp, string][] = [
     'two curves: training error falling, unseen-data error turning back up',
   ],
   [
-    /\bsupply|demand|price\b/i,
+    // The pairing, not the lone word — "an energy supply" is not a demand curve.
+    /supply and demand|(?:supply|demand) curve|\bprices?\b/i,
     'supply and demand as two crossing straight lines, with the crossing point marked',
   ],
-  [/\boscillat|wave|cycle|periodic/i, 'a sine wave over time'],
+  [/\boscillat|wave|periodic/i, 'a sine wave over time'],
   [/\bthreshold|cutoff|switch(?:es)? on/i, 'a threshold: flat, then a step up'],
   [/\brate|per second|per year|over time|speed\b/i, 'a straight line of value against time'],
 ];
@@ -141,8 +240,19 @@ const PLOT_SHAPES: [RegExp, string][] = [
 function visualFor(beat: Beat, doc: SourceDoc): VisualIntent[] {
   const text = `${beat.heading} ${beat.source}`;
 
+  // A shape keyword says *which* plot; it cannot say whether a plot is the right drawing,
+  // and this table was being asked both questions. `worthPlotting` asks the second one —
+  // is there a quantity here, and does anything happen to it — so a passage that merely
+  // contains the word does not get axes. See `worthPlotting` for the failure this
+  // removes.
   for (const [re, describe] of PLOT_SHAPES) {
-    if (re.test(text)) return [{ describe, kind: 'plot' }];
+    if (!re.test(text)) continue;
+    if (worthPlotting(text)) return [{ describe, kind: 'plot' }];
+    log.debug(
+      `beat "${beat.heading}" matched a plot shape but states no quantity — not drawing axes`,
+      describe,
+    );
+    break;
   }
 
   if ((beat.shape === 'steps' || beat.shape === 'list') && beat.items?.length) {
@@ -184,11 +294,46 @@ function visualFor(beat: Beat, doc: SourceDoc): VisualIntent[] {
 
 /* -------------------------------------------------------------------- steps */
 
+/**
+ * The one line this beat writes on the board, and never a line another beat wrote.
+ *
+ * A document's section becomes several beats, so reaching for the heading first — which
+ * is what this did — captions all of them the same thing. Measured on the photosynthesis
+ * document, three of eight cells said "The one-line version" and two more said "Where it
+ * happens": a third of the board's words were one string repeated, and the accumulated
+ * board is supposed to *be* the summary.
+ *
+ * So the heading is the first *preference*, not the answer, and a beat whose turn at it
+ * has already been taken falls through to a sentence of its own. `used` is the ideas
+ * already claimed, and it is mutated here so the next beat sees this one's choice.
+ */
+function ideaFor(beat: Beat, source: string, used: Set<string>): string {
+  const def = definitionOf(source);
+  const candidates = [
+    def?.term ? `${def.term}: ${def.definition}` : undefined,
+    beat.heading,
+    strongest(sentences(source)),
+    // Last resort, and never a repeat: the beat's own opening sentence.
+    sentences(source)[0],
+    source,
+  ];
+  for (const candidate of candidates) {
+    const idea = shorten(candidate ?? '', 12);
+    if (!idea) continue;
+    const key = idea.toLowerCase();
+    if (used.has(key)) continue;
+    used.add(key);
+    return idea;
+  }
+  return shorten(candidates.find(Boolean) ?? '', 12);
+}
+
 function stepFrom(
   beat: Beat,
   doc: SourceDoc,
   preset: Preset,
   index: number,
+  used: Set<string>,
 ): LessonStep | undefined {
   const source = stripMarkdown(beat.source);
   const narration = clampNarration(
@@ -200,12 +345,7 @@ function stepFrom(
   if (wordCount(narration) < 5) return undefined;
 
   const def = definitionOf(source);
-  const idea = shorten(
-    def?.term
-      ? `${def.term}: ${def.definition}`
-      : beat.heading || strongest(sentences(source)) || source,
-    12,
-  );
+  const idea = ideaFor(beat, source, used);
   const because =
     reasonNear(source, idea) ??
     (def?.definition ? speakify(`it is ${def.definition}`) : undefined) ??
@@ -217,7 +357,13 @@ function stepFrom(
   return {
     idea: capitalize(idea),
     because,
+    ...grounded(),
+    // Where this beat's facts came from, when it came from a named section (plan 5.2).
+    // `buildBeats` built it out of that section's own blocks, so this is a record rather
+    // than a guess.
+    ...sourced(doc, beat.heading, source),
     narration,
+    terms: vocabulary(narration),
     visuals: visualFor(beat, doc),
     hold: 0.4,
   };
@@ -258,10 +404,24 @@ export function deriveLesson(
   // is dropped rather than aired twice.
   const spoken: string[] = [speakify(opening), speakify(analogy ?? opening)];
   const drawn: string[] = [];
+  const anchorSource = analogy ?? opening;
+  // The two captions the setup will write, settled before the steps so no step can
+  // caption its cell with a line the hook or the anchor is already going to write.
+  // With no document, `opening` is only the topic — and the topic is already the video's
+  // title, so captioning the hook with it says nothing and collides with the one step a
+  // bare topic produces. The question the hook asks is what that beat actually
+  // contributes, so it is the honest caption. A real document has a sentence to use.
+  const hookIdea = capitalize(
+    shorten(opening === doc.title ? hookQuestion(doc.title) : opening, 10),
+  );
+  const anchorIdea = capitalize(
+    shorten(analogy ? anchorSource : `start from what ${doc.title} is for`, 10),
+  );
+  const captions = new Set([hookIdea.toLowerCase(), anchorIdea.toLowerCase()]);
   beats.forEach((beat, i) => {
     if (steps.length >= 5) return;
     if (factBeat && beat === factBeat && extractFacts(beat.source, 4).length >= 2) return;
-    const step = stepFrom(beat, doc, preset, i);
+    const step = stepFrom(beat, doc, preset, i, captions);
     if (!step) return;
     if (spoken.some((prior) => saysAgain(step.narration, prior) > 0.6)) return;
     // Two beats in a row asking for the same picture is how the MVP ended up
@@ -281,13 +441,16 @@ export function deriveLesson(
     steps.push(step);
   });
   if (!steps.length) {
+    const narration = clampNarration(
+      writeNarration(doc.text || doc.title, { maxWords: preset.maxWordsPerBeat }),
+      preset.maxWordsPerBeat,
+    );
     steps.push({
       idea: capitalize(shorten(opening, 12)),
       because: speakify(all[1] ?? opening),
-      narration: clampNarration(
-        writeNarration(doc.text || doc.title, { maxWords: preset.maxWordsPerBeat }),
-        preset.maxWordsPerBeat,
-      ),
+      ...grounded(),
+      narration,
+      terms: vocabulary(narration),
       visuals: [
         {
           describe: `${keyTerms(doc.text, 3).join(' ') || doc.title} drawn as a simple object`,
@@ -298,15 +461,20 @@ export function deriveLesson(
     });
   }
 
+  const hookNarration = clampNarration(
+    `${hookQuestion(doc.title)} ${speakify(opening)}`,
+    preset.maxWordsPerBeat + 6,
+  );
   const hook: LessonStep = {
-    idea: capitalize(shorten(opening, 10)),
+    idea: hookIdea,
     // The hook is the one beat `critiqueLesson` does not require a reason for:
     // a question does not need justifying, it needs answering.
     because: '',
-    narration: clampNarration(
-      `${hookQuestion(doc.title)} ${speakify(opening)}`,
-      preset.maxWordsPerBeat + 6,
-    ),
+    ...grounded(),
+    // The question is this author's own, but the sentence after it is the document's.
+    ...sourced(doc, '', opening),
+    narration: hookNarration,
+    terms: vocabulary(hookNarration),
     visuals: [
       {
         describe: `${keyTerms(`${doc.title} ${opening}`, 3).join(' ') || doc.title} drawn as a simple object, with a question mark beside it`,
@@ -317,13 +485,16 @@ export function deriveLesson(
     hold: 1.4,
   };
 
-  const anchorSource = analogy ?? opening;
+  const anchorNarration = clampNarration(speakify(anchorSource), preset.maxWordsPerBeat);
   const anchor: LessonStep = {
-    idea: capitalize(shorten(analogy ? anchorSource : `start from what ${doc.title} is for`, 10)),
+    idea: anchorIdea,
     because:
       reasonNear(doc.text, anchorSource) ??
       speakify(all.find((s) => s !== anchorSource && wordCount(s) >= 8) ?? anchorSource),
-    narration: clampNarration(speakify(anchorSource), preset.maxWordsPerBeat),
+    ...grounded(),
+    ...sourced(doc, '', anchorSource),
+    narration: anchorNarration,
+    terms: vocabulary(anchorNarration),
     visuals: analogy
       ? [
           {
@@ -347,13 +518,36 @@ export function deriveLesson(
     objective:
       opts.objective ??
       `explain in your own words how ${subject(doc.title)} works, and why each step of it is needed`,
+    // What this author can and cannot honestly claim about its own pedagogy.
+    //
+    // `kind` and `strategy` stay at the strictest reading rather than guessing: it has
+    // no way to tell a proof from a story, and `first-principles` with every beat
+    // `given` is the one combination it can actually satisfy.
+    //
+    // `analogy` is deliberately absent. A mapping table is a set of claims about what
+    // stands for what, and inferring those from prose is precisely the guessing this
+    // stage replaced — so the abstraction does not morph out of the anchor on this
+    // path. It used to, whenever a document happened to put a becoming-verb near the
+    // word "curve", which was luck dressed as pedagogy.
+    kind: 'stem',
+    strategy: 'first-principles',
+    // The document's strongest opening claim. Not an insight it worked out, just the
+    // most load-bearing sentence the author already wrote.
+    coreInsight: speakify(opening),
     jargonBudget: [],
+    // No cast: this author derives from a document and has no way to know who, if
+    // anyone, the topic is about. A narrative lesson comes from a model, not here.
+    cast: [],
     hook,
     anchor,
     steps,
     recap: {
       idea: 'The chain, end to end',
       because: '',
+      ...grounded(),
+      // No terms: the recap adds nothing new, and every word it says has been said
+      // before — so anything it could write is already on the board.
+      terms: [],
       narration: clampNarration(
         composeItems(
           [anchor.idea, ...steps.map((s) => s.idea)].map((s) => shorten(s, 6).replace(/…$/, '')),
@@ -370,7 +564,7 @@ export function deriveLesson(
 
   if (factBeat && extractFacts(factBeat.source, 4).length >= 2) {
     const facts = extractFacts(factBeat.source, 3);
-    const worked = stepFrom(factBeat, doc, preset, steps.length);
+    const worked = stepFrom(factBeat, doc, preset, steps.length, captions);
     if (worked) {
       lesson.worked = {
         ...worked,
@@ -387,10 +581,14 @@ export function deriveLesson(
   }
 
   if (wrong) {
+    const narration = clampNarration(speakify(wrong), preset.maxWordsPerBeat);
     lesson.misconception = {
       idea: capitalize(shorten(wrong, 10)),
       because: speakify(wrong),
-      narration: clampNarration(speakify(wrong), preset.maxWordsPerBeat),
+      ...grounded(),
+      ...sourced(doc, '', wrong),
+      narration,
+      terms: vocabulary(narration),
       visuals: [
         {
           describe: `${keyTerms(wrong, 3).join(' ')} drawn as a simple object, crossed out`,
@@ -413,9 +611,10 @@ export function deriveLesson(
   // advice for someone who set one and had it rejected. Verification with a
   // deliberately invalid key hit exactly that — the 401 was reported correctly one
   // line above, and then this line told them they had no key at all.
-  const why = process.env.ANTHROPIC_API_KEY
-    ? 'the Anthropic key did not work, so this lesson was derived from the document structure rather than taught.'
-    : 'no ANTHROPIC_API_KEY, so this lesson was derived from the document structure rather than taught.';
+  const why =
+    textProvider() !== 'heuristic'
+      ? 'cloud generation did not work, so this lesson was derived from the document structure rather than taught.'
+      : 'no cloud planner selected, so this lesson was derived from the document structure rather than taught.';
   log.warn(
     why,
     'It keeps the shape of a lesson (hook, anchor, steps, recap) but it cannot invent an anchor, a worked example or the misconception a learner actually forms. A working key is what makes this good.',

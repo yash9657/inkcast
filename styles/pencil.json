@@ -1,0 +1,44 @@
+{
+  "id": "pencil",
+  "name": "Soft pencil",
+  "description": "A thin, shaky graphite line that does not lay down solid ink — the hand of someone thinking on paper rather than presenting.",
+  "hand": {
+    "fontFamily": "Caveat",
+    "fontFiles": ["caveat"],
+    "tracking": 0.006,
+    "textOpacity": 0.82
+  },
+  "pen": {
+    "width": 2.5,
+    "weight": 0.55,
+    "inkSpeed": 1400,
+    "art": {
+      "unit": 138,
+      "baseAngle": 149,
+      "follow": 0.5,
+      "parts": [
+        { "d": "M -3 0 L 3 0 L 5 -12 L -5 -12 Z", "fill": "#2b3440" },
+        { "d": "M -5 -12 L 5 -12 L 12 -34 L -12 -34 Z", "fill": "#f0dfbf" },
+        { "d": "M -12 -34 L 12 -34 L 12 -116 L -12 -116 Z", "fill": "#e0a92b" },
+        { "d": "M -4 -34 L 0 -34 L 0 -116 L -4 -116 Z", "fill": "rgba(255,255,255,0.3)" },
+        { "d": "M -12 -116 L 12 -116 L 12 -124 L -12 -124 Z", "fill": "#9aa3ad" },
+        {
+          "d": "M -11 -124 L 11 -124 L 11 -136 Q 11 -138 8 -138 L -8 -138 Q -11 -138 -11 -136 Z",
+          "fill": "#d4455f"
+        }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 1.9,
+    "bowing": 1.7,
+    "multiStroke": true,
+    "curveFitting": 0.9,
+    "maxRandomnessOffset": 2.8,
+    "strokeOpacity": 0.74,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "hachure", "weight": 1.2, "hachureAngle": -49, "hachureGap": 6 }
+  },
+  "sketch": { "roughness": 1.7, "bowing": 1.5, "passes": 2, "cap": "round", "opacity": 0.86 }
+}

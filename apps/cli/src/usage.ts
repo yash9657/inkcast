@@ -1,4 +1,22 @@
+import { DEFAULT_STYLE, styleIds } from '@inkcast/core';
 import { paint } from './ui.js';
+
+/**
+ * The `--style` line, built from `styles/` rather than typed out (plan 7.3).
+ *
+ * The preset list two lines above is a literal, and its own comment explains why — the
+ * CLI has to print help before any stage package is loaded. That reasoning does not reach
+ * here: the style list lives in `@inkcast/core`, which this app already imports, and the
+ * whole point of the item is that a fifth style is a file. A help text listing four names
+ * while the flag accepted five would be exactly the drift the preset comment describes.
+ *
+ * Padded to the column the other flag descriptions sit in, so the block stays aligned as
+ * the list grows.
+ */
+function styleLine(): string {
+  const ids = styleIds().join(' | ');
+  return `${ids.padEnd(42)} (default ${DEFAULT_STYLE})`;
+}
 
 export function usage(color: boolean): string {
   const c = paint(color);
@@ -7,7 +25,7 @@ export function usage(color: boolean): string {
   return `${c.bold('inkcast')} — open-source AI explainer videos. A topic in, a hand-drawn whiteboard lesson out.
 
 ${h('START HERE')}
-  ${f('inkcast keys set anthropic')}               store a key — this is what makes the lessons good
+  ${f('inkcast keys set fireworks')}               configure open-weight planning and visual review
   ${f('inkcast teach')} "gradient descent"         teach a topic from scratch
   ${f('inkcast teach')} "the Krebs cycle" --short  a 9:16 vertical short
 
@@ -34,17 +52,22 @@ ${h('LESSON')}
 ${h('FORMAT')}
       --short            9:16 vertical with short-form pacing
       --aspect <ratio>   16:9 | 9:16 | 1:1                          (default 16:9)
-      --preset <name>    standard | short | square
+      --preset <name>    standard | short | square | explainer
+      --board <mode>     accumulate | wipe — one idea per card     (default accumulate)
   -t, --title <text>     title for the video (default: the lesson's topic)
       --voice <id>       voice id, e.g. af_heart, am_puck           (default af_heart)
       --lang <code>      narration language, e.g. en, es, fr        (default en)
-      --style <style>    marker | pencil | chalk | ink              (default marker)
+      --style <style>    ${styleLine()}
       --palette <name>   mono | color                              (default color)
 
 ${h('OPTIONS')}
   -o, --out <path>       also copy the finished mp4 to this path
       --project <id>     reuse (and resume) a specific project directory
   -f, --force            redo every stage, ignoring the cache
+      --degrade          render through detected quality defects (they are
+                         recorded instead of blocking; the default is strict)
+      --emit-plan        also write the compiled timeline to plan.json (for
+                         reading — nothing reads it back)
       --open             open the video when it is done
       --json             machine-readable result on stdout, no progress bar
       --verbose          debug logging instead of the progress bar
@@ -71,7 +94,7 @@ ${h('THE PIPELINE')}
   ${c.dim('`--via document` skips the lesson stage and summarises instead. It is the')}
   ${c.dim("renderer's zero-key test fixture, not a route to a video worth watching.")}
 
-${c.dim(`Everything runs with no API keys, but not equally well: without an Anthropic key the
+${c.dim(`Everything runs with no API keys, but not equally well: without a cloud planning key the
 lesson is derived from document structure instead of taught, and the CLI will say so.
 Exit codes: 0 success, 1 failed, 2 bad usage.`)}
 `;

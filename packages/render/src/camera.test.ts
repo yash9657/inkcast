@@ -11,15 +11,25 @@ import test from 'node:test';
 import { frameSize, parseStoryboard } from '@inkcast/core';
 import type { Storyboard } from '@inkcast/core';
 import {
+  MAX_VIEWS_PER_SEC,
+  basePxPerUnit,
+  boardMetrics,
   contentFill,
   elementBounds,
+  fitCamera,
   resolveFraming,
   safeInsets,
   unitsPerPixel,
   viewRect,
-} from './camera.js';
+} from '@inkcast/core';
 import { compilePlan } from './compile.js';
-import { fixtureStoryboard, lessonStoryboard, verticalStoryboard } from './fixture.js';
+import {
+  fixtureStoryboard,
+  lessonStoryboard,
+  planWithVisuals,
+  verticalStoryboard,
+  wipeStoryboard,
+} from './fixture.js';
 import { rectContains } from './geom.js';
 import type { Rect } from './types.js';
 
@@ -186,6 +196,67 @@ test('a scene with no region keeps the camera its author composed', () => {
   assert.equal(plan.scenes[1]?.camera.zoom, 1.8);
 });
 
+test('a long walk between regions gets the time its distance needs (plan 2.5)', () => {
+  // Two regions at opposite ends of a canvas five frames wide: under the old fixed
+  // transition classes this walk would cross several view-widths inside one 0.45s
+  // window. Pass 3 now derives the time from the distance, bounded by
+  // MAX_VIEWS_PER_SEC — measured against the corpus so no shipped walk slows down
+  // (the fastest shipped is 1.84 views/s; the ceiling sits at 2.4).
+  const walk = (farX: number): Storyboard =>
+    parseStoryboard({
+      version: 1,
+      title: 'walk',
+      canvas: { x: 0, y: 0, w: 10000, h: 1800 },
+      scenes: [
+        {
+          id: 'near',
+          narration: 'a',
+          durationSec: 4,
+          region: 'left',
+          camera: { x: 600, y: 500, zoom: 1, transition: 0 },
+          elements: [
+            { id: 'e1', type: 'text', text: 'left side', at: { x: 200, y: 300, w: 700, h: 300 } },
+          ],
+        },
+        {
+          id: 'far',
+          narration: 'b',
+          durationSec: 4,
+          region: 'right',
+          camera: { x: farX + 400, y: 500, zoom: 1, transition: 0 },
+          elements: [
+            {
+              id: 'e2',
+              type: 'text',
+              text: 'right side',
+              at: { x: farX, y: 300, w: 700, h: 300 },
+            },
+          ],
+        },
+      ],
+    });
+
+  const sb = walk(4200);
+  const framing = resolveFraming(sb, FRAME);
+  const [a, b] = [framing[0]!, framing[1]!];
+  assert.equal(b.derived, true, 'a region scene gets a derived camera');
+  const dist = Math.hypot(b.camera.x - a.camera.x, b.camera.y - a.camera.y);
+  const viewW = FRAME.w / (basePxPerUnit(sb.canvas, FRAME) * b.camera.zoom);
+  assert.ok(dist / viewW > 2.3, `this fixture must be a genuinely long walk (${dist / viewW})`);
+  // Pinned: the transition is exactly what the distance demands at the ceiling.
+  const needed = Math.round((dist / viewW / MAX_VIEWS_PER_SEC) * 100) / 100;
+  assert.equal(b.camera.transition, needed);
+  assert.ok(b.camera.transition > 0.95, 'longer than any fixed transition class');
+  // And the speed the viewer sees never exceeds the ceiling.
+  assert.ok(dist / viewW / b.camera.transition <= MAX_VIEWS_PER_SEC + 0.01);
+
+  // A pathological distance is capped rather than eating the scene: past 2.5s the
+  // move reads better as a cut, and the settle clamp downstream bounds what a
+  // transition may consume of the narration.
+  const extreme = resolveFraming(walk(8800), FRAME);
+  assert.equal(extreme[1]!.camera.transition, 2.5);
+});
+
 test('a recap pulls back over everything drawn, across every region', () => {
   const sb = lessonStoryboard();
   const framing = resolveFraming(sb, FRAME);
@@ -204,6 +275,72 @@ test('a recap pulls back over everything drawn, across every region', () => {
   for (const f of framing.slice(0, -1)) {
     assert.ok(recap.camera.zoom <= f.camera.zoom, 'the recap is the widest shot in the film');
   }
+});
+
+test('a wiped board frames one card and forgets the last one', () => {
+  // The inverse of the test above, and the half of `wipe` without which the phase
+  // changes nothing: `resolveFraming` re-derives every camera from accumulated ink
+  // and overwrites whatever the planner composed, so a board that wipes has to be
+  // able to say that ink is *gone*. Otherwise the frame keeps widening for marks the
+  // renderer has already faded out.
+  const sb = wipeStoryboard();
+  const framing = resolveFraming(sb, FRAME);
+  const views = framing.map((f) => viewRect(f.camera, sb.canvas, FRAME));
+  const boxOf = (id: string): Rect => {
+    for (const scene of sb.scenes) {
+      const el = scene.elements.find((e) => e.id === id);
+      if (el) return elementBounds(el);
+    }
+    throw new Error(`no element ${id}`);
+  };
+
+  // A card that several beats draw together is still on the board for the last of
+  // them — the hook draws the hillside, the anchor rolls a ball down it.
+  assert.ok(rectContains(views[1] as Rect, boxOf('hill')), 'the held hillside is still framed');
+
+  // And it is gone by the recap, which under `wipe` frames only what it drew itself.
+  const recap = framing.at(-1);
+  assert.ok(recap?.derived, 'the recap camera is still derived');
+  const recapView = views.at(-1) as Rect;
+  for (const id of ['hill', 'ball', 'loss', 'tan']) {
+    assert.ok(!rectContains(recapView, boxOf(id)), `${id} was wiped — the recap must not frame it`);
+  }
+  const own = sb.scenes.at(-1)!.elements.map((el) => elementBounds(el));
+  for (const box of own) {
+    assert.ok(rectContains(recapView, box), 'the recap frames the summary it drew');
+  }
+
+  // Not a pull-back over the board any more: it is a card, framed like every other
+  // card and clamped by the same close-up ceiling, because there is no board behind
+  // it to pull back over. The accumulating fixture is the control — same geometry,
+  // same recap, and there the shot is the widest in the film (the test above).
+  //
+  // `>=`, and the equals is the case the real product lands in. Measured on
+  // gradient-descent at the standard preset under `wipe`, the derived zooms are
+  // 1.678 1.678 1.678 then 1.620 six times: the median *is* the recap's own shot, so a
+  // strict `>` is false there and passed here only because this fixture's ink sits
+  // differently. An assertion that holds on the fixture and fails on the thing we ship
+  // is measuring the fixture.
+  //
+  // Nor is it a law, and the next person should not read it as one: `longitude` wiped
+  // frames its recap at 1.620 against a 1.702 median, because that recap's summary
+  // carries more ink than its beats do. What both lessons *do* share is the line
+  // below — the same recap, accumulating, pulls back several times as wide.
+  const zooms = framing.map((f) => f.camera.zoom);
+  const median = [...zooms].sort((a, b) => a - b)[zooms.length >> 1] as number;
+  assert.ok(recap.camera.zoom >= median - 1e-9, 'a wiped recap is no wider than the median shot');
+  assert.ok(recap.camera.zoom <= median * 1.9 + 1e-9, 'and still inside the close-up ceiling');
+  const accumulated = resolveFraming(lessonStoryboard(), FRAME).at(-1);
+  assert.ok(accumulated, 'the control fixture has a recap too');
+  assert.ok(
+    recap.camera.zoom > accumulated.camera.zoom * 1.5,
+    `the same recap pulls back to ${accumulated.camera.zoom.toFixed(2)} when the board accumulates`,
+  );
+
+  // The slow pull-back goes with it: 1.1s of crossfade between two shots of the same
+  // empty cell is the boundary dead air Phase 3 has to spend elsewhere.
+  assert.equal(recap.camera.transition, sb.scenes.at(-1)!.camera.transition);
+  assert.ok(accumulated.camera.transition >= 1.1, 'the accumulating recap still eases wide');
 });
 
 test('region framing fills the frame where authored cameras leave a void', () => {
@@ -313,6 +450,51 @@ test('a tall region walks the canvas instead of shrinking its own ink', () => {
   // The oldest ink is what scrolls away, not the newest.
   const lastTarget = framing.at(-1)!.target!;
   assert.ok(lastTarget.y > 200, 'the walk window drops the top of the board');
+
+  // And the ink that scrolled away stops counting as fill. This is the shot the
+  // clipping correction in `contentFill` exists for: a window onto something larger
+  // used to be credited with every box on the board, whether or not the camera was
+  // pointed at it, so it scored best at the exact moment it showed least — the
+  // flattery that made "clamp minimum content fill" (PLAN-LAUNCH A4.3) unreadable as a
+  // floor. The extreme case measured was `longitude` at the `short` preset, whose recap
+  // reported a perfect 100% while holding a six-beat board inside one phone frame; that
+  // is a planner-level lesson and not reachable from this package, so what is pinned
+  // here is the mechanism rather than that number. The walk has just been asserted to
+  // drop the top of the board, so ink is provably off screen, and the clipped measure
+  // must therefore come in strictly under the measure that ignores the frame. Asserting
+  // the mechanism is the durable half anyway: the 100% only appears once enough of the
+  // board is off screen, and a fixture tuned to reach it would pin the arithmetic of
+  // this fixture instead of the rule.
+  const walked = framing.at(-1)!;
+  const view = views.at(-1)!;
+  const unclipped = walked.visible.reduce((a, r) => a + r.w * r.h, 0) / (view.w * view.h);
+  const fill = contentFill(framing, stacked.canvas, vFrame).at(-1)!;
+  assert.ok(
+    fill < unclipped,
+    `the scrolled-away ink still counts: ${fill} against ${unclipped.toFixed(2)} unclipped`,
+  );
+  assert.ok(fill < 0.8, `fill counts only what is on screen, got ${fill}`);
+  assert.ok(fill > 0.2, `and it does count what is on screen, got ${fill}`);
+});
+
+test('no derived shot is tighter than its own fit, so a fill clamp would have to crop', () => {
+  // The measurement PLAN-LAUNCH A4.3's "clamp minimum content fill at 55%" died on, kept
+  // as a test because the next person to want that clamp will reach for a crop. Every
+  // derived camera here is already the tight fit of what it holds — the resolved zoom is
+  // never *above* `fitCamera`'s — so the only frame left to reclaim belongs to the safe
+  // area or to the paper between an authored beat's own marks. Raising fill past that
+  // means cutting ink out of the shot, which is the one thing this file never does.
+  const insets = { '16:9': safeInsets('16:9', FRAME) };
+  for (const sb of [lessonStoryboard(), wipeStoryboard(), board({ region: 'board', beats: 6 })]) {
+    for (const [i, f] of resolveFraming(sb, FRAME).entries()) {
+      if (!f.derived || f.target === null) continue;
+      const tight = fitCamera(f.target, sb.canvas, FRAME, insets['16:9']).zoom;
+      assert.ok(
+        f.camera.zoom <= tight + 1e-9,
+        `scene ${i} was framed at ${f.camera.zoom} against a tight fit of ${tight}`,
+      );
+    }
+  }
 });
 
 test('the unit scale follows the resolved camera, not the authored one', () => {
@@ -394,4 +576,70 @@ test('a recap that cannot be read pulls back only as far as it stays legible', (
       }
     }
   }
+});
+
+/* --------------------------------------------------------- one board, one scale */
+
+test('boardMetrics is the single answer to how big everything draws', async () => {
+  // Root cause 1's blocker was that this arithmetic lived in the renderer, so the
+  // visuals stage could not know it and recorded geometry nobody could consume. It is
+  // in `@inkcast/core` now, and these are the invariants that make it usable from both
+  // ends rather than merely reachable.
+  const sb = lessonStoryboard();
+  const board = boardMetrics(sb);
+
+  // Derived, not guessed: the scale follows the *resolved* cameras, so a storyboard
+  // whose camera tours a canvas larger than one frame does not get canvas-sized type.
+  assert.equal(board.framing.length, sb.scenes.length);
+  assert.ok(
+    Math.abs(
+      board.scale -
+        unitsPerPixel(
+          sb.canvas,
+          frameSize(sb.meta.aspect),
+          board.framing.map((f) => f.camera.zoom),
+        ),
+    ) < 1e-12,
+  );
+
+  // Pure: two calls agree exactly, which is what lets two stages call it separately
+  // and still draw the same board.
+  assert.deepEqual(boardMetrics(sb), board);
+
+  // And what the renderer actually plans with is what it reports.
+  const plan = await planWithVisuals(sb);
+  assert.ok(Math.abs(plan.scale - board.scale) < 1e-12, 'the plan drew at a different scale');
+  assert.ok(Math.abs(plan.typeScale - board.scale * board.gain) < 1e-12);
+});
+
+test('a vertical board is composed heavier, not cropped', () => {
+  // The gain is the reason 9:16 is a composition rather than a crop, and it now has to
+  // be readable by the visuals stage too — a plot resolved without it would be typed
+  // for a desktop frame and drawn on a phone.
+  const wide = boardMetrics(lessonStoryboard());
+  const tall = boardMetrics(verticalStoryboard());
+  assert.equal(wide.gain, 1);
+  assert.ok(tall.gain > 1.3, `vertical gain was ${tall.gain}`);
+  // Ink grows, but less than type: doubling stroke weight muddies detail.
+  assert.ok(tall.strokeWidth / tall.scale > wide.strokeWidth / wide.scale);
+  assert.ok(tall.type.caption / tall.scale > wide.type.caption / wide.scale);
+});
+
+test('a newly composed recap stays close enough to read its own diagram', () => {
+  const sb = lessonStoryboard();
+  const last = sb.scenes.at(-1)!;
+  last.elements.push({
+    id: 'recap-mechanism',
+    type: 'shape',
+    shape: 'rect',
+    fill: false,
+    persist: true,
+    at: { x: 1400, y: 1460, w: 160, h: 80 },
+    enter: { at: 0, duration: 0.3, style: 'draw' },
+  });
+  const shot = resolveFraming(sb, FRAME).at(-1)!;
+  assert.ok(shot.derived);
+  assert.ok(shot.target!.h < 300, 'old panels do not shrink a new recap diagram');
+  const view = viewRect(shot.camera, sb.canvas, FRAME);
+  for (const el of last.elements) assert.ok(rectContains(view, elementBounds(el)));
 });

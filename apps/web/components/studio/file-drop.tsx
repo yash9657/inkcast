@@ -70,7 +70,9 @@ export function FileDrop({ file, onFileChange, onReject, disabled = false }: Fil
   if (file) {
     return (
       <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-card text-muted-foreground shadow-xs">
+        {/* `shadow-card` rather than the deprecated `shadow-xs` alias — same
+            pixels, and one fewer call site keeping that block alive. */}
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-card text-muted-foreground shadow-card">
           <FileTextIcon className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">

@@ -1,5 +1,33 @@
 # Style packs, illustration modes, and narrative scenes
 
+> **Status, 2026-08-24.** §2's loader shipped as plan item 7.3: a style is a JSON file in
+> `styles/`, the four shipped personalities are the first four packs, and adding a fifth
+> touches zero TypeScript. `styles/README.md` documents the format that actually exists
+> and `packages/core/src/stylepack.ts` is the schema. Three deliberate departures from
+> §2 below, each argued where the code is:
+>
+> - **`palette.accents` is a single `accent`, not a list.** A list is an invitation to the
+>   rainbow board `core/src/palette.ts` exists to prevent, and the film's one-accent
+>   discipline is not something a pack may opt out of. The loader also rejects an accent
+>   equal to the ink or to the second marker.
+> - **`surface` is not a block.** `paper` is the surface, in the palette, and `texture`,
+>   `grid` and `vignette` are not accepted — nothing in this tree reads them, and a field
+>   that parses and is dropped is a promise the renderer does not keep. Same for the
+>   `generation` block: it arrives with the image lane that would send it.
+> - **A pack's `paper` must be light** (relative luminance ≥ 0.5), so **the eight built-ins
+>   below are not all buildable yet**: `chalkboard-mono`, `chalkboard-color` and anything
+>   else on a dark surface are blocked, by design, until the alpha work S5.6 deferred is
+>   written. Generated figures composite with `mix-blend-mode: multiply`, which can only
+>   darken — on a slate board a black-ink raster multiplies into the slate and disappears,
+>   and no gate catches it because the raster itself is fine. 6.4 can _detect_ a ground
+>   that is not white; it cannot key one out. The other six (`modern-minimal`,
+>   `technical`, `editorial`, `whiteboard`, `playful`, and `sharpie` on off-white) are
+>   light surfaces and need no new code — only their JSON.
+>
+> Items 3–6 of the build order are untouched. The pen sprite generalised further than §3
+> asked: it is inline path data in the pack rather than a `PenId` naming a vendored
+> sprite, because a fifth style holding a borrowed pen is not really a fifth style.
+
 Written against a reference target: a colour ink-and-hatching historical
 illustration — five characters in one composition, consistent line weight and
 palette across all of them, gesture and gaze relating them to each other, period

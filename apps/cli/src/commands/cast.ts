@@ -13,7 +13,7 @@
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { frameSize, totalDuration } from '@inkcast/core';
+import { frameSize, laneGapLines, totalDuration } from '@inkcast/core';
 import {
   cast,
   degradations,
@@ -75,6 +75,8 @@ export async function runCast(ctx: CliContext, input: CastInput, flags: Flags): 
     result = await cast(input, {
       ...(flags.project ? { projectId: flags.project } : {}),
       force: flags.force,
+      ...(flags.degrade ? { gates: 'degrade' as const } : {}),
+      ...(flags.emitPlan ? { emitPlan: true } : {}),
       onProgress: rep.progress,
     });
   } catch (err) {
@@ -163,6 +165,9 @@ export function baseInput(flags: Flags): CastInput {
     ...(flags.title ? { title: flags.title } : {}),
     ...(Object.keys(meta).length > 0 ? { meta } : {}),
     ...(flags.preset ? { preset: flags.preset } : {}),
+    // Beside `preset` and not inside `meta`: the mode is a request the compiler has to
+    // act on, and `meta` is stamped onto the finished storyboard after it has compiled.
+    ...(flags.board ? { board: flags.board } : {}),
     ...(flags.depth ? { depth: flags.depth } : {}),
     ...(flags.seconds ? { maxSeconds: flags.seconds } : {}),
     ...(flags.audience ? { audience: flags.audience } : {}),
@@ -255,6 +260,7 @@ function jsonResult(result: CastResult, copied?: string) {
     ...(copied ? { copiedTo: copied } : {}),
     dir: result.dir,
     storyboardPath: path.join(result.dir, 'storyboard.json'),
+    ...(result.planPath ? { planPath: result.planPath } : {}),
     ...(result.lessonPath ? { lessonPath: result.lessonPath } : {}),
     lesson: result.lesson
       ? {
@@ -265,6 +271,13 @@ function jsonResult(result: CastResult, copied?: string) {
         }
       : undefined,
     lessonProblems: result.problems,
+    grounding: result.grounding,
+    // Pictures no lane here can draw (plan 6.1). Structured rather than prose, because
+    // the frequency of these across real runs is what decides which lane gets built.
+    laneGaps: result.laneGaps,
+    // Beside the lesson's problems and in the same shape, because they are the same
+    // kind of fact: something about this render is worse than the command asked for.
+    voiceProblems: result.voice.problems,
     lessonAuthor: result.author,
     route: result.route,
     preset: result.preset,
@@ -281,10 +294,30 @@ function jsonResult(result: CastResult, copied?: string) {
     degraded: result.degradations,
     providers: {
       planner: result.providers.planner.name,
-      voice: result.providers.voice.name,
+      // The provider that spoke, not the key that was set. `result.providers.voice`
+      // is the environment's intention and is wrong exactly when the chain demoted.
+      voice: voiceLabel(result),
       images: result.providers.images.name,
     },
   };
+}
+
+/** One line for what the film's facts rest on. See `Grounding` in `@inkcast/pipeline`. */
+function groundingLine(ctx: CliContext, result: CastResult): string {
+  const c = paint(ctx.color);
+  switch (result.grounding) {
+    case 'document':
+      return `${c.dim('the source document')} ${c.dim(`— ${path.join(result.dir, 'source.json')}`)}`;
+    case 'supplied':
+      return c.dim('the supplied lesson — this pipeline sourced nothing itself');
+    default:
+      return `${c.yellow('nothing')} ${c.dim('— every claim is the model’s own knowledge, unchecked')}`;
+  }
+}
+
+/** `elevenlabs/eleven_flash_v2_5` — who spoke and what they spoke with. */
+function voiceLabel(result: CastResult): string {
+  return `${result.voice.provider}${result.voice.model ? `/${result.voice.model}` : ''}`;
 }
 
 async function printSummary(ctx: CliContext, result: CastResult, copied?: string): Promise<void> {
@@ -311,6 +344,11 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
   } else {
     out += row('lesson', c.yellow('none — this was cast with --via document, which summarises'));
   }
+  // What the facts rest on (plan 5.1; audit S0-a). Said plainly and without alarm:
+  // teaching a bare topic is the normal way this is used, and the thing worth knowing is
+  // that nobody checked those claims against anything, because there was nothing to
+  // check them against.
+  out += row('grounded', groundingLine(ctx, result));
   out += row(
     'video',
     `${pretty(ctx, result.videoPath)} ${c.dim(`(${w}×${h}, ${sb.meta.fps}fps, ${size})`)}`,
@@ -320,6 +358,14 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     'storyboard',
     `${pretty(ctx, path.join(result.dir, 'storyboard.json'))} ${c.dim(`(${count(sb.scenes.length, 'scene')}, ${count(sb.assets.length, 'asset')})`)}`,
   );
+  // Only when it was asked for, and said plainly: the plan is a report of what the
+  // storyboard compiled to, not a file the pipeline will read next time.
+  if (result.planPath) {
+    out += row(
+      'plan',
+      `${pretty(ctx, result.planPath)} ${c.dim('(the compiled timeline — written for reading, never read back)')}`,
+    );
+  }
   out += row(
     'stages',
     STAGES.map((s) =>
@@ -331,7 +377,7 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     [
       // Who wrote the lesson, not which key happens to be set.
       `lesson ${result.author}`,
-      `voice ${result.providers.voice.name}`,
+      `voice ${voiceLabel(result)}`,
       `art ${result.providers.images.name}`,
     ]
       .map((s) => c.dim(s))
@@ -349,6 +395,23 @@ async function printSummary(ctx: CliContext, result: CastResult, copied?: string
     for (const p of result.problems.slice(0, 5)) out += `    ${c.dim('·')} ${p}\n`;
     const major = result.degradations.find((d) => d.severity === 'major');
     if (major) out += `    ${c.dim('fix:')} ${c.cyan(major.fix)}\n`;
+  }
+
+  // What this lesson asked for that inkcast cannot draw (plan 6.1; audit S5-a). Its own
+  // block, again: this is not a weakness of the lesson — the teaching may be perfect —
+  // it is a gap in the renderer, and the film contains an approximation of a picture
+  // that has a correct form nobody here can produce.
+  if (result.laneGaps.length > 0) {
+    out += `\n  ${c.yellow('some pictures need a lane inkcast doesn’t have:')}\n`;
+    for (const line of laneGapLines(result.laneGaps)) out += `    ${c.dim('·')} ${line}\n`;
+  }
+
+  // Its own block rather than an addition to the one above, which is gated entirely on
+  // the lesson's problems: a paid voice that ran out of credits half way through a
+  // flawless lesson used to print nothing at all.
+  if (result.voice.problems.length > 0) {
+    out += `\n  ${c.yellow('the voice did not come out as asked:')}\n`;
+    for (const p of result.voice.problems) out += `    ${c.dim('·')} ${p}\n`;
   }
 
   out += `\n  ${c.dim(`next: inkcast lesson ${result.projectId}   ·   inkcast preview ${result.projectId}   ·   inkcast edit ${result.projectId} "…"`)}\n\n`;

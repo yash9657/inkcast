@@ -2,9 +2,10 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangleIcon, PlusIcon } from 'lucide-react';
+import { AlertTriangleIcon, PlusIcon, SearchIcon, FilmIcon } from 'lucide-react';
 
 import {
+  Input,
   Badge,
   Button,
   Card,
@@ -30,6 +31,9 @@ import { DeleteProjectButton } from './project-actions';
 const POLL_MS = 5000;
 
 export function LibraryView() {
+  const [query, setQuery] = React.useState('');
+  const [filter, setFilter] = React.useState<'all' | 'ready' | 'active'>('all');
+  const [sort, setSort] = React.useState<'newest' | 'oldest' | 'name'>('newest');
   const [projects, setProjects] = React.useState<Project[] | null>(null);
   const [error, setError] = React.useState<string | undefined>(undefined);
 
@@ -59,25 +63,90 @@ export function LibraryView() {
     return () => window.clearInterval(timer);
   }, [inFlight, load]);
 
+  const visibleProjects = (projects ?? [])
+    .filter(
+      (project) =>
+        project.title.toLowerCase().includes(query.toLowerCase().trim()) &&
+        (filter === 'all' ||
+          (filter === 'ready'
+            ? project.status === 'ready'
+            : ['queued', 'running'].includes(project.status))),
+    )
+    .sort((a, b) =>
+      sort === 'name'
+        ? a.title.localeCompare(b.title)
+        : (sort === 'newest' ? -1 : 1) *
+          String(a.updatedAt ?? a.createdAt ?? '').localeCompare(
+            String(b.updatedAt ?? b.createdAt ?? ''),
+          ),
+    );
+
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl text-foreground">Library</h1>
+        <div className="page-heading">
+          <h1>Your library</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {projects === null
-              ? 'Reading the projects directory…'
+              ? 'Loading your videos…'
               : projects.length === 0
-                ? 'Every project lives on disk, so nothing here is temporary.'
-                : `${projects.length} project${projects.length === 1 ? '' : 's'} on disk.`}
+                ? 'A home for every idea you bring to life.'
+                : `${projects.length} video${projects.length === 1 ? '' : 's'} in your workspace.`}
           </p>
         </div>
         <Button size="sm" render={<Link href="/studio" />}>
           <PlusIcon aria-hidden />
-          New explainer
+          Create a video
         </Button>
       </header>
 
+      {projects && projects.length > 0 ? (
+        <div className="library-toolbar">
+          <div className="relative min-w-0 flex-1">
+            <SearchIcon
+              className="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              aria-label="Search videos"
+              placeholder="Find a video…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div
+            role="group"
+            aria-label="Filter videos"
+            className="flex gap-1 rounded-md bg-muted p-1"
+          >
+            {(['all', 'ready', 'active'] as const).map((value) => (
+              <Button
+                key={value}
+                variant={filter === value ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {value === 'all' ? 'All videos' : value === 'ready' ? 'Ready' : 'In progress'}
+              </Button>
+            ))}
+          </div>
+          <label className="sr-only" htmlFor="library-sort">
+            Sort videos
+          </label>
+          <select
+            id="library-sort"
+            className="focus-ring h-11 rounded-md border border-input bg-card px-3 text-sm"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as typeof sort)}
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Title A–Z</option>
+          </select>
+        </div>
+      ) : null}
       {error ? (
         <Card>
           <CardContent className="flex flex-col items-start gap-3 py-8">
@@ -98,9 +167,26 @@ export function LibraryView() {
         <LibrarySkeleton />
       ) : projects.length === 0 ? (
         <EmptyLibrary />
+      ) : visibleProjects.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border py-16 text-center">
+          <h2 className="text-xl">No videos found</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Try another title or show all videos.
+          </p>
+          <Button
+            variant="outline"
+            className="mt-5"
+            onClick={() => {
+              setQuery('');
+              setFilter('all');
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
       ) : (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
+        <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleProjects.map((project) => (
             <li key={project.id}>
               <ProjectCard
                 project={project}
@@ -166,7 +252,7 @@ function ProjectCard({ project, onDeleted }: { project: Project; onDeleted: () =
         ) : null}
       </Link>
 
-      <div className="flex items-start gap-2 p-3">
+      <div className="flex items-start gap-2 p-4">
         <div className="min-w-0 flex-1">
           <Link
             href={`/project/${project.id}`}
@@ -223,39 +309,34 @@ function LibrarySkeleton() {
 
 function EmptyLibrary() {
   return (
-    <Card className="overflow-hidden border-dashed">
-      <CardContent className="relative flex flex-col items-center gap-4 px-6 py-16 text-center">
-        <InkBoard aria-hidden className="pointer-events-none absolute inset-0 opacity-70" />
-
-        <div className="relative flex items-end gap-3">
-          <span className="font-hand text-xl text-ink-violet">one canvas, not slides</span>
-          <InkArrow direction="down-right" tone="violet" className="size-10 translate-y-1" />
-        </div>
-
-        <h2 className="relative text-xl text-foreground">Nothing on the board yet</h2>
-        <p className="relative max-w-md text-sm leading-relaxed text-muted-foreground">
-          Paste a document, drop a pdf, or hand it a link. Inkcast plans one growing canvas, writes
-          on it stroke by stroke, narrates it, and hands you an mp4 — on this machine, with no keys.
-        </p>
-
-        <div className="relative flex flex-wrap items-center justify-center gap-2">
-          <Button render={<Link href="/studio" />}>Open the studio</Button>
-        </div>
-
-        <div className="relative mt-2 flex flex-wrap items-center justify-center gap-2">
-          <span className="text-2xs uppercase text-muted-foreground">Or start from an example</span>
-          {EXAMPLES.slice(0, 3).map((example) => (
-            <Button
-              key={example.id}
-              variant="outline"
-              size="xs"
-              render={<Link href={`/studio?example=${example.id}`} />}
-            >
-              {example.label}
-            </Button>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="library-empty">
+      <div
+        className="mb-6 flex h-24 w-32 items-center justify-center rounded-xl bg-brand-canvas text-brand-canvas-ink"
+        aria-hidden
+      >
+        <FilmIcon className="size-10" strokeWidth={1.25} />
+      </div>
+      <h2 className="text-2xl">Your first video starts with an idea.</h2>
+      <p className="mt-3 max-w-md text-md leading-relaxed text-muted-foreground">
+        Bring a topic, a document or a link. We’ll help turn it into an explanation worth sharing.
+      </p>
+      <Button className="mt-6" render={<Link href="/studio" />}>
+        <PlusIcon aria-hidden />
+        Create a video
+      </Button>
+      <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
+        <span className="w-full text-sm text-muted-foreground">Or explore an example</span>
+        {EXAMPLES.slice(0, 3).map((example) => (
+          <Button
+            key={example.id}
+            variant="ghost"
+            size="sm"
+            render={<Link href={`/studio?example=${example.id}`} />}
+          >
+            {example.label}
+          </Button>
+        ))}
+      </div>
+    </div>
   );
 }

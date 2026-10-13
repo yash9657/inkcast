@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1100" width="1200" height="1100" role="img" aria-labelledby="title desc">
+  <title id="title">Inkcast render pipeline</title>
+  <desc id="desc">The seven pipeline stages in order (ingest, lesson, storyboard, voice, visuals, check, render) followed by the upload to Blob, with the voice, visuals, check and render stages expanded, and measured wall-clock times for a reference 74-second film against the 800-second budget.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+      .title { font-size: 22px; font-weight: 700; }
+      .sub { font-size: 13px; fill: #475569; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 13px; }
+      .bb { font-size: 13px; font-weight: 700; }
+      .s { font-size: 12px; fill: #475569; }
+      .lbl { font-size: 12px; fill: #334155; }
+      .stage { font-size: 14px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .ml { fill: #581c87; }
+      .on-dark { fill: #ffffff; }
+      .on-dark-dim { fill: #d4d4d8; }
+      .risk { fill: #b91c1c; }
+      .edge { stroke: #334155; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1100" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <text class="title" x="24" y="40">Inkcast render pipeline — @inkcast/pipeline cast()</text>
+  <text class="sub" x="24" y="62">Every stage only enriches the storyboard IR, is cached on a hash of its inputs + code version, and reports its own 0–100 (weights below sum to 100).</text>
+  <text class="s" x="24" y="88">source: topic · markdown / PDF / DOCX / text · URL · or a hand-written lesson.json (skips the lesson stage)</text>
+
+  <!-- ======================= stage row ======================= -->
+  <!-- x_i = 24 + i*146, w=126 -->
+  <g>
+    <rect x="24" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="38" y="126">ingest</text>
+    <text class="s" x="38" y="146">@inkcast/planner</text>
+    <text class="s" x="38" y="164">→ SourceDoc</text>
+    <text class="s" x="38" y="198">weight 3 · ≈0 s</text>
+
+    <rect x="170" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="184" y="126">lesson</text>
+    <text class="s" x="184" y="146">@inkcast/planner</text>
+    <text class="s" x="184" y="164">LLM author +</text>
+    <text class="s" x="184" y="180">critique, or derive</text>
+    <text class="s" x="184" y="198">weight 10 · ≈0 s*</text>
+
+    <rect x="316" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="330" y="126">storyboard</text>
+    <text class="s" x="330" y="146">@inkcast/planner</text>
+    <text class="s" x="330" y="164">compileLesson</text>
+    <text class="s" x="330" y="180">→ Storyboard IR</text>
+    <text class="s" x="330" y="198">weight 5 · ≈0 s</text>
+
+    <rect x="462" y="100" width="126" height="112" rx="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+    <text class="stage ml" x="476" y="126">voice</text>
+    <text class="s ml" x="476" y="146">@inkcast/voice</text>
+    <text class="s ml" x="476" y="164">Kokoro TTS +</text>
+    <text class="s ml" x="476" y="180">Whisper alignment</text>
+    <text class="s ml" x="476" y="198" font-weight="700">weight 22 · ≈50 s</text>
+
+    <rect x="608" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="622" y="126">visuals</text>
+    <text class="s" x="622" y="146">@inkcast/visuals</text>
+    <text class="s" x="622" y="164">vector ink, plots,</text>
+    <text class="s" x="622" y="180">morphs, assets</text>
+    <text class="s" x="622" y="198">weight 12 · ≈1 s</text>
+
+    <rect x="754" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="768" y="126">check</text>
+    <text class="s" x="768" y="146">@inkcast/render</text>
+    <text class="s" x="768" y="164">quality gate</text>
+    <text class="s" x="768" y="180">→ qc.json</text>
+    <text class="s" x="768" y="198" font-weight="700">weight 1 · ≈9 s</text>
+
+    <rect x="900" y="100" width="126" height="112" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+    <text class="stage" x="914" y="126">render</text>
+    <text class="s" x="914" y="146">@inkcast/render</text>
+    <text class="s" x="914" y="164">Chromium frames</text>
+    <text class="s" x="914" y="180">+ ffmpeg mux</text>
+    <text class="s" x="914" y="198" font-weight="700">weight 47 · ≈64 s</text>
+
+    <rect x="1046" y="100" width="126" height="112" rx="10" fill="#0a0a0a"/>
+    <text class="stage on-dark" x="1060" y="126">upload</text>
+    <text class="s on-dark-dim" x="1060" y="146">render-service</text>
+    <text class="s on-dark-dim" x="1060" y="164">out.mp4 + 3 files</text>
+    <text class="s on-dark-dim" x="1060" y="180">→ Vercel Blob</text>
+    <text class="s on-dark-dim" x="1060" y="198">then rm /tmp</text>
+
+    <line class="edge" x1="150" y1="156" x2="168" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="296" y1="156" x2="314" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="442" y1="156" x2="460" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="588" y1="156" x2="606" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="734" y1="156" x2="752" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="880" y1="156" x2="898" y2="156" marker-end="url(#arrow)"/>
+    <line class="edge" x1="1026" y1="156" x2="1044" y2="156" marker-end="url(#arrow)"/>
+  </g>
+  <text class="s" x="24" y="234">* lesson is ≈0 s with no key (local derivation); a keyed run adds the model's latency (Fireworks or Anthropic). Voice runs before visuals and render: nothing is drawn against unmeasured audio.</text>
+
+  <!-- ======================= voice panel ======================= -->
+  <rect x="24" y="250" width="560" height="476" rx="12" fill="#faf5ff" stroke="#9333ea" stroke-width="1.5"/>
+  <text class="h ml" x="42" y="276">voice — narrate(), one clip per scene</text>
+  <text class="s" x="42" y="296">Cached per scene on hash(text, voice, speed, unit, neighbours, aligner,</text>
+  <text class="s" x="42" y="312"><tspan class="mono">'continuous-scene-v1'</tspan>, delivery) — editing scene 7 re-voices scene 7 only.</text>
+
+  <rect x="42" y="326" width="524" height="64" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="56" y="346">1 · Pick the synthesis unit</text>
+  <text class="s mono" x="56" y="364">--phrase-split ?? INKCAST_VOICE_UNIT ?? preferredSplit()</text>
+  <text class="s" x="56" y="381">Kokoro prefers paragraph (one call per scene); clause | sentence override</text>
+
+  <rect x="42" y="402" width="524" height="64" rx="8" fill="#f3e8ff" stroke="#9333ea"/>
+  <text class="bb ml" x="56" y="422">2 · Kokoro-82M v1.0 ONNX (kokoro-js, q8, CPU)</text>
+  <text class="s ml" x="56" y="440">chunkForKokoro(): sentences packed ≤ 320 chars, because kokoro-js</text>
+  <text class="s ml" x="56" y="457">silently truncates at 510 phoneme tokens. Synchronous: blocks the event loop.</text>
+
+  <rect x="42" y="478" width="524" height="64" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="56" y="498">3 · Measure the audio</text>
+  <text class="s" x="56" y="516">WAV samples → phrase spans; clause gaps, breaths and Scene.hold are real</text>
+  <text class="s" x="56" y="533">silence → scene.durationSec is a measurement, not an estimate</text>
+
+  <rect x="42" y="554" width="524" height="64" rx="8" fill="#f3e8ff" stroke="#9333ea"/>
+  <text class="bb ml" x="56" y="574">4 · Whisper tiny.en word alignment (mode auto)</text>
+  <text class="s ml" x="56" y="592">cross-attention DTW word times, mapped onto our own tokens; a failed</text>
+  <text class="s ml" x="56" y="609">or weak match falls back to measured phrases — it never fails a render</text>
+
+  <rect x="42" y="630" width="524" height="48" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="56" y="650">5 · Resolve cues</text>
+  <text class="s" x="56" y="668">Enter.cue (verbatim phrase) → enter.at · scene.words for highlighting</text>
+
+  <line class="edge" x1="304" y1="390" x2="304" y2="400" marker-end="url(#arrow)"/>
+  <line class="edge" x1="304" y1="466" x2="304" y2="476" marker-end="url(#arrow)"/>
+  <line class="edge" x1="304" y1="542" x2="304" y2="552" marker-end="url(#arrow)"/>
+  <line class="edge" x1="304" y1="618" x2="304" y2="628" marker-end="url(#arrow)"/>
+
+  <text class="s" x="42" y="698">log, per scene (info):</text>
+  <text class="s mono" x="42" y="714">scene 2/8: 8.41s · 1 phrase → audio/scene-001.wav in 10.3s (paragraph)</text>
+
+  <!-- ======================= visuals + check panel ======================= -->
+  <rect x="604" y="250" width="284" height="214" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="620" y="276">visuals — resolveVisuals()</text>
+  <text class="s" x="620" y="300">• plots, paths, motion along curves</text>
+  <text class="s" x="620" y="320">• equations (MathJax), code (shiki),</text>
+  <text class="s" x="632" y="336">diagrams (dagre), icons (lucide)</text>
+  <text class="s" x="620" y="356">• every element → roughjs hand-drawn</text>
+  <text class="s" x="632" y="372">strokes, real font metrics</text>
+  <text class="s" x="620" y="392">• morph: ink reshapes into a later</text>
+  <text class="s" x="632" y="408">path or plot (morph.fromId)</text>
+  <text class="s" x="620" y="428">• optional fal / Replicate artwork,</text>
+  <text class="s" x="632" y="444">icon fallback stated, not faked</text>
+
+  <rect x="604" y="476" width="284" height="250" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="620" y="502">check — the quality gate</text>
+  <text class="s" x="620" y="522">Between visuals and render, so a bad</text>
+  <text class="s" x="620" y="538">board fails in seconds, not after encode.</text>
+  <text class="s" x="620" y="560">• geometry: ink-on-ink, off-frame,</text>
+  <text class="s" x="632" y="576">overrun, illegible, dwell, vacant</text>
+  <text class="s" x="620" y="596">• density · thin fill · reference graph</text>
+  <text class="s" x="620" y="616">• realized text layout (one Chromium</text>
+  <text class="s" x="632" y="632">launch, no key or network)</text>
+  <text class="s" x="620" y="652">• speech-visual-sync: a label more than</text>
+  <text class="s" x="632" y="668">1 s from its spoken word ⇒ warn</text>
+  <text class="s" x="620" y="690">• writes qc.json; strict gate mode</text>
+  <text class="s" x="632" y="706">stops the run before render</text>
+
+  <!-- ======================= render panel ======================= -->
+  <rect x="908" y="250" width="268" height="476" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="h" x="924" y="276">render — render()</text>
+
+  <rect x="922" y="290" width="240" height="64" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="934" y="310">compilePlan → page</text>
+  <text class="s" x="934" y="328">preview.html; window.seek(t)</text>
+  <text class="s" x="934" y="344">is pure, so a frame = f(t)</text>
+
+  <rect x="922" y="366" width="240" height="64" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="934" y="386">planSegments</text>
+  <text class="s" x="934" y="404">cut on scene boundaries; each</text>
+  <text class="s" x="934" y="420">segment keyed by a pixel hash</text>
+
+  <rect x="922" y="442" width="240" height="96" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="934" y="462">Capture pool × 2 workers</text>
+  <text class="s mono" x="934" y="480">INKCAST_RENDER_WORKERS=2</text>
+  <text class="s" x="934" y="498">Chromium → CDP captureScreenshot</text>
+  <text class="s" x="934" y="514">→ ffmpeg image2pipe → libx264</text>
+  <text class="s" x="934" y="530">crf 18, 30 fps, 1080p</text>
+
+  <rect x="922" y="550" width="240" height="64" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+  <text class="bb" x="934" y="570">concatAndMux</text>
+  <text class="s" x="934" y="588">segments joined by stream copy,</text>
+  <text class="s" x="934" y="604">narration muxed as AAC</text>
+
+  <rect x="922" y="626" width="240" height="84" rx="8" fill="#0a0a0a"/>
+  <text class="bb on-dark" x="934" y="646">→ Vercel Blob (private)</text>
+  <text class="s on-dark-dim mono" x="934" y="666">out.mp4 · thumbnail.png</text>
+  <text class="s on-dark-dim mono" x="934" y="684">storyboard.json</text>
+  <text class="s on-dark-dim mono" x="934" y="702">captions.vtt</text>
+
+  <line class="edge" x1="1042" y1="354" x2="1042" y2="364" marker-end="url(#arrow)"/>
+  <line class="edge" x1="1042" y1="430" x2="1042" y2="440" marker-end="url(#arrow)"/>
+  <line class="edge" x1="1042" y1="538" x2="1042" y2="548" marker-end="url(#arrow)"/>
+  <line class="edge" x1="1042" y1="614" x2="1042" y2="624" marker-end="url(#arrow)"/>
+
+  <!-- ======================= timing ======================= -->
+  <rect x="24" y="746" width="1152" height="330" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="h" x="42" y="774">Performance budget — must finish inside 800 s on 2 vCPU / 4 GB</text>
+  <text class="s" x="42" y="794">Reference: a 74 s, 8-scene 1080p explainer, no provider keys, image built from Dockerfile.vercel, container capped at --cpus 2 --memory 4g.</text>
+
+  <!-- axis: x = 250 + s * 1.1 ; 800 s -> 1130 -->
+  <g>
+    <line x1="250" y1="930" x2="1130" y2="930" stroke="#94a3b8"/>
+    <line x1="250" y1="926" x2="250" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="250" y="950" text-anchor="middle">0</text>
+    <line x1="360" y1="926" x2="360" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="360" y="950" text-anchor="middle">100</text>
+    <line x1="470" y1="926" x2="470" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="470" y="950" text-anchor="middle">200</text>
+    <line x1="580" y1="926" x2="580" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="580" y="950" text-anchor="middle">300</text>
+    <line x1="690" y1="926" x2="690" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="690" y="950" text-anchor="middle">400</text>
+    <line x1="800" y1="926" x2="800" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="800" y="950" text-anchor="middle">500</text>
+    <line x1="910" y1="926" x2="910" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="910" y="950" text-anchor="middle">600</text>
+    <line x1="1020" y1="926" x2="1020" y2="934" stroke="#94a3b8"/>
+    <text class="s" x="1020" y="950" text-anchor="middle">700</text>
+    <text class="s" x="690" y="968" text-anchor="middle">seconds of wall clock, request → done</text>
+
+    <line x1="1130" y1="812" x2="1130" y2="934" stroke="#b91c1c" stroke-width="2"/>
+    <text class="s risk" x="1124" y="826" text-anchor="end" font-weight="700">800 s hard limit</text>
+  </g>
+
+  <!-- native row -->
+  <text class="b" x="42" y="858" font-weight="700">native arm64</text>
+  <text class="s" x="42" y="874">2 vCPU / 4 GB</text>
+  <rect x="250" y="846" width="55" height="26" fill="#9333ea"/>
+  <rect x="305" y="846" width="10" height="26" fill="#334155"/>
+  <rect x="315" y="846" width="70" height="26" fill="#94a3b8"/>
+  <rect x="385" y="846" width="2" height="26" fill="#cbd5e1"/>
+  <text class="b" x="398" y="864" font-weight="700">≈ 124 s total · peak memory ≈ 3.0 GB of 4 GB</text>
+  <text class="s" x="250" y="840">voice 50</text>
+  <text class="s" x="318" y="840">check 9 · render 64</text>
+
+  <!-- emulated row -->
+  <text class="b" x="42" y="904" font-weight="700">emulated amd64</text>
+  <text class="s" x="42" y="920">Rosetta, 2 vCPU / 4 GB</text>
+  <rect x="250" y="892" width="320" height="26" fill="#cbd5e1"/>
+  <text class="b" x="582" y="910" font-weight="700">≈ 291 s total</text>
+  <text class="s" x="680" y="910">(Rosetta, no AVX — proves the amd64 image; not a forecast)</text>
+
+  <!-- legend + notes -->
+  <g transform="translate(42,990)">
+    <rect x="0" y="0" width="14" height="14" fill="#9333ea"/>
+    <text class="s" x="20" y="12">voice ≈ 50 s (40 %)</text>
+    <rect x="150" y="0" width="14" height="14" fill="#334155"/>
+    <text class="s" x="170" y="12">check ≈ 9 s (7 %)</text>
+    <rect x="290" y="0" width="14" height="14" fill="#94a3b8"/>
+    <text class="s" x="310" y="12">render ≈ 64 s (52 %)</text>
+    <rect x="450" y="0" width="14" height="14" fill="#cbd5e1"/>
+    <text class="s" x="470" y="12">ingest · lesson · storyboard · visuals ≈ 1 s</text>
+  </g>
+  <text class="s risk" x="42" y="1030">Known risk: each Kokoro call blocks the event loop for its whole duration (≈10 s per scene native, up to 21 s emulated), so no job.json</text>
+  <text class="s risk" x="42" y="1046">progress or heartbeat is written meanwhile. Readers presume a job dead after 3 min of silence (STALE_AFTER_MS) — large margin on 2 real cores,</text>
+  <text class="s risk" x="42" y="1062">thin on a starved host. Escape hatch: INKCAST_VOICE_UNIT=sentence (shorter calls, choppier delivery). Watch: "cast finished: voice=… check=… render=…".</text>
+</svg>

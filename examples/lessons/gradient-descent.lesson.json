@@ -3,6 +3,9 @@
   "topic": "Gradient Descent",
   "audience": "someone who has never done calculus and does not want to start now",
   "objective": "explain why the update subtracts the slope — why there is a minus sign — and why the step size can be too large",
+  "kind": "stem",
+  "strategy": "analogy",
+  "coreInsight": "You can walk to the bottom of a valley you cannot see, because the slope under your feet already tells you which way is down.",
   "jargonBudget": [
     "gradient",
     "derivative",
@@ -22,7 +25,30 @@
         "cue": "in thick fog"
       }
     ],
-    "hold": 1.4
+    "hold": 1.4,
+    "from": "given",
+    "derivedFrom": []
+  },
+  "analogy": {
+    "concrete": "walking downhill in thick fog",
+    "maps": [
+      {
+        "from": "the height of the hill",
+        "to": "how wrong the machine is right now"
+      },
+      {
+        "from": "where you are standing",
+        "to": "the setting you are allowed to change"
+      },
+      {
+        "from": "the slope under your feet",
+        "to": "which way that wrongness gets worse"
+      },
+      {
+        "from": "how long a stride you take",
+        "to": "how big a change you make each round"
+      }
+    ]
   },
   "anchor": {
     "idea": "Feel the ground, step downhill, repeat",
@@ -35,7 +61,9 @@
         "cue": "step again"
       }
     ],
-    "hold": 0.5
+    "hold": 0.5,
+    "from": "given",
+    "derivedFrom": []
   },
   "steps": [
     {
@@ -49,7 +77,9 @@
           "cue": "draw it as a curve"
         }
       ],
-      "hold": 0.5
+      "hold": 0.5,
+      "from": "derived",
+      "derivedFrom": ["anchor"]
     },
     {
       "idea": "Height becomes how wrong we are",
@@ -62,7 +92,9 @@
           "cue": "rises and falls"
         }
       ],
-      "hold": 0.5
+      "hold": 0.5,
+      "from": "derived",
+      "derivedFrom": ["step1"]
     },
     {
       "idea": "The slope tells you which way is down",
@@ -75,7 +107,9 @@
           "cue": "tilts up to the right"
         }
       ],
-      "hold": 0.7
+      "hold": 0.7,
+      "from": "derived",
+      "derivedFrom": ["anchor", "step1"]
     },
     {
       "idea": "How big a step is the one knob you choose",
@@ -88,7 +122,9 @@
           "cue": "Too small, you crawl"
         }
       ],
-      "hold": 0.6
+      "hold": 0.6,
+      "from": "derived",
+      "derivedFrom": ["step3"]
     }
   ],
   "worked": {
@@ -107,7 +143,9 @@
         "cue": "the step is smaller"
       }
     ],
-    "hold": 0.8
+    "hold": 0.8,
+    "from": "derived",
+    "derivedFrom": ["step3", "step4"]
   },
   "misconception": {
     "idea": "It finds a minimum, not the minimum",
@@ -120,13 +158,17 @@
         "cue": "whichever dip it started in"
       }
     ],
-    "hold": 0.9
+    "hold": 0.9,
+    "from": "derived",
+    "derivedFrom": ["step1", "step3"]
   },
   "recap": {
     "idea": "The whole chain, in one breath",
     "because": "",
     "narration": "You cannot see the valley. But the ground has a slope, and the slope points uphill. So step the other way, a little at a time.",
     "visuals": [],
-    "hold": 0.8
+    "hold": 0.8,
+    "from": "given",
+    "derivedFrom": []
   }
 }

@@ -10,9 +10,11 @@
  *
  * Two rules this command exists to make visible:
  *
- *  - **A key in the environment wins.** An exported `ANTHROPIC_API_KEY` beats the
- *    stored one, which is what CI depends on — but silent shadowing is the worst
- *    possible outcome, so the listing says which one would be used.
+ *  - **A stored key wins.** The key you deliberately saved beats an exported
+ *    `ANTHROPIC_API_KEY` — a stale shell variable must not keep running renders
+ *    against the wrong account. With nothing stored, the environment is used
+ *    exactly as CI depends on. Either way the listing says which one is in use,
+ *    because silent shadowing is the worst possible outcome.
  *  - **Nothing is ever echoed.** Keys are read from a muted prompt or stdin, and
  *    only masked previews are printed. `--json` output is masked too.
  */
@@ -26,6 +28,7 @@ type Action = (typeof ACTIONS)[number];
 
 /** Which stage each provider upgrades, in the words the rest of the CLI uses. */
 const UPGRADES: Record<string, string> = {
+  fireworks: 'lesson, diagrams and visual review — open-weight models on one API key.',
   anthropic: 'lesson — writes the teaching itself. This is the one that matters.',
   elevenlabs: 'voice — a publishable narrator instead of a good local one.',
   replicate: 'visuals — drawn objects and characters instead of built-in icons.',
@@ -101,14 +104,24 @@ async function listKeys(ctx: CliContext, kv: Keyvault): Promise<number> {
     [c.dim('PROVIDER'), c.dim('KEY'), c.dim('SOURCE'), c.dim('CHECKED')],
   ];
   for (const s of statuses) {
-    const key = s.configured ? (s.masked ?? 'set') : '—';
-    const source = s.source ?? '—';
+    // A stored-but-unusable key still has a preview, and showing it matters: "—"
+    // would read as "you never set one", which is the opposite of the truth and
+    // invites the user to overwrite a key that is perfectly good.
+    const stuck = s.availability === 'locked' || s.availability === 'unreadable';
+    const key = s.configured || stuck ? (s.masked ?? 'set') : '—';
+    const source = s.source ?? (stuck ? s.availability : '—');
     const checked = s.lastValidated ? s.lastValidated.slice(0, 10) : 'never';
     rows.push([s.provider, key, source, checked]);
     painted.push([
       c.bold(s.provider),
       s.configured ? key : c.dim(key),
-      s.source ? (s.source === 'env' ? c.yellow(source) : source) : c.dim(source),
+      s.source
+        ? s.source === 'env'
+          ? c.yellow(source)
+          : source
+        : stuck
+          ? c.yellow(source)
+          : c.dim(source),
       s.lastValidated ? checked : c.dim(checked),
     ]);
   }
@@ -119,12 +132,33 @@ async function listKeys(ctx: CliContext, kv: Keyvault): Promise<number> {
   }
 
   out += `\n  ${c.dim('storage:')} ${backend.ready ? c.green(backend.why) : c.yellow(backend.why)}\n`;
-  const shadowed = statuses.filter((s) => s.source === 'env');
-  if (shadowed.length > 0) {
-    out += `  ${c.dim('note:')} ${shadowed.map((s) => s.provider).join(', ')} ${shadowed.length === 1 ? 'comes' : 'come'} from the environment and take precedence over anything stored.\n`;
+  const fromEnv = statuses.filter((s) => s.source === 'env');
+  if (fromEnv.length > 0) {
+    out += `  ${c.dim('note:')} ${fromEnv.map((s) => s.provider).join(', ')} ${fromEnv.length === 1 ? 'comes' : 'come'} from the environment — nothing stored beats ${fromEnv.length === 1 ? 'it' : 'them'}. \`inkcast keys set\` would take priority.\n`;
+  }
+  // A stored entry sitting unusable behind an active env key — the state nobody
+  // can otherwise explain, because editing that entry changes nothing.
+  const inert = statuses.filter((s) => s.shadowedByEnv);
+  if (inert.length > 0) {
+    out += `  ${c.yellow('note:')} ${inert.map((s) => s.provider).join(', ')} also ${inert.length === 1 ? 'has a stored key that' : 'have stored keys that'} cannot be read right now, so the environment ${inert.length === 1 ? 'value' : 'values'} above ${inert.length === 1 ? 'is' : 'are'} in use.\n`;
+  }
+  const overriding = statuses.filter((s) => s.overridesEnv);
+  if (overriding.length > 0) {
+    out += `  ${c.dim('note:')} ${overriding.map((s) => s.provider).join(', ')} ${overriding.length === 1 ? 'is' : 'are'} also set in the environment; the stored ${overriding.length === 1 ? 'key takes' : 'keys take'} priority and the ${overriding.length === 1 ? 'variable is' : 'variables are'} ignored.\n`;
   }
 
-  const missing = statuses.filter((s) => !s.configured);
+  const locked = statuses.filter((s) => s.availability === 'locked');
+  if (locked.length > 0) {
+    out += `  ${c.yellow('note:')} ${locked.map((s) => s.provider).join(', ')} ${locked.length === 1 ? 'is' : 'are'} stored but cannot be unsealed — no vault passphrase is available. Set INKCAST_VAULT_PASSPHRASE; the ${locked.length === 1 ? 'key' : 'keys'} ${locked.length === 1 ? 'is' : 'are'} intact.\n`;
+  }
+  const damaged = statuses.filter((s) => s.availability === 'unreadable');
+  if (damaged.length > 0) {
+    out += `  ${c.yellow('note:')} ${damaged.map((s) => s.provider).join(', ')} ${damaged.length === 1 ? 'is' : 'are'} stored but ${damaged.length === 1 ? 'fails' : 'fail'} authentication — the vault was modified. Re-add with ${c.cyan(`inkcast keys set ${damaged[0]!.provider}`)}.\n`;
+  }
+
+  // Only genuinely-absent providers get the upgrade pitch. Telling someone to
+  // `keys set` a provider whose key is merely locked would have them overwrite it.
+  const missing = statuses.filter((s) => s.availability === 'absent');
   if (missing.length > 0) {
     out += `\n${c.dim('what a key would change')}\n`;
     for (const s of missing) {
@@ -180,9 +214,9 @@ async function setKeyCmd(ctx: CliContext, kv: Keyvault, args: string[]): Promise
   process.stdout.write(
     `${c.green('✔')} stored ${c.bold(provider)} ${c.dim(`(${status?.masked ?? 'set'}) in the ${kv.backendStatus().backend}`)}\n`,
   );
-  if (status?.source === 'env') {
+  if (status?.overridesEnv) {
     process.stdout.write(
-      `${c.yellow('note:')} the same key is set in your environment and that value wins. Unset it to use the stored one.\n`,
+      `${c.dim('note:')} ${status.envVar} is also set in your environment; the stored key takes priority and that variable is now ignored.\n`,
     );
   }
   process.stdout.write(`  ${c.dim('check it:')} ${c.cyan(`inkcast keys validate ${provider}`)}\n`);
@@ -203,7 +237,7 @@ async function validateKeys(ctx: CliContext, kv: Keyvault, which?: string): Prom
       return 0;
     }
     process.stdout.write(
-      `${c.dim('no keys configured — nothing to validate.')} ${c.cyan('inkcast keys set anthropic')}\n`,
+      `${c.dim('no keys configured — nothing to validate.')} ${c.cyan('inkcast keys set fireworks')}\n`,
     );
     return 0;
   }

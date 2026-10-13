@@ -22,7 +22,7 @@ import * as dagreNs from '@dagrejs/dagre';
 import { logger } from '@inkcast/core';
 import type { DrawContext, InkPath } from './geometry.js';
 import { inkPaths, polylineArrowPaths } from './geometry.js';
-import type { FontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
 import type { InkStyle } from './style.js';
 import { roleFontSize } from './style.js';
 import type { Box, Pt } from './svg.js';

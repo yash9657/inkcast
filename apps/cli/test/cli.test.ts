@@ -86,7 +86,7 @@ after(async () => {
 
 test('the help text leads with a key and the teach command', () => {
   const text = usage(false);
-  assert.match(text, /inkcast keys set anthropic/);
+  assert.match(text, /inkcast keys set fireworks/);
   assert.match(text, /inkcast teach/);
   assert.match(text, /ingest → lesson → storyboard → voice → visuals → render/);
   // Do not repeat the MVP's headline claim.
@@ -138,7 +138,7 @@ test('providers reports the stages in pipeline order and how to upgrade them', a
   };
   assert.equal(parsed.local, true);
   const lesson = parsed.degraded.find((d) => d.stage === 'lesson');
-  assert.equal(lesson?.fix, 'inkcast keys set anthropic');
+  assert.equal(lesson?.fix, 'inkcast keys set fireworks');
 });
 
 /* -------------------------------------------------------------------- keys */
@@ -153,7 +153,7 @@ test('keys list reports every provider and where a key would come from', async (
   assert.equal(parsed.backend.backend, 'vault');
   assert.deepEqual(
     parsed.providers.map((p) => p.provider),
-    ['anthropic', 'elevenlabs', 'replicate', 'fal'],
+    ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'],
   );
   assert.ok(parsed.providers.every((p) => !p.configured));
 });
@@ -162,7 +162,7 @@ test('keys validate with nothing configured succeeds and says what to do', async
   // Runs before anything is stored, so it never makes a network call.
   const res = await cli(['keys', 'validate']);
   assert.equal(res.code, 0);
-  assert.match(res.out, /inkcast keys set anthropic/);
+  assert.match(res.out, /inkcast keys set fireworks/);
 });
 
 test('keys set stores a key, list masks it, delete removes it', async () => {
@@ -202,17 +202,25 @@ test('keys set stores a key, list masks it, delete removes it', async () => {
   assert.equal(gone.configured, false);
 });
 
-test('an environment key is reported as winning over a stored one', async () => {
+test('a stored key is reported as winning over an environment one', async () => {
   await cli(['keys', 'set', 'elevenlabs', 'el-stored-key-abcdef', '--json']);
   try {
     const res = await cli(['keys', 'list', '--json'], { ELEVENLABS_API_KEY: 'el-env-key-123456' });
     const el = (
       JSON.parse(res.out) as {
-        providers: Array<{ provider: string; source: string | null; masked: string | null }>;
+        providers: Array<{
+          provider: string;
+          source: string | null;
+          masked: string | null;
+          overridesEnv: boolean;
+        }>;
       }
     ).providers.find((p) => p.provider === 'elevenlabs')!;
-    // Silent shadowing is the worst outcome, so the listing must name the winner.
-    assert.equal(el.source, 'env');
+    // The pasted key is the deliberate one and must be the one in use — and
+    // silent shadowing is the worst outcome, so the listing must name both the
+    // winner and the fact that the exported variable is being ignored.
+    assert.notEqual(el.source, 'env');
+    assert.equal(el.overridesEnv, true);
     assert.ok(el.masked !== null, 'a preview of the winning key is shown');
   } finally {
     // Leave no key behind: a later `validate` would try to use it.

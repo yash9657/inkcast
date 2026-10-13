@@ -1,0 +1,44 @@
+{
+  "id": "ink",
+  "name": "Fine liner",
+  "description": "A single confident pass, near-straight lines and solid black — the technical hand. The only one of the four that draws each edge once.",
+  "hand": {
+    "fontFamily": "Patrick Hand",
+    "fontFiles": ["patrickhand", "patrick-hand", "patrick"],
+    "tracking": 0.004,
+    "textOpacity": 1
+  },
+  "pen": {
+    "width": 2.9,
+    "weight": 0.75,
+    "inkSpeed": 1500,
+    "art": {
+      "unit": 130,
+      "baseAngle": 148,
+      "follow": 0.55,
+      "parts": [
+        { "d": "M 0 0 L 6 -20 L -6 -20 Z", "fill": "#2b3440" },
+        { "d": "M 0 -4 L 0 -18", "stroke": "#fcfbf9", "strokeWidth": 1.6 },
+        { "d": "M -8 -20 L 8 -20 L 10 -40 L -10 -40 Z", "fill": "#c9a227" },
+        {
+          "d": "M -11 -40 L 11 -40 L 11 -112 Q 11 -122 0 -124 Q -11 -122 -11 -112 Z",
+          "fill": "#1b232e"
+        },
+        { "d": "M -5 -46 L -2 -46 L -2 -112 L -5 -112 Z", "fill": "rgba(255,255,255,0.22)" },
+        { "d": "M -9 -124 L 9 -124 L 7 -130 L -7 -130 Z", "fill": "#c9a227" }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 0.72,
+    "bowing": 0.55,
+    "multiStroke": false,
+    "curveFitting": 0.98,
+    "maxRandomnessOffset": 1.2,
+    "strokeOpacity": 1,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "zigzag", "weight": 1.6, "hachureAngle": -45, "hachureGap": 7 }
+  },
+  "sketch": { "roughness": 0.75, "bowing": 0.8, "passes": 1, "cap": "round", "opacity": 1 }
+}

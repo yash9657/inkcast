@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "topic": "How GPS finds your position",
+  "reference": "https://www.youtube.com/watch?v=-hzueYK3rk0",
+  "referenceSource": "Golpo public technical-style example reviewed during the audit",
+  "track": "source-to-video; source packet supplied, lesson and diagrams generated",
+  "targetSeconds": 150,
+  "criticalErrorsAllowed": 0,
+  "requiredClaims": [
+    "Satellites broadcast timed radio signals and orbital information",
+    "Range depends on signal travel time and speed of light",
+    "One range does not determine a unique location",
+    "Real constraints are three-dimensional; flat circles are schematic",
+    "Four unknowns include three position coordinates and receiver clock offset",
+    "Four independent measurements solve those unknowns with suitable geometry",
+    "A phone does not require an atomic clock",
+    "A microsecond corresponds to about 300 metres of range error",
+    "GPS reception does not require an uplink from the phone"
+  ],
+  "visualChecks": [
+    "satellites recognisable",
+    "receiver recognisable",
+    "timing-to-distance diagram",
+    "range constraints correctly labelled",
+    "four unknowns explicit",
+    "no misplaced leader endpoints",
+    "no illegible or clipped labels"
+  ],
+  "audioChecks": [
+    "one consistent voice",
+    "no clipped words",
+    "no unnatural pauses inside phrases",
+    "explanatory pauses after new concepts",
+    "visual reveals match the relevant speech"
+  ],
+  "comparisonRule": "Watch both full videos at matched playback size; score clarity, correctness, legibility, cadence and visual specificity. A passing render or model critique alone is not parity. Source-assisted results do not prove bare-topic generation."
+}

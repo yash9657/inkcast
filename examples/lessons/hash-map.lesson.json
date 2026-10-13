@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "topic": "How does a hash map work",
+  "audience": "someone who can read a few lines of Python and has never implemented a data structure",
+  "objective": "explain why a hash map lookup does not search the table, and what goes wrong when two keys land in the same slot",
+  "kind": "stem",
+  "strategy": "first-principles",
+  "coreInsight": "A hash map never looks for the answer. It computes the one place the answer is allowed to be, and looks only there.",
+  "jargonBudget": ["hash function", "bucket", "collision", "load factor"],
+  "hook": {
+    "idea": "A wall of pigeonholes, and no idea which one",
+    "because": "",
+    "narration": "A wall of a thousand pigeonholes, and one letter for you somewhere in it. Nobody labelled them. You would have to open every single hole.",
+    "visuals": [
+      {
+        "describe": "a tall grid of small empty pigeonholes filling the board, one hand reaching into the first hole on the left, a long row of question marks across the rest",
+        "kind": "draw",
+        "cue": "open every single hole"
+      }
+    ],
+    "hold": 1.3,
+    "from": "given",
+    "derivedFrom": []
+  },
+  "anchor": {
+    "idea": "Unless the name tells you the number",
+    "because": "If there is a rule that turns a name into a hole number, then the name itself says where to look, and nobody has to open anything else.",
+    "narration": "Now suppose there is a rule. Feed it a name, and it hands back a hole number. You go straight there. One look.",
+    "visuals": [
+      {
+        "describe": "a name written on the left, an arrow into a small box marked with a rule, an arrow out to a single highlighted pigeonhole in the grid on the right",
+        "kind": "draw",
+        "cue": "hands back a hole number"
+      }
+    ],
+    "terms": [],
+    "hold": 1.0,
+    "from": "derived",
+    "derivedFrom": ["hook"]
+  },
+  "steps": [
+    {
+      "idea": "The rule is a hash function",
+      "because": "A hash function is any rule that turns a key of any size into a fixed-size number, and the only property that matters here is that the same key always comes back with the same number.",
+      "narration": "That rule is called a hash function. Any key in, one number out, and the same key always gives the same number. That last part is the whole trick.",
+      "visuals": [
+        {
+          "describe": "three different words on the left, each with an arrow into the same rule box, each coming out as a different long number on the right",
+          "kind": "draw",
+          "cue": "called a hash function"
+        }
+      ],
+      "terms": ["hash function"],
+      "hold": 0.9,
+      "from": "derived",
+      "derivedFrom": ["anchor"]
+    },
+    {
+      "idea": "Fold the number down to a slot, and look there",
+      "because": "The hash is far bigger than the table, so taking it modulo the number of slots lands it inside the table, and that arithmetic is the entire lookup.",
+      "narration": "The number is enormous, and the table is small. So take the remainder. That lands you on one slot, and you look in exactly that slot. No searching happened anywhere.",
+      "visuals": [
+        {
+          "describe": "the remainder line is the whole lookup, and the line after it reads one slot",
+          "kind": "code",
+          "lang": "python",
+          "code": "def get(self, key):\n    i = hash(key) % len(self.slots)\n    return self.slots[i]",
+          "cue": "So take the remainder"
+        }
+      ],
+      "terms": [],
+      "hold": 1.1,
+      "from": "derived",
+      "derivedFrom": ["step1"]
+    },
+    {
+      "idea": "Two keys can be sent to the same slot",
+      "because": "There are far more possible keys than slots, so some pair of keys must share a slot, and the map has to be able to hold both of them there.",
+      "narration": "But there are more keys than slots, so sooner or later two keys are sent to the same one. That is a collision, and it is not a bug. Every slot holds a little list instead.",
+      "visuals": [
+        {
+          "describe": "two different names on the left, both arrows converging on the same slot, and that slot drawn open with two entries stacked inside it",
+          "kind": "draw",
+          "cue": "That is a collision"
+        }
+      ],
+      "terms": ["collision"],
+      "hold": 1.0,
+      "from": "derived",
+      "derivedFrom": ["step2"]
+    },
+    {
+      "idea": "So a lookup walks one short list",
+      "because": "Once the slot is found by arithmetic, the only work left is comparing keys inside that one slot, and if the list is short that is a handful of comparisons rather than a thousand.",
+      "narration": "So the real lookup walks the little list in that one slot. The list is called a bucket. Short bucket, few comparisons, and the size of the table never entered into it.",
+      "visuals": [
+        {
+          "describe": "the loop runs inside one slot only, and the return is the first key that matches",
+          "kind": "code",
+          "lang": "python",
+          "code": "def get(self, key):\n    i = hash(key) % len(self.slots)\n    for k, v in self.slots[i]:   # walk the bucket\n        if k == key:\n            return v\n    raise KeyError(key)",
+          "cue": "walks the little list"
+        }
+      ],
+      "terms": ["bucket"],
+      "hold": 1.2,
+      "from": "derived",
+      "derivedFrom": ["step2", "step3"]
+    },
+    {
+      "idea": "Keep the buckets short and it stays one look",
+      "because": "The cost of a lookup is the length of one bucket, so as long as the number of entries stays close to the number of slots the buckets stay tiny, which is what the load factor measures.",
+      "narration": "The cost is the length of one bucket, nothing else. Keep the entries and the slots roughly in step and the buckets stay tiny. That ratio is the load factor, and growing the table is how you hold it down.",
+      "visuals": [
+        {
+          "describe": "two tables side by side, the left one with short two-entry buckets and the right one with long buckets trailing off the slots, an arrow from left to right labelled too full",
+          "kind": "draw",
+          "cue": "That ratio is the load factor"
+        }
+      ],
+      "terms": ["load factor"],
+      "hold": 1.0,
+      "from": "derived",
+      "derivedFrom": ["step4"]
+    }
+  ],
+  "misconception": {
+    "idea": "It is arithmetic, not magic — a bad rule undoes all of it",
+    "because": "Nothing about the structure guarantees short buckets: if the hash sends every key to the same slot the map still works, but every lookup walks the whole table and the constant-time claim is gone.",
+    "narration": "None of this is guaranteed. If the rule sends every key to slot zero, the map still answers correctly, and every single lookup opens every pigeonhole again. The speed was never in the table. It was in the rule.",
+    "visuals": [
+      {
+        "describe": "one table whose first slot holds a long trailing list of every entry while every other slot sits empty",
+        "kind": "draw",
+        "cue": "every key to slot zero"
+      }
+    ],
+    "terms": [],
+    "hold": 1.1,
+    "from": "derived",
+    "derivedFrom": ["step1", "step5"]
+  },
+  "recap": {
+    "idea": "The whole chain, in one breath",
+    "because": "",
+    "narration": "A rule turns the key into a number. The remainder turns the number into a slot. The slot holds a short list. You walk it, and you are done.",
+    "visuals": [],
+    "hold": 0.8,
+    "from": "given",
+    "derivedFrom": []
+  }
+}

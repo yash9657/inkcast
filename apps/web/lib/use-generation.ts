@@ -4,7 +4,7 @@
  * The progress hook: one `EventSource` on `/api/generate/:id/stream`, turned
  * into a state shape the waiting screen can render directly.
  *
- * Two rules it exists to enforce:
+ * Three rules it exists to enforce:
  *
  * 1. **Never fabricate a percentage.** `pct` is whatever the server last sent
  *    and `null` before it sends one — an indeterminate bar is honest and looks
@@ -13,6 +13,13 @@
  * 2. **A stream that stops is a failure.** If the connection closes without a
  *    terminal `{ done }` or `{ error }` event, that surfaces as an error with a
  *    retry, not as a bar frozen at 84% forever.
+ * 3. **A queue position never goes up.** The server's FIFO cannot move a client
+ *    backwards (see `lib/jobs.ts`), but the *transport* can: `EventSource`
+ *    reconnects on its own, and a reconnect replays the current queue event —
+ *    which, if it raced a live one already rendered, would show somebody
+ *    slipping from #2 to #3 for no reason they could ever discover. So the
+ *    position is clamped here as well, at the last place before it reaches a
+ *    screen.
  */
 
 import * as React from 'react';
@@ -97,7 +104,27 @@ export type StageProgress = {
   note?: string;
 };
 
-export type GenerationStatus = 'idle' | 'connecting' | 'running' | 'done' | 'error';
+export type GenerationStatus = 'idle' | 'connecting' | 'queued' | 'running' | 'done' | 'error';
+
+/**
+ * The wait, as the server measured it.
+ *
+ * `message` is rendered verbatim. It is written server-side (`queueCopy` in
+ * `lib/jobs.ts`) because the sentence depends on facts only the server has —
+ * how many renders a box runs at once, and whether it has measured one yet —
+ * and a second copy of that logic here would be a second copy to get wrong.
+ * `position` and `etaSec` travel alongside it so the layout can show the number
+ * large without re-parsing English.
+ */
+export type QueueState = {
+  /** 1-based place in line. */
+  position: number;
+  /** Runs working ahead of this one. */
+  running: number;
+  /** Seconds until this run is expected to start; null while unmeasured. */
+  etaSec: number | null;
+  message: string;
+};
 
 export type GenerationState = {
   status: GenerationStatus;
@@ -107,8 +134,17 @@ export type GenerationState = {
   pct: number | null;
   note?: string;
   stages: Record<GenerationStage, StageProgress>;
-  /** Milliseconds since this hook attached to the run. */
+  /**
+   * Milliseconds on the current phase: time spent waiting while `status` is
+   * `queued`, and time spent rendering once the run has been admitted.
+   *
+   * The clock restarts at admission on purpose. "14:02 elapsed" on a run that
+   * spent thirteen of those minutes in a queue describes nothing a viewer can
+   * use, and it makes a perfectly normal render look like a hang.
+   */
   elapsedMs: number;
+  /** Where this run sits in line, while it is in one. */
+  queue?: QueueState;
   /** Project-relative video path from the terminal event. */
   videoPath?: string;
   error?: string;
@@ -216,7 +252,9 @@ export function useGeneration(
       return;
     }
 
-    const startedAt = Date.now();
+    // Not `const`: the queue's `queued: false` event restarts it, so `elapsedMs`
+    // measures the wait while waiting and the render while rendering.
+    let startedAt = Date.now();
     let terminal = false;
     let failures = 0;
     let closed = false;
@@ -283,6 +321,55 @@ export function useGeneration(
         return;
       }
 
+      /*
+       * The queue, on the same channel as the progress.
+       *
+       * `queued` is a boolean rather than a truthiness check because `false` is
+       * the meaningful half: it is the single event that says a slot was granted,
+       * and it is what moves the screen off the waiting copy without having to
+       * wait for the pipeline's first progress report (which can be seconds
+       * later — it opens the project and checks caches before it says anything).
+       */
+      if (typeof data.queued === 'boolean') {
+        if (data.queued) {
+          const reported =
+            typeof data.position === 'number' && Number.isFinite(data.position)
+              ? Math.max(1, Math.round(data.position))
+              : 1;
+          const running =
+            typeof data.running === 'number' && Number.isFinite(data.running)
+              ? Math.max(0, Math.round(data.running))
+              : 0;
+          const etaSec =
+            typeof data.etaSec === 'number' && Number.isFinite(data.etaSec)
+              ? Math.max(0, Math.round(data.etaSec))
+              : null;
+          const message = typeof data.message === 'string' ? data.message : '';
+          setState((prev) => ({
+            ...prev,
+            status: 'queued',
+            queue: {
+              // See rule 3 in the header: the server cannot move a client
+              // backwards, but a reconnect's replay racing a live event can.
+              position: Math.min(reported, prev.queue?.position ?? reported),
+              running,
+              etaSec,
+              message,
+            },
+            elapsedMs: Date.now() - startedAt,
+          }));
+          return;
+        }
+        startedAt = Date.now();
+        setState((prev) => ({
+          ...prev,
+          status: 'running',
+          queue: undefined,
+          elapsedMs: 0,
+        }));
+        return;
+      }
+
       const stage = toStage(data.stage);
       const overall = typeof data.pct === 'number' && Number.isFinite(data.pct) ? data.pct : null;
       const reported =
@@ -342,7 +429,7 @@ export function useGeneration(
     const timer = window.setInterval(() => {
       if (terminal) return;
       setState((prev) =>
-        prev.status === 'running' || prev.status === 'connecting'
+        prev.status === 'running' || prev.status === 'connecting' || prev.status === 'queued'
           ? { ...prev, elapsedMs: Date.now() - startedAt }
           : prev,
       );

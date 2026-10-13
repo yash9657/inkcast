@@ -404,7 +404,7 @@ export async function auditKokoroVoices(
   const { loadKokoro } = await import('./providers/kokoro.js');
   const { splitPhrases, gapAfter } = await import('./phrase.js');
   const { findSpeechBounds } = await import('./wav.js');
-  const { normalizeNarration } = await import('./text.js');
+  const { normalizeNarration } = await import('@inkcast/core');
 
   const tts = await loadKokoro();
   const words = AUDIT_PARAGRAPH.split(/\s+/).filter(Boolean).length;

@@ -1,25 +1,9 @@
 /**
- * Phrase splitting — how the voice stage learns where the words actually are.
- *
- * Cue resolution needs to know, in seconds, when a particular phrase is spoken.
- * There are three ways to get that: guess (what the planner did), run a forced
- * aligner (a Python dependency we will not take), or **synthesise in phrases and
- * measure each one**. The third is exact by construction: if a phrase is its own
- * clip, its start and end are arithmetic, not estimation.
- *
- * So narration is cut on sentence and clause boundaries, each piece is
- * synthesised and measured, and the pieces are re-joined with a deliberate gap.
- * Two details make that sound like speech rather than a splice:
- *
- * 1. **Punctuation is preserved on each phrase.** A clause handed to the engine
- *    as "and you want to reach the valley below," keeps its comma and therefore
- *    keeps continuation intonation. Strip the comma and every clause ends on a
- *    terminal fall, which is what makes naive chunking sound chopped.
- * 2. **Clause splits are conservative.** A comma only becomes a cut when both
- *    sides are substantial (`MIN_CLAUSE_WORDS`), so "w, the weight," never
- *    becomes three clips.
+ * A synthesis unit and its measured timing. Neural voices use one scene paragraph
+ * so the model owns sentence transitions; legacy engines can still split clauses
+ * or sentences. Word alignment is independent of the synthesis unit.
  */
-import { splitSentences } from './text.js';
+import { splitSentences } from '@inkcast/core';
 
 /** Below this, a comma is punctuation rather than a boundary worth cutting on. */
 export const MIN_CLAUSE_WORDS = 4;
@@ -32,8 +16,40 @@ export const MIN_CLAUSE_WORDS = 4;
  */
 export const PHRASE_GAP_SEC = 0.07;
 
-/** Silence between sentences — an idea boundary, so it is audible. */
+/** Silence between ordinary sentences — an idea boundary, so it is audible. */
 export const SENTENCE_GAP_SEC = 0.24;
+
+/**
+ * How long the pause after a sentence is, by how much the sentence was.
+ *
+ * A flat gap after every sentence is what "so many unnatural pauses" turned out to mean. A
+ * measured render put **35 pauses into two minutes** — one every 3.5 seconds — all of them
+ * 0.24s, because good spoken teaching is written in short sentences and every one of them
+ * was treated as a full stop. At that density a uniform pause stops reading as punctuation
+ * and starts reading as a machine.
+ *
+ * So the gap is graduated by the length of the sentence that just ended: a four-word line
+ * in a run barely breathes, an ordinary sentence gets what it always got, a long one that
+ * carried a real claim gets room to land. Measured on the same lesson, the graduated scheme
+ * spends **8.4s across five distinct lengths** where the flat one spent 8.8s across one —
+ * more shape, slightly less silence, and the speaking rate stays inside the teaching band.
+ *
+ * A first cut used two tiers and made every sentence of seven words or more a landing. That
+ * put 19 long pauses in and pushed the delivered rate *below* the band: the fix for a flat
+ * rhythm is not a slower one.
+ */
+const GAP_BY_WORDS: readonly [maxWords: number, gap: number][] = [
+  // A run of short sentences is one thought delivered in beats, not three thoughts.
+  [7, 0.1],
+  [12, SENTENCE_GAP_SEC],
+  [Infinity, 0.42],
+];
+
+/**
+ * Gap after a question, the longest there is: the silence is the point, because the learner
+ * is meant to attempt an answer before being told it.
+ */
+const QUESTION_GAP_SEC = 0.6;
 
 export type Phrase = {
   /**
@@ -45,15 +61,41 @@ export type Phrase = {
   sentence: number;
   /** True when this phrase carries its sentence's terminal punctuation. */
   endsSentence: boolean;
+  /**
+   * Words in the whole sentence this phrase belongs to, not just in this phrase.
+   *
+   * Recorded at the split because that is the only place it is known: in `clause` mode the
+   * terminal phrase of a ten-word sentence can itself be three words, and `gapAfter` was
+   * about to call that a run and clip the pause. Length is a property of the sentence.
+   */
+  sentenceWords: number;
 };
 
-export type PhraseSplit = 'clause' | 'sentence';
+export type PhraseSplit = 'clause' | 'sentence' | 'paragraph';
+
+const PHRASE_SPLITS: readonly PhraseSplit[] = ['clause', 'sentence', 'paragraph'];
+
+/**
+ * The deployment's synthesis unit, from `INKCAST_VOICE_UNIT`, or `undefined` to let
+ * the engine choose (`VoiceProvider.preferredSplit` — a scene paragraph for neural
+ * voices). An escape hatch for operators, read from the process environment rather
+ * than a job's provider scope because it describes the box, not an account. An
+ * unknown value is ignored rather than failing a render.
+ */
+export function requestedVoiceUnit(
+  raw: string | undefined = process.env.INKCAST_VOICE_UNIT,
+): PhraseSplit | undefined {
+  const value = raw?.trim().toLowerCase();
+  return value && (PHRASE_SPLITS as readonly string[]).includes(value)
+    ? (value as PhraseSplit)
+    : undefined;
+}
 
 export type SplitOptions = {
   /**
    * `clause` cuts inside sentences at commas, semicolons and colons, which buys
    * sub-sentence cue precision. `sentence` is the conservative mode for engines
-   * whose prosody suffers from short inputs.
+   * whose prosody suffers from short inputs. `paragraph` keeps the whole scene together.
    */
   mode?: PhraseSplit;
   minClauseWords?: number;
@@ -103,23 +145,50 @@ export function splitClauses(sentence: string, minWords = MIN_CLAUSE_WORDS): str
  */
 export function splitPhrases(text: string, opts: SplitOptions = {}): Phrase[] {
   const mode = opts.mode ?? 'clause';
+  // A scene is one utterance: let the engine shape its sentence transitions.
+  // Alignment comes from timestamps, not artificial cuts in the speech.
+  if (mode === 'paragraph') {
+    const paragraph = text.trim();
+    return paragraph
+      ? [{ text: paragraph, sentence: 0, endsSentence: true, sentenceWords: wordCount(paragraph) }]
+      : [];
+  }
   const sentences = splitSentences(text);
   const phrases: Phrase[] = [];
 
   sentences.forEach((sentence, si) => {
     const parts = mode === 'sentence' ? [sentence] : splitClauses(sentence, opts.minClauseWords);
+    const sentenceWords = wordCount(sentence);
     parts.forEach((part, pi) => {
-      phrases.push({ text: part, sentence: si, endsSentence: pi === parts.length - 1 });
+      phrases.push({
+        text: part,
+        sentence: si,
+        endsSentence: pi === parts.length - 1,
+        sentenceWords,
+      });
     });
   });
 
   return phrases;
 }
 
-/** Gap to insert after `phrase`, given what follows it. 0 if nothing follows. */
+/**
+ * Gap to insert after `phrase`, given what follows it. 0 if nothing follows.
+ *
+ * A clause boundary inside a sentence is the shortest thing there is; a question is the
+ * longest; everything between is `GAP_BY_WORDS`, which is where the reasoning lives.
+ *
+ * `Scene.hold` still governs the pause *between* beats and `cadence` bounds that, so this
+ * is only ever about the rhythm inside one beat.
+ */
 export function gapAfter(phrase: Phrase, next: Phrase | undefined): number {
   if (!next) return 0;
-  return phrase.endsSentence ? SENTENCE_GAP_SEC : PHRASE_GAP_SEC;
+  if (!phrase.endsSentence) return PHRASE_GAP_SEC;
+  if (/\?["')\]]?\s*$/.test(phrase.text)) return QUESTION_GAP_SEC;
+  // Measured on the *sentence*, not on this phrase: in `clause` mode the closing phrase of
+  // a long sentence can be three words, and it still lands what the sentence built.
+  const tier = GAP_BY_WORDS.find(([max]) => phrase.sentenceWords < max);
+  return tier?.[1] ?? SENTENCE_GAP_SEC;
 }
 
 /* ------------------------------------------------------------------- timing */

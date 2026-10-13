@@ -6,31 +6,6 @@ import { XIcon } from 'lucide-react';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A modal dialog.
- *
- *   <Dialog>
- *     <DialogTrigger render={<Button variant="outline" />}>Rename</DialogTrigger>
- *     <DialogContent>
- *       <DialogHeader>
- *         <DialogTitle>Rename project</DialogTitle>
- *         <DialogDescription>This only changes the display name.</DialogDescription>
- *       </DialogHeader>
- *       …
- *       <DialogFooter>
- *         <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>
- *         <Button>Save</Button>
- *       </DialogFooter>
- *     </DialogContent>
- *   </Dialog>
- *
- * `DialogTitle` is required — Base UI wires it to `aria-labelledby`, and a
- * modal without an accessible name is a bug. If the title should not be seen,
- * use `<DialogTitle className="sr-only">`.
- *
- * Base UI traps focus, locks scroll and restores focus to the trigger on close.
- * Nothing here re-implements any of that.
- */
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
@@ -40,7 +15,13 @@ function DialogBackdrop() {
     <DialogPrimitive.Backdrop
       data-slot="dialog-backdrop"
       className={cn(
-        'fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[2px]',
+        // A flat ink scrim, not frosted glass. The 2px backdrop blur that used
+        // to be here is the one effect docs/DESIGN.md §10 names outright ("do
+        // not add … a glass-morphism panel"), and blurring the page behind a
+        // hard-edged dialog fights the whole premise: this system says one flat
+        // plane is in front of another. Denser than the old 25% to compensate
+        // for the lost blur — the dialog has to win against a dot grid.
+        'fixed inset-0 z-50 bg-foreground/40',
         'transition-opacity duration-slow ease-out',
         'data-starting-style:opacity-0 data-ending-style:opacity-0',
       )}
@@ -63,7 +44,7 @@ export function DialogContent({
           // 2rem === spacing-8: a gutter on small screens, capped at max-w-lg.
           'fixed top-1/2 left-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-lg gap-6',
           '-translate-x-1/2 -translate-y-1/2',
-          'rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-xl',
+          'rounded-md border border-border bg-popover p-6 text-popover-foreground shadow-overlay',
           'transition-[opacity,transform] duration-slow ease-out',
           // Rises 8px and settles. Scale is subtle on purpose: a big zoom reads
           // as a notification, not as a surface you are meant to work in.
@@ -78,8 +59,12 @@ export function DialogContent({
           <DialogPrimitive.Close
             aria-label="Close"
             className={cn(
-              'absolute top-4 right-4 flex size-7 items-center justify-center rounded-sm',
-              'text-muted-foreground transition-colors duration-fast ease-out',
+              // The same object as `Button variant="ghost" size="icon-sm"`: a
+              // transparent border that becomes ink on hover, so the control
+              // grows an edge without moving its glyph.
+              'absolute top-4 right-4 flex size-7 items-center justify-center rounded-md',
+              'border border-transparent text-muted-foreground',
+              'transition-[background-color,border-color,color] duration-fast ease-out',
               'hover:bg-accent hover:text-accent-foreground',
               'focus-ring outline-none',
             )}

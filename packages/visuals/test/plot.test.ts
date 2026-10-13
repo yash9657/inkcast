@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseStoryboard, type PlotElement } from '@inkcast/core';
-import { builtinMetrics } from '../src/fontmetrics.js';
+import { builtinMetrics } from '@inkcast/core';
 import { ctxFor, seedFrom } from '../src/geometry.js';
 import {
   CURVE_FUNCTIONS,
@@ -15,7 +15,15 @@ import {
   type CurveFnName,
 } from '../src/plot.js';
 import { inkStyleFor } from '../src/style.js';
-import { containsBox, padBox, parsePath, pathBBox, pathLength, unionBox } from '../src/svg.js';
+import {
+  containsBox,
+  padBox,
+  parsePath,
+  pathBBox,
+  pathLength,
+  samplePath,
+  unionBox,
+} from '../src/svg.js';
 
 const style = inkStyleFor({ style: 'marker', palette: 'color' });
 const font = builtinMetrics(style.fontFamily);
@@ -482,10 +490,17 @@ test('parts carry their own at fraction and a contiguous draw range', () => {
     assert.equal(r.at, 0.1, `${r.kind} should inherit the element's enter.at`);
   }
   const overlays = records.filter((r) => r.id.startsWith('overlay:'));
+  // Three overlays, but the stepping sequence is one part *per hop* — the descent
+  // has to arrive a move at a time, so each hop owns its own draw range and start.
   assert.deepEqual(
     overlays.map((r) => `${r.kind}@${r.at}`),
-    ['point@0.3', 'tangent@0.6', 'steps@0.9'],
-    'overlays must be drawn in ascending `at` order',
+    ['point@0.3', 'tangent@0.6', 'steps@0.9', 'steps@0.9'],
+    'overlays must be drawn in ascending `at` order, hop by hop for a descent',
+  );
+  assert.deepEqual(
+    overlays.filter((r) => r.kind === 'steps').map((r) => r.id),
+    ['overlay:0:0', 'overlay:0:1'],
+    'each hop after the first is a suffixed sub-part of the same overlay',
   );
   for (const r of records) {
     for (let i = r.from; i <= r.to; i++) {
@@ -556,9 +571,12 @@ test('accent indices walk the palette and are clamped, not wrapped', () => {
   assert.equal(curveInk(style, 1).colour, style.accent);
   assert.equal(curveInk(style, 99).colour, curveInk(style, 5).colour);
   assert.equal(curveInk(style, -4).colour, curveInk(style, 0).colour);
-  // Mono collapses the palette on purpose; nothing here should crash on that.
+  // Mono separates by value instead of hue (one colour table, plan 2.2): the accent
+  // is its own near-ink dark — the film's mono has always drawn it so — not a
+  // collapse onto the ink, which was this stage's private drift.
   const mono = inkStyleFor({ style: 'ink', palette: 'mono' });
-  assert.equal(curveInk(mono, 1).colour, mono.ink);
+  assert.equal(curveInk(mono, 1).colour, mono.accent);
+  assert.notEqual(mono.accent, mono.ink);
 });
 
 test('labels never overlap each other', () => {
@@ -620,6 +638,71 @@ test('a shade overlay produces a filled region with measurable geometry', () => 
     if (item.kind !== 'path') continue;
     assert.ok(pathLength(item.path.d) > 0);
   }
+});
+
+/* ---- crisp ink ---------------------------------------------------------- */
+
+test('a plot draws crisp without being asked, and every part of it does', () => {
+  // The mode is set inside `resolvePlot`, so a caller passing a plain context —
+  // which is what both real call sites do — must still get exact geometry.
+  const el = plot({
+    grid: true,
+    xLabel: 'x',
+    yLabel: 'loss',
+    overlays: [
+      { kind: 'tangent', curveId: 'L', x: 1.5, span: 1, at: 0.3 },
+      { kind: 'point', curveId: 'L', x: -1, at: 0.4 },
+      { kind: 'dropline', curveId: 'L', x: 2, to: 'both', at: 0.5 },
+      { kind: 'steps', curveId: 'L', xs: [-2.5, -1.5, -0.5], at: 0.6 },
+    ],
+  });
+  // Crisp geometry carries no randomness, so the seed cannot reach the bytes. Any
+  // stroke that slipped through in sketch mode would differ between these two.
+  const one = resolvePlot(el, ctxFor(style, seedFrom('a')), {
+    style,
+    font,
+    canvasHeight: 1080,
+    baseAt: el.enter.at,
+  });
+  const two = resolvePlot(el, ctxFor(style, seedFrom('completely-different')), {
+    style,
+    font,
+    canvasHeight: 1080,
+    baseAt: el.enter.at,
+  });
+  const ds = (r: typeof one): string[] =>
+    r.items.flatMap((i) => (i.kind === 'path' ? [i.path.d] : []));
+  assert.ok(ds(one).length > 20, 'this plot should be a lot of strokes');
+  assert.deepEqual(ds(two), ds(one), 'a plot stroke still depends on the seed');
+
+  // And the axis a learner reads coordinates against is dead straight.
+  const axis = one.parts.find((p) => p.kind === 'axis' && p.id === 'x');
+  assert.ok(axis);
+  const shaft = axis.items.find((i) => i.kind === 'path');
+  assert.ok(shaft && shaft.kind === 'path');
+  const ys = samplePath(parsePath(shaft.path.d)).map((p) => p.y);
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 1e-6, `the x axis wobbles: ${shaft.path.d}`);
+});
+
+test('a crisp curve keeps every sample rather than simplifying to the wobble', () => {
+  // Simplification exists to land the perturbation at human scale. With no
+  // perturbation it only costs fidelity, so the crisp curve is the denser one.
+  const el = plot();
+  const crisp = resolve(el);
+  const sketch = resolvePlot(
+    el,
+    { ...ctxFor(style, SEED), ink: 'sketch' },
+    { style, font, canvasHeight: 1080, baseAt: el.enter.at },
+  );
+  const segs = (r: typeof crisp): number => {
+    const part = r.parts.find((p) => p.kind === 'curve');
+    assert.ok(part);
+    return part.items.reduce((n, i) => n + (i.kind === 'path' ? parsePath(i.path.d).length : 0), 0);
+  };
+  assert.ok(
+    segs(crisp) > segs(sketch) * 2,
+    `crisp curve should be far denser: ${segs(crisp)} vs ${segs(sketch)} segments`,
+  );
 });
 
 test('the resolved plot reports one bounding area that contains all its ink', () => {

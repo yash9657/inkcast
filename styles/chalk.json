@@ -1,0 +1,51 @@
+{
+  "id": "chalk",
+  "name": "Chalk",
+  "description": "The classroom board: pale chalk on dark slate, broad and dusty, with cross-hatched fills and the roughest line of the four. The first dark surface in the tree — a generated figure is keyed to real alpha and re-lit in the chalk rather than multiplied into the board (plan 9.2, audit S5.6).",
+  "hand": {
+    "fontFamily": "Gaegu",
+    "fontFiles": ["gaegu"],
+    "tracking": 0.02,
+    "textOpacity": 0.9
+  },
+  "pen": {
+    "width": 4.0,
+    "weight": 1.15,
+    "inkSpeed": 2000,
+    "art": {
+      "unit": 84,
+      "baseAngle": 154,
+      "follow": 0.35,
+      "parts": [
+        {
+          "d": "M -10 0 L 10 -2 L 11 -78 Q 11 -82 7 -82 L -7 -82 Q -11 -82 -11 -78 Z",
+          "fill": "#f7f5f0",
+          "stroke": "#c9c6bf",
+          "strokeWidth": 2
+        },
+        { "d": "M -5 -8 L -1 -8 L -1 -76 L -5 -76 Z", "fill": "rgba(255,255,255,0.75)" }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 2.3,
+    "bowing": 1.9,
+    "multiStroke": true,
+    "curveFitting": 0.88,
+    "maxRandomnessOffset": 3.2,
+    "strokeOpacity": 0.86,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "cross-hatch", "weight": 1.8, "hachureAngle": -35, "hachureGap": 12 }
+  },
+  "sketch": { "roughness": 1.9, "bowing": 1.2, "passes": 2, "cap": "round", "opacity": 0.8 },
+  "palette": {
+    "paper": "#1b232e",
+    "ink": "#f2efe6",
+    "inkSoft": "#a8b2be",
+    "grid": "rgba(255,255,255,0.055)",
+    "accent": "#7fc4ff",
+    "contrast": "#ffb37f",
+    "highlight": "rgba(245,196,69,0.22)"
+  }
+}

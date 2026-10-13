@@ -1,0 +1,93 @@
+{
+  "problems": [],
+  "beats": [
+    {
+      "id": "hook",
+      "supported": true,
+      "quotes": [
+        "The navigation app then places that position on a map.",
+        "GPS positioning does not require the phone to transmit a request to the satellites."
+      ],
+      "reason": "Hook claims the phone derived the dot from signals arriving at it rather than from user input; source supports that the receiver derives position and that no request is transmitted. The satellite-with-signal-arcs drawing is a signal-path depiction, not a flat range-circle drawing, so no '2D schematic' note is required here. Hook may stand without quotations, and nothing here contradicts the source."
+    },
+    {
+      "id": "anchor",
+      "supported": true,
+      "quotes": [
+        "A distance to one known point restricts possible positions to a sphere, not one location."
+      ],
+      "reason": "The lightning/thunder analogy (an everyday analogy) illustrates delay-plus-known-speed giving a distance; its conclusion 'one distance, not a location' matches the source's restriction to a sphere/not one location. The timeline visual (flash/thunder ticks, 'delay') correctly associates labels with parts. Not a range drawing, so no '2D schematic' note is needed."
+    },
+    {
+      "id": "step1",
+      "supported": true,
+      "quotes": [
+        "GPS satellites broadcast radio signals containing timing and orbital information.",
+        "Signal travel time multiplied by the speed of light gives a range estimate."
+      ],
+      "reason": "Narration's time-stamped signal plus orbit information, and travel time × c = range estimate, both map directly to the source. The clocks 'time sent'/'time received' match the source's comparison of transmission and reception times. Visual labels attach to the correct parts."
+    },
+    {
+      "id": "step2",
+      "supported": true,
+      "quotes": [
+        "The receiver's clock offset affects these measurements, so they are called pseudoranges until the clock offset is accounted for.",
+        "A phone need not carry an atomic clock"
+      ],
+      "reason": "The beat's 'not yet exact because the phone's own clock drifts' and 'pseudoranges until the clock error is accounted for' preserve the source's qualifier exactly. The 'atomic clock' label over the satellite clock and the phone-clock drift squiggle are consistent with the source's precise satellite timing vs. phone clock solved later."
+    },
+    {
+      "id": "step3",
+      "supported": true,
+      "quotes": [
+        "A flat circle-intersection drawing can illustrate the idea, but must be labelled a two-dimensional schematic: real GPS uses three spatial dimensions.",
+        "A distance to one known point restricts possible positions to a sphere, not one location."
+      ],
+      "reason": "The narration is explicitly framed as a 2D schematic, so 'one range → circle' and 'two ranges → two crossing points' are correct in-plane deductions. The geometry is sound: centers (-5,0),(5,0), radius sqrt(41)≈6.4, both circles pass through (0,±4) (distances sqrt(25+16)=sqrt(41) each), giving exactly two intersections. Crucially, the script forbids a third circle/satellite and any 'three circles ambiguous' claim, avoiding the false 3D implication flagged as unacceptable, and it states 'the real three-dimensional problem uses spheres instead, and must also solve the clock error.' The '2D schematic' note is present from the first frame and the 'real GPS uses 3D spheres' note bounds the analogy."
+    },
+    {
+      "id": "step4",
+      "supported": true,
+      "quotes": [
+        "With an ordinary unsynchronised receiver clock, there are four unknowns: x, y, z, and clock offset.",
+        "Four independent measurements can solve these together under suitable geometry.",
+        "Real receivers often use more satellites."
+      ],
+      "reason": "The four unknowns (x, y, z, clock offset), the joint solution of four independent measurements under suitable geometry, and 'often use more than four' all match the source. The 'suitable geometry' condition is preserved in the visual label, and 'needs no atomic clock of its own' matches 'A phone need not carry an atomic clock'."
+    },
+    {
+      "id": "worked",
+      "supported": true,
+      "quotes": [
+        "approximate the speed of light as 300,000,000 metres per second",
+        "A timing error of 0.000001 seconds corresponds to roughly 300 metres of range error: multiply those two numbers.",
+        "This is an illustrative range error, not a guarantee that position error is always exactly 300 metres."
+      ],
+      "reason": "Arithmetic checks: 3×10^8 m/s × 1×10^-6 s = 300 m. The narration keeps the illustrative qualifier ('about', 'range error, not a guaranteed position error'), and the visual's note 'range error, not position error' preserves it. Units (m/s × s = m) are consistent."
+    },
+    {
+      "id": "misconception",
+      "supported": true,
+      "quotes": [
+        "Do not depict satellites measuring angles or portray a fourth satellite as simply measuring altitude.",
+        "With an ordinary unsynchronised receiver clock, there are four unknowns: x, y, z, and clock offset."
+      ],
+      "reason": "The beat rejects the 'three pin you down, fourth measures altitude' misconception for the correct reason (unknown clock error, joint solution), matching the source's four-unknowns requirement and the visual prohibition. The drawing labels the fourth satellite 'same job, another measurement' and does not write 'altitude', satisfying the instruction."
+    },
+    {
+      "id": "recap",
+      "supported": true,
+      "quotes": [
+        "Several independent range constraints narrow the possibilities.",
+        "Four independent measurements can solve these together under suitable geometry.",
+        "Atmosphere, reflected signals, satellite geometry and receiver conditions also affect accuracy."
+      ],
+      "reason": "The recap chain (timing → range → several ranges narrow → four measurements solved together for x,y,z,clock offset) restates rather than strengthens earlier claims: it keeps the 'well-placed satellites' condition matching 'suitable geometry', and 'several ranges narrow the possibilities' does not upgrade the qualified narrowing. The accuracy caveats (atmosphere, reflected signals, geometry) match the source's list; dropping 'receiver conditions' weakens rather than strengthens, so no false upgrade occurs."
+    }
+  ],
+  "advisories": [
+    "Hook visual shows a satellite with three arcs curving to the phone. This is a signal-path depiction rather than a range-circle drawing, so the mandatory '2D schematic' note is not strictly required; still, since three arcs could be loosely read as range constraints, a brief check that they are clearly signal paths (not circles) would keep the hook consistent with the strict labelling rule applied in step3.",
+    "The anchor visual draws a dashed 'one distance' line and labels it 'not a location' but carries no dimensional note. It is a lightning-distance analogy, not a GPS range drawing, so this is acceptable; adding no note is fine, but the author should not let this flat 'distance' depiction be reused later as a range drawing without the '2D schematic' note.",
+    "Step3's in-plane claim that two ranges leave exactly two possibilities is true for the specified construction (both circles forced through (0,±4), radius sqrt(41)). This exactness depends on the stated circleThrough constraint; if a drawing author instead drew two arbitrary circles, tangency or non-intersection could occur, so the construction constraint should be treated as binding."
+  ]
+}

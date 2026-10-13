@@ -176,19 +176,20 @@ cue. This is a planner responsibility and is currently under-specified: the less
 compiler should turn a scene-level VisualIntent into several positioned assets plus
 their spatial relationships, not one prompt.
 
-### 3. No-key fallback is a dead end for characters
+### 3. No-key fallback is a dead end for characters — **addressed**
 
-Without a provider key the illustration lane falls back to lucide icons, and there
-is no icon for a Greek hero. Options, in order of preference: ship a small
-hand-authored SVG cast of archetypes (figure standing/walking/pointing/sitting,
-which covers most narrative needs) usable with zero keys; support a local diffusion
-model for offline generation; and always state plainly in the UI that illustrated
-characters need a key rather than silently substituting a generic glyph.
+Without a provider key the illustration lane fell back to lucide icons, and there is
+no icon for a Greek hero. The first option listed here is the one taken: step 4 of
+`PIPELINE.md` ships a hand-authored cast of archetypes — `figures/standing`,
+`walking`, `pointing`, `sitting` — in `assets/library/`, resolved by path with zero
+keys, and an entity whose id or prompt names a person now lands there instead of on a
+glyph. The degradation notice was reworded to match, since it was still telling users
+that characters degrade to icons after they had stopped doing so.
 
-Priority: this sits after the plot/path work and the lesson stage, because a maths
-or CS explainer needs curves far more than it needs characters — but it must come
-before claiming we can teach "literally any concept", since narrative subjects are
-a large share of what people want to learn.
+Two of the three options remain open, and the ordering still holds. A local diffusion
+model for offline generation is not started. And the cast is four _poses_, not a
+character: it cannot yet draw the same person standing and then walking, which is
+step 5's rig work and the difference between having figures and having a cast.
 
 ## The benchmark: gradient descent
 

@@ -23,5 +23,11 @@ export default async function ProjectPage({
   const query = await searchParams;
   const generating = query.generating === '1' || query.generating === 'true';
 
-  return <ProjectView id={id} initialGenerating={generating} />;
+  return (
+    <ProjectView
+      id={id}
+      initialGenerating={generating}
+      canEdit={process.env.INKCAST_STORAGE !== 'blob'}
+    />
+  );
 }

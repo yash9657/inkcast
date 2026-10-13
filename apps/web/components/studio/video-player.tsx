@@ -244,7 +244,14 @@ export const VideoPlayer = React.forwardRef<VideoPlayerHandle, VideoPlayerProps>
         ref={shellRef}
         className={cn(
           'group/player relative overflow-hidden rounded-xl border border-border bg-black',
-          'focus-within:border-input',
+          // `focus-within:border-input` used to live here and was a no-op after
+          // the token swap: `--border` and `--input` are both ink now, so the
+          // "something inside me has focus" state changed nothing at all
+          // (docs/DESIGN.md, "Real breakages to fix in the component sweep",
+          // item 2). The accent edge is the one line in this system that reads
+          // as a live state, and it is visible against the player's black field
+          // in both themes.
+          'focus-within:border-accent-strong',
           className,
         )}
         style={fullscreen ? undefined : { aspectRatio: aspectRatio(aspect) }}
@@ -314,7 +321,9 @@ export const VideoPlayer = React.forwardRef<VideoPlayerHandle, VideoPlayerProps>
             <span
               className={cn(
                 'flex size-16 items-center justify-center rounded-full',
-                'bg-background/85 text-foreground shadow-lg',
+                // `shadow-overlay` is where `shadow-lg` was already resolving
+                // through the alias block; naming it directly is the sweep.
+                'bg-background/85 text-foreground shadow-overlay',
                 'transition-transform duration-fast ease-out',
                 'group-hover/player:scale-105',
               )}

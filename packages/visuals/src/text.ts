@@ -12,7 +12,7 @@
  * Everything here is measured, not guessed: wrapping is done against the
  * element's box width, and the type size shrinks to fit the box height.
  */
-import type { FontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
 import type { InkStyle, TextRole } from './style.js';
 import { roleFontSize } from './style.js';
 import type { Box, SvgNode } from './svg.js';

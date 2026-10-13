@@ -21,7 +21,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from '@inkcast/core';
 import { clipWavFromFloat32 } from '../wav.js';
-import { splitSentences } from '../text.js';
+import { voiceMood } from '../moods.js';
+import { splitSentences } from '@inkcast/core';
 import { TEACHING_VOICE, voiceProfile } from '../voices.js';
 import type { SynthesisRequest, SynthesisResult, VoiceProvider } from './types.js';
 
@@ -220,13 +221,42 @@ export function unloadKokoro(): void {
 
 /* ------------------------------------------------------------------ chunking */
 
+/**
+ * Cut one sentence longer than `maxChars` at clause punctuation, then at spaces.
+ *
+ * kokoro-js tokenises with `truncation: true` at 510 phoneme tokens and says
+ * nothing: a ~680-character sentence comes back as ~27 s of audio that simply
+ * stops partway through, measured on this pipeline. A cut at a comma keeps its
+ * comma, so the piece still ends on continuation intonation.
+ */
+function splitLongSentence(sentence: string, maxChars: number): string[] {
+  if (sentence.length <= maxChars) return [sentence];
+  const pieces: string[] = [];
+  let rest = sentence.trim();
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars + 1);
+    let cut = Math.max(
+      window.lastIndexOf(', '),
+      window.lastIndexOf('; '),
+      window.lastIndexOf(': '),
+    );
+    // A clause cut too close to the start would leave a sliver; prefer a space.
+    if (cut < maxChars / 3) cut = window.lastIndexOf(' ');
+    else cut += 1; // keep the punctuation with the piece it closes
+    if (cut <= 0) cut = maxChars; // one unbroken token: cut it, never loop
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
+}
+
 /** Group normalised sentences into synthesis chunks under the length limit. */
 export function chunkForKokoro(text: string, maxChars = MAX_CHUNK_CHARS): string[] {
   if (text.length <= maxChars) return [text];
   const chunks: string[] = [];
   let current = '';
-  for (const sentence of splitSentences(text)) {
-    // A single over-long sentence still has to go through in one piece.
+  for (const sentence of splitSentences(text).flatMap((s) => splitLongSentence(s, maxChars))) {
     if (!current) {
       current = sentence;
     } else if (`${current} ${sentence}`.length <= maxChars) {
@@ -244,6 +274,8 @@ export function chunkForKokoro(text: string, maxChars = MAX_CHUNK_CHARS): string
 
 export function createKokoroProvider(onDownload?: (note: string) => void): VoiceProvider {
   let availability: Promise<boolean> | undefined;
+  /** Set by `available()` on the way to `false`; read by `unavailableReason()`. */
+  let refusal: string | undefined;
 
   return {
     id: 'kokoro',
@@ -256,17 +288,23 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
           await import('kokoro-js');
         } catch (err) {
           log.warn('kokoro-js is not installed — skipping the local TTS provider', err);
+          refusal = 'kokoro-js is not installed — run `pnpm install` at the repo root';
           return false;
         }
         if (isOffline() && !weightsCached()) {
           log.warn(
             `INKCAST_OFFLINE is set and no Kokoro weights are cached in ${modelCacheDir()} — skipping`,
           );
+          refusal = `INKCAST_OFFLINE is set and no Kokoro weights are cached in ${modelCacheDir()}`;
           return false;
         }
         return true;
       })();
       return availability;
+    },
+
+    unavailableReason() {
+      return refusal;
     },
 
     async voices() {
@@ -275,6 +313,15 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
 
     async resolveVoice(requested: string) {
       if ((KOKORO_VOICES as readonly string[]).includes(requested)) return requested;
+      // A mood names its own local twin, and that twin is the whole point of the
+      // catalogue: a run that asked for "Warm" and fell back to here gets the voice
+      // chosen to stand in for Warm, not the global teaching default. Without this the
+      // warning below fired on every mood id and every film sounded the same.
+      const mood = voiceMood(requested);
+      if (mood) {
+        log.info(`mood "${mood.label}" → Kokoro ${mood.kokoro}`);
+        return mood.kokoro;
+      }
       log.warn(
         `voice "${requested}" is not a Kokoro voice — falling back to ${KOKORO_DEFAULT_VOICE}`,
       );
@@ -283,6 +330,20 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
 
     naturalWpm(voice: string) {
       return voiceProfile(voice)?.baselineWpm;
+    },
+
+    /**
+     * The free provider names its engine too, so the record can distinguish
+     * "kokoro spoke" from "kokoro was configured". A run that fell back to here has
+     * an engine that produced the audio, and a bill of exactly nothing.
+     */
+    modelId() {
+      return KOKORO_MODEL_ID;
+    },
+
+    /** Continuous scene paragraphs preserve prosody; timestamps align individual words. */
+    preferredSplit() {
+      return 'paragraph' as const;
     },
 
     async synthesize(req: SynthesisRequest): Promise<SynthesisResult> {
@@ -301,9 +362,14 @@ export function createKokoroProvider(onDownload?: (note: string) => void): Voice
       let sampleRate = 0;
 
       for (const chunk of chunks) {
+        const started = performance.now();
         const audio = await tts.generate(chunk, { voice, speed: req.speed });
         if (!audio?.audio?.length) throw new Error('Kokoro returned no samples');
         sampleRate = audio.sampling_rate || 24_000;
+        log.debug(
+          `generate: ${chunk.length} chars → ${(audio.audio.length / sampleRate).toFixed(2)}s ` +
+            `of audio in ${((performance.now() - started) / 1000).toFixed(2)}s`,
+        );
         pieces.push(audio.audio);
       }
 

@@ -42,7 +42,13 @@ export function CommandSnippet({ command, className }: { command: string; classN
   return (
     <div
       className={cn(
-        'inset-shadow-well flex items-center gap-2 rounded-lg border border-border bg-muted py-1 pr-1 pl-3',
+        // `rounded-lg` used to sit here and is gone rather than replaced with
+        // `rounded-none`: the radius ladder is flat, so it produced no CSS
+        // (docs/DESIGN.md §11) and would have silently become wrong again the day
+        // somebody gave `--radius-lg` a value. A recessed well is the one place
+        // this system still uses a soft shadow — `inset-shadow-well` survived the
+        // brutalist rewrite because a hole in the paper is not a plane above it.
+        'inset-shadow-well flex items-center gap-2 border border-border bg-muted py-1 pr-1 pl-3',
         className,
       )}
     >

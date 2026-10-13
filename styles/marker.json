@@ -1,0 +1,46 @@
+{
+  "id": "marker",
+  "name": "Whiteboard marker",
+  "description": "The familiar whiteboard hand: a fat chisel nib, a confident double stroke, and enough air between the letters to read at a glance. The board's default.",
+  "hand": {
+    "fontFamily": "Shantell Sans",
+    "fontFiles": ["shantellsans", "shantell-sans", "shantell"],
+    "tracking": 0.012,
+    "textOpacity": 0.96
+  },
+  "pen": {
+    "width": 4.4,
+    "weight": 1.0,
+    "inkSpeed": 1800,
+    "art": {
+      "unit": 132,
+      "baseAngle": 151,
+      "follow": 0.45,
+      "parts": [
+        { "d": "M -7 0 L 7 -3 L 9 -22 L -9 -22 Z", "fill": "#2b3440" },
+        { "d": "M -13 -22 L 13 -22 L 13 -32 L -13 -32 Z", "fill": "#e8e6e1" },
+        {
+          "d": "M -15 -32 L 15 -32 L 15 -110 Q 15 -120 5 -120 L -5 -120 Q -15 -120 -15 -110 Z",
+          "fill": "accent"
+        },
+        { "d": "M -9 -38 L -5 -38 L -5 -110 L -9 -110 Z", "fill": "rgba(255,255,255,0.28)" },
+        {
+          "d": "M -12 -120 L 12 -120 L 12 -130 Q 12 -132 9 -132 L -9 -132 Q -12 -132 -12 -130 Z",
+          "fill": "#1b232e"
+        }
+      ]
+    }
+  },
+  "rough": {
+    "roughness": 1.15,
+    "bowing": 1.1,
+    "multiStroke": true,
+    "curveFitting": 0.96,
+    "maxRandomnessOffset": 2.2,
+    "strokeOpacity": 0.94,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "fill": { "style": "hachure", "weight": 2.4, "hachureAngle": -41, "hachureGap": 9 }
+  },
+  "sketch": { "roughness": 1.1, "bowing": 1.0, "passes": 2, "cap": "round", "opacity": 1 }
+}

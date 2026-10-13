@@ -1,0 +1,1192 @@
+# Handoff — continuing PLAN-AUDIT-CLOSE from Phase 6.3
+
+Written 2026-08-22, at `693ce46`, branch `visuals-morph-density`; updated 2026-08-23
+after all of Phase 2 landed (`182a342`), again after all of Phase 3 (`ae18d4b`), and
+six times on 2026-08-24 — after all of Phase 4 (`3566ac0`), after all of Phase 5
+(`af524b7`, `1a1d58a`), after 6.1, after 6.2 (the code lane), after 6.4 (the raster
+trust gate), after 6.5 (the figure cache key), after 7.2 (the inspectable plan), and
+after gating findings 3 and 4 (the run reports what it did, not what it intended), after
+gating finding 2 (the length estimate counts spoken letters), after 7.1 (the partial
+re-encode), after 7.3 (style packs go declarative — which closes Phase 7), and after 6.3
+(the lane decision, which closes Phase 6) — and once more on 2026-08-25, after **all of
+Phase 9** (9.3, 9.1, 9.4, 9.2), which closes every row the re-audit left open except the one
+that needs a funded API key.
+**The plan being executed is `docs/PLAN-AUDIT-CLOSE.md`** — read it
+first; it is the work list, the coverage proof, and the exit criteria. This file only
+says where execution stands, what a new session needs to know that the plan cannot, and
+where the bodies are buried. The evidence base behind both is `docs/AUDIT-FINDINGS.md`
+(the audit, run at `5f83bc4`, plus the W1–W7 waivers now written into its §5 — W7 is
+Phase 5's, and it closes half of S0-a by code and half by `docs/PLAN-RETRIEVAL.md`).
+
+## Where things stand
+
+**Phases 0 through 9 are landed and tested** — all of Phase 6 (6.1–6.5), all of Phase 7
+(7.1, 7.2, 7.3), the three findings the remainder handoff carried (2, 3 and 4), 8.1 the
+re-audit (`docs/AUDIT-REAUDIT.md`), and all four of the Phase 9 items that re-audit produced.
+**What is left is 8.2, and S9-b — the one row no unfunded session can close.** The standing
+verdict is 61 PASS, 7 waived, 1 PARTIAL, 0 FAIL, 0 MISSING:
+
+- `e515179` — the audit report, the plan, and the waivers (docs only).
+- `693ce46` — all Phase 0/1 code. Whole repo typechecks, `pnpm -r test` green
+  (~500 tests), `pnpm lint` clean.
+- 2026-08-23 — **2.1, the one text-metrics stack** (the plan's progress block has the
+  full inventory). `fontmetrics.ts` + `HAND_FONTS` now live in `@inkcast/core`; the
+  planner measures with the real advance table (`handMeasure`, `setPlannerHand` called
+  by `compileLesson`/`heuristicPlan`, default marker elsewhere); every
+  chars-times-a-constant estimator is deleted (`ADVANCE`, `LABEL_SLACK`, `texAsGlyphs`,
+  chars×13, ×0.6/×0.62, ×0.58); `texBox` is the one TeX estimator; render `Ctx` carries
+  `hand`/`tracking`. All four pinned hashes re-pinned WITH frames rendered and compared
+  (the reasoning lives in `pinned-hashes.test.ts`'s header — longitude's latitude
+  headline lettering on one line instead of "…latitude / for free" is the visible win).
+  Two fixtures were recalibrated because honest footprints changed the weights'
+  arithmetic — `repair-log.test.ts` (label footprint 179→136 units made the escape
+  affordable) and `draw-critic.test.ts` (the repair now genuinely fixes stacked labels,
+  so "worse" is a broken-word defect instead). `auditcheck.mts` gained four A-4 lines
+  and its S4-b line follows the moved file.
+- 2026-08-23 — **2.2, one style table.** Colours live in `core/src/palette.ts`
+  (`Palette`/`paletteFor`/`toneInk`, plus `highlight`); `render/palette.ts` re-exports
+  and keeps pen personality; `visuals/style.ts` keeps per-style personality and
+  composes colours from `paletteFor` — its four per-style colour sets are deleted. The
+  blue accent `#2f6fed` won on frame evidence (the plot-role remap in
+  `render/plot.ts` meant visuals' red `#d7263d` never reached a shipped pixel; the
+  red is deleted, not aliased). The visuals mono accent→ink collapse died too — the
+  film's mono accent was always `#39434f`. Mirror test:
+  `pipeline/test/styles.test.ts`; S5-c line in `auditcheck.mts`. Dark-chalk-style
+  colour packs are deliberately deferred to 7.3's StylePack loader.
+- 2026-08-23 — **2.3, the board assertions.** `render/src/boardcheck.ts` (ink-on-ink
+  sweep, off-frame check, overrun + advisory dwell), run by `compilePlan` on every
+  plan through `gate(...)`; the cue-at-fraction-0 settle clamp in `itemsFor`;
+  `.finite()`/positive extents on `Box`/`Point`. The scoping decisions (persistent
+  solid ink only; one drawing's parts exempt — the `_v<n>_` id convention; plots and
+  transients never settle-clamped) are argued in the module header and were learned
+  from the wipe fixture's failures, not guessed. Red tests in
+  `render/src/boardcheck.test.ts`; nine projects compile strict-clean.
+- 2026-08-23 — **2.6, the fill gate — at a re-derived floor (mean < 18% / any scene
+  < 11%), not the plan's 25%/14%.** After 2.1, shipped longitude re-measures 20.3%/
+  13.8% and photosynthesis 21.8%/13.2% — bbox fill cannot separate them, so the
+  plan's numbers would block a shipped lesson. Argued in W2 (updated) and the plan's
+  progress block. `--degrade` overrides now persist: `plan.problems` →
+  `RenderResult.problems` → `pipeline.json` `render.problems` (inherited on cached
+  renders). This plumbing is also what 3.4 will ride.
+- 2026-08-23 — **2.5, pan speed.** `resolveFraming` pass 3:
+  `transition = max(floor, dist / viewWidth / MAX_VIEWS_PER_SEC)` (2.4 views/s at the
+  incoming zoom — just above the corpus's fastest walk, so nothing reviewed slows),
+  capped at 2.5s. Pinned in `camera.test.ts`; S7-b auditcheck line.
+- 2026-08-23 — **2.4 + 2.7, which close Phase 2.** The legibility floor is
+  `MIN_GLYPH_PX = 10` output px — corpus-derived (shipped minimum 10.9px on recap
+  reveals; the plan's provisional 14 fails three reviewed reveals) — swept statically
+  per scene/role by `compilePlan` (`glyphFloorViolations`) and against reality by the
+  realized-layout report: `runtime.js` `layoutText` records post-shrink size/lines/
+  fits per text item, `FrameCapturer.realizedLayout()` reads it over CDP, and
+  `render()` sweeps it (`realizedTextViolations`) before frame 0 — strict blocks,
+  degrade records into `problems`. The done-bar browser test (`page.test.ts`) builds
+  a narrowed box that passes every compile check and fails from the realized report
+  alone.
+- 2026-08-23 — **all of Phase 3 (`ae18d4b`): QC is a stage.** The plan's progress block
+  has the item-by-item inventory; the shape is a seventh stage `check` between visuals
+  and render (`render/src/check.ts`) that writes `qc.json` (contract in
+  `core/src/qc.ts`), re-runs the Phase 2 sweeps from the new `compileBoard`, runs
+  `critiqueStoryboard` (`core/storyboard.ts`), and looks at eight sampled frames
+  (`render/src/tier2.ts`) — all in one Chromium launch, blocking through `gate(...)`.
+  Two new `StageOptions` channels carry what stages used to only log: `onProblem`
+  (degradations → `qc.json`) and `onSpend` (billable calls → real, non-estimated cost
+  lines). The Tier-2 vision pass and OCR diff are injected from
+  `pipeline/src/frame-vision.ts`, advisory for one release, and skip with the real
+  reason when there is no key or the key has no credit.
+- 2026-08-23 — **the recap chain became a column** (`55b1147`), which is Phase-2 work
+  that Phase 3's gate found: see the trap list at the foot of this file. All four
+  pinned hashes re-pinned, with the diff and the frames in
+  `pinned-hashes.test.ts`'s header.
+- 2026-08-24 — **all of Phase 4** (`d18c67a`, `653bee8`, `ff4a712`, `3566ac0`): sync
+  is exact and drift is measured. The plan's progress block has the item-by-item
+  inventory; the shape is four things.
+  1. **The narration normaliser lives in `@inkcast/core`** (`speech.ts`, was
+     `voice/src/text.ts`) — the third instance of the 2.1/2.2 move, because
+     `Enter.cueWord` is an index into its token stream and the _planner_ writes it.
+     The tokeniser and the exact locator came with it; `voice/src/cue.ts` keeps
+     placement, `voice/src/index.ts` re-exports the same names. Its tests moved to
+     `core/test/speech.test.ts`.
+  2. **4.4**: `foldScripts` + `stripLatex`, running _before_ `stripMarkdown` (markdown
+     eats the underscores of `a_{1} + b_{2}`), plus Dirac notation and stage
+     directions in `SYMBOLS`. The audit's six probes are pinned as exact strings.
+     **This moved the voice cache key** — cached audio re-synthesises — and no
+     storyboard, so the pinned hashes did not move here.
+  3. **4.1 + 4.2**: `Enter.cueWord` end to end, written by `assignTiming`, read as a
+     lookup, verified against the cue phrase beside it (in `critiqueStoryboard` and
+     again in the voice stage). All four pinned hashes moved **purely additively** —
+     30/23/47/38 `"cueWord"` lines, zero other changed lines, which is also the
+     coverage proof. `COMPILER_VERSION` 3 → 4.
+  4. **4.3**: `core/src/drift.ts`, called from `cast.ts`; numbers to `pipeline.json`
+     (`drift`), findings to `qc.json` (`duration` blocking at `critiqueLesson`'s own
+     1.25×, `pace-calibration` advisory at ±10%).
+
+- 2026-08-24 — **all of Phase 5** (`af524b7`, `1a1d58a`): grounding honesty, `sourceRef`, the pedagogy
+  critiques, IR hygiene, and the document route's leaked coordinates. The plan's progress
+  block has the item-by-item inventory; six things a next session needs from this file.
+  1. **No pinned hash moved, and it was checked.** `sourceRef` is optional with no
+     default, so `lessonHash` of every existing `lesson.json` is unchanged; the four
+     pinned compiles are byte-identical (`sbhash`, both presets). The
+     `layoutStoryboard` rewrite is reachable only from the document route and
+     `edit.ts`, and the heuristic document planner emits no arrows, paths or motion —
+     verified by hashing `heuristicPlan` over all three `examples/*.md` × two aspects
+     before and after the change: **identical, all six**. That is the regression proof
+     for 5.6, because the corpus cannot supply one.
+  2. **`grounding` is three values, not two.** `document` | `parametric` | `supplied`
+     in `pipeline.json`, derived from what reached the author rather than from
+     `source.kind` (`topic` and `text` are both typed by a person; one grounds
+     nothing). Read by the CLI's `grounded` row and the studio's `GroundingNote`, which
+     renders **nothing** when the field is absent — an older film has no answer and
+     `parametric` is not the honest default for it. A retrieval lane would add a fourth
+     value, `retrieved`; see `docs/PLAN-RETRIEVAL.md`.
+  3. **`sourceRef` is a section heading, verbatim, and the no-key author fills it.**
+     That is what makes the done-bar measurable with no key: `deriveLesson` lifts
+     sentences out of a document, so the section is a fact it holds rather than one it
+     infers. **6 of 7 citable beats on all three example documents (86%).** The recap is
+     excluded from "citable" because it retraces beats already said and the brief tells
+     every author to leave its ref out; the one miss per document is a passage from the
+     lead paragraphs _before the first heading_, where there is no section to name.
+     `critiqueLesson`'s `sections` option is how it is checked, and **absent means
+     "cannot check", never "nothing is valid"** — `lesson-edit` and `critiqueFor` hold a
+     lesson and no document.
+  4. **Two new critique rules fire on lessons that were previously silent, on purpose.**
+     A `stem`/`first-principles` lesson with no `misconception` is reported, and so is a
+     `plot` beat before any `path`/`draw` beat outside the analogy lane. Consequences,
+     both intended and both now asserted in tests rather than worked around: **shipped
+     gradient-descent at `short`/`explainer`/`square`** carries one advisory (the budget
+     really does cut its refutation, and `adaptLesson` says so separately through
+     `onProblem`); and **every `deriveLesson` lesson** carries the misconception line,
+     which is the same thing that author's own warning has always said out loud. Four
+     tests in `planner/test/lesson.test.ts` were changed from "clean" to "clean except
+     the named things this author provably cannot do".
+  5. **5.4 is not in `critiqueLesson`, and must not be moved into it.**
+     `lessonOrderAdvisories` (core) → the `lesson-order` warn check. Critique output is
+     fed back to the lesson author as failures to fix; authored order carries
+     information a toposort destroys. `auditcheck` pins the separation.
+  6. **The `--force` clobber warn needed a new function.** `cache.json` records a
+     stage's _inputs_, so it cannot answer "has this file been edited by hand".
+     `compiledFingerprint` (`pipeline/src/keys.ts`) hashes the board with every later
+     stage's in-place enrichment stripped — `durationSec`/`words`/`audioPath`,
+     `enter.at`, `Asset.svg`, `ref.version`, title and meta — so on `via: 'lesson'`,
+     where the compile is pure and pinned, any remaining difference _is_ a hand edit.
+     Scoped to that route: on the document route a difference is the model.
+
+- 2026-08-24 — **6.1, the guard before the lanes.** `unservedLanes` in
+  `core/src/lanes.ts` reads every `describe` and `underlay.prompt` (and the lesson's own
+  subject, only when no picture in that lane already fired) and names the four classes
+  nothing here can draw. Five things a next session needs from this file rather than from
+  the plan's progress block.
+  1. **It is in core, not in the planner, and that was argued rather than assumed.**
+     `sniffMath` is in the planner because it makes a routing decision inside the
+     compiler; this makes none — it is a judgement about a `Lesson`, like
+     `critiqueLesson` and `lessonOrderAdvisories`, and it is read by the pipeline, the
+     studio and (one day) the lesson brief. Core is the only package all three can
+     depend on. The pipeline could not have reached it in the planner without extending
+     the `stages.ts` mirror, which is the shape of the argument in code.
+  2. **The rule is "detect the notation, not the topic", and the corpus is the proof.**
+     Swept over all 38 lessons on disk — 79 distinct pictures, underlay prompts included
+     — it fires **zero** times. That is not luck: the corpus is full of chemistry- and
+     electronics-shaped films whose pictures this pipeline draws correctly, and every
+     one of them (`a lithium atom…`, `a wire looping through a small bulb`, `water
+molecules… hydrogen bonds`, `a globe with meridian lines`, `a bowl-shaped loss
+function`, `a map of the analogy`) is in the QUIET list in
+     `core/test/lanes.test.ts`. If a future signal is added, add it to that list first.
+  3. **It warns; it does not suppress the picture.** A deliberate deviation from the
+     item's done-bar ("not a wrong picture"), argued in the plan's progress block and
+     pinned by `auditcheck` (`lanes.ts` contains no `gate(` and no `throw`). Suppression
+     trades a wrong picture for a missing one and belongs with the lane that replaces the
+     fallback.
+  4. **Four surfaces:** `log.warn`, the `lane-coverage` **warn** check in `qc.json`
+     (per-beat findings), `lanes.unserved` in `pipeline.json` (names only), a CLI block,
+     and `LaneNote` in the studio. Not on `/share/<id>` — `publicView` is an allow-list,
+     so that took no code, and the reader who can act on it is the one casting.
+  5. **The table expires mechanically.** Each lane names the library that would end it,
+     and `auditcheck` fails if that library ever appears in a `package.json` while its
+     lane is still declared unserved. **It has already fired once**: installing `shiki`
+     for 6.2 failed that check, which is how `code` came out of `UNSERVED` in the same
+     commit as the lane rather than in a follow-up nobody wrote.
+
+- 2026-08-24 — **6.2, the code lane** — the first new lane, and the four things a next
+  session needs from this file rather than from the plan's progress block.
+  1. **It is `equation.ts`'s contract, and that is not a family resemblance — it is the
+     design.** `visuals/src/code.ts` resolves a listing into ordered glyph geometry and
+     records it in the sidecar; `codePrims` in `render/src/compile.ts` reads it and emits
+     one prim per glyph. Both are the equation lane's shape because both answer the same
+     question the same way: typesetting is an async import of a large module and
+     `compilePlan` is synchronous, so the sidecar is not a convenience but the only
+     mechanism. The one addition is `CodeLayout.parts` — ink runs as index ranges into the
+     draw sequence, the same shared numbering `PlotLayout.parts` uses.
+  2. **The tone travels; the colour does not.** Shiki is asked about scopes through a
+     four-entry TextMate theme whose colours are sentinels (`#000002` = the accent), and
+     the renderer maps the tone through `toneInk`. That is not a stylistic choice about
+     highlighting, it is 2.2's rule: a colour written by the visuals stage has reached no
+     pixel since the plot-role remap, so a lane that recorded real hex would silently draw
+     in the film's ink anyway and the highlighting would vanish. If you add a scope, add it
+     to `TONE_THEME` and to the tone assertions in `visuals/test/code.test.ts`, which read
+     the ink back off `parts` by line and column.
+  3. **The glyph outlines are in core's sfnt reader, not a dependency.**
+     `FontMetrics.outline(cp)` parses `glyf`/`loca` beside the `cmap`/`hmtx` parse already
+     there. `opentype.js` would have been a second font parser, which is the exact
+     pathology A-4 named. Consequences worth knowing: **a CFF/OTF face returns `undefined`**
+     (no charstring interpreter, and no such face is vendored), so does `builtinMetrics`,
+     and only the variable font's **default instance** is read — `gvar` deltas are not, so
+     asking for bold code would need an interpolator and nothing asks. `H` is all lines and
+     `o` is all curves, which is the sharpest test of the on/off-curve flags there is and is
+     asserted in `core/test/codegrid.test.ts`.
+  4. **One face for every ink style**, unlike `HAND_FONTS`, and on its own search path.
+     `codeFontDirs()` sees `assets/fonts/code/` and `defaultFontDirs()` deliberately cannot
+     — `findFontFile`'s last resort is "any font at all", so one shared path would letter a
+     whole board in JetBrains Mono, `source: 'file'`, no warning, in a tree whose
+     handwriting faces had gone missing.
+
+  **Found on the way past, and it was the larger half of the document route.**
+  `parseBlocks` normalised the whole document with `normalizeWhitespace` before splitting
+  it into lines, so `[ \t]+ → ' '` deleted every fenced block's indentation before any lane
+  could see it — and `beats.ts` then trimmed each line, dropped any starting `//` or `#`
+  (a Python comment, a shebang, a C directive), cut each to twelve words, and
+  `heuristic.ts` drew the result as a `stack` diagram of handwritten boxes. The parser now
+  keeps two views of its lines — prose collapsed, a fence verbatim — and the two halves of
+  that are `normalizeChars` and `collapseSpaces` in `planner/src/text.ts`. **If you touch
+  either, the test that catches a regression is `planner/test/code-lane.test.ts`'s "keeps a
+  fence verbatim and still collapses prose".**
+
+- 2026-08-24 — **6.4, the raster trust gate** — five things a next session needs from this
+  file rather than from the plan's progress block.
+  1. **Every threshold came off the cache, and the cache was opened.** All 42 rasters in
+     `~/.inkcast/cache/illustrations` were traced, measured and then _looked at_ one by one.
+     That is the only corpus of real provider output this repo owns, it costs nothing to
+     read, and the three constants in `visuals/src/image.ts` each carry their measurement in
+     their own comment. **5 of 42 rejected, all five failures by eye, zero false positives.**
+     Do the same before moving any of them; a number argued without the corpus will not
+     survive 8.1.
+  2. **The aspect half of the plan's bar could not be taken verbatim, and the measurement is
+     why.** `plausibilityGate` scores a pose against a composed pose of the same character,
+     so aspect means "is this the same subject". An illustration has no base — the shape we
+     ask for is the shape of the _box_. Scoring illustration aspect against the request that
+     way rejected a ship on a horizon (2.90:1) and a cross-section (3.15:1), both good. What
+     shipped is an absolute ceiling on how strip-like a subject may be (4:1), which catches
+     the two rasters where the model wrote words instead of drawing (4.57:1, 4.81:1).
+  3. **Cached rasters are gated, which the pose lane does not do to its cache.** That cache
+     only ever held accepted poses; these two predate the gate and hold the audit's own
+     evidence. It is not a theoretical difference: the one real rejection on a full cast came
+     from the machine cache, not from a generation. A rejected _cache hit_ is reported and
+     the caller degrades — it is never regenerated, because silently re-billing for a subject
+     the cache already answered would break "one generation per id, ever". The note names the
+     file so a human can delete it.
+  4. **The gate abstains when it cannot see, and that is load-bearing.** A missing native
+     tracer, an unreadable PNG, an interlaced one — all return `ok` with no reason. The
+     tracer is an `optionalDependency`; a gate that condemned what it could not measure would
+     turn a platform without a prebuild into a lane that draws nothing. `TraceResult` names
+     `unavailable`/`unreadable`/`empty` precisely so `empty` — the tracer ran and found
+     nothing — can still be a rejection.
+  5. **A PNG reader went into `visuals/src/png.ts`, not into `package.json`** — 6.2's `glyf`
+     reasoning, one lane over. It reads 8- and 16-bit, non-interlaced, colour types 0/2/3/4/6
+     (every PNG either provider has returned) and abstains on the rest. `test/pngfixture.ts`
+     encodes fixtures so the reader is tested against bytes this repo produced from a known
+     image, all five filter types included, rather than against a checked-in blob.
+
+  **What it does not do, and the commit should not be read as saying otherwise.** It is a
+  floor, exactly as `plausibilityGate` is. The hallucinated benzene ring the audit's S5-a is
+  named after — a red circle containing `"B,H,"` with eight arrows into it — scores 0.91 and
+  passes; so does the structural-formula page at 0.75. Catching a confident drawing of the
+  wrong thing needs a model that can look at a picture, which is Tier 2's vision pass and is
+  still unexercised against a live model. `auditcheck` pins the header sentence that says so.
+
+  **Found on the way past, not fixed:** `generatedAssets` (`pipeline/src/cast.ts:989`) counts
+  assets whose `source` is `generated` whether or not a provider was called, so a run served
+  entirely from cache still bills for images. It is finding 4 in the remainder handoff, and
+  6.4 left the answer sitting there — `IllustrationRaster.from` is `project`, `cache` or
+  `provider` on every resolve.
+
+- 2026-08-24 — **6.5, the figure cache key names its model** — small, and three things in it
+  are worth more than the diff.
+  1. **The done-bar as written is only half the mechanism.** Switching
+     `INKCAST_FIGURE_MODEL` does miss the raster cache — but only on a project that resolves
+     the asset. A re-cast of an existing project finds the `figure` asset fresh in the visual
+     manifest and never calls `illustrationRaster` at all, so the switch would have looked
+     like a no-op on exactly the case a user would try it on. The model is therefore folded
+     into the asset's own `asset/v6` hash as well, by 6.2's `codeFP` pattern: one term, empty
+     for every other kind. `hash()` concatenates its parts, which is why an empty term
+     invalidates nothing — that property is load-bearing for both this item and 6.2, and it
+     is worth knowing before adding a third such term.
+  2. **A built-in endpoint contributes nothing to either key, and that was measured first.**
+     Sampling saturation across all 42 rasters in `~/.inkcast/cache/illustrations` says **8
+     are figures** (7.0–28.5% of sampled pixels off-grey) and 34 are form line art. Hashing
+     the resolved model id unconditionally would have invalidated those 8 for bytes that
+     would come back identical. Same rule as the square token in `illustrationKey`'s header,
+     applied a second time. `figureModelToken` is the single place that rule lives, because
+     the raster key and the asset key have to agree about which models are the default or a
+     project would re-resolve an asset whose raster then arrives straight from the cache.
+  3. **Style is deliberately not in the key, and 8.1 should be handed this as an argued
+     deviation** — the item's wording says "and style". Nothing style-dependent reaches a
+     figure raster today: `figurePrompt` takes no style, and `InkStyle` has no `stylePrompt`
+     to give it (still only a line in `STYLES.md` §2). What §6 actually wants — an asset
+     cached per (style, prompt) — happens the moment a style pack picks the endpoint, which
+     is `PLAN-FIGURE-LANE.md`'s own plan ("nano-banana when the style pack asks for marker"):
+     that arrives as a different model and keys itself. **7.3 needs no change in `image.ts`
+     for this.**
+
+  **What it cannot do:** label the past. No cache records which model drew a raster, so a
+  figure generated under an override is still filed under the default key and still served
+  for a default-model request. Clearing the cache by hand is the only retroactive fix. And
+  with both providers at 402, the switch is proven through injected generators in tests, not
+  against a live model.
+
+- 2026-08-24 — **7.2, the plan becomes inspectable on demand** — two files, one flag, and
+  three decisions a re-audit will ask about.
+  1. **The emission is not in `render()`, and that is the item.** `render()` is what the
+     pipeline skips when the mp4 is current, so a flag implemented there writes nothing on
+     exactly the runs where somebody is inspecting rather than rendering. `emitPlan()` does
+     its own quiet compile outside every cache — measured: a second cast of
+     `projects/qc65-longitude` reports `render —` and still writes 105 KB of `plan.json`.
+     Nor is it the gate stage's plan: `check()` compiles without the resolved font family,
+     because it is measuring rather than drawing.
+  2. **`plan.json` is a report, never an input.** The audit's objection to S7-a was that a
+     persisted plan is a drift-capable derived copy, not that no timeline exists. The file
+     therefore leads with a `_note` saying nothing reads it back, and `auditcheck` pins both
+     that sentence and the absence of any reader in the tree. If a future item ever wants to
+     _read_ a plan, that is a different decision and it has to be argued against
+     Spec-is-wrong #4, not slipped in.
+  3. **`--timing` is a second mode, never a change to the default.** The default hash
+     excludes timing because `enter.at` is rewritten by the voice stage on every
+     re-narration; a tool that reported that would cry wolf every run. Proved both ways on a
+     real film: +1.5s of `hold` on one scene is **0 changed lines in default mode and 50 in
+     `--timing`**. The row-building moved out of the `.mts` tool into `planrows.ts` so that
+     claim is a unit test rather than a demonstration somebody did once.
+
+- 2026-08-24 — **gating findings 3 and 4 — the run reports what it did, not what it
+  intended.** Not a numbered plan item: two cost-honesty findings the remainder handoff was
+  carrying, promoted to work because 8.1 reads a cost report and both reproduced for free.
+  One rule applied twice — a stage reports what it _turned out_ to do, on the rails 3.4 and
+  3.5 already built. Four things a re-audit will ask about.
+  1. **The author is observed, and then it is _recorded_.** `resolveLessonAdapter` answers
+     "which adapter would run"; the fallback to `deriveLesson` happens inside `teachLesson`,
+     where nothing could see it, so a creditless run reported `providers lesson
+anthropic/claude-opus-5` and billed for it. The observation is `onAuthor` (a callback
+     beside `onProblem`/`onSpend`, so the stage still returns a bare `Lesson`). The half that
+     is easy to miss is the recording: `lesson.json` carries no byline, so a **cached** lesson
+     has no way to answer the question and would re-guess from an environment that has since
+     changed. `LessonSummary.author` is where it lives, `rerender()` inherits `previous.lesson`
+     wholesale, and the proof is the second cast: lesson served from cache, still `heuristic`.
+  2. **The image bill is built from calls, not from the board.** `generatedAssets` counted
+     assets marked `source: 'generated'` — a statement about where a picture came from
+     _originally_, true forever after. The board-derived line is deleted; `illustrationRaster`
+     reports one `images: 1` per real provider call and `cost.ts` groups it by lane, exactly
+     as the drawing author and the underlay already were. The underlay's own
+     `if (!raster.cached)` count moved down into the lane with it, so it is counted once.
+  3. **The spend is recorded before the 6.4 gate judges the bytes**, which is a deliberate
+     departure from the finding's own `cached === false` wording. `image.ts` had already
+     written the reason: "a rejected generation still cost money". A raster the gate throws
+     away never reaches the caller at all, so keying off the returned raster bills two paid
+     attempts as zero. Bytes arriving is the billable event; a call that returned nothing —
+     402, network error, no key — is not billed.
+  4. **The keyed path is still untested against a real model, and the tests say so.** The
+     creditless path is the one that was wrong, so it reproduced for free. "Anthropic really
+     did write it" is pinned by a local HTTP server standing in for the Messages API — the
+     SDK reads its base URL from the environment, so it is a real client against a real 200,
+     which is not the same as a real model. First credit should re-check it.
+
+  **Measured, both halves, against the files that recorded the defect.**
+  `projects/qc53-doc` books `providers.lesson: anthropic/claude-opus-5` and **$0.0429** for a
+  lesson whose objective is the derived author's own template sentence; the same document
+  re-cast (`projects/qc0-doc`) reports `lesson heuristic` and **$0.00**, and says so again on
+  its cached second run. `projects/qc64-hashmap` books `visuals fal $0.0120` ("4 images at
+  $0.003 each") on a run that made zero provider calls; the same lesson re-cast
+  (`projects/qc0-hashmap`) has **no cost line at all**, draws the same film, and leaves
+  `~/.inkcast/cache/illustrations` at 42 files.
+
+- 2026-08-24 — **gating finding 2 — the length estimate had the wrong unit.** Also not a
+  numbered item. `DELIVERED_WPS = 2.2` fitted longitude and not gradient-descent, every run
+  said so through the `pace-calibration` advisory, and the three candidate fixes on the
+  table were re-measure it, make it per-cadence, or accept the spread. Four things a
+  re-audit will ask about.
+  1. **Two of the three candidates are refuted by the corpus, not by taste.** Per-cadence:
+     `CADENCE` would let a mix move pace by ±7%, but every beat of every corpus film is
+     `building_energy` — a rate that varies by cadence cannot explain a spread between films
+     whose cadence is identical. Re-measuring: the spread is _between films_ (1.98 / 2.28 /
+     2.39 / 2.50 w/s), so any single number is wrong by ±11% somewhere.
+  2. **Words a second is a property of the film's vocabulary, not of this pipeline.** Over
+     the same four films spoken letters a second spans 9.50–9.90, **±2.1%** — a fifth of
+     the spread — and across 106 timed phrases its coefficient of variation is 9.6% against
+     words' 16.6%. Photosynthesis runs 4.86 letters a word and gradient descent 3.79, which
+     is the whole of the 21% gap between them. So `DELIVERED_LPS = 9.65` is the calibration
+     and `DELIVERED_WPS = 2.28` is derived. `--wps` still means what it says, for a film of
+     average word length.
+  3. **Counted on the normalised text, and by one function in `@inkcast/core`.** `1707` is
+     four characters and thirty-one spoken letters; an estimator that could not tell them
+     apart would under-predict a beat with a date in it by twenty seconds, and the shipped
+     corpus has only 8 digits in 4,048 characters — which is exactly why that hazard would
+     have gone unnoticed. `drift.ts`'s header already said a comparison between two
+     conventions is not a measurement, so `spokenLetters` and `LETTERS_PER_WORD` live in
+     core and `auditcheck` pins that the estimate and the check call the same function.
+  4. **One pinned hash of six moved, and the five that did not are the argument.** The
+     estimate moves by how far a lesson sits from 4.23 letters a word: longitude (4.35)
+     went 133.2s → 132.4s and crossed nothing, `hash-map` (3.99, our shortest-worded
+     lesson) went 139.0s → 127.4s and did. `5a5362c4fd0a` → `66cb5a33474b`, and the extra
+     scene is **the collision beat** — the consequence a hash-map lesson exists to deliver,
+     dropped by the vertical preset because the estimator over-charged it by 8%. Frames
+     rendered and looked at: the recap chain now reads four links ending "Two keys can be
+     sent" where it read three.
+
+  **Measured end to end.** The advisory fired on 2 of 5 corpus films and now fires on none —
+  gradient-descent **+13.8% → −1.5%**, hash-map/short **+19.4% → +6.7%**, longitude +1.2% →
+  +0.5% — and all three `pace-calibration` checks are `pass` with zero findings.
+
+  **And one new defect, found by that render and deliberately not fixed here:** `hash-map`
+  at the `short` preset cannot pass the strict gate, because its Python listing wants 25.82
+  canvas units to fit the 567×117 cell the vertical preset gives it against the 32.78 floor.
+  Pre-existing since the code lane landed in 6.2 and verified rather than assumed —
+  `b3_v0`'s box is byte-identical before and after, and a cast from `HEAD` fails with the
+  same message. The pin is a _compile_ hash, so nothing had ever tried to render it. It is
+  a finding in `HANDOFF-AUDIT-REMAINDER.md`.
+
+- 2026-08-24 — **7.1, the partial re-encode — and with it the last `FAIL` in the audit's
+  table (S10-b).** Four things a re-audit will ask about.
+  1. **The cut is a superset of the scene boundaries, not a set of worker slices.** Segments
+     used to be `min(workers, frames/24)` equal spans, so a boundary fell wherever the
+     arithmetic put it and a segment straddled two scenes — the right shape for parallelism
+     and the wrong one for reuse, because no segment was _about_ anything. Now every scene
+     boundary is a segment boundary and long scenes are subdivided, so each segment lies
+     inside exactly one scene. That dissolves the tension the item looked like it had:
+     cutting only on scene boundaries would let a ninety-second scene own the wall clock.
+  2. **The subdivision is deterministic, and that is a decision.** Splitting until there are
+     exactly `concurrency` segments would make the boundaries a property of the machine, so
+     the same project re-rendered with `--concurrency 4` instead of 8 would miss every
+     cached segment for a reason no user could see. `MAX_SEGMENT_SEC` fixes them instead,
+     and `Promise.all` became a bounded pool because the segment count is now a property of
+     the film rather than of the box.
+  3. **The plan's "hash of accumulated prior board state" falls out of an interval test.**
+     A segment's key is every `PlanItem` whose visible interval intersects it — under
+     `accumulate` a persistent item has no end, so it intersects every later segment and a
+     scene-1 edit re-encodes the tail; under `wipe` it has faded by `fadeAt` and intersects
+     nothing after its own scene. One rule, both behaviours, and **no `meta.board` branch in
+     `segments.ts` at all** — which matters, because the plan names getting that backwards
+     as the trap that produces a cache correct in testing and wrong on the first real edit.
+  4. **`<dir>/frames` is the cache, and two details keep it honest.** It is pruned on
+     success rather than deleted, because deleting it would mean only a _failed_ render
+     ever left anything to reuse. And a segment is encoded under a `.part-` name and renamed
+     once ffmpeg has closed it: without that, a render killed mid-segment leaves a truncated
+     mp4 at exactly the path the next run reads as a finished one, which is the single way a
+     segment cache can corrupt a film with nobody noticing. The plan's other two asks are
+     then automatic — nothing is deleted on failure, and complete segments are skipped on
+     retry. Encoder settings are in the key because x264 at a different thread count makes
+     different bytes from identical frames.
+
+  **The done-bar, measured on a 2:14 longitude cast of 32 segments.** A second of extra hold
+  on the final beat re-encoded **5 segments and reused 27** — the edited scene's and nothing
+  before them — and that partially-reused film is **byte-identical** to a full re-render of
+  the same storyboard in a different directory (6,287,426 bytes, `cmp` clean). A fully
+  cached re-render is **1.4s against 57s**. The segment file names match across the two
+  projects, so the key is content and not path. Eleven unit tests in `segments.test.ts`
+  carry what a hand-run film cannot — the tiling, the scene-boundary invariant, both
+  directions of the accumulate/wipe rule, and the done-bar as arithmetic — and four
+  `auditcheck` lines pin the mechanism.
+
+- 2026-08-24 — **7.3, style packs go declarative — Phase 7 closed.** A style is a JSON file
+  in `styles/` (`packages/core/src/stylepack.ts` is the schema and the loader,
+  `styles/README.md` is the format for whoever writes the fifth one). Five things a
+  re-audit will ask about.
+  1. **The item was five tables, not one union.** The plan says "the type-unions collapse to
+     the loader's output", and the union was the small half. `meta.style` keyed the rough.js
+     personality in `visuals/src/style.ts`, the sketch engine's hand _and_ the pen sprites in
+     `render/src/palette.ts`, `HAND_FONTS` in `core/src/fontmetrics.ts`, `PEN_WIDTH` in
+     `core/src/camera.ts` and `FAMILY`/`KNOWN` in `render/src/font.ts`. Two had already
+     drifted the way 2.2's colours had: the renderer knew the pencil's face as `caveat`,
+     core knew it as `Caveat` with three filename stems, and nothing compared them.
+  2. **The pen sprite is inline pack data, not a `PenId`.** `STYLES.md` §3 models it as an
+     id naming a vendored sprite; the sprites are pure path data, so they moved into the
+     packs whole — otherwise the done-bar carries an asterisk, because a fifth style holding
+     the marker's pen is not a fifth style. The renderer's one piece of sprite knowledge a
+     pack author could not have imitated (the marker's barrel is `#2f6fed`, swapped for the
+     film's accent) is a declarative `"accent"` token any part of any sprite may write.
+  3. **Two roughnesses stay two numbers.** Both drawing engines take a roughness and a
+     bowing on different scales, and today's four styles set them to values not derivable
+     from one another (marker: rough.js 1.15, the sketch engine 1.1). Folding them would
+     have moved every pinned pixel for a tidiness nobody asked for, so a pack states both
+     under `rough` and `sketch` — which at least puts the divergence in one file.
+  4. **Three deliberate departures from `STYLES.md` §2, all in the schema.** `accents:
+string[]` is a single `accent` (a list is the rainbow board `palette.ts` exists to
+     prevent, and the loader also rejects an accent equal to the ink or to the second
+     marker — the done-bar's "fixed-accent discipline enforced by the loader's schema").
+     The `surface` and `generation` blocks are not accepted at all, because nothing in this
+     tree reads a texture, a vignette or a style prompt, and a field that parses and is
+     dropped is a promise the renderer does not keep. And **`paper` must be light**: a pack
+     below mid-grey is refused, with the reason in the error.
+  5. **Why the dark pack is refused rather than shipped, and how the handoff's phrasing
+     was wrong.** A figure composites with `mix-blend-mode: multiply`
+     (`visuals/src/image.ts`), so a slate board does not show a white card — the card is
+     invisible under multiply against any backdrop. What happens is worse and quieter: the
+     picture's own dark ink multiplies into a surface already darker than the ink and the
+     drawing disappears, with no gate firing because the raster is fine. 6.4 detects a
+     ground that is not white; it cannot key one out. That is the real content of "a dark
+     pack needs the alpha work S5.6 deferred", and `MIN_PAPER_LUMA` is where it is written
+     down.
+
+  **The proof it is the same ink**, which is what this item owed: the pinned compile hashes
+  did not move, `geomhash` on a fresh strict `longitude` cast (`qc73-longitude`) is
+  line-for-line identical to `qc71-longitude`, and frames at t=3/20/60/100 rendered from one
+  project by the pre-change code and by this one are byte-identical (`git stash` →
+  `frames.mts` → `cmp`). Then the bar itself: a fifth pack in `INKCAST_STYLE_DIR` rendered a
+  real frame of that film in a visibly different hand — heavier stroke, single pass, Caveat
+  — with no TypeScript edited. Cache keys carry `styleKey()` = `id@digest12` over the pack's
+  canonical JSON, because the name identified the ink only while the numbers behind it were
+  compiled in; every project on disk re-resolves once as a result.
+
+- 2026-08-24 — **6.3, the lane decision — Phase 6 closed, and no lane built.** Four things
+  a re-audit will ask about, and the fourth is the one that mattered.
+  1. **The demand rule was unrunnable.** 6.3's rule is that lanes get built in the order
+     real lessons ask for them, measured by the frequency of 6.1's findings. Those findings
+     are written per project into `qc.json`, one film at a time, so "the frequency" meant
+     reconstructing it by hand from fifty directories — which nobody would do twice, and a
+     demand-driven plan whose demand is never computed is a taste-driven plan.
+     `pipeline/src/lanedemand.mts` runs the guard over every lesson on disk. It re-derives
+     from `lesson.json` rather than reading `qc.json`, so it covers projects cast before
+     6.1 landed and stays correct when the signals are tuned.
+  2. **Fixtures are a separate column, and that is the subtlety.** A lesson authored into a
+     scratch directory to prove the guard fires is not a lesson that wants a lane, and
+     counting it is a vote for building something nobody asked for — the failure 6.1's own
+     precision-over-recall note warns about. `pipeline.json`'s `source.ref` is the witness.
+     Over 54 lessons and 13 topics the demand column reads **0, 0, 0**; the only findings
+     on record are `qc61-aspirin`'s three, and it is the fixture.
+  3. **The plan's ordering is overturned in writing, not quietly.** "Circuits first;
+     closest, curated `symbols/circuit/*` already exist" is wrong on both legs: the library
+     holds seven assets and none is a circuit, and `schemdraw` is a **Python** library.
+     Chemistry ranks first on the only evidence there is — frames from `qc61-aspirin` where
+     a beat asking for a hydroxyl group put **B₄H₂** on the board, captioned, and a beat
+     asking for a skeletal formula got the lettered words "Salicylic acid". The audit calls
+     this class "plausible and chemically false"; what it actually produces is a wrong
+     _formula in letters_, which a viewer reads as a fact exactly as they read D1's mangled
+     equation. Worth opening the frames before arguing with the ranking.
+  4. **All three expiry tripwires were dead strings.** 6.1's table names, per lane, the
+     library whose installation means the lane exists and the row must come out, and
+     `auditcheck` greps every `package.json` for it — the mechanism whose stated purpose is
+     that deleting the row is "not left to anyone's memory". `rdkit` could never match
+     (`@rdkit/rdkit`), `schemdraw` could never match (Python), `topojson` could never match
+     (a map lane installs `topojson-client`). Three of three, on a tripwire, undetected —
+     because the only lane that ever shipped named its library exactly (`shiki`), so the
+     mechanism had been demonstrated exactly once and by its easiest case. `ends` is a list
+     of registry-checked names now, matched with scoped packages handled; circuits names
+     none, because no library supplies it, and its tripwire is `symbols/circuit/` in the
+     asset library. A unit test asserts every name is shaped like a package.
+
+  **What shipped instead of a lane**: `docs/LANE-CHEMISTRY.md`, `docs/LANE-GEOGRAPHY.md`
+  and `docs/LANE-CIRCUITS.md`, one page each with the dependency argued against real
+  package data, and **W8** in `AUDIT-FINDINGS.md` §5 carrying the whole argument to 8.1
+  with a numeric trigger: two lessons in the `demand` column. Chemistry's doc contains the
+  one real design decision of the three — the lane draws bonds in **`sketch`** ink rather
+  than `crisp`, because a wobbled C–C bond is the same bond where a wobbled integral sign
+  is a different one, with double-bond spacing floored as geometry rather than left to
+  roughness.
+
+The plan's own header carries a progress block saying the same thing; keep that block
+current as phases land. Per-phase detail also lives in Claude's project memory
+(`audit-close-progress`), but this file and the plan header are the durable record.
+
+**Verified end to end, after 6.2:** `projects/qc62-hashmap` is a strict no-key cast of
+`examples/lessons/hash-map.lesson.json` — a new third shipped example, and the corpus's only
+board with a listing on it. Its two `code` beats type themselves on line by line
+(frames at 34.6 / 36.3 / 38.0s: at 35.9 the pen is mid-way through `def get(sel`, at 36.3
+lines one and two are complete and line three is starting). Both halves of the done-bar were
+measured rather than argued: `frames.mts` over **two independent renders of the same
+project** returns byte-identical PNGs at five timestamps including two mid-reveal, and
+`geomhash.mts` reports `s3/b3_v0` (63 strokes) and `s5/b5_v0` (114) identically across two
+runs of the visuals stage. **The same cast is also 6.4's evidence**: its six `draw` beats have
+no drawing author (no Anthropic credit) and fall through to the illustration lane, where
+`fal` — which does have credit — returned tiny illegible scribbles for "a name, an arrow into
+a rule box, an arrow out to a highlighted pigeonhole". Same class as the aspirin page below,
+in one command.
+
+**Verified end to end, after 6.1:** `projects/qc61-longitude` is a strict no-key cast of a
+shipped lesson — clean, `lane-coverage: pass`, and **no `lanes` key in `pipeline.json`**,
+which is the half of the guard that has to stay silent. `projects/qc61-aspirin` is the
+other half: a hand-authored lesson (the fixture is in this session's scratchpad, not in
+`examples/` — the test there asserts every shipped lesson is clean) asking for three
+chemical structures. All three are reported, the film still renders, `qc.ok` stays true,
+and `pipeline.json` records `lanes: {"unserved": ["chemistry"]}`. **Open the two pictures
+it generated before deciding this guard is pedantic**:
+`~/.inkcast/cache/illustrations/the-skeletal-formula-salicylic-5413f1e9f2.png` is a blank
+page with _"Salèylic acisH."_ handwritten across it, and `benzene-ring-with-its-147c73c1e1.png`
+is a red circle containing _"B,H,"_ with eight arrows pointing at it. Neither is a molecule
+and both would have shipped without a word.
+
+**Verified end to end, after Phase 5:** strict no-key casts of both shipped lessons
+(`projects/qc53-longitude`, `projects/qc53-gd`) are clean with every Phase 2–5 gate live,
+and record `grounding: "supplied"`. `projects/qc53-doc` is a document through the _lesson_
+route — `grounding: "document"`, `sourceRef` on 6 of its 8 beats, `qc.ok: true`, and the one
+advisory is the misconception the no-key author cannot invent. `projects/qc53-viadoc` is
+`--via document`, and it **fails the strict gate** on `vacant`, `duration` and `ink-floor`
+— all Phase 2/3 gates, all pre-existing, and exactly the class the corpus table below
+already names: that route is the renderer fixture path and `plan.ts` says in its own header
+that it is "not a route to a watchable video". It reached the gate, which is the regression
+check that mattered: layout, voice, visuals and check all ran over a 24-scene
+model-shaped board.
+
+**Verified end to end, after Phase 4:** strict no-key casts of _both_ shipped lessons
+render clean with every Phase 2, 3 and 4 gate live — `projects/qc43-longitude/` and
+`projects/qc43-gd/` record `"gates": "strict"`, `qc.ok: true`, no problems, and a
+`drift` block. The Phase-3 pair (`projects/qc33-*`) said the same thing one phase
+earlier, and `projects/qc41-*` are the Phase-4.1 pair the cue-index numbers were read
+off. Those project directories are disposable evidence, not fixtures; the older
+`audit-2p*` ones describe the tree as it was.
+
+**The step-8 done-bar, measured on those casts:** 30/30 and 47/47 reveals placed "by
+authored word index" with no fallback, and `synccheck.mts` reports 0 strokes landing on
+the same frame as the one before — identical to the pre-4.1 baseline, because an index
+resolves to the word the exact search was already finding. What changed is that
+placement no longer depends on a tolerant search finding it. The way to re-check this
+is not the render log (its info lines are suppressed at default level): call `narrate()`
+over a cast project's cached audio and read the `placed N elements … M/N by authored
+word index` line, which is what the numbers above came from.
+
+**The corpus is not clean, and that is the point.** Running the gate over all 27 boards
+in `projects/` (in `degrade`, so it reports rather than stops) on 2026-08-23:
+
+| what fails                | where                                                     |
+| ------------------------- | --------------------------------------------------------- |
+| `ink-floor` (Tier 2, new) | `5b5566b87593`, `f70a4904eb30`, `integ-doc/-final/-teach` |
+| `vacant` (bbox fill, 2.6) | `5b5566b87593`, `cardiac`, `cardiac7`                     |
+| `ink-on-ink` (2.3)        | `cardiac2`, `cardiac6`                                    |
+| `realized-layout` (2.7)   | `cardiac7`, `try`, and the pre-fix longitude projects     |
+
+Every one of those is a board compiled by an older tree, and the ink-floor set is
+exactly the document-route slideshow plus the four-scene smoke tests — the class that
+floor was drawn to name. Nothing there needs fixing before Phase 5; it is listed so
+that a future session does not read a red corpus as a regression it caused. **Phase 4
+adds two more ways an old project can read red, both benign**: a storyboard compiled
+before `enter.cueWord` reports its reveals as phrase-searched (recompile it — the
+`problems[]` line says so), and `duration`/`pace-calibration` now appear in every fresh
+`qc.json`.
+
+## What Phase 0/1 built (the parts Phase 2+ will touch)
+
+- **The gate.** `packages/core/src/gates.ts` — `GateMode = 'strict' | 'degrade'` and
+  the `gate(mode, message, warn)` helper: throws under `strict` (message names the
+  `--degrade` escape), warns otherwise. **`cast()`/`rerender()` default to strict;
+  stages called directly default to degrade** (`undefined` mode = today's behaviour).
+  Threaded: `CastOptions.gates` → `narrate`/`resolveVisuals`/`render` opts →
+  `CompileOptions.gates` in the renderer. CLI flag `--degrade`
+  (`apps/cli/src/main.ts`). The posture is recorded in `pipeline.json` as `gates`.
+  **Every new Phase 2 assertion should block through `gate(...)`, not a bare throw**,
+  so degrade stays an escape and the message format stays uniform.
+- **The harness.** `packages/pipeline/src/auditcheck.mts`
+  (`npx tsx packages/pipeline/src/auditcheck.mts`) — grep-level pins of the audit's
+  re-checkable facts, currently **108**, all green. **The plan (item 0.3) says each item
+  adds its line here as it closes.** Every Phase 1–5 item's lines are in.
+- **The glyph gate.** `packages/visuals/src/glyphgate.ts` + `FontMetrics.covers()`
+  (real cmap) in `packages/core/src/fontmetrics.ts` (moved there in 2.1); wired at the top of
+  `resolveVisuals`. Tests in `packages/visuals/test/glyphgate.test.ts`.
+- **Math routing.** `sniffMath` + promotion in `packages/planner/src/elements.ts`
+  (`makeText` now returns `TextElement | EquationElement`); briefs advertise the
+  ninth mark in `draw-anthropic.ts`; `'marks'` is in `STAGE_OWNED`
+  (`planner/src/schema.ts`). The draw-key pins in
+  `planner/test/draw-anthropic.test.ts` were deliberately re-pinned
+  (`9a1f337a8ecd8a07` / `3d94a24a9cc2b943`) because the brief text is the cache key.
+- **Alignment honesty.** `mapToExpected` returns `{words, fraction}`;
+  `MIN_ALIGN_FRACTION = 0.5` floor in `packages/voice/src/align.ts`; fraction in the
+  timing sidecar (`alignFraction`) and in voice problems.
+- **Cue misses.** `ResolveCuesResult.dominantMisses` in `packages/voice/src/cue.ts`,
+  gated in `narrate.ts`; decorations still only warn.
+- **The critic.** `reviseDrawing` skips-with-warning when no preview renders
+  (`planner/src/draw-critic.ts`); it never revises blind.
+
+**Deliberate deviations from the plan's letter** (argued in the plan's progress block):
+
+1. `makeText` promotes math with a warn in _both_ modes — no strict error. The
+   promotion is the fix; a promoted string that fails to typeset still hits the strict
+   equation gate downstream.
+2. The missing-font gate has no direct both-behaviours test — the font search paths
+   (`defaultFontDirs`/`fontSearchPaths`) always find the repo's vendored fonts and
+   cannot be isolated in-tree. The gate call is trivial; it fires in real degraded
+   environments.
+3. Drawing-lane problems (the critic's skip, audit defect lists) reach persisted
+   `problems[]`/`qc.json` only in Phase 3 (plan item 3.4); today the skip is a
+   `log.warn`.
+4. **The fill floor is mean < 18% / any scene < 8%**, not the plan's 25%/14% — after
+   2.1's honest boxes, bbox fill cannot separate shipped longitude (20.3%/13.8%) from
+   the named must-fail photosynthesis board (21.8%/13.2%). Measured and argued in W2.
+   The per-scene half moved 11% → 8% on 2026-08-25, re-measured across all 60 boards in
+   `projects/`: it was failing four scenes, every one of them in a composed board, and
+   catching nothing the mean floor did not already block. `MIN_SCENE_FILL` in
+   `render/src/compile.ts` carries the measurement.
+5. **The legibility floor is 10 output px**, not the plan's provisional 14 or the
+   spec's 18 — the corpus's shipped minimum is 10.9px on reviewed recap reveals, and
+   14 would fail three of them. Measured and argued in `boardcheck.ts`'s
+   `MIN_GLYPH_PX` comment and the plan's progress block. The Phase 8 re-audit must
+   treat both floors as named recalibrations, not regressions.
+
+## What remains to close the audit: Phase 8
+
+**The two remaining items have their own handoff: `docs/HANDOFF-AUDIT-REMAINDER.md`.** It
+carries, per item, the plan's bar, the verified file anchors to start from, the decisions
+already made that constrain it, and the traps — plus what still gates the work (no API
+credit, and one new defect: `hash-map` cannot render at the `short` preset at all). The
+three findings that used to sit beside those — the `DELIVERED_WPS` disagreement, the
+`deriveLesson` author bug and the image cost line billed from intent — are closed, and
+what they bought is recorded below. Open it
+when the question is "what next"; this file stays the record of what landed and why. The
+summary below is the shape of the road only.
+
+**The audit is not closed.** Phases 0–7 are landed; Phase 8 of `docs/PLAN-AUDIT-CLOSE.md`
+is open, and that plan stays the authority on scope, done-bars, and the coverage table that
+maps every non-PASS audit finding to exactly one item or waiver.
+
+- **Phase 6 — topic coverage and asset trust.** Done, all five items. 6.3 closed with
+  three lane docs and **no lane**, because the demand it is supposed to be chosen by
+  measures zero (waiver W8). **When a lane does land, delete its entry from `UNSERVED` in
+  `core/src/lanes.ts`** — the auditcheck line will say so, and since 6.3 it can actually
+  fire, which it could not before.
+- **Phase 7 — scale and cost.** Done: 7.1 (the segment cache — a tail edit re-encodes the
+  tail, byte-identical to a full render), 7.2 (`--emit-plan` + `planhash --timing`) and
+  7.3 (style packs are JSON in `styles/`). Nothing left in the phase. The one thing 7.3
+  did _not_ do is the dark-surface pack: the loader refuses a paper below mid-grey, on
+  the argument in the entry above, so a chalkboard style is the first thing the deferred
+  alpha work (S5.6) buys.
+- **Phase 8 — the exit.** **8.1 is done**: the re-audit is `docs/AUDIT-REAUDIT.md`, run at
+  `2abd28d`. **58 PASS, 7 waived, 4 PARTIAL, 0 FAIL, 0 MISSING**, from 20/0/39/6/4, with all
+  eight waivers re-checked against the evidence they rest on and all eight holding. The bar
+  ("every check PASS or named waiver") is missed by four rows, which are now **Phase 9** in
+  the plan, and by the fact that none of the four has an owner. 8.2 the bake-off is still
+  open and still blocked on credit.
+
+**What 8.1 bought, beyond a verdict table.** One row moved backwards and one new defect came
+out from under it, and both are worth knowing before touching the voice stage:
+
+- **X-g (idempotency) is no longer PASS.** Casting a shipped lesson three times into the same
+  project produced three runs that re-synthesised scene 0 and two different film lengths, so
+  7.1's segment cache reused nothing — 176.0s of render against the first cast's 67.0s. The
+  original PASS was not wrong about what it measured; it measured a re-run whose voice cache
+  hits, which is not what happens when a configured cloud provider is present and failing.
+  That is this machine's standing condition and the condition every recent project on disk
+  was cast under.
+- **N-1, the finding under it.** The clip/sidecar repair in `voice/src/narrate.ts:849-868`
+  rescales `narrationSec` and `phrases` and leaves `words` alone, so cue resolution divides
+  an unrescaled word start by a rescaled duration and every reveal in the scene fires late —
+  0.57s and 1.06s on the longitude film the re-audit rendered, which passed all 20 checks.
+  Seven scenes on disk carry word timings past the end of their own audio. **Pre-existing and
+  verified against `5f83bc4`**, where the block is byte-identical: the original audit's seven
+  passes all examined the aligner and none examined the reconciliation between a clip and
+  the sidecar describing it.
+- **Both were invisible because two diagnostics still evaporate.** `reportFill` and the
+  clip-mismatch warning are `log.warn` with no `onProblem` beside them, which by this repo's
+  own rubric makes them absent. That is Phase 9.3, and it is an hour.
+- **A number the worklist rested on was wrong.** The remainder handoff called the table
+  "61-row … 17 PASS, 34 PARTIAL". It is 69 rows at 20 PASS / 39 PARTIAL. Eight rows would
+  have been missing from a worklist built from that sentence.
+
+Ordering per the plan: **6.1, 6.2, 6.4, 6.5 and 7.2 are in, and nothing among 6.3, 7.1 and
+7.3 blocks another**; 8 is the exit. 6.3 is still the wrong item to start cold — its demand
+signal is 6.1's findings and the guard has fired on nothing in the corpus. API cost is
+negligible until 8.2 (3.3's Tier 2 is keyed and cached, ~a few cents a film, and skips
+itself with no key).
+
+Session-found context for Phase 6 and after (so the next session does not re-derive it):
+
+- **The plan's 6.3 is wrong about the circuit symbols, and it matters for sequencing.**
+  It says circuits are "closest: curated `symbols/circuit/*` already exist". They do not:
+  `assets/library/` holds `symbols/physics/force-vector` and `symbols/physics/mass`, and
+  nothing else under `symbols/`. Circuits may still be the closest lane — dagre is already
+  a dependency and the wiring is a graph — but the symbol set is work, not inventory.
+- **`rerender()` drops most of `pipeline.json`'s film-level fields.** 6.1 fixed
+  `grounding` and `lanes` (both inherited now); `drift` and `qc` are recomputed there, and
+  `source` and `lesson` were already inherited. Anything added to `PipelineState` from now
+  on has to answer "does a re-render erase this?" — the answer for anything describing the
+  **film** rather than the **run** is that it must be inherited on that path.
+
+- **The `deriveLesson` fallback lies about who wrote the lesson, and Phase 5 made it
+  visible.** On a document run with a key that has no credit, the CLI reports
+  `providers lesson anthropic` and a ~$0.04 lesson cost while the _heuristic_ author
+  actually wrote it (`projects/qc53-doc` — its `sourceRef` pattern is `deriveLesson`'s,
+  not a model's). `resolveLessonAdapter` answers "which adapter would run" and
+  `teachLesson` falls back inside the stage, so `design.author` never learns. Same shape
+  as the phantom-cost bug 3.5's `lessonAuthored` flag closed for a _cached_ lesson, and
+  the same fix: the stage has to report the author it turned out to be. Small, and it
+  makes every cost report on a degraded run wrong.
+- **The document route cannot verify 5.6, and the unit tests are the proof instead.**
+  `layoutStoryboard`'s re-anchoring only fires on arrows, `path.points` and
+  `motion.path`, and the _heuristic_ document planner emits none of the three — so
+  casting `examples/*.md --via document` exercises the code path and never its subject.
+  Three tests in `planner/test/layout.test.ts` build a model-shaped board (absolute
+  boxes far from where the packer will put them, an arrow by coordinate, a path, a
+  motion) and assert the endpoints land on the solved boxes. The regression proof that
+  nothing _else_ moved is the hash comparison described above. If a keyed session ever
+  runs `--via document` with the Anthropic planner, that is the first real end-to-end
+  exercise of 5.6 and worth reading the frames of.
+- **`--via document` fails the strict gate, and that is not a Phase 5 regression.**
+  `projects/qc53-viadoc` blocks on `vacant` (7.9% mean fill), `duration` (145% of
+  target) and `ink-floor` — the Phase 2/3 gates doing exactly what the corpus table
+  above says they do to that route. `plan.ts`'s own header calls it "not a route to a
+  watchable video". Use `--degrade` when you need it to render.
+- **The gate stage is where new checks go.** `check()` in `render/src/check.ts`
+  assembles `QcCheck`s; adding one is a `qcCheck(id, findings, {severity})` in that
+  list plus, if it needs a number, a pure function beside the others in
+  `boardcheck.ts` or `tier2.ts`. `severity: 'warn'` for a judgement, the default
+  `fail` for a fact — the split is argued in `core/src/qc.ts`'s header and it is what
+  keeps the gate switched on.
+- **4.2 and 4.3 have their rails already.** A voice-stage problem reaches `qc.json`
+  through `StageOptions.onProblem` — `cast()` collects it into the `stages` check —
+  and `narrate` already takes `StageOpts`, so 4.3's drift numbers can travel the same
+  way without a new artefact. 4.1's unresolvable-index hard error should go through
+  `gate(...)` like everything else.
+- **Tier 2 is where a "does the sync look right" check would live**, if 4.x ever wants
+  one: the frames are already captured and the vision seam already takes them.
+- **3.3's vision pass is unexercised against a live model.** Every code path is
+  tested with a stub, and the one keyed attempt in this session got
+  `402 Payment Required` from both providers — which is itself the degradation path
+  working (the report records the real reason and the film still rendered). The first
+  session with credit should run one keyed cast and read `qc.json`'s `frame-vision`
+  findings against the frames by eye: that false-positive count is what decides
+  whether the check is promoted from advisory to blocking, per the plan.
+- **`MIN_INK_SHARE` and `MAX_REVEALS_PER_SCENE` are corpus numbers, not spec numbers**,
+  like `MIN_GLYPH_PX` and the fill floor before them. The Phase 8 re-audit must treat
+  all four as named recalibrations. The measurement scripts were throwaway; the tables
+  and the reasoning are in the constants' own comments.
+- **The length calibration is `DELIVERED_LPS`, in spoken letters, and `DELIVERED_WPS` is
+  derived from it** (4.3; the finding this closed was "2.2 fits one shipped film and not
+  the other"). Words a second is not a property of this pipeline — it is a property of a
+  film's vocabulary. Across four cast films it spans 1.98–2.50 (±11%) while spoken letters
+  a second spans 9.50–9.90 (**±2.1%**), and at beat level across 106 timed phrases the
+  coefficient of variation is 9.6% against words' 16.6%. The per-cadence hypothesis this
+  handoff used to offer is refuted outright: every beat of every corpus film is
+  `building_energy`, so cadence cannot explain a between-film spread. The re-audit should
+  treat `DELIVERED_LPS = 9.65` and `LETTERS_PER_WORD = 4.23` as measured recalibrations
+  like the seven above, argued in their own comments.
+- **The normaliser is `core/src/speech.ts` now, not `voice/src/text.ts`** (4.1), and it
+  is the tokeniser of record: `narrationTokens` is what `enter.cueWord` indexes into.
+  Anything that changes what the normaliser _says_ therefore changes what the indices
+  _mean_ — so a normaliser change and a compiler change must land in that order, or the
+  pinned hashes move twice. That is why 4.4 landed before 4.1.
+- **A cue index is verified, never trusted.** Two places check it (`critiqueStoryboard`
+  before any audio; `resolveSceneCues` against the measured phrases), and both compare
+  the word at the index against the cue phrase's own first word. If a future item
+  deletes `enter.cue` — the plan's 4.1 says the phrase search "then dies" — delete the
+  _search_, not the phrase: the phrase is the only thing that can detect a stale index,
+  and without it a wrong number is undetectable by construction.
+
+## What Phase 9 bought (2026-08-25)
+
+The plan's progress block has the detail. What a future session needs from here:
+
+**A re-cast is a no-op again, and it is worth checking that it stays one.** 9.1's two
+defects were one mechanism: an abandoned voice attempt overwrote a clip whose freshness
+marker still described the file it replaced, and the repair pass that noticed the mismatch
+rescaled `phrases` without `words`. `clearFresh()` in `core/src/project.ts` is the new
+primitive — `isFresh` checks that an artefact still _exists_, which cannot notice one that
+was replaced, so a stage that clobbers a file it is not about to re-key has to say so. The
+cheapest regression check in the repo is casting a shipped lesson twice and looking for
+`render 100% cached`.
+
+**`qc81-longitude` is preserved evidence — do not re-cast it.** Its scene 0 still carries the
+13.595s clip under a 16.125s sidecar that 8.1 measured. `qc91-heal` is the copy that proves
+the fix heals it, and it healed by _re-synthesising_ rather than by rescaling, because 9.1
+removes the stale marker before the restart ever consults it.
+
+**A strict cast is 21 checks now, not 20.** 9.3 added `thin-fill` (warn). It fires on films
+that pass the vacancy floor, which is exactly when it is the only signal there is, and
+longitude trips it — that advisory is the check working, not a regression. If you are
+comparing a `qc.json` against a pre-9.3 one, that is the difference.
+
+**The renderer and the visuals stage now agree about what colour the board is.** They did
+not, from 7.3 until 9.2: `compile.ts` called `paletteFor(meta.palette)` while
+`visuals/src/style.ts` read the pack. Nothing was visibly wrong because no shipped pack
+declared a palette — an accidental agreement, and the kind that only surfaces when somebody
+uses the feature. `boardPalette()` is the one seam; if you find a third place asking about
+paper or ink, that is the bug.
+
+**`chalk` is a dark board.** A figure on it is keyed to real alpha and re-lit in the pack's
+ink rather than composited with multiply. Two constants came out of a sweep of all 42 rasters
+in `~/.inkcast/cache/illustrations` and both are in the code with their numbers:
+`GROUND_FLOOR` kills the haze disc that near-white grounds leave over slate, `CHROMA_FLOOR`
+kills the coloured speckle that compression noise in dark pixels turns into. **Both were
+found by rendering the thing and opening it**, not by any check — which is the same lesson
+6.4 recorded about its own three thresholds, learned again.
+
+## How to verify any phase as it lands
+
+```
+pnpm -r typecheck && pnpm -r test && pnpm lint
+npx tsx packages/pipeline/src/auditcheck.mts
+node --import tsx apps/cli/src/index.ts --lesson examples/lessons/longitude.lesson.json --project <scratch-id>
+```
+
+The last line is the strict end-to-end proof (strict is the default; no key needed —
+a voice-provider fallback in the output is a provider event, not a gate failure).
+Both shipped lessons are `examples/lessons/*.lesson.json`.
+
+## Traps (the plan's own list, plus the ones earned since)
+
+All five traps at the foot of `docs/PLAN-AUDIT-CLOSE.md` stand — pinned hashes moving
+is the change working; gameable metrics get gamed; no re-prompt loops at gates;
+strict surfaces latent corpus defects (budget triage time; `--degrade` exists);
+6.1 before 6.2/6.3.
+
+Earned in the Phase 1–2 sessions: **verify coverage claims against the actual cmap
+before asserting them in tests** — Shantell Sans genuinely covers bra-ket brackets
+(U+27E8/9) and subscript digits but no Greek, the opposite of what you'd guess.
+
+Earned in the Phase 3 session, and the more expensive lesson of the two:
+
+- **"The corpus passes" is a claim about the projects you actually re-cast.** Phase 2
+  was recorded as complete with both shipped lessons verified strict-clean. They were
+  not: `projects/audit-2p3-longitude` was cast 32 minutes _before_ 2.7's realized-layout
+  check landed, so longitude had never met it — and when it did, it failed, on a defect
+  a viewer sees immediately (its recap chain lettered at 7.2 output pixels; the frame is
+  four boxes of grey mush). Gradient-descent had been re-cast after 2.7 and did pass,
+  which is exactly how the wrong conclusion got drawn from a half-run experiment. Before
+  writing "verified end to end", check the timestamps: `pipeline.json`'s `updatedAt`
+  against `git log` for the commit whose gate you are claiming it passed.
+- **A check that only measures intent will bless a board that fails in reality.** The
+  static glyph floor (2.4) passed that longitude recap, because the _asked_ size was
+  legible; only the browser knew it had shrunk the type to fit. Any future check with
+  an estimate on one side of it should ask what its realized equivalent would say.
+- **Where you sample decides what you measure.** Tier 2's first sampler took each frame
+  a quarter second before the beat's end, which on a wiping board is after the card has
+  gone: two reviewed films measured 0.00% ink. It reads the fade schedule now. The
+  general form — a measurement taken at the wrong instant is not a weak measurement, it
+  is a confident wrong one — is worth carrying into 4.3's drift numbers.
+
+Earned in the Phase 5 session:
+
+- **A new rule that fires on a shipped artefact is a finding, not a test to soften.**
+  5.3's misconception rule fires on shipped gradient-descent at `short` — the budget
+  really does cut its refutation — and on every `deriveLesson` lesson, which provably
+  cannot invent one. The temptation was to scope the rule until both went quiet. What
+  the tests assert instead is the _named_ exception, in each case with the reason: the
+  budget cut it (and `adaptLesson` says so separately), or the author cannot invent it
+  (and its own warning has always said so). A rule scoped to keep the corpus green is a
+  rule that has stopped measuring anything.
+- **Two reports of one absence are not duplication when they answer different
+  questions.** "This film names no misconception" (critique → `lesson.problems`) and
+  "the 60s budget cut it" (`adaptLesson` → `stages`) look like the same line twice, and
+  neither can be derived from the other: the first is about the film, the second about
+  the run, and a reader of `qc.json` needs both to know whether to fix the lesson or
+  cast it longer. The rule for telling this from real duplication: if one line would
+  still be true with the other's cause removed, they are two facts.
+- **Recover the intent, do not transform the numbers.** 5.6's first shape was an affine
+  remap of every arrow endpoint through the scene's bounds — which moves the ink and
+  still leaves it pointing at nothing, because an arrow does not mean "these two
+  coordinates", it means "from this thing to that thing". Matching each endpoint back
+  to an authored box and then handing the arrow to the `fromId`/`toId` anchoring that
+  already worked is both smaller and correct, and it fixed a second defect nobody had
+  named: an un-hinted arrow was being _packed into the shelf_, reserving a row slot
+  while its ink was drawn somewhere else entirely.
+- **The cache cannot answer "was this edited by hand".** It records a stage's inputs, so
+  a fresh entry says the inputs are unchanged and nothing about the file. Answering it
+  needed `compiledFingerprint` — the board with every later stage's in-place enrichment
+  stripped — and the list of what to strip is the real content of the function:
+  `durationSec`/`words`/`audioPath` and `enter.at` (voice), `Asset.svg` and
+  `ref.version` (visuals), title and meta (the run's own flags). Get that list wrong in
+  either direction and the warning is either noise on every narrated project or silent
+  on the edit it exists to announce.
+- **A `sourceRef` measurement is only honest once you say which beats _can_ carry one.**
+  The plan's bar is "≥80% of `given` beats"; the raw number is 75%, and the two misses
+  per document are the recap (which cites nothing by design, in every author) and a
+  passage lifted from the lead paragraphs before the first heading (where there is no
+  section to name). Reported as 86% of citable beats **with both exclusions named**,
+  because "75%, below the bar" and "86%, and here is exactly what the other 14% is" are
+  the same measurement and only one of them is useful. The fix that would have hit 80%
+  on the raw number — citing the nearest heading — is the untestable citation the field
+  exists to prevent.
+
+Earned in the 6.1 session:
+
+- **A detector that is also a demand signal must be tuned for precision, not recall.**
+  6.3 decides which lane to build from how often 6.1 fires, so a false positive is a vote
+  for building a renderer nobody needs — a different and worse failure than a miss, which
+  costs one wrong picture that ships today anyway. This inverted the usual instinct: the
+  chemistry rule was cut back until "molecule", "hydrogen bond" and "atom" no longer fired
+  at all, because the corpus draws all three correctly. The QUIET list in
+  `core/test/lanes.test.ts` is the artefact of that, and it is the list to extend first
+  when a new signal is proposed.
+- **A detector over English needs a corpus sweep before it needs tests.** The first
+  chemistry rule fired on the shipped lithium-ion film (which draws an atom, correctly);
+  the first SMILES rule matched `cocoons` and `spoons`, because a molecule and an English
+  word are spelled from the same letters — what separates them is a bracket or a ring
+  digit, not the alphabet. Both were found by running the thing over all 38 lessons on
+  disk in ten seconds, and neither would have been found by writing tests from
+  imagination first.
+- **"Not a wrong picture" was worth reading twice.** The done-bar can be read as "suppress
+  the picture", which is a quality decision with no frames behind it and a much larger
+  blast radius than the item's own "cheap, ships first". Written down as a deviation with
+  the argument, and pinned by `auditcheck` so the smaller thing cannot silently become the
+  larger one.
+
+Earned in the Phase 4 session:
+
+- **Order a phase by what moves the pinned hashes, not by item number.** 4.4 changes
+  what the normaliser says; 4.1 writes indices counted _through_ the normaliser. Done
+  in plan order the four hashes would have moved twice, and the second diff would have
+  been unreadable against the first. Ask of every phase: which item changes the input
+  of which other item?
+- **A purely additive storyboard diff is its own coverage proof, and cheaper than
+  frames.** 4.1's re-pin was justified by compiling each board on both sides and
+  counting: 30/23/47/38 added `"cueWord"` lines and zero other changed lines — which
+  simultaneously says "nothing regressed" and "every cue got an index", because those
+  counts are the number of cues in each board. Rendering frames would have shown
+  nothing, since `enter.at` did not move. The header of `pinned-hashes.test.ts` already
+  allowed for this (the 2026-08-22 re-pin); it is worth reaching for deliberately.
+- **The default log level hides the line you are about to quote.** The voice stage's
+  "N/N by authored word index" is `log.info`, and the CLI prints warnings only, so the
+  end-to-end numbers came from calling `narrate()` over the cast project's cached audio
+  afterwards. Cheap (every clip is a cache hit) and repeatable — but if you plan to
+  claim a number from a stage's own log, check that the log level shows it before
+  spending the render.
+- **A new measurement's first job is to be believed, so check it against a number
+  somebody already wrote down.** 4.3's first real run re-derived the very measurement
+  `DELIVERED_WPS` was calibrated from (272 words over ~122s of longitude) to within
+  1.2%. That agreement is what makes its _disagreement_ on gradient-descent (+14%)
+  worth acting on rather than debugging.
+
+Earned in the 6.4 session:
+
+- **Measure the corpus, then _open_ it — the numbers and the eye disagree about which
+  failure is which.** The metric that looked obviously right for catching a blank page
+  (how much of the raster the ink covers) turned out to be nearly useless, because
+  `vectoriseToInk` scales the traced ink box to fill its element: a subject drawn tiny in
+  the corner of a page is not drawn tiny on the board. Only opening the images showed
+  that. Conversely a metric that looked crude — total stroke length over the ink box's own
+  diagonal — separated three real failures from every real drawing with a 2.4× gap.
+- **A threshold's honesty is the false positives you looked for and did not find.** Every
+  candidate rule here was run over all 42 cached rasters and its rejections opened one by
+  one. That is what killed the aspect-against-the-request rule (it rejected a ship and a
+  cross-section) and what makes the shipped 4:1 ceiling defensible at the re-audit. It cost
+  about twenty minutes.
+- **A check that cannot see must abstain, and the failure modes have to be named to let
+  it.** `traceImage` used to collapse "the optional native tracer is missing", "these bytes
+  are not an image" and "the tracer ran and found nothing" into one `undefined`. A gate
+  built on that would have turned a platform without a vtracer prebuild into a lane that
+  draws nothing. Splitting them was three lines and is the difference between a gate and an
+  outage.
+- **"Verbatim" in a plan's bar is a hypothesis about transferability, not an instruction.**
+  `plausibilityGate` works because it has a base to compare against. Half of it does not
+  transfer to a lane with no base, and the corpus said so in minutes. Copy the _shape_ —
+  retry-once, an injectable seam, cache only what passed — and re-derive the _thresholds_.
+- **Point tests at a throwaway `INKCAST_HOME`.** These were the first tests to generate
+  rasters, and the first run wrote `rover-c6875525a1.png` into the real machine-wide cache —
+  the tier whose whole job is making two films agree about what the rover looks like.
+  `cacheDir()` reads the environment on every call, so one line at the top of the test file
+  fixes it; without it a test suite quietly poisons a shared cache.
+
+Earned in the 6.5 session:
+
+- **Fixing a cache key is dead code until you find which cache is asked first.** This repo
+  has four tiers between a storyboard and a raster (the visual manifest's freshness record,
+  the project's `assets/illustrations`, the machine-wide cache, the in-process memo), and a
+  key that is honest at tier three is never consulted when tier zero says "fresh". Before
+  adding an input to any key here, cast the change on a project that already exists — a
+  fresh directory will pass a done-bar that the case a user would actually try still fails.
+- **An empty hash term is free, and that is what lets a key gain an input without a
+  migration.** `hash()` concatenates its parts, so `cond ? token : ''` leaves every artefact
+  on disk exactly as fresh as it was. That property is why 6.2's `codeFP` and 6.5's
+  `figureFP` could both be added without re-billing anything, and it is worth checking
+  rather than assuming the next time — a `join('|')` would have invalidated the world.
+- **A bar's parenthetical can outlive its reason; check whether the input can change a pixel
+  before you hash it.** This item's wording said "the figure model id (and style)". The
+  model changes the picture. The style, today, cannot reach it at all — there is no
+  `stylePrompt` yet — so hashing it would have re-billed eight cached figures for identical
+  bytes while looking like compliance. Implementing the words rather than the reason is how
+  a cache key acquires tokens nobody can defend at a re-audit.
+
+Earned in the 7.2 session:
+
+- **The same trap twice in two items: ask which cache the feature sits behind.** 6.5 learned
+  it about a key; 7.2 learned it about a flag. `--emit-plan` implemented in `render()` — the
+  obvious place, where the plan already exists — writes nothing on any run whose mp4 is
+  current, which is most runs. The fix in both cases was to move the work outside the cache
+  that skips it, and the way to notice is the same: run the feature twice in a row on the
+  same project and check that the second run still does it.
+- **A tool nobody can test is a claim, not an instrument.** `planhash`'s two modes rest on a
+  property ("a schedule change shows here and not there") that is exactly the kind of thing
+  that rots silently. Moving the row-building out of the `.mts` and into `planrows.ts` cost
+  twenty lines and turned a demonstration into a test — and the `.mts` is still the thin
+  argv-in, rows-out shell it always was.
+- **When you add a second artefact to a project directory, say in the file what reads it.**
+  `plan.json` leads with a `_note` because the audit's objection to persisting a plan was
+  never about disk space: it was that a derived copy on disk grows readers, and then edits,
+  and then it is a source of truth nobody decided to create. One sentence at the top is
+  cheaper than the bug report, and `auditcheck` now fails if the sentence or the property
+  goes away.
+
+Earned in the 7.3 session:
+
+- **Count the tables before believing the item is a union.** The plan described 7.3 as
+  collapsing a type-union to a loader's output, which reads as one enum and one table. It
+  was five tables in four packages, two of them already drifted from each other, and the
+  union was the cheapest part of the change. The way to find them is to grep for a _value_
+  rather than the type — `pencil` found `caveat` in `render/src/font.ts` and `0.55` in
+  `core/src/camera.ts`, neither of which mentions `StyleName` at all.
+- **When you make a thing user-editable, ask what used to identify it.** Four hardcoded
+  tables meant the _name_ `marker` was a complete identity, so every cache key carried the
+  name and nothing else. The moment a user can edit `styles/marker.json`, the name is a
+  label and the file is the fact — and a key that still carried the label would serve
+  yesterday's ink from a cache nobody suspects. `styleKey()` is one line; noticing it was
+  needed is the work.
+- **A guard whose message names the missing work is worth more than a guard that says
+  no.** `MIN_PAPER_LUMA` refuses a dark pack, which on its own reads as an arbitrary
+  limit. What makes it useful at the re-audit is that the error says _why_ — figures
+  composite with `multiply`, so the drawing disappears into the slate — and names the
+  deferred item (S5.6) that lifts it. The number itself is admitted to be a rail rather
+  than a measurement, in its own comment, because pretending otherwise would put a tenth
+  entry on the list of corpus-derived constants that 8.1 has to treat as recalibrations.
+- **Prove a "no code needed" bar by needing no code.** The done-bar is "adding a fifth
+  style touches zero TypeScript", and the cheap way to report it is to assert that the
+  loader loads. The honest way is to write a fifth pack into a scratch directory, point
+  `INKCAST_STYLE_DIR` at it, and render a frame of a real film in the new hand — which is
+  what `core/test/stylepack.test.ts` does in unit form and what was done once by hand and
+  looked at. Both were necessary: the test cannot see that the frame is legible, and the
+  hand-run cannot run in CI.
+
+Earned in the 6.3 session:
+
+- **A tripwire nobody can trip is worse than no tripwire.** Three lanes each named the
+  library whose installation would force its row out of `UNSERVED`, `auditcheck` grepped
+  the manifests for it, and the mechanism was written up — twice — as the reason deleting
+  the row could not be forgotten. None of the three strings could ever have matched. The
+  general form: a guard demonstrated once, by its easiest case, has been tested for that
+  case only. `shiki` matched exactly, so nobody asked whether `@rdkit/rdkit` would.
+- **Ask where a "signal" is computed before planning around it.** 6.3's rule reads like a
+  measurement — build the lane the corpus asks for most — and the measurement did not
+  exist: the findings were per-project, and nothing aggregated them. A plan can name a
+  metric it has no instrument for and read exactly like a plan that has one.
+- **Count fixtures separately or your demand signal votes for itself.** The corpus's only
+  lane findings come from the lesson written to make the guard fire. Counted naively, 6.1's
+  own test fixture is a mandate to build a chemistry lane — the precision-over-recall
+  argument in `lanes.ts` applies to the _lessons_ as much as to the signals.
+- **The strongest argument for a lane is a frame, not a count.** The ranking here did not
+  come from the demand table, which is all zeros. It came from rendering `qc61-aspirin` and
+  looking: a beat asking for a hydroxyl group put **B₄H₂** on the board in ink. Two lines
+  of a table cannot carry that, and no session that skipped the render would have ranked
+  chemistry above circuits with any confidence.
+
+Earned in the Phase 9 session:
+
+- **A "freshness" record that only checks existence cannot see a file that was replaced.**
+  `isFresh` verified that a key's hash matched and that its artefacts were still on disk;
+  both were true of a clip an abandoned attempt had just overwritten. The general form: a
+  cache validity check has to cover every way the artefact can stop being what the key
+  describes, and _deleted_ is the easy one. Any stage that writes a file it is not about to
+  re-key owes the cache a `clearFresh()`.
+- **A repair pass is code, and rescaling four fields out of five is a bug the repair
+  invented.** N-1 was inside the block that exists to _prevent_ desync. Nothing about
+  "trusting the file and rescaling" is wrong; leaving one measured-against-the-old-duration
+  field out of the rescale is. When you normalise a record against a new scale, enumerate
+  what is on the old one rather than fixing the fields you happen to be thinking about.
+- **Write the missing comparison, not just the fix.** The audit's own question about its
+  miss was "why did nothing catch this". Nothing compared a scene's word stream to the
+  length of the clip it described — `overrunViolations` checks plan items derived from the
+  very fractions the defect corrupts, so they were always in range. The fix without that
+  comparison is a fix that can silently come back.
+- **A constant argued from the corpus beats a constant argued from taste, and the corpus
+  will often hand you a gap to put it in.** 9.2's first attempt floored _relative_
+  saturation, which is largest exactly where a pixel's hue is least trustworthy, and it did
+  not work. Measuring absolute channel spread across all 42 cached rasters separated them
+  into 31 files topping out at 46 and 11 starting at 183 — an empty band 137 counts wide, so
+  the threshold is not a judgement call at all. Half an hour of measuring replaced an
+  argument nobody could have defended at the next audit.
+- **Two stages agreeing by accident is a bug with a delay fuse.** From 7.3 to 9.2 the
+  renderer read `paletteFor(meta.palette)` and the visuals stage read the pack. They agreed
+  for a year of commits because no shipped pack declared a palette. The first one that did
+  would have rendered chalk geometry on white paper. When a fact moves into data, grep for
+  everyone who still computes it.
+- **Look at the output.** Both of 9.2's real defects — a haze disc across a quarter of the
+  frame, and coloured speckle on every stroke — passed every check in the repo and were
+  obvious in the first rendered image. This is the third session to record this and it keeps
+  being the finding.

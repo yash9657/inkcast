@@ -1,16 +1,38 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import type { PlotElement, Scene, Storyboard } from '@inkcast/core';
-import { Storyboard as StoryboardSchema, lessonBeats, parseStoryboard } from '@inkcast/core';
-import { compileLesson, updateLine } from '../src/compile.js';
+import type { PlotElement, Scene, Storyboard, TextElement } from '@inkcast/core';
+import {
+  CADENCE,
+  Storyboard as StoryboardSchema,
+  cueTokens,
+  lessonBeats,
+  narrationTokens,
+  parseStoryboard,
+} from '@inkcast/core';
+import {
+  compileLesson,
+  drawsAsFreeform,
+  findReuse,
+  planVocabulary,
+  readsStructural,
+  updateLine,
+} from '../src/compile.js';
 import { deriveCues, cueResolves } from '../src/cues.js';
 import { curveY, descend, evalFn, fitYDomain, slopeAt } from '../src/curves.js';
 import type { Box } from '../src/elements.js';
 import { overlaps } from '../src/layout.js';
 import { readLessonFile } from '../src/lesson-io.js';
 import { PRESETS, adaptLesson } from '../src/presets.js';
-import { axisLabels, deriveBowl, plotHints, recipeFor } from '../src/plots.js';
+import {
+  axisLabels,
+  deriveBowl,
+  describesAPlot,
+  plotHints,
+  recipeChosen,
+  recipeFor,
+  worthPlotting,
+} from '../src/plots.js';
 import { shorten } from '../src/text.js';
 import { cellBoxes, groupIntoRegions, planBoard } from '../src/regions.js';
 
@@ -19,6 +41,13 @@ const SHIPPED = path.resolve(
   '../../../examples/lessons/gradient-descent.lesson.json',
 );
 const lesson = await readLessonFile(SHIPPED);
+
+/** The narrative benchmark: a declared cast, named poses, and written vocabulary. */
+const NARRATIVE = path.resolve(
+  import.meta.dirname,
+  '../../../examples/lessons/longitude.lesson.json',
+);
+const narrative = await readLessonFile(NARRATIVE);
 
 const sb = compileLesson(lesson, {});
 const vertical = compileLesson(lesson, { preset: 'short' });
@@ -64,18 +93,48 @@ test('the compiler is deterministic', () => {
 /* --------------------------------------------------------------- the geometry */
 
 test('no two beats sharing a region overlap, and nothing leaves its region', () => {
-  for (const board of [sb, vertical]) {
+  // Both shipped lessons, at both presets. The narrative one is here because it is the
+  // one that writes vocabulary: a term strip is ink at the very bottom edge of a cell,
+  // which is exactly where an off-by-one leaves its region or lands on the beat below.
+  for (const [source, board] of [
+    [lesson, sb],
+    [lesson, vertical],
+    [narrative, compileLesson(narrative, {})],
+    [narrative, compileLesson(narrative, { preset: 'short' })],
+  ] as const) {
     const shaped = adaptLesson(
-      lesson,
+      source,
       PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'],
     );
+    const beats = lessonBeats(shaped);
+    const reuse = findReuse(beats, shaped.analogy);
     const plan = planBoard(
-      lessonBeats(shaped).map((b) => b.role),
+      beats.map((b) => b.role),
       {
         aspect: board.meta.aspect,
         maxPerRegion: PRESETS[board.meta.aspect === '9:16' ? 'short' : 'standard'].maxPerRegion,
+        // Must match what the compiler passes, or this reconstructs a different
+        // board from the one it is checking.
+        sharesCellWith: reuse.annotates,
       },
     );
+    /**
+     * The pairs allowed to draw over each other: a beat that builds on an earlier
+     * beat's drawing is *supposed* to land on it — the anchor's walker stands on the
+     * hook's hill, and the bridge's plot replaces it. Anywhere else, overlapping ink
+     * in one region is the mess that region sharing exists to prevent.
+     */
+    const shared = new Set<string>();
+    for (const [beat, host] of reuse.annotates) {
+      // The host and everyone building on it are all drawing the same picture, so
+      // every pair within that group may legitimately land on the others' ink.
+      const group = [
+        host,
+        beat,
+        ...[...reuse.annotates].filter(([, h]) => h === host).map(([b]) => b),
+      ];
+      for (const a of group) for (const b of group) if (a !== b) shared.add(`s${a}|s${b}`);
+    }
     for (const scene of board.scenes) {
       const region = plan.regions.find((r) => r.key === scene.region);
       assert.ok(region, `${scene.id} has no region`);
@@ -89,6 +148,7 @@ test('no two beats sharing a region overlap, and nothing leaves its region', () 
       // what makes a shared region a growing board rather than a mess.
       for (const other of board.scenes) {
         if (other.id === scene.id || other.region !== scene.region) continue;
+        if (shared.has(`${scene.id}|${other.id}`)) continue;
         for (const a of scene.elements) {
           for (const b of other.elements) {
             assert.ok(!overlaps(a.at, b.at, 0), `${scene.id}/${a.id} overlaps ${other.id}/${b.id}`);
@@ -115,13 +175,17 @@ test('beats share regions, and the board accumulates', () => {
   );
   assert.ok(perRegion.size >= 3 && perRegion.size <= 6, `${perRegion.size} regions`);
 
-  // Inside one region the camera pulls back as cells fill: the first beat is a
-  // close-up, later beats hold more of the panel.
+  // Every beat is a card: the camera holds that beat's own cell, at the same tightest
+  // shot, however many cells around it are already full. It used to pull back across the
+  // region as cells filled, which showed beat four of four at a quarter size — see
+  // `regions.ts` and `docs/research/golpo-video-craft.md`. Accumulation is still real:
+  // nothing is wiped, and the recap below is what collects on it.
   const build = sb.scenes.filter((s) => s.region === 'build');
   assert.ok(build.length >= 2);
-  assert.ok(
-    build[0]!.camera.zoom > build[build.length - 1]!.camera.zoom,
-    'the camera never pulled back',
+  assert.equal(
+    new Set(build.map((s) => s.camera.zoom)).size,
+    1,
+    `beats in one region should all be held at one card: ${build.map((s) => s.camera.zoom).join(', ')}`,
   );
   // The recap is the widest shot in the video.
   const recap = sceneFor(sb, 'recap');
@@ -209,6 +273,47 @@ test('every element lands on a cue, or deliberately at the start of its beat', (
   }
 });
 
+test('every cue also leaves with the index of the word it starts on', () => {
+  // Plan item 4.1's authoring half, asserted over whole shipped boards rather than
+  // one fixture: a number the voice stage is going to trust has to be right for
+  // every reveal in the film, and the way it goes wrong is one beat at a time.
+  let indexed = 0;
+  for (const board of [sb, vertical]) {
+    for (const scene of board.scenes) {
+      const words = narrationTokens(scene.narration);
+      for (const el of scene.elements) {
+        const cue = el.enter.cue;
+        if (cue === undefined) {
+          assert.equal(
+            el.enter.cueWord,
+            undefined,
+            `${scene.id}/${el.id} has an index but no cue to index`,
+          );
+          continue;
+        }
+        // Every cue the compiler writes is verbatim from the narration (the test
+        // above), so every one of them resolves exactly and none may be missing.
+        assert.equal(
+          typeof el.enter.cueWord,
+          'number',
+          `${scene.id}/${el.id} is cued "${cue}" with no word index`,
+        );
+        const at = el.enter.cueWord!;
+        const expected = cueTokens(cue);
+        assert.deepEqual(
+          words.slice(at, at + expected.length),
+          expected,
+          `${scene.id}/${el.id}: word ${at} is not where "${cue}" starts`,
+        );
+        indexed++;
+      }
+    }
+  }
+  // Both boards are fully covered, so the voice stage never needs its phrase
+  // search on a freshly compiled film — which is PIPELINE.md step 8's done-bar.
+  assert.ok(indexed > 40, `only ${indexed} cues carried an index`);
+});
+
 test('an authored cue is preferred, and a drifted one is replaced', () => {
   const worked = sceneFor(sb, 'worked');
   const cues = worked.elements.map((el) => el.enter.cue);
@@ -261,9 +366,15 @@ test('the tangent beat draws a real tangent, and the arrow that derives the sign
 
 test('the worked beat draws the arithmetic and the descent it describes', () => {
   const scene = sceneFor(sb, 'worked');
-  const line = scene.elements.find((el) => el.type === 'text' && /←/.test(el.text));
-  assert.ok(line && line.type === 'text', 'no update line on the board');
-  assert.equal(line.text, 'w ← 3 − 0.1 × 4 = 2.6');
+  // An `equation`, not a `text`: the update line is real typeset mathematics now, so
+  // the minus is a minus rather than whatever the handwriting font has for a hyphen.
+  const line = scene.elements.find((el) => el.type === 'equation');
+  assert.ok(line && line.type === 'equation', 'no update line on the board');
+  assert.equal(line.tex, 'w \\leftarrow 3 - 0.1 \\times 4 = 2.6');
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'text' && /←|\\leftarrow/.test(el.text)),
+    'the arithmetic must not also be on the board as text',
+  );
 
   const plot = plots(scene)[0]!;
   const steps = plot.overlays.find((o) => o.kind === 'steps');
@@ -420,6 +531,110 @@ test('recipes are selected by the drawing instruction, not by chatter', () => {
   assert.equal(recipeFor('a bell curve'), 'gaussian');
   assert.equal(recipeFor('an s-curve of probability'), 'sigmoid');
   assert.equal(recipeFor('something with no keywords at all'), 'bowl');
+
+  // A comparative is not a request for a tangent. This one was live: a battery lesson
+  // asked for "a straight line falling from 3000 to 0, and a steeper straight line
+  // rising", and `steep` in the tangent recipe drew a parabola with a tangent on it.
+  assert.equal(
+    recipeFor('a straight line falling from 3000 at hour zero, and a steeper line rising'),
+    'linear',
+  );
+  assert.equal(recipeFor('the bowl, and how steep it is where the ball sits'), 'tangent');
+});
+
+test('an axis the instruction names outright beats the keyword table', () => {
+  // The tables can only label what someone thought to add to them, and nobody had added
+  // charge — so a battery's discharge curve came out labelled `output`.
+  assert.deepEqual(axisLabels('A plot of charge remaining against time: a straight line', {}), {
+    x: 'time',
+    y: 'charge remaining',
+  });
+  assert.deepEqual(axisLabels('a curve of adoption against price, rising to the right', {}), {
+    x: 'price',
+    y: 'adoption',
+  });
+  // Nothing stated, so the table and then the recipe's own defaults still decide.
+  assert.deepEqual(axisLabels('a bowl-shaped loss curve', { x: 'w', y: 'loss' }), {
+    x: 'w',
+    y: 'loss',
+  });
+});
+
+test('a plot belongs where there is a quantity, not where a word matched', () => {
+  // The live failure this removes: a beat about the Calvin cycle was drawn as a sine wave
+  // of value against time, because the word `cycle` selected the wave recipe. That is not
+  // vague — it is a claim about something oscillating, and it is false.
+  assert.ok(!recipeChosen('the Calvin cycle'), '`cycle` still selects a curve');
+  assert.ok(!describesAPlot('the Calvin cycle'));
+  assert.ok(
+    !worthPlotting('The second stage is called the Calvin cycle, and it runs in the stroma.'),
+  );
+  // "an energy supply it cannot generate" is not a demand curve, either.
+  assert.ok(!recipeChosen('the Calvin cycle needs an energy supply it cannot generate'));
+  assert.equal(recipeFor('supply and demand as two crossing straight lines'), 'supply-demand');
+
+  // A passage that really is about a quantity still gets its axes — including the
+  // flagship one, which names a quantity and a minimum without stating one number.
+  assert.ok(worthPlotting('it walks downhill on a loss surface until it settles in a minimum'));
+  assert.ok(worthPlotting('training takes 10 times longer than it needs to, for no benefit'));
+  // And an explicit instruction that names its axes needs no numbers at all.
+  assert.ok(describesAPlot('a curve of adoption against price, rising to the right'));
+  assert.ok(describesAPlot('a bell curve with the middle shaded'));
+});
+
+test('a plot intent with nothing to plot is not drawn as a false curve', () => {
+  const l = structuredClone(lesson);
+  // What a model does when it describes a picture and leaves `kind` alone: the schema
+  // defaults it to `plot`, and the fallback recipe is a parabola labelled `w` and `loss`.
+  l.steps[0]!.visuals = [{ describe: 'the Calvin cycle', kind: 'plot' }];
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'plot'),
+    'a plot with no quantity in it was drawn anyway',
+  );
+  // Still something on the board: the words, not a caption in a rectangle.
+  assert.ok(scene.elements.length > 1);
+});
+
+test('a card is called what the author called it, not the first nine words of a claim', () => {
+  /*
+   * The two halves of plan item 3.3, on the beat that shipped the defect.
+   *
+   * `idea` is a *claim* and a title is the *subject* of that claim, and no amount of
+   * cutting turns one into the other. "Air is what makes a feather lose" is seven
+   * words at a nine-word budget, so nothing was cut at all — the board simply wrote
+   * an unfinished sentence in the largest hand in the film, and QC's frame-vision
+   * flagged it on a strict-clean run.
+   */
+  const beat = {
+    idea: 'Falling is a tug of war between bigger pull and bigger inertia.',
+    because: 'because the two effects scale together',
+    from: 'given' as const,
+    derivedFrom: [],
+    emphasis: [],
+    terms: [],
+    narration: 'Falling is a tug of war, and both sides grow together.',
+    hold: 0,
+    visuals: [],
+  };
+  const withTitle = { ...beat, title: 'The tug of war' };
+
+  const named = compileLesson({ ...lesson, steps: [withTitle, ...lesson.steps.slice(1)] }, {});
+  const unnamed = compileLesson({ ...lesson, steps: [beat, ...lesson.steps.slice(1)] }, {});
+  const captionOf = (board: Storyboard, index: number): string => {
+    const scene = board.scenes[index];
+    const el = scene?.elements.find((e) => e.id.endsWith('_idea'));
+    return el && el.type === 'text' ? el.text : '';
+  };
+  // Beat 2 of the shipped lesson is `steps[0]`: hook, anchor, then the steps.
+  const at = named.scenes.findIndex((sc) => sc.elements.some((e) => e.id === 'b2_idea'));
+  assert.ok(at >= 0, 'the replaced step compiled to a scene');
+
+  assert.equal(captionOf(named, at), 'The tug of war', 'the authored title is written verbatim');
+  // Without one, the claim is shortened — and the correlative guard keeps the cut off
+  // "between bigger pull", which is what the board wrote on the real film.
+  assert.equal(captionOf(unnamed, at), 'Falling is a tug of war');
 });
 
 test('updateLine computes the arithmetic rather than copying it', () => {
@@ -427,15 +642,34 @@ test('updateLine computes the arithmetic rather than copying it', () => {
     {
       idea: 'x',
       because: 'y',
+      from: 'given',
+      derivedFrom: [],
+      emphasis: [],
+      terms: [],
       narration: 'anything',
       hold: 0,
       visuals: [{ describe: 'w = 5, slope = -2, learning rate 0.5', kind: 'plot' }],
     },
     'worked',
   );
-  assert.equal(line, 'w ← 5 + 0.5 × 2 = 6');
+  // TeX, because the board sets this as mathematics. `-` is the TeX minus (it becomes
+  // U+2212 when typeset); the sign flips to `+` because the slope is negative.
+  assert.equal(line, 'w \\leftarrow 5 + 0.5 \\times 2 = 6');
   assert.equal(
-    updateLine({ idea: '', because: '', narration: '', hold: 0, visuals: [] }, 'step'),
+    updateLine(
+      {
+        idea: '',
+        because: '',
+        from: 'given',
+        derivedFrom: [],
+        emphasis: [],
+        terms: [],
+        narration: '',
+        hold: 0,
+        visuals: [],
+      },
+      'step',
+    ),
     undefined,
   );
 });
@@ -513,5 +747,450 @@ test('a learning rate is not mistaken for the vertical axis', () => {
   const worked = sceneFor(sb, 'worked');
   for (const plot of plots(worked)) {
     assert.notEqual(plot.yLabel, 'rate', 'the worked example plots loss, not a learning rate');
+  }
+});
+
+/* --------------------------------------------- the path lane draws six things */
+
+test('drawsAsFreeform answers "can this lane draw it", not "which shape"', () => {
+  // The six, in the words a lesson actually uses.
+  assert.ok(drawsAsFreeform('a drawn hillside falling to a valley on the right'));
+  assert.ok(drawsAsFreeform('a bowl-shaped basin with a ball high on the left'));
+  assert.ok(drawsAsFreeform('a container blob with everything inside it'));
+  assert.ok(drawsAsFreeform('a figure standing on the slope'));
+  assert.ok(drawsAsFreeform('thick fog drifting across'));
+
+  // And the instructions that used to come out as terrain. `cross-section` was in the
+  // bowl keyword table, so a battery was drawn as a parabola; everything else fell
+  // through to the default hillside.
+  assert.ok(!drawsAsFreeform('Cross-section: a left rectangular stack and a right one'));
+  assert.ok(!drawsAsFreeform("a ship's outline heading toward jagged rocks"));
+  assert.ok(!drawsAsFreeform('a chloroplast with stacked thylakoid discs inside it'));
+  // Strides need a slope to walk down, so `steps` alone is a process, not a picture.
+  assert.ok(!drawsAsFreeform('the three steps of glycolysis, repeated'));
+});
+
+test('readsStructural separates named parts from a described scene', () => {
+  assert.ok(readsStructural('input → encoder → output'));
+  assert.ok(readsStructural('a list of: sunlight, water, carbon dioxide'));
+  // A flow word inside a described picture is not a flow. This is the same mistake in
+  // miniature as a keyword table deciding whether a lane applies at all.
+  assert.ok(!readsStructural('the same cross-section twice, then an arrow to the second'));
+  assert.ok(!readsStructural('Harrison standing on a deck, sextant raised to a sun overhead'));
+});
+
+test('a path intent the lane cannot draw becomes a drawing, not a hillside', () => {
+  const l = structuredClone(lesson);
+  const describe =
+    'Cross-section: a left rectangular stack and a right rectangular stack drawn as ' +
+    'hatched blocks, with a narrow damp gap between them';
+  l.steps[0]!.visuals = [{ describe, kind: 'path' }];
+  const board = compileLesson(l, {});
+  const scene = board.scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  // No terrain, and no caption standing in for the picture either. The title's own rule
+  // is a path and is not terrain, so it is excluded by id rather than by type.
+  assert.ok(
+    !scene.elements.some((el) => el.type === 'path' && !el.id.endsWith('_rule')),
+    'freeform ink was drawn anyway',
+  );
+  const asset = scene.elements.find((el) => el.type === 'asset');
+  assert.ok(asset, 'the beat drew nothing at all');
+  const minted = board.assets.find((a) => a.id === (asset.type === 'asset' ? asset.assetId : ''));
+  assert.ok(minted, 'the element references an asset that was never minted');
+  assert.equal(minted.kind, 'illustration');
+  assert.match(minted.prompt ?? '', /rectangular stack/);
+});
+
+test('a stick figure needs a figure in the instruction, not the word "you"', () => {
+  const l = structuredClone(lesson);
+  // The lithium-ion misconception in miniature: a beat about something else entirely,
+  // whose narration happens to address the learner directly.
+  l.steps[0]!.visuals = [{ describe: 'a bowl with a ball resting at the bottom', kind: 'path' }];
+  l.steps[0]!.narration = 'You would think the ball has stopped for good. It has not.';
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(!scene.elements.some((el) => el.id.includes('_you_')), 'a walker appeared uninvited');
+});
+
+test('a motion intent with nothing to ride still draws the scene it describes', () => {
+  const l = structuredClone(lesson);
+  l.steps[0]!.visuals = [
+    { describe: 'two electrode stacks joined by a wire looping through a bulb', kind: 'motion' },
+  ];
+  const scene = compileLesson(l, {}).scenes.find((s) => s.narration === l.steps[0]!.narration);
+  assert.ok(scene, 'the beat did not compile to a scene');
+  assert.ok(
+    scene.elements.some((el) => el.motion !== undefined),
+    'nothing moves',
+  );
+  assert.ok(
+    scene.elements.some((el) => el.type === 'asset'),
+    'the mover travels across nothing',
+  );
+});
+
+/* ------------------------------------------- the abstraction arriving in place */
+
+test("the anchor annotates the hook's hill instead of drawing a second one", () => {
+  // Two hillsides side by side is the failure this guards against: the anchor's job
+  // is to walk down the hill the hook established, and a fresh drawing silently
+  // tells the learner it is a different hill.
+  const hook = sceneFor(sb, 'hook');
+  const anchor = sceneFor(sb, 'anchor');
+  const hills = (s: Scene) =>
+    s.elements.filter((el) => el.type === 'path' && (el.points?.length ?? 0) > 30);
+  assert.equal(hills(hook).length, 1, 'the hook draws the hill');
+  assert.equal(hills(anchor).length, 0, 'the anchor must not draw a second hill');
+
+  // ...and its walker stands on the hook's hill, which is what sharing the cell is
+  // for. Overlap here is the feature, not a collision.
+  const hill = hills(hook)[0]!;
+  const walker = anchor.elements.filter((el) => el.id.includes('_you_'));
+  assert.ok(walker.length > 0, 'the anchor draws a figure');
+  assert.ok(
+    walker.some((el) => overlaps(el.at, hill.at, 0)),
+    'the figure is not standing on the hill',
+  );
+});
+
+test('the beat where the abstraction arrives morphs out of the hill, in place', () => {
+  const shaped = adaptLesson(lesson, PRESETS.standard);
+  const beats = lessonBeats(shaped);
+  const { bridge } = findReuse(beats, shaped.analogy);
+  assert.ok(bridge, 'the shipped lesson has a beat that turns the hill into a plot');
+
+  const hostScene = sb.scenes[bridge.host]!;
+  const bridgeScene = sb.scenes[bridge.beat]!;
+  const hill = hostScene.elements.find((el) => el.type === 'path' && (el.points?.length ?? 0) > 30);
+  assert.ok(hill, 'the host beat drew a hill to grow out of');
+
+  const plot = plots(bridgeScene)[0];
+  assert.ok(plot, 'the bridge beat draws a plot');
+  assert.equal(plot.morph?.fromId, hill.id, 'the plot names the hill it grows out of');
+
+  // In place: the axes have to appear *around* the shape already on the board, so
+  // the plot takes the hill's box rather than a panel of its own somewhere else.
+  // Compared with a tolerance because the hill element's own `at` is its ink bounds
+  // inflated by the stroke width, while the plot is placed on the hill's geometry.
+  const slack = 12;
+  for (const k of ['x', 'y', 'w', 'h'] as const) {
+    assert.ok(
+      Math.abs(plot.at[k] - hill.at[k]) <= slack,
+      `the plot is not where the hill is: ${k} ${plot.at[k]} vs ${hill.at[k]}`,
+    );
+  }
+
+  // And it stays in the hill's region, rather than opening a fresh panel.
+  assert.equal(bridgeScene.region, hostScene.region);
+});
+
+test('a lesson with no concrete drawing has nothing to morph', () => {
+  // The bridge is an upgrade, not a requirement: a lesson whose setup is words only
+  // must compile exactly as it did before this existed.
+  const wordy = {
+    ...lesson,
+    hook: { ...lesson.hook, visuals: [{ kind: 'text' as const, describe: 'a question' }] },
+    anchor: { ...lesson.anchor, visuals: [{ kind: 'text' as const, describe: 'a situation' }] },
+  };
+  const beats = lessonBeats(adaptLesson(wordy, PRESETS.standard));
+  assert.equal(findReuse(beats, wordy.analogy).bridge, null);
+  const board = compileLesson(wordy, {});
+  for (const scene of board.scenes) {
+    for (const el of scene.elements) assert.equal(el.morph, undefined);
+  }
+});
+
+/* ------------------------------------- the morph comes from the mapping, not prose */
+
+test('the same mapping in different words still morphs', () => {
+  // The point of step 6. The old regex looked for a becoming-verb near the vocabulary
+  // of a plot, so this lesson — same analogy, same structure, every sentence reworded
+  // to avoid saying the hill "is" a graph — did not morph, and the abstraction arrived
+  // as a second picture beside the hill instead of growing out of it.
+  const reworded = {
+    ...lesson,
+    steps: [
+      {
+        ...lesson.steps[0]!,
+        idea: 'Redraw the landscape with two rulers',
+        narration:
+          'Put one ruler along the ground and one straight up. Now every spot on that slope has two readings, and the slope shows up as a line on paper.',
+        visuals: [{ ...lesson.steps[0]!.visuals[0]! }],
+      },
+      ...lesson.steps.slice(1),
+    ],
+  };
+  const shaped = adaptLesson(reworded, PRESETS.standard);
+  const { bridge } = findReuse(lessonBeats(shaped), shaped.analogy);
+  assert.ok(bridge, 'the reworded lesson maps the same things, so it must still morph');
+  assert.equal(bridge.beat, 2, 'the first step that draws a plot is where it arrives');
+
+  const board = compileLesson(reworded, {});
+  const morphs = board.scenes.flatMap((s) => s.elements.filter((el) => el.morph));
+  assert.equal(morphs.length, 1, 'exactly one element grows out of the hill');
+});
+
+test('an analogy with no correspondences does not morph', () => {
+  // A declared analogy is a set of claims about what stands for what. Without them
+  // there is no basis for saying the hill and the curve are the same thing, so the
+  // plot is drawn in its own cell — the pre-morph behaviour, reached deliberately
+  // rather than by a phrase failing to match.
+  const unmapped = { ...lesson, strategy: 'first-principles' as const, analogy: undefined };
+  const shaped = adaptLesson(unmapped, PRESETS.standard);
+  assert.equal(findReuse(lessonBeats(shaped), shaped.analogy).bridge, null);
+  for (const scene of compileLesson(unmapped, {}).scenes) {
+    for (const el of scene.elements) assert.equal(el.morph, undefined);
+  }
+});
+
+test('cells are frame-shaped, so holding one fills the frame', () => {
+  // The camera fits the union of what has been drawn, so whenever it holds a single
+  // cell that cell's aspect ratio *is* the frame's fill. A 0.9:1 cell in a 1.78:1
+  // frame leaves half the width empty however well the beat packs it.
+  for (const [aspect, want] of [
+    ['16:9', 16 / 9],
+    ['9:16', 9 / 16],
+    ['1:1', 1],
+  ] as const) {
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      const region: Box = { x: 0, y: 0, w: 4000, h: 4000 };
+      for (const cell of cellBoxes(region, n, aspect)) {
+        const ratio = cell.w / cell.h;
+        assert.ok(
+          Math.abs(ratio - want) < 0.02,
+          `${aspect} cell ${n} is ${ratio.toFixed(3)}, wanted ${want.toFixed(3)}`,
+        );
+      }
+    }
+  }
+});
+
+/* ------------------------------------------------------- the one asset router */
+
+/**
+ * Build a one-beat lesson whose first step draws `visual`, and return its assets.
+ *
+ * Compiling the shipped lesson with one intent swapped is deliberate: it keeps every
+ * other input — regions, presets, budget — at values that are already known to
+ * compile, so a failure here is about the asset and nothing else.
+ */
+function assetsFor(visual: Record<string, unknown>): Storyboard['assets'] {
+  const l = structuredClone(lesson);
+  l.steps[0]!.visuals = [visual as never];
+  return compileLesson(l, {}).assets;
+}
+
+test('the planner mints what the beat described, not what lucide would have matched', () => {
+  // The defect this replaces: `matchIcons` ran here first and minted the *icon* —
+  // id `rocket`, prompt "a rocket taking off" — so "Odysseus tied to the mast of his
+  // ship" drew a rocket and no downstream lane could recover, because the library was
+  // asked about a rocket. The description is the only evidence of intent there is.
+  const [odysseus] = assetsFor({
+    describe: 'Odysseus tied to the mast of his ship',
+    kind: 'illustration',
+  });
+  assert.ok(odysseus, 'the beat minted no asset');
+  assert.notEqual(odysseus.id, 'rocket');
+  assert.match(odysseus.id, /odysseus/);
+  assert.match(odysseus.prompt ?? '', /Odysseus tied to the mast/);
+
+  // An icon intent keeps its description too. It still reaches lucide — the visuals
+  // stage runs the same match on the id and the prompt — just after the library has
+  // had its say rather than before.
+  const [cliff] = assetsFor({
+    describe: 'a person standing at the edge of a cliff',
+    kind: 'icon',
+  });
+  assert.ok(cliff, 'the icon beat minted no asset');
+  assert.notEqual(cliff.id, 'user');
+  assert.match(cliff.prompt ?? '', /edge of a cliff/);
+});
+
+test('a cast member compiles to a library reference, one asset per pose', () => {
+  const l = structuredClone(lesson);
+  l.cast = [{ id: 'explorer', name: 'Harrison', look: 'a lean carpenter in a long coat' }];
+  l.steps[0]!.visuals = [
+    { describe: 'Harrison walks the deck', character: { id: 'explorer', pose: 'walking' } },
+  ] as never;
+  l.steps[1]!.visuals = [
+    { describe: 'Harrison points at the clock', character: { id: 'explorer', pose: 'pointing' } },
+  ] as never;
+  // The same pose twice is the same drawing, so it must be one asset, not two.
+  l.steps[2]!.visuals = [
+    { describe: 'Harrison walks on', character: { id: 'explorer', pose: 'walking' } },
+  ] as never;
+
+  const assets = compileLesson(l, {}).assets.filter((a) => a.ref);
+  assert.equal(assets.length, 2, 'one asset per distinct pose');
+  for (const a of assets) {
+    assert.equal(a.ref?.path, 'characters/explorer');
+    assert.equal(a.source, 'library');
+    // Unpinned on the way in: the visuals stage resolves the newest version and
+    // writes the number back, so a compiler that invented one would freeze the
+    // storyboard against a library it never read.
+    assert.equal(a.ref?.version, undefined);
+  }
+  assert.deepEqual(assets.map((a) => a.ref?.variant).sort(), ['pointing', 'walking']);
+});
+
+test('naming a character outranks `kind`, which defaults to plot', () => {
+  // `kind` defaults to `plot`, so an author who writes the character and leaves the
+  // kind alone would otherwise get a graph where they asked for a person.
+  const assets = assetsFor({
+    describe: 'Harrison at the bench',
+    character: { id: 'explorer', pose: 'sitting' },
+  });
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0]?.ref?.path, 'characters/explorer');
+  assert.equal(assets[0]?.ref?.variant, 'sitting');
+});
+
+/* ------------------------------------------------------------- pacing on the board */
+
+test('every scene carries the cadence its hold was derived from', () => {
+  // The two travel together or they are two decisions again: the voice stage reads
+  // `cadence` for this scene's rate, and `hold` was clamped by that same cadence.
+  for (const scene of sb.scenes) {
+    assert.ok(scene.cadence, `${scene.id} has no cadence`);
+    assert.ok(
+      scene.hold <= CADENCE[scene.cadence].maxHold + 0.001,
+      `${scene.id} exceeds its ceiling`,
+    );
+  }
+  // The shipped lesson opens on a question, which is the one thing that outranks a
+  // hook's punchiness — the silence afterwards is the point of asking.
+  const hook = sceneFor(sb, 'hook');
+  assert.equal(hook.cadence, 'slow_deliberate');
+  assert.ok(hook.hold > 2, `the hook must hold, measured ${hook.hold}s`);
+  // Arithmetic is followed, not raced.
+  assert.equal(sceneFor(sb, 'worked').cadence, 'slow_deliberate');
+});
+
+test('emphasis reaches the board as visual weight, and only where the words are', () => {
+  const l = structuredClone(lesson);
+  const beat = l.steps[0]!;
+  // A phrase that is genuinely in this beat's narration, and one that is not.
+  const phrase = beat.narration.split(/\s+/).slice(1, 4).join(' ');
+  beat.emphasis = [phrase, 'a phrase that appears nowhere'];
+  beat.visuals = [{ describe: `${phrase} is the whole point`, kind: 'text' }] as never;
+
+  const board = compileLesson(l, {});
+  const scene = board.scenes.find((s) => s.narration === beat.narration.trim());
+  assert.ok(scene, 'the beat did not compile to a scene');
+  // Only the findable one survives — an unfindable phrase cannot be located by the
+  // voice stage or the board, so carrying it forward would be a silent no-op.
+  assert.deepEqual(scene.emphasis, [phrase]);
+
+  // The note carrying those words is drawn a step heavier than a plain note.
+  const note = scene.elements.find((el) => el.type === 'text' && el.id.includes('note0'));
+  assert.ok(note && note.type === 'text');
+  assert.equal(note.role, 'heading', 'an emphasised note should outweigh a plain body note');
+
+  const plain = compileLesson(lesson, {}).scenes.flatMap((s) =>
+    s.elements.filter((el) => el.type === 'text' && el.id.includes('note0')),
+  );
+  for (const el of plain) {
+    assert.equal(el.type === 'text' && el.role, 'body', 'an unemphasised note stays at body');
+  }
+});
+
+/* ------------------------------------------------- the board writes what it says */
+
+/** Every text element on a board, with the scene it belongs to. */
+function boardText(board: Storyboard): { scene: Scene; el: TextElement }[] {
+  return board.scenes.flatMap((scene) =>
+    scene.elements
+      .filter((el): el is TextElement => el.type === 'text')
+      .map((el) => ({ scene, el })),
+  );
+}
+
+test('a term the lesson names is written on the board, cued to the spoken word', () => {
+  // The defect this exists for: a photosynthesis render spoke ATP, NADPH and G3P three
+  // times each and never wrote a letter of any of them. Eleven of fourteen technical
+  // terms were spoken and never drawn.
+  const board = compileLesson(narrative, {});
+  const beats = lessonBeats(adaptLesson(narrative, PRESETS.standard));
+  const named = beats.flatMap((b) => b.step.terms);
+  assert.ok(named.length >= 5, 'the narrative benchmark should name real vocabulary');
+
+  // Every term the lesson names is somewhere in the board's ink — as a term of its own,
+  // or inside the caption that already said it.
+  const ink = boardText(board)
+    .map(({ el }) => el.text.toLowerCase())
+    .join(' | ');
+  for (const term of named) {
+    assert.ok(ink.includes(term.toLowerCase()), `"${term}" is spoken and never written`);
+  }
+
+  // The ones written as vocabulary are written *on the word*.
+  const planned = planVocabulary(beats, PRESETS.standard).flat();
+  assert.ok(planned.length >= 4, `only ${planned.length} terms reached the board`);
+  for (const term of planned) {
+    const written = boardText(board).find(({ el }) => el.text === term);
+    assert.ok(written, `"${term}" was planned and never drawn`);
+    // The cue is the term itself, so the voice stage lands the writing on the word.
+    assert.equal(written.el.enter.cue, term);
+    assert.ok(
+      cueResolves(written.scene.narration, written.el.enter.cue),
+      `the cue for "${term}" is not in the narration it came from`,
+    );
+    // `write` is the per-stroke handwriting reveal — the word appears as it is said,
+    // rather than fading in whole.
+    assert.equal(written.el.enter.style, 'write');
+  }
+});
+
+test('a term is written once, and never where a caption already says it', () => {
+  const beats = lessonBeats(adaptLesson(narrative, PRESETS.standard));
+  const planned = planVocabulary(beats, PRESETS.standard).flat();
+  assert.deepEqual(planned, [...new Set(planned)], 'the board wrote the same word twice');
+
+  // A caption anywhere on the board covers the word: the board never wipes, so a term
+  // a cell already carries does not need writing again.
+  const l = structuredClone(narrative);
+  l.steps[0]!.terms = ['London'];
+  l.steps[0]!.idea = 'London is the clock you carry';
+  const covered = planVocabulary(lessonBeats(adaptLesson(l, PRESETS.standard)), PRESETS.standard);
+  assert.ok(
+    !covered.flat().includes('London'),
+    'a term the caption already writes should not be written a second time',
+  );
+
+  // And a term the narration does not actually contain is dropped rather than drawn
+  // with a cue that can never resolve.
+  const wrong = structuredClone(narrative);
+  wrong.steps[0]!.terms = ['a term nobody says'];
+  assert.ok(
+    !planVocabulary(lessonBeats(adaptLesson(wrong, PRESETS.standard)), PRESETS.standard)
+      .flat()
+      .includes('a term nobody says'),
+  );
+});
+
+test('the vocabulary sits along the foot of its cell and leaves the picture the larger share', () => {
+  for (const preset of [PRESETS.standard, PRESETS.short] as const) {
+    const board = compileLesson(narrative, { preset: preset.name });
+    const beats = lessonBeats(adaptLesson(narrative, preset));
+    const plan = planBoard(
+      beats.map((b) => b.role),
+      { aspect: preset.aspect, maxPerRegion: preset.maxPerRegion },
+    );
+    board.scenes.forEach((scene, i) => {
+      const cell = plan.cellOf(i);
+      const terms = scene.elements.filter((el) => el.type === 'text' && el.id.includes('_term'));
+      if (!terms.length) return;
+      for (const el of terms) {
+        // Inside the cell, and in its bottom fifth: the strip is the foot of the panel.
+        assert.ok(
+          el.at.y >= cell.y + cell.h * 0.8 && el.at.y + el.at.h <= cell.y + cell.h,
+          `${scene.id}/${el.id} is not in the foot of its cell`,
+        );
+        assert.ok(el.at.x >= cell.x && el.at.x + el.at.w <= cell.x + cell.w);
+      }
+      // One row, so the strip cannot eat the drawing.
+      assert.equal(new Set(terms.map((el) => el.at.y)).size, 1, `${scene.id} wrote two rows`);
+    });
   }
 });

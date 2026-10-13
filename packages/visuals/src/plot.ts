@@ -6,15 +6,20 @@
  * could caption an idea but never show it, which is exactly why the MVP turned
  * every topic into text in rectangles.
  *
- * Three things here are load-bearing and worth reading before changing anything:
+ * Four things here are load-bearing and worth reading before changing anything:
  *
- * 1. **Curves are sampled, clipped, simplified, smoothed, then roughened — in
- *    that order.** Sampling densely is what makes a parabola look like a
- *    parabola; simplifying afterwards is what makes it look hand-drawn. Roughjs
- *    perturbs every segment it is handed, so feeding it 240 one-unit segments
- *    produces 240 tiny wobbles, which reads as a fuzzy line rather than a
- *    marker. Simplify to a few dozen faithful points and the wobble lands at
- *    human scale.
+ * 1. **Curves are sampled, clipped, simplified, smoothed, then inked — in that
+ *    order.** Sampling densely is what makes a parabola look like a parabola;
+ *    simplifying afterwards is what makes it look hand-drawn. Roughjs perturbs
+ *    every segment it is handed, so feeding it 240 one-unit segments produces 240
+ *    tiny wobbles, which reads as a fuzzy line rather than a marker. Simplify to a
+ *    few dozen faithful points and the wobble lands at human scale.
+ *
+ *    A plot draws **`crisp`** (see 4), and that whole argument is an accommodation
+ *    of a wobble it does not have — so crisp keeps every sample. The tolerance was
+ *    never about output precision; it was the scale the perturbation would smear
+ *    anyway, and paying up to a stroke-width of deviation from the real function
+ *    buys nothing once nothing is smearing it.
  *
  * 2. **The tangent's slope is computed from the curve, never assumed.** It is
  *    the overlay that carries the whole intuition behind a gradient: slope up to
@@ -28,10 +33,18 @@
  *    reveals strokes in order, and overlays land on the words that introduce
  *    them, so `PlotLayout.parts` maps contiguous draw-sequence indices to the
  *    fraction of the scene at which they should appear.
+ *
+ * 4. **The plot is crisp, all of it** — `resolvePlot` sets the mode once and every
+ *    context inside it inherits. A curve is the obvious case, but an axis, a tick
+ *    and a marked point are all things a learner reads a coordinate against, and a
+ *    wobbling axis under an exact curve is worse than either choice made
+ *    consistently. The handwriting is untouched: labels come from the text lane,
+ *    which is a real font either way, so a crisp plot still sits on a hand-drawn
+ *    board rather than turning that board into a chart. See `DrawContext.ink`.
  */
 import type { Curve, PlotElement, PlotOverlay } from '@inkcast/core';
 import { logger } from '@inkcast/core';
-import type { FontMetrics } from './fontmetrics.js';
+import type { FontMetrics } from '@inkcast/core';
 import type { DrawContext, InkPath, StrokeWeight } from './geometry.js';
 import { arrowPaths, inkPaths, roughenPathData } from './geometry.js';
 import type { CubicSeg } from './path.js';
@@ -50,7 +63,7 @@ import { resamplePolyline } from './motion.js';
 import type { InkRole, InkStyle } from './style.js';
 import { inkColour, roleFontSize, strokeWidthFor } from './style.js';
 import type { Box, Pt } from './svg.js';
-import { clamp } from './svg.js';
+import { clamp, parsePath, samplePath } from './svg.js';
 import { layoutText } from './text.js';
 import type { InkItem } from './writer.js';
 import { pathItems, textItem } from './writer.js';
@@ -500,11 +513,11 @@ function span(domain: [number, number]): number {
  */
 export function plotFrame(
   el: Pick<PlotElement, 'at' | 'xDomain' | 'yDomain' | 'xLabel' | 'yLabel' | 'axes' | 'ticks'>,
-  opts: { canvasHeight: number },
+  opts: { canvasHeight: number; typeSizes?: PlotTypeSizes },
 ): PlotFrame {
   const box = el.at;
-  const cap = roleFontSize('caption', opts.canvasHeight);
-  const lab = roleFontSize('label', opts.canvasHeight);
+  const cap = opts.typeSizes?.caption ?? roleFontSize('caption', opts.canvasHeight);
+  const lab = opts.typeSizes?.label ?? roleFontSize('label', opts.canvasHeight);
   const base = Math.min(box.w, box.h) * 0.05;
   const showX = el.axes === 'both' || el.axes === 'x';
   const showY = el.axes === 'both' || el.axes === 'y';
@@ -770,13 +783,45 @@ const LABEL_OFFSETS: Array<[number, number]> = [
  *
  * Boxes are measured against the real font metrics, never estimated, so nothing
  * wraps and the reveal mask matches the glyphs.
+ *
+ * Reserved boxes are not the whole story: a *curve* is an obstacle whose bounding
+ * box is the entire frame, so reserving it would leave nowhere legal. Stroke
+ * geometry is therefore charged for at the resolution of its own samples through
+ * `addInk`, weighted well below label-on-label — two runs of handwriting on top of
+ * each other are illegible, whereas a word crossing one stroke is merely untidy,
+ * and on a full plot some contact with ink is unavoidable.
  */
 class LabelPlacer {
   private readonly taken: Box[] = [];
+  private readonly ink: Pt[] = [];
 
   /** Reserve a box that is not a label (an axis arrow, say) so labels dodge it. */
   reserve(box: Box): void {
     this.taken.push(box);
+  }
+
+  /**
+   * Charge for ink already on the board, so a later label dodges the curve it is
+   * named after rather than lying across it.
+   */
+  addInk(paths: readonly InkPath[]): void {
+    for (const p of paths) {
+      if (p.stroke === 'none') continue;
+      for (const pt of samplePath(parsePath(p.d))) this.ink.push(pt);
+    }
+  }
+
+  /** A charge per stroke sample under `box`, scaled so it cannot outweigh a label. */
+  private inkCost(box: Box): number {
+    if (this.ink.length === 0) return 0;
+    const perHit = Math.max(1, box.w * box.h) * 0.02;
+    let cost = 0;
+    for (const p of this.ink) {
+      if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
+        cost += perHit;
+      }
+    }
+    return cost;
   }
 
   place(args: LabelArgs): InkItem {
@@ -806,7 +851,9 @@ class LabelPlacer {
       const key = `${Math.round(candidate.x)}:${Math.round(candidate.y)}`;
       if (tried.has(key)) continue;
       tried.add(key);
-      const cost = this.taken.reduce((sum, t) => sum + overlapArea(candidate, t, pad), 0);
+      const cost =
+        this.taken.reduce((sum, t) => sum + 40 * overlapArea(candidate, t, pad), 0) +
+        this.inkCost(candidate);
       if (cost < bestCost) {
         bestCost = cost;
         box = candidate;
@@ -867,7 +914,7 @@ function dot(ctx: DrawContext, bump: number, at: Pt, radius: number, colour: str
 /**
  * Roughen a canvas-space polyline as hand-drawn strokes.
  *
- * Simplify → split at corners → dash → spline → roughen. See the module header
+ * Simplify → split at corners → dash → spline → ink. See the module header
  * for why simplification comes before roughening, `splitAtCorners` for why a
  * corner must not be smoothed, and `dashPolyline` for why a dash is geometry
  * rather than a `stroke-dasharray`.
@@ -880,7 +927,11 @@ function strokePolyline(
 ): InkPath[] {
   if (pts.length < 2) return [];
   const width = opts.strokeWidth ?? strokeWidthFor(ctx.style, ctx.weight ?? 'normal');
-  const eps = Math.max(1.1, ctx.style.strokeWidth * 0.35);
+  // Crisp keeps every sample: the tolerance is the wobble's scale, not the
+  // output's, so there is nothing to trade fidelity for. `simplifyPolyline`
+  // reads a non-positive epsilon as "dedupe only", which is the one step of it
+  // the spline still needs.
+  const eps = ctx.ink === 'crisp' ? 0 : Math.max(1.1, ctx.style.strokeWidth * 0.35);
   const simple = simplifyPolyline(pts, eps);
   const pieces = splitAtCorners(simple.length >= 2 ? simple : pts);
   const runs = opts.dashed
@@ -950,6 +1001,23 @@ function curveLabelAnchor(
 /*                                 RESOLVE                                   */
 /* ======================================================================== */
 
+/**
+ * The two type sizes a plot's layout is built from, in canvas units.
+ *
+ * Everything scales off these — not only the labels. The gutters are `caption * 2.1`
+ * wide, a tick mark is `caption * 0.26` long, an axis arrowhead is `caption * 0.42`
+ * and a marked point's radius is `caption * 0.2`. So the type size is not a finishing
+ * touch applied to a finished drawing; it is the unit the drawing is measured in, and
+ * a consumer that wants the geometry at a different type size must say so *here*
+ * rather than rescale afterwards.
+ *
+ * Deriving them from `canvasHeight` — which is what happens when this is omitted —
+ * assumes the whole canvas is on screen. A renderer that frames a *region* of the
+ * board shows a fraction of it, so its type is quoted in output pixels through the
+ * camera instead, and it passes the result in.
+ */
+export type PlotTypeSizes = { caption: number; label: number };
+
 export type ResolvePlotOptions = {
   style: InkStyle;
   font: FontMetrics;
@@ -958,6 +1026,8 @@ export type ResolvePlotOptions = {
   baseAt: number;
   /** Samples per curve before simplification. */
   samples?: number;
+  /** Explicit type sizes. Defaults to the canvas-relative role sizes. */
+  typeSizes?: PlotTypeSizes;
 };
 
 /**
@@ -969,14 +1039,19 @@ export type ResolvePlotOptions = {
  */
 export function resolvePlot(
   el: PlotElement,
-  ctx: DrawContext,
+  incoming: DrawContext,
   opts: ResolvePlotOptions,
 ): ResolvedPlot {
+  // Header note 4: the whole plot is crisp, decided here rather than at the two
+  // call sites so that neither can forget and no derived context has to opt in —
+  // every `grouped()` below spreads this one. An explicit mode from the caller
+  // still wins, which is the seam `AssetRef.ink` will arrive through.
+  const ctx: DrawContext = { ...incoming, ink: incoming.ink ?? 'crisp' };
   const { style, font, canvasHeight, baseAt } = opts;
-  const frame = plotFrame(el, { canvasHeight });
+  const cap = opts.typeSizes?.caption ?? roleFontSize('caption', canvasHeight);
+  const lab = opts.typeSizes?.label ?? roleFontSize('label', canvasHeight);
+  const frame = plotFrame(el, { canvasHeight, typeSizes: { caption: cap, label: lab } });
   const { area } = frame;
-  const cap = roleFontSize('caption', canvasHeight);
-  const lab = roleFontSize('label', canvasHeight);
   const showX = el.axes === 'both' || el.axes === 'x';
   const showY = el.axes === 'both' || el.axes === 'y';
   const over = Math.min(area.w, area.h) * 0.03;
@@ -1178,17 +1253,20 @@ export function resolvePlot(
       }
     }
     const items: InkItem[] = [];
+    const drawn: InkPath[] = [];
     visible.forEach((pts, i) => {
-      items.push(
-        ...pathItems(
-          strokePolyline(g, 130 + ci * 4 + i, pts, {
-            dashed: curve.dashed,
-            strokeWidth: strokeWidthFor(style, ink.weight),
-          }),
-        ),
+      drawn.push(
+        ...strokePolyline(g, 130 + ci * 4 + i, pts, {
+          dashed: curve.dashed,
+          strokeWidth: strokeWidthFor(style, ink.weight),
+        }),
       );
     });
+    items.push(...pathItems(drawn));
     push('curve', curve.id, baseAt, items);
+    // The curve is now an obstacle: its own label, and every overlay label after
+    // it, must dodge the ink rather than lie across it.
+    placer.addInk(drawn);
 
     // The longest visible run is the trace: a ball must not teleport across a
     // gap where the curve left the frame.
@@ -1201,7 +1279,23 @@ export function resolvePlot(
         dashed: curve.dashed,
         points: resamplePolyline(longest, 96),
       });
-      if (curve.label) {
+      // A curve named the same as the axis it is plotted against is the axis label
+      // written twice. Four of the benchmark's plots printed "loss" beside the
+      // y-axis *and* beside the trace, and a learner reading two identical captions
+      // goes looking for the distinction between them.
+      //
+      // The same applies when the two names merely *differ*, so long as there is
+      // only one curve: then both are names for the vertical axis, and two different
+      // words for one quantity is worse than two identical ones — the benchmark
+      // labelled the axis "height" and the trace "loss" and left the learner to
+      // guess whether those were the same measurement. With several curves the
+      // labels are doing real work, telling the traces apart, and the axis names the
+      // quantity they share.
+      const sole = el.curves.length === 1 && Boolean(el.yLabel);
+      const redundant =
+        curve.label !== undefined &&
+        (sole || curve.label.trim().toLowerCase() === el.yLabel?.trim().toLowerCase());
+      if (curve.label && !redundant) {
         // Label at ~82% along the curve rather than at its end: the end is where
         // the axis arrow, the tangent label and the frame edge all converge, and
         // it is also the least characteristic part of the shape. Offset along the
@@ -1231,7 +1325,7 @@ export function resolvePlot(
 
   for (const { o, index } of ordered) {
     const id = `overlay:${index}`;
-    const items = overlayItems({
+    const groups = overlayItems({
       overlay: o,
       id,
       ctx,
@@ -1245,7 +1339,15 @@ export function resolvePlot(
       placer,
       bump: 200 + index * 8,
     });
-    if (items.length > 0) push(o.kind, id, o.at, items);
+    groups.forEach((items, gi) => {
+      if (items.length === 0) return;
+      // An overlay that resolved to several sub-parts has every one of them
+      // suffixed, and they all carry the overlay's `at`: the renderer pins the first
+      // to the cue and sequences the rest behind it, which is what makes a descent
+      // land one hop at a time.
+      push(o.kind, groups.length > 1 ? `${id}:${gi}` : id, o.at, items);
+      placer.addInk(items.flatMap((it) => (it.kind === 'path' ? [it.path] : [])));
+    });
   }
 
   /* ---- flatten ---------------------------------------------------------- */
@@ -1298,7 +1400,16 @@ type OverlayArgs = {
   bump: number;
 };
 
-function overlayItems(a: OverlayArgs): InkItem[] {
+/**
+ * The ink one overlay contributes, in **sub-parts**.
+ *
+ * Almost every overlay is a single unit and returns one group. A stepping sequence
+ * is the exception and the reason this is a list: the descent is the beat, and it
+ * has to arrive one hop at a time so the learner can count the moves, which means
+ * each hop needs its own draw range and its own start time rather than the whole
+ * staircase appearing as one reveal.
+ */
+function overlayItems(a: OverlayArgs): InkItem[][] {
   const { overlay, ctx, frame, style, font, cap, el, marks, placer, bump } = a;
   const grouped = (over: Partial<DrawContext> = {}): DrawContext => ({
     ...ctx,
@@ -1359,7 +1470,7 @@ function overlayItems(a: OverlayArgs): InkItem[] {
           }),
         );
       }
-      return items;
+      return [items];
     }
 
     case 'tangent': {
@@ -1410,7 +1521,7 @@ function overlayItems(a: OverlayArgs): InkItem[] {
           }),
         );
       }
-      return items;
+      return [items];
     }
 
     case 'dropline': {
@@ -1435,7 +1546,7 @@ function overlayItems(a: OverlayArgs): InkItem[] {
         point: p,
         data: { x: overlay.x, y },
       });
-      return pathItems(items);
+      return [pathItems(items)];
     }
 
     case 'shade': {
@@ -1465,25 +1576,27 @@ function overlayItems(a: OverlayArgs): InkItem[] {
       );
       const ink = curveInk(style, found.accent);
       const g = grouped({ colour: ink.colour, opacity: style.strokeOpacity * 0.5 });
-      return pathItems(
-        inkPaths(
-          g,
-          bump,
-          (o) =>
-            g.gen.polygon(
-              ring.map((p) => [p.x, p.y] as [number, number]),
-              o,
-            ),
-          {
-            fill: ink.colour,
-            fillStyle: style.fillStyle,
-            fillWeight: style.fillWeight * 0.8,
-            hachureGap: style.hachureGap * 1.6,
-            stroke: 'none',
-            roughness: style.roughness * 0.9,
-          },
+      return [
+        pathItems(
+          inkPaths(
+            g,
+            bump,
+            (o) =>
+              g.gen.polygon(
+                ring.map((p) => [p.x, p.y] as [number, number]),
+                o,
+              ),
+            {
+              fill: ink.colour,
+              fillStyle: style.fillStyle,
+              fillWeight: style.fillWeight * 0.8,
+              hachureGap: style.hachureGap * 1.6,
+              stroke: 'none',
+              roughness: style.roughness * 0.9,
+            },
+          ),
         ),
-      );
+      ];
     }
 
     case 'annotate': {
@@ -1515,7 +1628,7 @@ function overlayItems(a: OverlayArgs): InkItem[] {
         data: { x: overlay.x, y: overlay.y },
         label: overlay.text,
       });
-      return items;
+      return [items];
     }
 
     case 'steps': {
@@ -1537,10 +1650,26 @@ function overlayItems(a: OverlayArgs): InkItem[] {
         });
       }
       if (stops.length === 0) return [];
-      const g = grouped({ colour: style.secondary });
-      const items: InkItem[] = pathItems(dot(g, bump, stops[0] as Pt, radius, style.secondary));
       for (const stop of stops) reserveDot(stop);
+      // One part per hop, so the descent arrives a move at a time. Each hop is its
+      // own ink group, matching the sub-part id the caller assigns it — the group is
+      // how the renderer identifies a part's strokes, so the two must agree.
+      // With more than one hop every sub-part is suffixed, including the first, so a
+      // consumer can tell "hop 0 of a descent" from "the whole overlay" by the id
+      // alone. A lone hop keeps the bare id.
+      const multi = stops.length - 1 > 1;
+      const hopId = (i: number): string => (multi ? `${a.id}:${i}` : a.id);
+      const hopCtx = (i: number): DrawContext =>
+        grouped({ colour: style.secondary, group: `plot:steps:${hopId(i)}` });
+      const groups: InkItem[][] = [];
+      // The starting marker leads the first hop rather than standing alone: a lone
+      // dot appearing with nothing happening to it reads as a glitch.
+      const first: InkItem[] = pathItems(
+        dot(hopCtx(0), bump, stops[0] as Pt, radius, style.secondary),
+      );
       for (let i = 0; i + 1 < stops.length; i++) {
+        const g = hopCtx(i);
+        const hop: InkItem[] = i === 0 ? first : [];
         const from = stops[i] as Pt;
         const to = stops[i + 1] as Pt;
         const gap = Math.hypot(to.x - from.x, to.y - from.y);
@@ -1551,13 +1680,20 @@ function overlayItems(a: OverlayArgs): InkItem[] {
             x: to.x - ((to.x - from.x) / gap) * inset,
             y: to.y - ((to.y - from.y) / gap) * inset,
           };
-          items.push(...pathItems(arrowPaths(from, end, 0.16, { ...g, weight: 'light' })));
+          hop.push(...pathItems(arrowPaths(from, end, 0.16, { ...g, weight: 'light' })));
         }
-        items.push(...pathItems(dot(g, bump + 2 + i, to, radius, style.secondary)));
+        hop.push(...pathItems(dot(g, bump + 2 + i, to, radius, style.secondary)));
+        groups.push(hop);
       }
+      // A single stop is a marked point, not a descent: keep its dot.
+      if (groups.length === 0) groups.push(first);
       if (overlay.label) {
+        // Positioned by the destination — that is where there is room, beyond the end
+        // of the staircase — but drawn with the *first* hop, because the label names
+        // the action and the action is starting. Waiting for the last hop would
+        // caption a descent the learner has already watched.
         const last = stops[stops.length - 1] as Pt;
-        items.push(
+        (groups[0] as InkItem[]).push(
           placer.place({
             text: overlay.label,
             at: { x: last.x + radius * 1.8, y: last.y + radius * 1.8 },
@@ -1569,7 +1705,7 @@ function overlayItems(a: OverlayArgs): InkItem[] {
           }),
         );
       }
-      return items;
+      return groups;
     }
 
     default:

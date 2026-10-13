@@ -50,6 +50,7 @@ export {
   shapePaths,
   type DrawContext,
   type EmphasisKind,
+  type InkMode,
   type InkPath,
   type ShapeKind,
   type StrokeWeight,
@@ -76,9 +77,31 @@ export {
   type PlotPart,
   type PlotPartKind,
   type PlotPartRecord,
+  type PlotTypeSizes,
   type ResolvedPlot,
   type ResolvePlotOptions,
 } from './plot.js';
+
+/* ---- equation lane ------------------------------------------------------ */
+export {
+  equationEngineReady,
+  resolveEquation,
+  type EquationLayout,
+  type EquationSpec,
+  type ResolveEquationOptions,
+  type ResolvedEquation,
+} from './equation.js';
+
+/* ---- code lane ---------------------------------------------------------- */
+export {
+  codeEngineReady,
+  resolveCode,
+  type CodeLayout,
+  type CodePart,
+  type CodeSpec,
+  type ResolveCodeOptions,
+  type ResolvedCode,
+} from './code.js';
 
 /* ---- path lane ---------------------------------------------------------- */
 export {
@@ -115,7 +138,43 @@ export {
   type MotionSample,
 } from './motion.js';
 
-/* ---- icon lane ---------------------------------------------------------- */
+/* ---- character rigs (one person, several poses) ------------------------- */
+export {
+  composePose,
+  inkParts,
+  loadRig,
+  plausibilityGate,
+  posePath,
+  resetPoseNotice,
+  resetRigCache,
+  resolveGeneratedPose,
+  type CharacterRig,
+  type ComposedPart,
+  type GeneratedPose,
+  type PoseGate,
+  type PoseGenerator,
+  type RigPart,
+  type RigPose,
+} from './character.js';
+
+/* ---- the asset library (first stop; the things we chose) ---------------- */
+export {
+  LIBRARY_MANIFEST,
+  defaultLibraryDirs,
+  libraryAvailable,
+  libraryFile,
+  libraryFingerprint,
+  libraryPaths,
+  loadLibrary,
+  matchLibrary,
+  resetLibraryCache,
+  type Library,
+  type LibraryEntry,
+  type LibraryMatch,
+  type LibraryResult,
+} from './library.js';
+
+/* ---- icon lane (the fallback provider; the things we settle for) -------- */
 export {
   FALLBACK_ICON,
   ICON_KEYWORDS,
@@ -156,31 +215,59 @@ export {
   type TextLayout,
   type WordSpan,
 } from './text.js';
+// The one text-metrics stack lives in `@inkcast/core` (audit A-4); re-exported here
+// because the visuals lane is where most callers historically found it.
 export {
   builtinMetrics,
   defaultFontDirs,
   findFontFile,
+  handMetricsFor,
   loadFontMetrics,
   parseFontMetrics,
   type FontMetrics,
-} from './fontmetrics.js';
+} from '@inkcast/core';
+export {
+  formatGlyphViolation,
+  glyphViolations,
+  handwrittenStrings,
+  type GlyphViolation,
+} from './glyphgate.js';
 
 /* ---- illustration lane (needs REPLICATE_API_TOKEN or FAL_KEY) ----------- */
 export {
   ILLUSTRATION_DIR,
   detectImageProvider,
   extractPathData,
+  figureGround,
+  figureModelOverride,
+  figurePrompt,
+  figureImageRect,
+  figureRaster,
+  formPlausibility,
   generateIllustration,
   illustrationKey,
   illustrationPaths,
   illustrationPrompt,
   illustrationRaster,
+  isDarkSurface,
+  keyFigureToSurface,
+  rasterGate,
   resetIllustrationCache,
   resetImageProviderNotice,
+  shapePrompt,
+  tracedInkBox,
   vectoriseToInk,
   type IllustrationRaster,
+  type ImageKind,
   type ImageProvider,
+  type RasterGate,
+  type RasterGenerator,
+  type RasterVerdict,
+  type Surface,
 } from './image.js';
+
+/* ---- reading the pixels a provider sent back --------------------------- */
+export { groundWhiteness, pngSize, readPng, writePng, type PngPixels } from './png.js';
 
 /* ---- SVG helpers the renderer needs ------------------------------------ */
 export {
@@ -205,11 +292,14 @@ export {
   pathToString,
   pointsBBox,
   samplePath,
+  rotateM,
   scaleM,
   segsBBox,
   segsLength,
   serialiseSvg,
+  svgChildren,
   svgDocument,
+  svgViewBox,
   SVG_NS,
   transformPath,
   transformSegs,
@@ -220,6 +310,7 @@ export {
   type Matrix,
   type Pt,
   type Seg,
+  type SvgChild,
   type SvgNode,
 } from './svg.js';
 

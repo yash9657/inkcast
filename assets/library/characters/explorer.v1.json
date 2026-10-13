@@ -1,0 +1,102 @@
+{
+  "id": "explorer",
+  "version": 1,
+  "seed": 20260729,
+  "look": "a lean explorer in a long coat and boots, seen from the side, drawn as clean black marker line art on white, no shading, no background",
+  "viewBox": [22, 10, 94, 180],
+  "parts": [
+    {
+      "id": "head",
+      "d": "M36 36 C36 23.9 45.9 14 58 14 C70.1 14 80 23.9 80 36 C80 48.1 70.1 58 58 58 C45.9 58 36 48.1 36 36 Z",
+      "pivot": [58, 58],
+      "parent": "torso",
+      "fill": "currentColor"
+    },
+    {
+      "id": "torso",
+      "d": "M48 62 C45 80 47 100 51 120 L69 120 C72 100 74 80 71 62 Z",
+      "pivot": [60, 120]
+    },
+    {
+      "id": "armFar",
+      "d": "M68 68 C73 84 75 100 74 116",
+      "pivot": [68, 68],
+      "parent": "torso"
+    },
+    {
+      "id": "armNear",
+      "d": "M51 68 C46 84 44 100 45 116",
+      "pivot": [51, 68],
+      "parent": "torso"
+    },
+    {
+      "id": "thighFar",
+      "d": "M65 120 C66 132 66 141 66 150",
+      "pivot": [65, 120],
+      "parent": "torso"
+    },
+    {
+      "id": "shinFar",
+      "d": "M66 150 C66 162 66 171 66 180",
+      "pivot": [66, 150],
+      "parent": "thighFar"
+    },
+    {
+      "id": "footFar",
+      "d": "M66 180 L82 184",
+      "pivot": [66, 180],
+      "parent": "shinFar"
+    },
+    {
+      "id": "thighNear",
+      "d": "M55 120 C54 132 54 141 54 150",
+      "pivot": [55, 120],
+      "parent": "torso"
+    },
+    {
+      "id": "shinNear",
+      "d": "M54 150 C54 162 54 171 54 180",
+      "pivot": [54, 150],
+      "parent": "thighNear"
+    },
+    {
+      "id": "footNear",
+      "d": "M54 180 L70 184",
+      "pivot": [54, 180],
+      "parent": "shinNear"
+    }
+  ],
+  "poses": {
+    "standing": {},
+    "walking": {
+      "compose": {
+        "thighNear": -22,
+        "shinNear": 12,
+        "thighFar": 18,
+        "shinFar": 20,
+        "armNear": 26,
+        "armFar": -26
+      }
+    },
+    "pointing": {
+      "compose": {
+        "armFar": -105
+      }
+    },
+    "sitting": {
+      "compose": {
+        "thighNear": -80,
+        "shinNear": 78,
+        "thighFar": -72,
+        "shinFar": 70,
+        "armNear": 8,
+        "armFar": 10
+      },
+      "hide": ["thighFar", "shinFar", "footFar"]
+    },
+    "thinking": {
+      "generated": true,
+      "fallback": "standing"
+    }
+  }
+}

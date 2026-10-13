@@ -16,6 +16,7 @@ import {
   HOSTED_PER_MINUTE,
   HOSTED_PER_MINUTE_TILE,
   PRICING_AS_OF,
+  signInRequired,
 } from './site-config';
 
 /**
@@ -82,9 +83,29 @@ const ROWS: Row[] = [
     inkcast: 'As long as the document needs',
   },
   {
+    /*
+     * The row that had to change, and the one it would have been most tempting
+     * to leave alone.
+     *
+     * It read "Yes — that is the default path" against a middle column saying
+     * "No — generation is server-side and gated", which is a direct dig at
+     * precisely the thing the hosted deployment now is. Leaving it would not
+     * have been a stale figure; it would have been the table's own rules broken
+     * on the table's own page — the section header above forbids dressing a
+     * number up as a saving, and this is the same offence in prose.
+     *
+     * The honest answer is a split answer, and it stays in the row rather than
+     * moving to the footnote: a reader scanning a comparison table reads the
+     * cells, and a qualification that only appears under it is a qualification
+     * designed not to be read. The middle column is untouched — it is still
+     * public list pricing for a category, and it is still true that those tools
+     * gate generation behind a paid account.
+     */
     label: 'Works with no account and no API key',
     hosted: 'No — generation is server-side and gated',
-    inkcast: 'Yes — that is the default path',
+    inkcast: signInRequired
+      ? 'Yes when you run it yourself. On this site, drawing one starts with a sign-in.'
+      : 'Yes — that is the default path',
   },
   {
     label: 'Source available',
@@ -111,14 +132,17 @@ function CostTile({
   return (
     <div
       className={cn(
-        'h-full rounded-xl border p-6',
-        emphasis ? 'border-primary/30 bg-primary/8' : 'border-border bg-card',
+        'h-full border p-6 shadow-card',
+        emphasis ? 'border-accent-border bg-accent-soft' : 'border-border bg-card',
       )}
     >
+      {/* `font-display` is written out here, unlike on every heading in this
+          file, and the distinction is load-bearing: the base layer sets Space
+          Grotesk on `h1`–`h6` only, and a headline number is a `<p>`. */}
       <p
         className={cn(
           'tabular font-display text-5xl',
-          emphasis ? 'text-primary' : 'text-foreground',
+          emphasis ? 'text-accent-strong' : 'text-foreground',
         )}
       >
         {spoken ? (
@@ -179,7 +203,7 @@ export function CostComparison() {
       </div>
 
       <Reveal index={3} className="mt-10">
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+        <div className="overflow-x-auto border border-border bg-card shadow-card">
           <table className="w-full border-collapse text-left">
             <caption className="sr-only">
               Inkcast compared with hosted whiteboard-video generators on cost, gating and
@@ -199,7 +223,13 @@ export function CostComparison() {
                 >
                   Hosted per-minute tools
                 </th>
-                <th scope="col" className="px-3 py-3 align-bottom sm:px-4 text-sm font-medium">
+                {/* Our column is tinted rather than bolded. `accent-soft` is 8%
+                    of the accent, which is enough to track down a seven-row
+                    table with your eye and not enough to be a claim. */}
+                <th
+                  scope="col"
+                  className="bg-accent-soft px-3 py-3 align-bottom sm:px-4 text-sm font-medium"
+                >
                   <span className="inline-flex flex-wrap items-center gap-2">
                     Inkcast
                     <Badge variant="default">Free</Badge>

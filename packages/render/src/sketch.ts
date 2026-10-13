@@ -361,6 +361,354 @@ export function sketchArrowHead(
   return out;
 }
 
+/* ------------------------------------------------------------- title rules */
+
+/**
+ * The extent of one line of written text, in canvas units.
+ *
+ * The underline has to know where the letters actually ended, and the truest answer
+ * only exists inside the browser, after the handwriting font has loaded
+ * (`page/runtime.js` measures every line with `getComputedTextLength`; compile-time
+ * measurement is the same advance table parsed in `@inkcast/core`'s `fontmetrics.ts` —
+ * one table since plan item 2.1, where there used to be two disagreeing chars-times-a-
+ * constant estimators). So this primitive refuses to guess. The caller states the run
+ * it believes in and owns the error; keep an estimate generous rather than tight,
+ * because an underline a little long reads as a confident flick and one a little short
+ * reads as a mistake.
+ */
+export type WrittenRun = {
+  /** Left end of the written line. */
+  x0: number;
+  /** Right end of the written line. */
+  x1: number;
+  /** The baseline the letters sit on. */
+  baseline: number;
+  /** Type size of the line, which sets every offset below in proportion. */
+  size: number;
+};
+
+/**
+ * How a title's accent rule sits under its words. Every number is a fraction of the
+ * type size, so the same gesture holds from a 26-unit caption to a 96-unit title.
+ */
+export type UnderlineSpec = {
+  /** How far below the baseline the stroke passes, at the left end. */
+  drop: number;
+  /** How much the right end lifts above the left — the confident flick upward. */
+  rise: number;
+  /** How far the stroke runs past the last letter. */
+  overshoot: number;
+  /** How far it starts before the first letter, as a fraction of `overshoot`. */
+  approach: number;
+  /**
+   * The second rule, when the title takes a double underline (parity item 5).
+   *
+   * A hand that wants a heading to *be* a heading underlines it twice: one confident
+   * pass, then a shorter one under it, faster and closer in. It is the cheapest mark
+   * in the vocabulary that says "this is the name of the thing" rather than "this is
+   * a line", and it is the one Golpo's boards use on every card title.
+   *
+   * The second stroke is deliberately not a copy of the first. It is drawn *back*
+   * along the words — right to left, as a hand returning — starts and ends inside the
+   * first one, and takes its own seed, so the two are visibly two gestures rather
+   * than one shape stamped twice. Absent means one rule, which is what a caption or a
+   * label gets.
+   */
+  double?: {
+    /** Vertical separation from the first rule, as a fraction of the type size. */
+    gap: number;
+    /** How much shorter it is at each end, as a fraction of the run's width. */
+    inset: number;
+  };
+};
+
+/**
+ * Chosen by capturing the rule under a 96-unit Shantell title at 1920×1080 and
+ * looking at it, not by measuring Golpo — STATUS calls letter-by-letter titles their
+ * single biggest at-a-glance cue but records no numbers for the rule itself, and there
+ * is no metric in this repo that sees typography (`inkstat` counts dark saturated
+ * pixels and would score a rule at any of these values identically). So: an eye
+ * judgement, stated as one, on one string. `drop` at 0.3 clears the descenders of
+ * `p`, `g` and `y` in this face — 0.2 struck through the `p` in "pacemaker" — and the
+ * lift plus the overshoot are what separate the mark from a table border.
+ */
+export const TITLE_UNDERLINE: UnderlineSpec = {
+  drop: 0.3,
+  rise: 0.14,
+  overshoot: 0.22,
+  approach: 0.45,
+  /*
+   * The second rule, at 0.13 of the type size below the first — about 12 units under
+   * a 96-unit title, which is the distance at which two strokes read as a deliberate
+   * double rather than as one thick smudge or as two unrelated lines. `inset` 0.06
+   * keeps it inside the first at both ends, which is what a returning hand does: the
+   * flick overshoots on the way out and stops short on the way back.
+   */
+  double: { gap: 0.13, inset: 0.06 },
+};
+
+/**
+ * One hand-drawn rule under a written line.
+ *
+ * Exactly one stroke, always, and never `st.passes` of them. The runtime reveals the
+ * strokes of an item in order, so a two-pass rule would sweep left-to-right and then
+ * sweep back — which is what a hand does when it is scribbling something out, not what
+ * it does when it is underlining a heading. It is also why the returned stroke runs
+ * left to right unconditionally: it is drawn immediately after the letters it belongs
+ * to, and the reveal has to continue the direction the writing was going in.
+ *
+ * The rule is *not* a text decoration, deliberately (`docs/PLAN-GOLPO-PARITY.md`
+ * Phase 5 item 2). A `text-decoration: underline` is machine-straight, sits at a
+ * baseline offset the font chose, and — the part that actually matters — cannot be
+ * dash-revealed, so it would switch on at the instant the last letter landed instead
+ * of being drawn. As a stroke it costs its own path length in the item's write budget
+ * (the runtime prices a written line at `width * WRITE_COST` and a stroke at its
+ * length), which is what keeps the accounting honest without inventing any new timing.
+ */
+export function sketchUnderline(
+  rng: Rng,
+  st: SketchStyle,
+  run: WrittenRun,
+  spec: UnderlineSpec = TITLE_UNDERLINE,
+): string[] {
+  const size = Math.abs(run.size) || 1;
+  const over = size * spec.overshoot;
+  const a: Pt = [run.x0 - over * spec.approach, run.baseline + size * spec.drop];
+  const b: Pt = [run.x1 + over, run.baseline + size * (spec.drop - spec.rise)];
+  const first = sketchLine(rng, st, a, b, 1);
+  if (!spec.double) return first;
+
+  // The hand comes back. Right to left, inside the first at both ends, one stroke —
+  // and it follows the first in the returned order, so the reveal draws them in the
+  // order they were made. See the note on `UnderlineSpec.double`.
+  const inset = (b[0] - a[0]) * spec.double.inset;
+  const gap = size * spec.double.gap;
+  const back = sketchLine(rng, st, [b[0] - inset, b[1] + gap], [a[0] + inset, a[1] + gap], 1);
+  return [...first, ...back];
+}
+
+/* ---------------------------------------------------------------- brand mark */
+
+/**
+ * The inkcast mark, as geometry rather than as an SVG file.
+ *
+ * `docs/PLAN-LAUNCH.md` C4 specifies one mark for the favicon, the OG image, the site
+ * nav and the video's brand plate. The web copies of it are `<svg>` markup; this board
+ * cannot use those, because a mark pasted onto the last second of a film as flat markup
+ * would be the one thing in the whole video that was not drawn. So the plate keeps the
+ * mark's *proportions* and re-derives its ink through the same sketch primitives as
+ * everything else: the tile is four hand-drawn edges, the cast stroke is one confident
+ * pass, and both dash-reveal.
+ *
+ * Authored on a 24-unit design box because C4's binding constraint is legibility at
+ * 16 px (favicon) and 512 px (OG); a mark whose weights are chosen at 512 and scaled
+ * down loses its border. Every field below is therefore a ratio of the tile side, and
+ * `sketchBrandMark` never reads an absolute unit. That is what makes swapping in the
+ * finished logo geometry a one-place edit: replace the numbers in this const, and the
+ * plate, its stroke weights and its nib all follow.
+ */
+export type BrandMarkSpec = {
+  /** Tile inset inside the plate box, as a fraction of the box's short side. */
+  inset: number;
+  /** Tile border weight — C4's "2 px border" on the 24-unit design box. */
+  borderWeight: number;
+  /** Cast-stroke weight. Heavier than the border: it is a marker, not a rule. */
+  castWeight: number;
+  /** Where the cast stroke starts, in tile fractions with y running down. */
+  from: readonly [number, number];
+  /**
+   * The nib's tip — up and to the right of `from`, which is the whole gesture. The
+   * *shaft* stops a `nibLength` short of this along `nibAim`; nothing in the spec
+   * names that point, because moving the tip should move the triangle and let the
+   * stroke follow rather than requiring two coordinates to be kept in step.
+   */
+  to: readonly [number, number];
+  /** How far the stroke arcs off its own chord, towards the upper left. */
+  bow: number;
+  /**
+   * Which way the nib points — and therefore which way its base runs, since the base
+   * is perpendicular to this.
+   *
+   * Not the stroke's own direction, which is the mistake worth recording. Building the
+   * nib on the shaft's tangent rotates the triangle to the shaft's ~54°, and a triangle
+   * tilted 54° with a stroke running into the middle of its base is an *arrowhead* — two
+   * captured plates read that way before this field existed. A play button has a
+   * vertical base and points due right, so that is what this defaults to, and the rising
+   * shaft simply terminates against it.
+   */
+  nibAim: readonly [number, number];
+  /** Length of the solid nib along `nibAim`. */
+  nibLength: number;
+  /**
+   * Half-width of the nib across the stroke.
+   *
+   * This is the one number in the spec with a hard floor rather than a preference:
+   * it must clearly exceed `castWeight`, or the nib's base corners sit barely wider
+   * than the shaft that runs into them and the mark reads as an *arrowhead*. The
+   * first plate frame captured used `3.6 / 24` against a `2.6 / 24` shaft — a
+   * half-width only 1.4× the stroke width — and it read as an arrow, barbs and all.
+   * `4.4 / 24` is 1.7× the shaft, which with `nibAim` upright is enough for the
+   * triangle to be a play button with a marker stroke running into it — the whole
+   * conceit of the mark — and it is as wide as the 24-box has room for without the
+   * base corners touching the tile's border.
+   */
+  nibHalfWidth: number;
+  /**
+   * Where along the nib's base the shaft lands: 0 the centre, 1 the trailing corner.
+   *
+   * The third attempt at the same defect, and the first one judged against a rendered
+   * frame rather than against reasoning about one. `nibAim` and `nibHalfWidth` above
+   * each record a plate that read as an arrowhead and a change made to stop it; the
+   * plate captured at t=176.2 s of the cardiac film — the first time this geometry was
+   * ever on screen, because nothing called `sketchBrandMark` until the plate was wired
+   * into `compile.ts` — still read as an arrow. The measurement says why, and it is not
+   * the half-width: at a 92 px plate the base is 76 canvas units tall and the shaft
+   * 22.6 units wide, so a shaft landing on the base's *centre* leaves 27 units of
+   * triangle standing out on either side of it. Two symmetric spurs off the end of a
+   * rising stroke are barbs, and the eye reads barbs as an arrow no matter how wide
+   * they are — widening them further only draws a bigger arrow.
+   *
+   * Landing on the trailing corner instead removes the upper spur entirely: the
+   * triangle sits wholly above and ahead of the stroke, which is then a marker sweeping
+   * *into* a play button rather than a shaft wearing one. That is the mark C4 describes,
+   * and it is why this is a spec field and not a hard-coded corner — the finished logo
+   * may want the centre back, and it should get it by editing one number.
+   */
+  shaftLanding: number;
+  /** Cast violet, `oklch(0.51 0.23 277)`, the one colour the plate spends. */
+  stroke: string;
+};
+
+/**
+ * Cast violet is a hex literal here, and not the OKLCH form the design system is
+ * authored in, for the same reason every colour in `palette.ts` is: a RenderPlan's
+ * colours end up compared, substituted and pattern-matched as strings (`penArt` swaps
+ * the marker barrel by matching `'#2f6fed'`), and one colour written in a second
+ * notation is a colour those comparisons silently miss.
+ *
+ * `#4F46E5` is the sRGB resolution of `oklch(0.51 0.23 277)`, the authoritative token
+ * in `apps/web/app/globals.css`. That file's own comment records the trap: PLAN-LAUNCH
+ * C1 writes the target as `#5B45E0`, which is a different colour (`oklch(0.513 0.223
+ * 282)`). Follow the OKLCH value, which is what this hex is — not the plan's hex.
+ */
+export const BRAND_MARK: BrandMarkSpec = {
+  inset: 0.06,
+  borderWeight: 2 / 24,
+  castWeight: 2.6 / 24,
+  from: [4 / 24, 19.5 / 24],
+  to: [21 / 24, 7 / 24],
+  bow: 0.03,
+  nibAim: [1, 0],
+  nibLength: 8 / 24,
+  nibHalfWidth: 4.4 / 24,
+  shaftLanding: 1,
+  stroke: '#4F46E5',
+};
+
+/**
+ * The plate's ink, split by the treatment each part needs.
+ *
+ * Returned as named parts rather than one flat `string[]` — the exception to this
+ * module's rule — because the three parts do not share a colour, a weight or a fill.
+ * Flattening them would force the caller to re-derive which stroke was which by index,
+ * and an index-based contract between two files is exactly how the visuals stage ended
+ * up writing roughjs SVGs that nothing reads.
+ */
+export type BrandMark = {
+  /** Four edges, ink, one pass each. Never filled — C4 is explicit about that. */
+  tile: string[];
+  /** One marker stroke, corner to corner, rising right. Draw it in `stroke`. */
+  cast: string[];
+  /** The solid triangular nib at the stroke's end. Closed: give it a fill. */
+  nib: string;
+  /** Tile border width in canvas units, already scaled to this plate. */
+  borderWidth: number;
+  /** Cast stroke width in canvas units. */
+  castWidth: number;
+  /** The square the mark actually occupies, for the caller's layout arithmetic. */
+  box: Rect;
+};
+
+/**
+ * Lay the mark out inside `box`.
+ *
+ * The mark is square by construction, so a non-square plate box gets the largest
+ * centred square that fits: a corner watermark is placed against two edges of the
+ * frame by whoever computes `box`, and silently stretching the tile to fill a wide
+ * box would turn the play-button nib into a lopsided wedge.
+ */
+export function sketchBrandMark(
+  rng: Rng,
+  st: SketchStyle,
+  box: Rect,
+  spec: BrandMarkSpec = BRAND_MARK,
+): BrandMark {
+  const side = Math.max(0, Math.min(box.w, box.h)) * (1 - spec.inset * 2);
+  const ox = box.x + (box.w - side) / 2;
+  const oy = box.y + (box.h - side) / 2;
+  const tileBox: Rect = { x: ox, y: oy, w: side, h: side };
+  const at = (u: readonly [number, number]): Pt => [ox + u[0] * side, oy + u[1] * side];
+
+  // One pass per edge, not `st.passes`. A plate is small — at 16 px equivalent the
+  // second pass of a two-pass edge lands within a stroke width of the first, and the
+  // border reads as a blurred double line instead of a border.
+  const tile = sketchRect(rng, st, tileBox, 1);
+
+  const from = at(spec.from);
+  const tip = at(spec.to);
+
+  const nibLen = side * spec.nibLength;
+  const halfW = side * spec.nibHalfWidth;
+  // The nib sits on its own axis, not the shaft's — see `nibAim`. The shaft stops on
+  // its base rather than at the tip: running the stroke on to the tip and painting a
+  // solid triangle over it would leave a stroke-width of ink outside the triangle's
+  // edges at low resolution, which is precisely the size the mark has to survive.
+  const aimLen = Math.hypot(spec.nibAim[0], spec.nibAim[1]) || 1e-6;
+  const ax = spec.nibAim[0] / aimLen;
+  const ay = spec.nibAim[1] / aimLen;
+  const baseMid: Pt = [tip[0] - ax * nibLen, tip[1] - ay * nibLen];
+  // Across the base, on the trailing side — the same perpendicular the base corners
+  // are built from below, so `shaftLanding: 1` lands the shaft exactly on `base1`.
+  const across: Pt = [-ay * halfW, ax * halfW];
+  const landing = Math.max(-1, Math.min(1, spec.shaftLanding));
+  const shaftEnd: Pt = [baseMid[0] + across[0] * landing, baseMid[1] + across[1] * landing];
+
+  const dx = shaftEnd[0] - from[0];
+  const dy = shaftEnd[1] - from[1];
+  const len = Math.hypot(dx, dy) || 1e-6;
+  const ux = dx / len;
+  const uy = dy / len;
+  // Perpendicular, then negated, so the arc bulges towards the upper left — the way a
+  // right hand's wrist carries a stroke that is being pulled up and to the right.
+  const px = uy;
+  const py = -ux;
+  const bowAmt = side * spec.bow;
+  const mid: Pt = [
+    (from[0] + shaftEnd[0]) / 2 + px * bowAmt,
+    (from[1] + shaftEnd[1]) / 2 + py * bowAmt,
+  ];
+  const cast = sketchCurve(rng, st, [from, mid, shaftEnd], 1);
+
+  // The nib is jittered far less than the rest of the plate. Everything else here is
+  // allowed to look drawn; the nib is a play button, and a play button with rounded,
+  // wandering corners stops being a play button.
+  const jit = st.roughness * st.scale * 0.5;
+  const corner = (p: Pt): Pt => [p[0] + rng.sym(jit), p[1] + rng.sym(jit)];
+  const base1 = corner([baseMid[0] + across[0], baseMid[1] + across[1]]);
+  const base2 = corner([baseMid[0] - across[0], baseMid[1] - across[1]]);
+  const apex = corner(tip);
+  const nib = `${lineThrough([base1, apex, base2])} Z`;
+
+  return {
+    tile,
+    cast,
+    nib,
+    borderWidth: side * spec.borderWeight,
+    castWidth: side * spec.castWeight,
+    box: tileBox,
+  };
+}
+
 /* ------------------------------------------------------------------ hachure */
 
 function rot(p: Pt, c: number, s: number): Pt {

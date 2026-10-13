@@ -6,7 +6,7 @@
  * normalises everything (markdown, plain text, HTML-derived markdown, PDF text)
  * into the same small block vocabulary and the planner works off that.
  */
-import { normalizeWhitespace, stripMarkdown, titleCase } from './text.js';
+import { collapseSpaces, normalizeChars, stripMarkdown, titleCase } from './text.js';
 
 export type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -45,10 +45,19 @@ export function looksLikeMarkdown(text: string): boolean {
   return signals >= 2;
 }
 
-/** Parse markdown (or markdown-ish text) into blocks. */
+/**
+ * Parse markdown (or markdown-ish text) into blocks.
+ *
+ * Two views of the same lines, and the difference is one word long: **prose is collapsed
+ * and a fenced block is not** (plan item 6.2). This used to normalise the whole document
+ * first — `[ \t]+ → ' '`, then every space beside a newline dropped — which is right for a
+ * paragraph and destroys a listing, because a code block's leading spaces *are* its block
+ * structure. The two arrays are the same length by construction (nothing here changes the
+ * line count), so an index into one is an index into the other.
+ */
 export function parseBlocks(input: string): Block[] {
-  const text = normalizeWhitespace(input);
-  const lines = text.split('\n');
+  const rawLines = normalizeChars(input).split('\n');
+  const lines = rawLines.map(collapseSpaces);
   const blocks: Block[] = [];
   let para: string[] = [];
 
@@ -83,7 +92,10 @@ export function parseBlocks(input: string): Block[] {
       for (; i < lines.length; i++) {
         const l = lines[i] ?? '';
         if (l.trimStart().startsWith(marker.slice(0, 3))) break;
-        body.push(l);
+        // The *raw* line: this is the one place in the parser where the spaces at the
+        // start of a line carry meaning. The closing fence is still found on the
+        // collapsed view, where indentation is not what identifies it.
+        body.push(rawLines[i] ?? l);
       }
       if (body.join('\n').trim()) blocks.push({ kind: 'code', lang, text: body.join('\n') });
       continue;

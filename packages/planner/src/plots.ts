@@ -24,6 +24,7 @@ import { curveY, dataToCanvas, descend, fitYDomain, round, slopeAt, stepPath } f
 import type { Box, Point } from './elements.js';
 import { makeArrow } from './elements.js';
 import { ballPath, chevronPath } from './figures.js';
+import { shorten, wordCount } from './text.js';
 
 /* ----------------------------------------------------------- numeric hints */
 
@@ -306,6 +307,29 @@ function pick(text: string, table: AxisRule[], fallback?: string): string | unde
   return fallback;
 }
 
+/**
+ * The author naming both axes outright: "a plot of charge remaining against time".
+ *
+ * Worth reading before any keyword table, because it is the one case where there is
+ * nothing to infer — the instruction says what is on each axis, in the learner's words.
+ * The tables below can only label what someone thought to add to them, and a lesson
+ * about a battery found no rule for charge and got `output`.
+ */
+const STATED =
+  /\b(?:plot|graph|curve|chart)s? of ([^,.:;]{2,40}?)\s+(?:against|versus|vs\.?|over)\s+([^,.:;]{2,30}?)(?=[,.:;]|$)/i;
+
+function stated(text: string): { x?: string; y?: string } {
+  const m = STATED.exec(text);
+  if (!m) return {};
+  const tidy = (s: string): string | undefined => {
+    const short = shorten(s.trim().replace(/^(?:the|a|an)\s+/i, ''), 3);
+    return short && wordCount(short) <= 3 ? short.toLowerCase() : undefined;
+  };
+  const y = tidy(m[1] as string);
+  const x = tidy(m[2] as string);
+  return { ...(x ? { x } : {}), ...(y ? { y } : {}) };
+}
+
 export function axisLabels(
   text: string,
   fallback: { x?: string; y?: string } = {},
@@ -314,8 +338,9 @@ export function axisLabels(
   y?: string;
 } {
   const out: { x?: string; y?: string } = {};
-  const x = pick(text, X_WORDS, fallback.x);
-  const y = pick(text, Y_WORDS, fallback.y);
+  const said = stated(text);
+  const x = said.x ?? pick(text, X_WORDS, fallback.x);
+  const y = said.y ?? pick(text, Y_WORDS, fallback.y);
   if (x) out.x = x;
   if (y) out.y = y;
   return out;
@@ -490,7 +515,13 @@ const descentSteps: Recipe = {
  */
 const tangentSlope: Recipe = {
   name: 'tangent',
-  match: /tangent|slope|steep|gradient|derivative|minus sign|downhill|which way/i,
+  // `steep` on its own is gone, and the reason is the same one that runs through this
+  // file: a comparative is not a request for a tangent. "a straight line falling from
+  // 3000 to 0, and a **steeper** straight line rising" is two lines about a battery, and
+  // it was drawn as a parabola with a tangent on it, labelled `loss` — gradient descent's
+  // picture and gradient descent's vocabulary, in a lesson about charge. "how steep"
+  // stays, because that phrasing really is asking about a slope at a point.
+  match: /tangent|slope|how steep|gradient|derivative|minus sign|downhill|which way/i,
   build(ctx, hints, text) {
     const bowl = deriveBowl(hints);
     const at = bowl.focus;
@@ -592,7 +623,10 @@ const overfitting: Recipe = {
 
 const supplyDemand: Recipe = {
   name: 'supply-demand',
-  match: /supply|demand|equilibrium|price (?:settles|meets)/i,
+  // The pairing, not the lone word: this recipe draws two crossing lines of supply
+  // against demand, and "an energy supply it cannot generate" is not that. Same class of
+  // false match as `cycle` on the wave recipe below.
+  match: /supply and demand|(?:supply|demand) curve|equilibrium|price (?:settles|meets)/i,
   build(ctx, _hints, text) {
     const supply: Curve = {
       id: 'supply',
@@ -713,8 +747,12 @@ const RECIPES: Recipe[] = [
     () => [annotate(6.5, 5.4, 'each extra unit buys less', 0.66)],
   ),
   simple(
+    // Not `cycle`. A cycle in prose is almost never an oscillation of a value over time
+    // — the Calvin cycle, the water cycle, a product cycle, a cycle of poverty — and
+    // that keyword is how a beat about photosynthesis came to be drawn as a sine wave
+    // of value against time. Which is not vague: it is false.
     'wave',
-    /wave|oscillat|sine|periodic|cycle|back and forth/i,
+    /wave|oscillat|sine|periodic|back and forth/i,
     { name: 'sine', params: [1, 1.4, 0, 0] },
     [0, 9],
     { x: 'time', y: 'value' },
@@ -761,6 +799,77 @@ export function recipeFor(describe: string, narration = ''): string {
   const text = `${describe} ${narration}`;
   for (const r of RECIPES) if (r.match.test(text)) return r.name;
   return bowlOnly.name;
+}
+
+/**
+ * Whether any recipe's keywords actually chose this plot, rather than it falling through
+ * to the unopinionated bowl.
+ *
+ * The distinction matters because the fallback is not a neutral drawing: it is a parabola
+ * labelled `w` and `loss`, which is gradient descent's vocabulary and nobody else's. On a
+ * plot that some keyword really did select, those labels are overridden by the recipe. On
+ * one that fell through, they are an invention.
+ */
+export function recipeChosen(describe: string, narration = ''): boolean {
+  const text = `${describe} ${narration}`;
+  return RECIPES.some((r) => r.match.test(text));
+}
+
+/* -------------------------------------------------- when a plot is the wrong drawing */
+
+/**
+ * Something with a size: a number, a unit, or a word that names a measurable quantity.
+ *
+ * The quantity nouns are here because a passage can be entirely about a quantity without
+ * stating a single number — "gradient descent walks downhill on a loss surface until it
+ * settles in a minimum" is the flagship plot in this repository and contains no digits at
+ * all. A first cut required a number and vetoed it. These are measure words rather than
+ * subjects: what could go on an axis, not what the lesson is about.
+ */
+const MEASURED =
+  /\d|\b(?:percent|per|rate|ratio|times|fold|degrees?|seconds?|minutes?|hours?|years?|dollars?|loss|error|cost|price|probability|speed|size|amount|count|temperature|energy|efficiency|accuracy|score|height|distance|weight|length|pressure|volume|frequency|density)\b/i;
+
+/**
+ * Something changing, or being compared — the other half of an axis.
+ *
+ * Deliberately about movement rather than about subject matter. A plot is the right
+ * drawing when a quantity *varies*, and no list of topics can decide that.
+ */
+const VARIES =
+  /\b(?:against|versus|vs\.?|over time|as a function of|for every|depends on|correlat\w*|increase[sd]?|increasing|decrease[sd]?|decreasing|rise[sn]?|rising|fall(?:s|en|ing)?|grow(?:s|n|ing)?|shrink(?:s|ing)?|higher|lower|longer|shorter|faster|slower|bigger|smaller|larger|steeper|flatter|doubl(?:e|es|ed|ing)|halv(?:e|es|ed)|overshoot\w*|diverg\w*|converg\w*|minim\w*|maxim\w*|optimum|peak|threshold|proportional|linear|trade-?off|curve|slope|axis|graph|plot)\b/i;
+
+/**
+ * Whether a passage is about a measurable relationship, and so deserves axes.
+ *
+ * **A plot belongs where there is a quantity and something it varies against, not where a
+ * word matched.** The keyword tables here and in `lesson-derive.ts` answer "which shape",
+ * and they were being asked "is a shape appropriate at all" — a question they cannot
+ * answer, because a word can appear in a passage that has no quantities in it anywhere.
+ * The result was a beat about a biochemical cycle drawn as a sine wave, which reads to a
+ * learner as a claim about something oscillating over time.
+ *
+ * So both halves are required, and both are tested on the passage rather than on the
+ * drawing instruction: a quantity, and something happening to it.
+ */
+export function worthPlotting(passage: string): boolean {
+  return MEASURED.test(passage) && VARIES.test(passage);
+}
+
+/**
+ * Whether a drawing instruction has described a plot at all.
+ *
+ * A weaker test than `worthPlotting`, and asked in a different situation: here an author
+ * has *explicitly* said `plot`, so the question is only whether their words give the
+ * fallback anything to draw. "A curve of adoption against price" does, without stating a
+ * single number. "The Calvin cycle" does not, and it comes out as a parabola of loss
+ * against w — the one place in this file where drawing nothing is better than drawing
+ * something.
+ *
+ * `kind` defaults to `plot` in the Lesson schema, so this also catches the author who
+ * described a picture and never chose a primitive for it.
+ */
+export function describesAPlot(describe: string): boolean {
+  return MEASURED.test(describe) || VARIES.test(describe);
 }
 
 /**

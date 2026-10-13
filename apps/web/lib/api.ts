@@ -1,3 +1,4 @@
+import type { ProviderSelection } from './provider-selection';
 /**
  * The typed client for the studio's API routes.
  *
@@ -77,6 +78,23 @@ export type Project = {
   /** `16:9` etc. Recorded by the API when the run was started. */
   aspect?: string;
   scenes?: number;
+  /**
+   * What the facts in this film rest on, when the run recorded it (plan 5.1; audit
+   * S0-a). `parametric` means a bare topic: nothing was retrieved, so every claim is the
+   * model's own knowledge and nothing downstream could have checked it. Absent on films
+   * cast before the pipeline recorded this, which is not the same as `parametric`.
+   */
+  grounding?: 'document' | 'parametric' | 'supplied';
+  /**
+   * Classes of picture this film asked for that inkcast has no renderer for (plan 6.1;
+   * audit S5-a) — `chemistry`, `circuits`, `geography`, `code`. Absent, and normally so:
+   * it is named only when a lesson actually asked for one.
+   *
+   * Free strings, not a union, and unlike `grounding` an unrecognised one is *kept*: the
+   * name is the message here, so a lane a newer pipeline learns to miss should reach the
+   * reader before this file learns to spell it.
+   */
+  unservedLanes?: string[];
   /** Present when the last run failed and the server recorded why. */
   error?: string;
 };
@@ -90,13 +108,20 @@ export type ProjectDetail = {
 /**
  * How thoroughly to teach, and therefore how long the video runs.
  *
- * A choice about pedagogy rather than about file size: `short` is the 9:16
- * constraint — one idea, one visual, one payoff — and `deep` is the one that can
- * afford to justify every step and name the misconception.
+ * **No longer what the studio's Length control sends.** `depth` and `targetSeconds`
+ * are `meta` fields, and `POST /api/generate` has never validated either — so
+ * `teachingMeta()` dropped them on every submit and the form printed a note saying
+ * the runtime followed the document. The control that offered them is now
+ * `FilmFormat`, which selects a preset the endpoint really does accept.
+ *
+ * Kept because they are a coherent request to make of a server that grows the
+ * fields, and `teachingMeta()` still guards them behind `accepts`. Nothing in this
+ * app sets them today.
  */
 export type Depth = 'short' | 'standard' | 'deep';
 
 export type GenerateInput = {
+  providers?: ProviderSelection;
   text?: string;
   url?: string;
   /** A dropped pdf/md/txt/docx. Sent as multipart when present. */
@@ -110,6 +135,15 @@ export type GenerateInput = {
   depth?: Depth;
   /** Target runtime the lesson stage should plan against. */
   targetSeconds?: number;
+  /**
+   * The film's shape. Sent only when the server advertised it in `formats`.
+   *
+   * Not part of `meta`: this is the *format* — the preset — and it sits beside
+   * `meta` in the generate schema for the same reason it sits beside it here.
+   */
+  format?: FilmFormat;
+  /** What `GET /api/providers` said this build accepts as `preset`. */
+  formats?: readonly FilmFormat[];
   /**
    * The `meta` field names this server validates, from `GET /api/providers`.
    *
@@ -257,6 +291,22 @@ export function parseProject(raw: unknown): Project {
   if (scenes !== undefined) project.scenes = scenes;
   const error = str(rec.error);
   if (error) project.error = error;
+  // Plan 5.1. Validated against the three known values rather than passed through as a
+  // string: this drives a sentence a viewer reads about how much to trust the film, and a
+  // value nothing here recognises must render as *absent* — which says "nobody recorded
+  // it" — rather than as a fourth state the UI has no wording for.
+  const grounding = str(rec.grounding);
+  if (grounding === 'document' || grounding === 'parametric' || grounding === 'supplied') {
+    project.grounding = grounding;
+  }
+  // Plan 6.1, and flattened out of the record's `{ lanes: { unserved } }` because the
+  // studio only ever wants the list. Filtered to non-empty strings for the usual reason a
+  // parser here filters anything: this reaches a sentence a person reads.
+  const unserved = asRecord(rec.lanes).unserved;
+  if (Array.isArray(unserved)) {
+    const names = unserved.map(str).filter((s): s is string => Boolean(s));
+    if (names.length > 0) project.unservedLanes = names;
+  }
 
   return project;
 }
@@ -298,23 +348,29 @@ export type StageProvider = {
 
 /** The masked view of one credential. A key value never appears here. */
 export type KeyState = {
-  id: 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
+  id: 'fireworks' | 'anthropic' | 'elevenlabs' | 'replicate' | 'fal';
   envVar: string;
   configured: boolean;
-  /**
-   * `keychain` appears once the studio delegates to `@inkcast/keyvault`, which
-   * stores keys in the OS keychain on macOS. Handled now so that swap needs no
-   * change here.
-   */
+  /** `keychain` on macOS, where `@inkcast/keyvault` uses the OS keychain. */
   source: 'env' | 'vault' | 'keychain' | 'none';
   mask?: string;
   length?: number;
   updatedAt?: string;
+  validatedAt?: string;
+  validatedOk?: boolean;
+  /** Stored but unusable — see `locked` for which of the two reasons. */
   unreadable?: boolean;
+  /** Unusable because no passphrase is available, not because it is damaged. */
+  locked?: boolean;
+  /** A stored-but-unusable entry sits behind the environment key in use. */
   shadowedByEnv?: boolean;
+  /** The saved key is in use; an env var for the same provider is ignored. */
+  overridesEnv?: boolean;
 };
 
 export type Capabilities = {
+  selection?: ProviderSelection;
+  credentialScope?: 'account' | 'machine';
   planner: StageProvider;
   voice: StageProvider;
   images: StageProvider;
@@ -325,7 +381,36 @@ export type Capabilities = {
   warnings: string[];
   /** `meta` fields `POST /api/generate` will accept on this build. */
   accepts: string[];
+  /**
+   * The ink packs in this tree's `styles/`, as the server read them.
+   *
+   * Empty when the server is older than this field or could not read the directory,
+   * which is why the picker keeps a built-in list to fall back to — see
+   * `components/studio/options.ts`.
+   */
+  styles: StylePack[];
+  /**
+   * The film shapes `POST /api/generate` will accept as `preset` on this build.
+   *
+   * Empty against a server that predates the field, and the form then sends no
+   * `preset` at all — which is right rather than merely safe: that server's own
+   * default is whatever it was, and a `.strict()` schema would 400 the whole
+   * request over an option it has never heard of.
+   */
+  formats: FilmFormat[];
 };
+
+/**
+ * How long the film runs, and what the board does between beats.
+ *
+ * Both wipe: one card per beat, cleared between them. The mega-canvas presets
+ * (`standard`, `short`, `square`) are reachable from the CLI and deliberately not
+ * from here — see `studioFormat` in `lib/jobs.ts`.
+ */
+export type FilmFormat = 'explainer' | 'deepdive';
+
+/** One ink pack, named by the file it came from. See `styles/README.md`. */
+export type StylePack = { id: InkStyle; label: string; hint: string };
 
 function parseStageProvider(raw: unknown): StageProvider {
   const rec = asRecord(raw);
@@ -338,7 +423,7 @@ function parseStageProvider(raw: unknown): StageProvider {
   };
 }
 
-const KEY_IDS = ['anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
+const KEY_IDS = ['fireworks', 'anthropic', 'elevenlabs', 'replicate', 'fal'] as const;
 
 function parseKeyState(raw: unknown): KeyState | undefined {
   const rec = asRecord(raw);
@@ -359,8 +444,12 @@ function parseKeyState(raw: unknown): KeyState | undefined {
     ...(mask === undefined ? {} : { mask }),
     ...(length === undefined ? {} : { length }),
     ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(typeof rec.validatedAt === 'string' ? { validatedAt: rec.validatedAt } : {}),
+    ...(typeof rec.validatedOk === 'boolean' ? { validatedOk: rec.validatedOk } : {}),
     ...(rec.unreadable === true ? { unreadable: true as const } : {}),
+    ...(rec.locked === true ? { locked: true as const } : {}),
     ...(rec.shadowedByEnv === true ? { shadowedByEnv: true as const } : {}),
+    ...(rec.overridesEnv === true ? { overridesEnv: true as const } : {}),
   };
 }
 
@@ -381,6 +470,8 @@ export async function getCapabilities(signal?: AbortSignal): Promise<Capabilitie
     if (parsed) keys.push(parsed);
   }
   return {
+    selection: out.selection as ProviderSelection | undefined,
+    credentialScope: out.credentialScope === 'account' ? 'account' : 'machine',
     planner: parseStageProvider(providers.planner),
     voice: parseStageProvider(providers.voice),
     images: parseStageProvider(providers.images),
@@ -392,6 +483,16 @@ export async function getCapabilities(signal?: AbortSignal): Promise<Capabilitie
     accepts: (Array.isArray(out.accepts) ? out.accepts : []).filter(
       (field): field is string => typeof field === 'string',
     ),
+    formats: (Array.isArray(out.formats) ? out.formats : []).filter(
+      (name): name is FilmFormat => name === 'explainer' || name === 'deepdive',
+    ),
+    styles: (Array.isArray(out.styles) ? out.styles : []).flatMap((raw) => {
+      const rec = asRecord(raw);
+      const id = str(rec.id);
+      // A pack with no id is not a pack. The hint is genuinely optional — the
+      // schema defaults `description` to an empty string — so it is not a filter.
+      return id ? [{ id, label: str(rec.label) ?? id, hint: str(rec.hint) ?? '' }] : [];
+    }),
   };
 }
 
@@ -446,12 +547,6 @@ function teachingMeta(input: GenerateInput): Record<string, unknown> {
   return out;
 }
 
-/** True when this server will honour a chosen runtime. Drives the form's copy. */
-export function acceptsTargetLength(accepts: readonly string[] | undefined): boolean {
-  if (!accepts) return false;
-  return accepts.includes('depth') || SECONDS_FIELDS.some((name) => accepts.includes(name));
-}
-
 /**
  * Start a run.
  *
@@ -471,18 +566,33 @@ export async function generate(input: GenerateInput, signal?: AbortSignal): Prom
     ...teachingMeta(input),
   };
   const title = input.title?.trim();
+  /*
+   * The format, sent only when this server said it validates one.
+   *
+   * Same rule as `teachingMeta` above and for the same reason: the generate schema
+   * is `.strict()`, so a field a build has never heard of is a 400 that takes the
+   * aspect ratio, ink and voice down with it. A server too old to advertise
+   * `formats` renders at whatever its own default is, which is the honest outcome.
+   */
+  const format = input.format && input.formats?.includes(input.format) ? input.format : undefined;
 
   let init: RequestInit;
   if (input.file) {
     // Multipart: every scalar is a string and `meta` travels as a JSON blob.
     const form = new FormData();
     form.append('meta', JSON.stringify(meta));
+    if (input.providers) form.append('providers', JSON.stringify(input.providers));
     if (title) form.append('title', title);
+    if (format) form.append('preset', format);
     form.append('file', input.file, input.file.name);
     init = { method: 'POST', body: form };
   } else {
-    const body: Record<string, unknown> = { meta };
+    const body: Record<string, unknown> = {
+      meta,
+      ...(input.providers ? { providers: input.providers } : {}),
+    };
     if (title) body.title = title;
+    if (format) body.preset = format;
     if (input.text?.trim()) body.text = input.text;
     if (input.url?.trim()) body.url = input.url.trim();
     init = {

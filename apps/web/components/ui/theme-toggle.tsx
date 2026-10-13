@@ -12,16 +12,6 @@ const OPTIONS = [
   { value: 'system', label: 'System', Icon: MonitorIcon },
 ] as const;
 
-/**
- * A three-way theme control: light, dark, follow the OS.
- *
- * "System" is a real option, not a default that hides — a user whose machine
- * switches at sunset should not have to come back here.
- *
- * Renders nothing until mounted, because the resolved theme is only known on the
- * client: painting a guess and then correcting it is a visible flicker on every
- * page load. The reserved box keeps the layout from shifting when it appears.
- */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
@@ -29,7 +19,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   React.useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <div className={cn('h-8 w-[6.5rem]', className)} aria-hidden />;
+    return <div className={cn('h-9 w-26', className)} aria-hidden />;
   }
 
   return (
@@ -37,7 +27,8 @@ export function ThemeToggle({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Theme"
       className={cn(
-        'inset-shadow-well inline-flex h-8 items-center gap-0.5 rounded-lg bg-muted p-0.5',
+        'inline-flex h-9 items-center gap-0.5 rounded-md',
+        'border border-border bg-muted p-0.5',
         className,
       )}
     >
@@ -52,11 +43,17 @@ export function ThemeToggle({ className }: { className?: string }) {
             aria-label={label}
             onClick={() => setTheme(value)}
             className={cn(
-              'focus-ring inline-flex size-7 items-center justify-center rounded-md outline-none',
-              'transition-[background-color,color,box-shadow] duration-fast ease-out',
-              active
-                ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground',
+              'inline-flex size-8 items-center justify-center rounded-md outline-none',
+              'transition-colors duration-fast ease-out',
+              // The selected segment is an accent block, so `focus-ring`'s violet
+              // outline would otherwise be drawn 2px outside a violet fill and
+              // vanish. The `ring-background` band holds a paper-coloured edge
+              // between the two — the same fix `button.tsx` and `tabs.tsx` need,
+              // and the reason it is worth repeating rather than abstracting is
+              // that it only misbehaves in one state of one variant, which is the
+              // kind of focus bug that ships.
+              'focus-ring focus-visible:ring-2 focus-visible:ring-background',
+              active ? 'bg-card text-primary' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon className="size-3.5" aria-hidden />

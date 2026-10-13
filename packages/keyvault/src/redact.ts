@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 /**
  * Leak prevention: scrub anything key-shaped out of text before it can escape.
  *
@@ -170,6 +171,26 @@ const GENERIC_RULES: Rule[] = [
  * disables it, and `forgetSecrets()` clears it.
  */
 const tracked = new Set<string>();
+const scope = globalThis as typeof globalThis & {
+  __inkcastRedactionScope?: AsyncLocalStorage<Set<string>>;
+};
+const secretScope = (scope.__inkcastRedactionScope ??= new AsyncLocalStorage<Set<string>>());
+
+/** Request/job-local exact redaction; values are released with the async work. */
+export function withSecretRedaction<T>(secrets: readonly string[], work: () => T): T {
+  const values = new Set<string>(secretScope.getStore());
+  for (const value of secrets) {
+    if (value.length < 8) continue;
+    for (const form of [
+      value,
+      Buffer.from(value).toString('base64'),
+      encodeURIComponent(value),
+      JSON.stringify(value).slice(1, -1),
+    ])
+      values.add(form);
+  }
+  return secretScope.run(values, work);
+}
 
 /** Values shorter than this are too likely to appear in ordinary text. */
 const MIN_TRACKABLE = 8;
@@ -241,8 +262,9 @@ export function redact(text: unknown, opts: RedactOptions = {}): string {
   }
 
   // Layer 1: exact tracked values, longest first.
-  if (tracked.size > 0) {
-    for (const value of [...tracked].sort((a, b) => b.length - a.length)) {
+  const exact = new Set([...tracked, ...(secretScope.getStore() ?? [])]);
+  if (exact.size > 0) {
+    for (const value of [...exact].sort((a, b) => b.length - a.length)) {
       if (out.includes(value)) out = out.split(value).join(PLACEHOLDER);
     }
   }

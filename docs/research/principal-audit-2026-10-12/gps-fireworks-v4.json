@@ -1,0 +1,435 @@
+{
+  "date": "2026-10-12",
+  "project": "gps-review-v4-20261012",
+  "video": "../../../projects/gps-review-v4-20261012/out.mp4",
+  "status": "ready-for-human-review; Golpo parity not established",
+  "reference": {
+    "url": "https://www.youtube.com/watch?v=-hzueYK3rk0",
+    "title": "Golpo Canvas Technical Style Compact Mode - How GPS Calculates Your Location",
+    "seconds": 145,
+    "comparison": "Same topic; differing scripts. Reference transcript and sampled frames reviewed earlier; no blinded learner or audio preference test."
+  },
+  "providers": {
+    "planningAndDrawing": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+    "speech": "elevenlabs/eleven_multilingual_v2",
+    "voice": "River (SAz9YHcvj6GT2YYXdXww)",
+    "raster": "fal (2 previously generated and cached illustrations)",
+    "latestSpeechTrial": "eleven_v4 tested and rejected for pace control; official provider docs say it ignores speed. Adapter now respects model-specific settings."
+  },
+  "delivery": {
+    "spokenWpm": 148,
+    "seconds": 166.812625,
+    "beats": 9,
+    "utterances": 9,
+    "explicitHoldSeconds": 8.299999999999999
+  },
+  "sync": {
+    "count": 167,
+    "meanAbsoluteLag": 0.4458984818890672,
+    "p95": 1.0770675833333385,
+    "over1s": 12
+  },
+  "wordAlignment": [
+    {
+      "scene": "s0",
+      "expectedTokens": 36,
+      "nativeWords": 36,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s1",
+      "expectedTokens": 42,
+      "nativeWords": 42,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s2",
+      "expectedTokens": 41,
+      "nativeWords": 41,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s3",
+      "expectedTokens": 26,
+      "nativeWords": 26,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s4",
+      "expectedTokens": 47,
+      "nativeWords": 47,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s5",
+      "expectedTokens": 56,
+      "nativeWords": 56,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s6",
+      "expectedTokens": 47,
+      "nativeWords": 47,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s7",
+      "expectedTokens": 41,
+      "nativeWords": 41,
+      "tokenMatch": true
+    },
+    {
+      "scene": "s8",
+      "expectedTokens": 54,
+      "nativeWords": 54,
+      "tokenMatch": true
+    }
+  ],
+  "workedCalculationCues": [
+    {
+      "scene": "s6",
+      "id": "b6_v0_speed-operand",
+      "type": "equation",
+      "cue": "three hundred million metres per second",
+      "wordSec": 1.44,
+      "startSec": 1.4389472499999982,
+      "finishSec": 2.312170945158954,
+      "lag": -0.001052750000001712,
+      "duration": 0.8732236951589584
+    },
+    {
+      "scene": "s6",
+      "id": "b6_v0_times-sign",
+      "type": "equation",
+      "cue": "multiply the two numbers",
+      "wordSec": 8.371,
+      "startSec": 8.375410916666667,
+      "finishSec": 9.248634638647715,
+      "lag": 0.004410916666666154,
+      "duration": 0.8732237219810486
+    },
+    {
+      "scene": "s6",
+      "id": "b6_v0_time-operand",
+      "type": "equation",
+      "cue": "one millionth of a second",
+      "wordSec": 6.362,
+      "startSec": 6.364574375000004,
+      "finishSec": 7.237798132743833,
+      "lag": 0.0025743750000035703,
+      "duration": 0.8732237577438354
+    },
+    {
+      "scene": "s6",
+      "id": "b6_v0_equals-sign",
+      "type": "equation",
+      "cue": "multiply the two numbers",
+      "wordSec": 8.371,
+      "startSec": 9.117651080350555,
+      "finishSec": 10.01765108035056,
+      "lag": 0.7466510803505546,
+      "duration": 0.9
+    },
+    {
+      "scene": "s6",
+      "id": "b6_v0_result-value",
+      "type": "equation",
+      "cue": "about three hundred metres",
+      "wordSec": 11.691,
+      "startSec": 11.696058416666673,
+      "finishSec": 12.569282138647722,
+      "lag": 0.005058416666672727,
+      "duration": 0.8732237219810486
+    },
+    {
+      "scene": "s6",
+      "id": "b6_v0_range-vs-position",
+      "type": "equation",
+      "cue": "not a guaranteed position error",
+      "wordSec": 16.219,
+      "startSec": 15.398041666666671,
+      "finishSec": 17.998041666666666,
+      "lag": -0.8209583333333299,
+      "duration": 2.6
+    }
+  ],
+  "baselineV3": {
+    "seconds": 163.064,
+    "utterances": 30,
+    "holds": 16.924000000000003,
+    "spokenWpm": 127,
+    "sync": {
+      "count": 279,
+      "meanAbsoluteLag": 2.9941037110545516,
+      "p95": 11.353719235062599,
+      "over1s": 170
+    }
+  },
+  "geometry": {
+    "checks": [
+      {
+        "circle": "circle-a",
+        "point": "cand-upper",
+        "radiusResidualCanvasUnits": 0
+      },
+      {
+        "circle": "circle-a",
+        "point": "cand-lower",
+        "radiusResidualCanvasUnits": 0
+      },
+      {
+        "circle": "circle-b",
+        "point": "cand-upper",
+        "radiusResidualCanvasUnits": 0
+      },
+      {
+        "circle": "circle-b",
+        "point": "cand-lower",
+        "radiusResidualCanvasUnits": 0
+      }
+    ]
+  },
+  "sourceReview": {
+    "id": "semantic-explanation",
+    "tier": 2,
+    "status": "pass",
+    "findings": [],
+    "note": "Model review against supplied source (accounts/fireworks/models/deepseek-v4p1-flash); not independent fact verification or rendered-diagram verification."
+  },
+  "qualityChecks": [
+    {
+      "id": "storyboard",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "speech-visual-sync",
+      "status": "warn",
+      "findings": [
+        "s3/b3_idea: label \"Pseudoranges Until Clock Accounted\" starts 1.39s after its spoken cue \"estimate is not\".",
+        "s3/b3_v0_label-atomic: label \"atomic clock\" starts 1.40s after its spoken cue \"That estimate is not yet exact\".",
+        "s7/b7_v0_three-is-enough-text: label \"three is enough?\" starts 1.10s after its spoken cue \"It is tempting to think\".",
+        "s8/b8_idea: label \"Timing to Joint Solution\" starts 1.10s after its spoken cue \"blue dot comes\"."
+      ],
+      "note": "58 label/equation cues checked against the rendered schedule; maximum absolute start offset 1.399s. This measures cue placement, not perceptual speech quality."
+    },
+    {
+      "id": "ink-on-ink",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "off-frame",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "overrun",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "illegible",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "pen",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "dwell",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "vacant",
+      "status": "pass",
+      "findings": [],
+      "note": "mean content fill 35.3%, sparsest scene 14.5%"
+    },
+    {
+      "id": "off-frame-derived",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "dwell-text",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "thin-fill",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "crowded",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "lesson",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "lesson-order",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "lane-coverage",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "drawing",
+      "status": "warn",
+      "findings": [
+        "the drawing \"Left side: a small lightning bolt above a cloud, and a liste\" has 1 standing defect (thin-card\u00d71): this card will carry about 12% of the frame: the marks cover 16% of the 848x467 box they span, and a 848x467 box holds 98% of a 1000x560 board \u2014 draw every part bigger where it stands until the ink fills the space between the parts \u2014 scaling the whole drawing up changes nothing, because the board fits it to the card either way",
+        "the drawing \"Draw a phone dot in the centre with four satellites spaced a\" has 1 standing defect (off-canvas\u00d71): the drawing runs 11 past x=1000 \u2014 the canvas is 1000x560 and everything has to be inside it; bring more-than-four in"
+      ]
+    },
+    {
+      "id": "drawing-completeness",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "stages",
+      "status": "warn",
+      "findings": [
+        "script-duration: 197s exceeds the 150s target; complete explanations were preserved. Rewrite the script before publishing."
+      ]
+    },
+    {
+      "id": "lesson-author",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "misconception-cut",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "duration",
+      "status": "pass",
+      "findings": [],
+      "note": "166.8s measured against a 150s target, 2.45 words a second delivered (11.76 spoken letters, plans with 12.140100000000002)"
+    },
+    {
+      "id": "pace-calibration",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "semantic-explanation",
+      "status": "pass",
+      "findings": [],
+      "note": "Model review against supplied source (accounts/fireworks/models/deepseek-v4p1-flash); not independent fact verification or rendered-diagram verification."
+    },
+    {
+      "id": "realized-layout",
+      "status": "pass",
+      "findings": []
+    },
+    {
+      "id": "ink-floor",
+      "status": "pass",
+      "findings": [],
+      "note": "8 frames sampled: mean ink 3.53% of pixels, sparsest 2.52%"
+    },
+    {
+      "id": "blank-run",
+      "status": "pass",
+      "findings": [],
+      "note": "150 frames every 1.1s: mean ink 2.97%, median 2.86%, 0 blank"
+    },
+    {
+      "id": "frame-vision",
+      "status": "pass",
+      "findings": [],
+      "note": "8 frames answered for"
+    },
+    {
+      "id": "ocr-diff",
+      "status": "pass",
+      "findings": []
+    }
+  ],
+  "script": [
+    {
+      "id": "hook",
+      "title": "Blue Dot Appears",
+      "narration": "You open a map on your phone, and a blue dot settles on the street where you are standing. Nobody typed your address, so the phone worked the dot out from signals arriving on its own."
+    },
+    {
+      "id": "anchor",
+      "title": "One Distance, Not Location",
+      "narration": "You already use this idea when a flash of lightning arrives before its thunder. Counting the seconds between them tells you how far away the strike was, because sound travels at a steady speed. That delay gives one distance, not a location."
+    },
+    {
+      "id": "step1",
+      "title": "Time-Stamped Signals to Ranges",
+      "narration": "Each GPS satellite broadcasts a radio signal stamped with the time it was sent, plus information about its orbit. Your phone notes when that signal arrives, so travel time multiplied by the speed of light gives a range estimate."
+    },
+    {
+      "id": "step2",
+      "title": "Pseudoranges Until Clock Accounted",
+      "narration": "That estimate is not yet exact, because the phone's own clock drifts a little. Until that clock error is accounted for, these distances are called pseudoranges."
+    },
+    {
+      "id": "step3",
+      "title": "Each Range Narrows Candidates",
+      "narration": "This picture is a two-dimensional schematic. One range places you on a circle around its satellite. A second range, holding at the same time, leaves two possibilities where the circles cross. The real three-dimensional problem uses spheres instead, and must also solve the clock error."
+    },
+    {
+      "id": "step4",
+      "title": "Four Unknowns Solved Together",
+      "narration": "Now count the unknowns: your three coordinates in space, plus the error in your phone's clock, which we call the clock offset. Four independent measurements from four satellites in suitable positions are solved together for all four at once, so your phone needs no atomic clock of its own. Real receivers often use more than four."
+    },
+    {
+      "id": "worked",
+      "title": "About 300 Metres Range Error",
+      "narration": "Take the speed of light as three hundred million metres per second. If a signal's time is off by one millionth of a second, multiply the two numbers, and the range error is about three hundred metres. That is a range error, not a guaranteed position error."
+    },
+    {
+      "id": "misconception",
+      "title": "Three Satellites Aren't Enough",
+      "narration": "It is tempting to think three satellites pin you down and a fourth just measures altitude. That is not how it works, because your phone's clock error is unknown too, so the measurements are solved together, not one satellite per job."
+    },
+    {
+      "id": "recap",
+      "title": "Timing to Joint Solution",
+      "narration": "So the blue dot comes from timing. A signal's travel time gives a range, several ranges narrow the possibilities, and four independent measurements from well-placed satellites are solved together for three coordinates and the clock offset. Real receivers often use more, and accuracy also depends on the atmosphere, reflected signals and satellite geometry."
+    }
+  ],
+  "validation": {
+    "passed": 1286,
+    "skipped": 3,
+    "failed": 0,
+    "scope": "Full workspace suite followed by affected planner/voice suites after final math and cue fixes; workspace typecheck and source audit passed."
+  },
+  "reviewIntervention": "Model-assisted targeted repair of 2D circle explanation/cues, titles, staged calculation and raster-overlay label. Small manual mark adjustments added recap formula padding, moved its leader to the box edge, shortened/repositioned 2D/3D legends, and clarified the range-error disclaimer. No GPS-specific renderer or timing rule was added. This is not a first-attempt acceptance.",
+  "remaining": [
+    "Four text cues start about 1.1\u20131.4 seconds late; maximum non-text cue lag about 1.86 seconds. Transition/pen coordination needs further work.",
+    "Some diagram density/mark-layout advisories remain; inspect the recording, not just QC.",
+    "Source review is model-assisted and checks script/instructions, not all generated label semantics. Post-draw semantic review and automatic final-frame repairs remain open.",
+    "More topics, formats and blinded understanding/listening tests are required for parity.",
+    "Voice and raster are still external providers; all-open-weight speech/raster parity remains unproven."
+  ],
+  "costCaveat": "Final render reuses cached audio/art; its incremental cost is not the total creation cost. Earlier drafting, rejected voices, and failed attempts are not all recoverably metered, so no all-in cost claim is made.",
+  "export": {
+    "durationSeconds": 166.833333,
+    "width": 1920,
+    "height": 1080,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "bytes": 7727663,
+    "sha256": "266931a9d72dc158cee95b965142475a9a428a0422cdf661bfda30a6f7a99db9",
+    "fullDecodeCheck": "passed; ffmpeg decoded the complete MP4 without errors"
+  }
+}

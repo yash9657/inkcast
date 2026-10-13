@@ -2,7 +2,13 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { DownloadIcon, ExternalLinkIcon, FilmIcon, RotateCcwIcon } from 'lucide-react';
+import {
+  ArrowLeftIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  FilmIcon,
+  RotateCcwIcon,
+} from 'lucide-react';
 
 import {
   Badge,
@@ -35,6 +41,7 @@ import { VideoPlayer, type VideoPlayerHandle } from './video-player';
 
 export type ResultViewProps = {
   project: Project;
+  canEdit?: boolean;
   storyboard?: Storyboard;
   /** The storyboard has changed since this video was encoded. */
   dirty: boolean;
@@ -51,8 +58,85 @@ const PLAYER_WIDTH: Record<string, string> = {
   '9:16': 'max-w-xs',
 };
 
+/**
+ * What this film's facts rest on — plan item 5.1, the honest half of audit S0-a.
+ *
+ * There is no retrieval lane: a bare topic is taught from what the model knows, and the
+ * finished mp4 looks exactly like one built from a document the user supplied. Nothing in
+ * the studio said which you were watching, and that silence is the finding. It reads as a
+ * note rather than a warning because teaching a bare topic is the intended, normal use —
+ * what is worth knowing is only that no source was ever there to check the claims
+ * against.
+ *
+ * Nothing is rendered when the field is absent: a film cast before the pipeline recorded
+ * this has no answer, and inventing one would defeat the purpose of the field.
+ */
+function GroundingNote({ grounding }: { grounding?: Project['grounding'] }) {
+  if (!grounding) return null;
+  const text =
+    grounding === 'document'
+      ? 'Taught from the source you supplied.'
+      : grounding === 'supplied'
+        ? 'Rendered from a ready-made lesson — this studio sourced nothing itself.'
+        : 'Created from model knowledge. Review factual claims before sharing.';
+  return (
+    <p
+      className={cn(
+        'mt-1 text-xs',
+        grounding === 'parametric' ? 'text-warning' : 'text-muted-foreground',
+      )}
+    >
+      {text}
+    </p>
+  );
+}
+
+/**
+ * A lane's name as a reader would say it. An unknown name falls through verbatim, so a
+ * lane a newer pipeline records still reads as a sentence rather than as nothing.
+ */
+const LANE_LABELS: Record<string, string> = {
+  chemistry: 'chemical structures',
+  circuits: 'circuit diagrams',
+  geography: 'accurate maps',
+};
+
+/**
+ * What this film asked to be drawn and could not be — plan item 6.1, audit S5-a.
+ *
+ * Three topic classes have no renderer here (chemical structures, circuit schematics,
+ * accurate maps). Highlighted code was the fourth until plan item 6.2 built that lane, and
+ * its label came out of the table with it — a studio that goes on apologising for a lane
+ * that exists is worse than one that never had it. The fallback for the remaining three is
+ * a picture that looks finished and is wrong: an image generator's idea of a molecule. The
+ * film still plays,
+ * and the person watching is the only one who can tell whether that picture matters — so
+ * they have to be told it is there.
+ *
+ * Phrased around what is missing from *inkcast* rather than what is wrong with the film,
+ * because that is where the defect is, and because it is the honest answer to "can I fix
+ * this?": not by re-rendering. Beside `GroundingNote` and in the same register, one shade
+ * louder — an unsourced claim is the normal case, and a picture that is confidently wrong
+ * is not.
+ */
+function LaneNote({ lanes }: { lanes?: string[] }) {
+  if (!lanes || lanes.length === 0) return null;
+  const named = lanes.map((l) => LANE_LABELS[l] ?? l);
+  const list =
+    named.length === 1
+      ? named[0]
+      : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  return (
+    <p className="mt-1 text-xs text-warning">
+      This lesson asks for {list}, which inkcast has no lane for yet — those pictures are
+      approximations, not correct drawings.
+    </p>
+  );
+}
+
 export function ResultView({
   project,
+  canEdit = true,
   storyboard,
   dirty,
   rerendering,
@@ -71,6 +155,13 @@ export function ResultView({
 
   return (
     <div className="flex flex-col gap-6">
+      <Link
+        href="/library"
+        className="focus-ring self-start rounded-sm text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeftIcon className="mr-1.5 inline size-4" aria-hidden />
+        Your library
+      </Link>
       <header className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -84,8 +175,9 @@ export function ResultView({
                   · {created}
                 </span>
               ) : null}
-              <span className="font-mono">· {project.id}</span>
             </p>
+            <GroundingNote grounding={project.grounding} />
+            <LaneNote lanes={project.unservedLanes} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -95,16 +187,18 @@ export function ResultView({
                 render={<a href={src} download={downloadName(project.title, project.id)} />}
               >
                 <DownloadIcon aria-hidden />
-                Download
+                Download video
               </Button>
             ) : null}
 
             <CopyLinkButton projectId={project.id} />
 
-            <Button variant="outline" size="sm" onClick={onRerender} disabled={rerendering}>
-              <RotateCcwIcon aria-hidden />
-              {rerendering ? 'Starting…' : 'Re-render'}
-            </Button>
+            {canEdit ? (
+              <Button variant="outline" size="sm" onClick={onRerender} disabled={rerendering}>
+                <RotateCcwIcon aria-hidden />
+                {rerendering ? 'Starting…' : 'Re-render'}
+              </Button>
+            ) : null}
 
             <Tooltip>
               <TooltipTrigger
@@ -160,21 +254,27 @@ export function ResultView({
                 <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <FilmIcon className="size-4" aria-hidden />
                 </span>
-                <p className="text-base font-medium text-foreground">No video on disk yet</p>
+                <p className="text-base font-medium text-foreground">Your video is not ready yet</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
                   {project.error
                     ? project.error
-                    : 'The storyboard is here, but nothing has been encoded from it. Rendering is a pure function of the storyboard, so this is one click.'}
+                    : 'This project has no finished video. You can try rendering again in the self-hosted studio, or create another video.'}
                 </p>
-                <Button size="sm" onClick={onRerender} disabled={rerendering}>
-                  <RotateCcwIcon aria-hidden />
-                  {rerendering ? 'Starting…' : 'Render it'}
-                </Button>
+                {canEdit ? (
+                  <Button size="sm" onClick={onRerender} disabled={rerendering}>
+                    <RotateCcwIcon aria-hidden />
+                    {rerendering ? 'Starting…' : 'Render it'}
+                  </Button>
+                ) : (
+                  <Button size="sm" render={<Link href="/studio" />}>
+                    Create another video
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
 
-          {storyboard ? (
+          {storyboard && canEdit ? (
             <EditBox
               projectId={project.id}
               storyboard={storyboard}

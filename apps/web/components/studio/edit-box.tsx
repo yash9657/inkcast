@@ -54,7 +54,7 @@ export function EditBox({ projectId, storyboard, onEdited, disabled = false }: E
         description: 'Re-render to put the change in the video.',
       });
     } catch (err) {
-      toast.error('That edit did not land', { description: errorMessage(err) });
+      toast.error('Could not apply that edit', { description: errorMessage(err) });
     } finally {
       setSubmitting(false);
     }
@@ -63,7 +63,7 @@ export function EditBox({ projectId, storyboard, onEdited, disabled = false }: E
   return (
     <Card className="gap-3 py-4">
       <CardContent className="flex flex-col gap-3 px-4">
-        <Label htmlFor="edit-instruction">Change something</Label>
+        <Label htmlFor="edit-instruction">Refine your video</Label>
 
         <Textarea
           id="edit-instruction"
@@ -102,8 +102,8 @@ export function EditBox({ projectId, storyboard, onEdited, disabled = false }: E
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <LabelHint className="max-w-sm">
-            Pacing, palette, shape, ink, language, scene order and removals are understood locally.
-            With ANTHROPIC_API_KEY set, anything the IR can express is fair game.
+            Adjust the pacing, style, language or scene order. Apply your changes, then re-render to
+            update the video.
           </LabelHint>
           <div className="flex items-center gap-2">
             <span className="hidden items-center gap-1 text-2xs text-muted-foreground sm:flex">
@@ -116,7 +116,7 @@ export function EditBox({ projectId, storyboard, onEdited, disabled = false }: E
               onClick={() => void submit()}
             >
               <WandSparklesIcon aria-hidden />
-              {submitting ? 'Applying…' : 'Apply'}
+              {submitting ? 'Applying…' : 'Apply changes'}
             </Button>
           </div>
         </div>

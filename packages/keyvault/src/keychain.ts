@@ -6,13 +6,23 @@
  * package never has a plaintext copy on disk to leak, back up, or commit.
  *
  * The exact invocations below were verified against `/usr/bin/security` on
- * macOS 24.6 (Darwin), and two details are load-bearing:
+ * macOS 24.6 (Darwin), and three details are load-bearing:
  *
  *   - **The secret is fed on stdin, never in argv.** `-w <password>` works, and
  *     the tool's own usage text calls it insecure: argv is visible to `ps` for
  *     the same user and can be captured by process accounting. Passing `-w`
- *     *last with no value* makes `security` prompt, and it reads the prompt from
- *     stdin when stdin is a pipe.
+ *     *last with no value* makes `security` prompt instead.
+ *   - **A prompt reads `/dev/tty`, not stdin — unless there is no tty to read.**
+ *     This is the part an earlier version of this file got wrong, and it shipped:
+ *     it claimed `security` "reads the prompt from stdin when stdin is a pipe".
+ *     It does, but only when the process has **no controlling terminal**. Give it
+ *     one and `readpassphrase(3)` opens `/dev/tty`, our pipe is ignored, and the
+ *     write blocks until `TIMEOUT_MS` — which is exactly what the studio did when
+ *     `next dev` was started from a terminal: `password data for new item:`
+ *     appeared in the server's own log and saving a key failed with a 500 after
+ *     15 seconds. So any invocation we feed is spawned `detached`, which calls
+ *     `setsid(2)` and leaves the child with no controlling terminal, making our
+ *     pipe the only thing that can answer. See `spawnOptions`.
  *   - **The password must be written twice.** The prompt is "password data for
  *     new item:" followed by "retype password for new item:". Supplying one line
  *     leaves the second read at EOF, both reads compare equal as empty, and
@@ -50,6 +60,30 @@ export function keychainAvailable(): boolean {
 type Run = { code: number; stdout: string; stderr: string };
 
 /**
+ * How one `security` invocation is spawned, and the one option that is a fix.
+ *
+ * `detached` runs `setsid(2)`, so the child leads a new session with **no
+ * controlling terminal**. That is not about backgrounding it — we still await it —
+ * it is the only way to guarantee that a `-w` prompt is answered by the pipe we
+ * wrote rather than by a terminal that happens to be attached to whatever started
+ * us. See the header for the failure it removes.
+ *
+ * Applied only where we supply input. An invocation that prompts for nothing has
+ * no race to lose, and leaving those attached means a locked-keychain prompt can
+ * still reach the person at the keyboard.
+ *
+ * Exported because a round-trip test cannot see this: a test runner has no
+ * controlling terminal either, so the broken version passed. The regression test
+ * pins the option, not the behaviour it produces.
+ */
+export function spawnOptions(feedsStdin: boolean): {
+  stdio: ['pipe', 'pipe', 'pipe'];
+  detached: boolean;
+} {
+  return { stdio: ['pipe', 'pipe', 'pipe'], detached: feedsStdin };
+}
+
+/**
  * Run `security` with `args`, optionally writing `stdin`.
  *
  * Never rejects on a non-zero exit — callers need to distinguish 44 from a real
@@ -57,7 +91,7 @@ type Run = { code: number; stdout: string; stderr: string };
  */
 function run(args: string[], stdin?: string): Promise<Run> {
   return new Promise((resolve, reject) => {
-    const child = spawn(SECURITY, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(SECURITY, args, spawnOptions(stdin !== undefined));
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -71,7 +105,13 @@ function run(args: string[], stdin?: string): Promise<Run> {
           'keychain-failed',
           `\`security ${args[0]}\` timed out after ${TIMEOUT_MS}ms`,
           {
-            hint: 'The login keychain may be locked and waiting on an unlock prompt. Unlock it and retry.',
+            // Two causes, and the second one used to be ours. The hint names both,
+            // because "unlock your keychain" is useless advice for a prompt that is
+            // waiting on a terminal nobody is typing into.
+            hint:
+              'The login keychain may be locked and waiting on an unlock prompt — unlock it and ' +
+              'retry. If the output above shows a `password data for new item:` prompt, the ' +
+              'child had a controlling terminal and never read our input (see `spawnOptions`).',
           },
         ),
       );

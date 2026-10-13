@@ -11,11 +11,19 @@
  * from the Storyboard IR have already been multiplied out against each scene's
  * measured `durationSec`.
  */
-import type { StageOptions } from '@inkcast/core';
+import type { GateMode, StageOptions } from '@inkcast/core';
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
-export type StyleName = 'marker' | 'pencil' | 'chalk' | 'ink';
+/**
+ * The id of a style pack (plan item 7.3) — a string, not a union of four.
+ *
+ * A plan reaching this file has been through `parseStoryboard`, which rejects an id no
+ * pack in `styles/` claims, so the narrowing this union used to provide has moved to the
+ * seam where a wrong name can still be reported usefully. Widening it here is what lets a
+ * fifth style be a fifth JSON file and no TypeScript at all.
+ */
+export type StyleName = string;
 export type EnterStyle = 'draw' | 'write' | 'fade' | 'pop' | 'grow';
 
 /** A stroked/filled path in canvas coordinates. Revealed with stroke-dashoffset. */
@@ -79,6 +87,34 @@ export type MotionTrack = {
   samples: [number, number, number][];
 };
 
+/**
+ * A baked `Morph`: the shape this item has, per output frame, while it is still
+ * becoming itself.
+ *
+ * The interpolated geometry is roughened **here in Node**, with one seed held for
+ * the whole morph, for the same reason every other stroke is: the wobble has to be
+ * stable frame to frame or the shape boils. Re-roughening per frame in the page
+ * would also mean a second implementation of `sketchAlong` to drift out of sync.
+ *
+ * Baking a `d` string per frame is a few tens of kilobytes for a one-second morph
+ * and keeps the page a lookup, which is the same trade `MotionTrack` makes.
+ */
+export type MorphTrack = {
+  /** Absolute seconds. */
+  start: number;
+  end: number;
+  /** One path `d` per frame, from the source's shape to this item's own. */
+  frames: string[];
+  /** Stroke colour and width for the in-flight shape. */
+  stroke: string;
+  strokeWidth: number;
+  /**
+   * Items whose ink this one replaces, faded out across the morph. Matched exactly
+   * or by the `id~phase` prefix a multi-phase element produces.
+   */
+  retire?: string[];
+};
+
 export type PlanItem = {
   id: string;
   /** Index of the owning scene. */
@@ -91,10 +127,33 @@ export type PlanItem = {
   style: EnterStyle;
   persist: boolean;
   /**
-   * Absolute end of the owning scene, *including* `Scene.hold` — a non-persistent
-   * item stays up through the deliberate silence and only then fades.
+   * Absolute end of the owning scene, *including* `Scene.hold`.
+   *
+   * The fade anchor on an accumulating board, and it was chosen: a non-persistent
+   * item stays up through the deliberate silence and only then goes. `fadeAt` below
+   * overrides it, and says why that is the wrong anchor when the whole board wipes.
    */
   sceneEnd: number;
+  /**
+   * Absolute second at which this item's fade **completes**, when it is not
+   * `sceneEnd`. Set only on a wiping board (`meta.board: 'wipe'`).
+   *
+   * The card is finished and static for the whole narration *and* for the hold that
+   * follows it, and the fade lands on the beat's end — so the paper is blank for the
+   * 0.2–0.55s of the fade and no longer. It used to begin the instant the narration
+   * stopped, which made the rest of `Scene.hold` an empty board; that is coherent only
+   * if the hold is punctuation, and the voice stage buys it as *reading time for the
+   * finished card*. Half of `projects/c5caa09eb153` was the resulting blank paper.
+   *
+   * So on an item anchored to its own scene this is now exactly `sceneEnd`, and it is
+   * still written: it is what tells `sampleTimes` (`tier2.ts`) that a wiping beat's
+   * fullest moment is before the fade, and what tells `textAt` when a card's words stop
+   * being on the board. Undefined when the mode is `accumulate`, and also when the
+   * anchor scene's hold is shorter than the fade would be: there is nowhere to put the
+   * fade that is not over spoken words, so today's schedule stands. Anchored to the
+   * scene named by `persistUntil` where a card outlives its own beat.
+   */
+  fadeAt?: number;
   /** Transform origin for `pop` / `grow`. */
   center: [number, number];
   prims: PlanPrim[];
@@ -103,6 +162,12 @@ export type PlanItem = {
   dimOthers?: string;
   /** Movement along a path, baked to even speed. */
   motion?: MotionTrack;
+  /**
+   * Reshaped out of another element instead of drawn from nothing. While this is
+   * running the item shows the baked in-flight shape and its own prims are held
+   * back — the morph *is* the entry, so there is no dash-reveal on top of it.
+   */
+  morph?: MorphTrack;
   /**
    * Progress along `motion` at which each prim becomes visible — a dotted trail
    * appearing bead by bead as the element passes it. The item itself does not move.
@@ -174,6 +239,12 @@ export type RenderPlan = {
   safe: { top: number; right: number; bottom: number; left: number };
   /** Fraction of the frame carrying content, per scene. A slideshow shows here. */
   fill: number[];
+  /**
+   * Gate messages compiled through under `degrade` (board assertions, the fill
+   * floor). Absent on a clean board. Part of the plan so an override is inspectable
+   * from the artifact itself, and so the render cache key moves when the defects do.
+   */
+  problems?: string[];
   scenes: PlanScene[];
   items: PlanItem[];
   pen: PenArt;
@@ -200,6 +271,13 @@ export type RenderOptions = StageOptions & {
   grid?: boolean;
   /** Output file name inside `dir`. Default `out.mp4`. */
   outName?: string;
+  /**
+   * `strict` promotes this stage's quality warnings to errors: a missing
+   * handwriting font and an equation falling back to TeX-as-handwriting stop
+   * the render. Absent means `degrade` — today's behaviour; the pipeline
+   * threads `strict` by default. See `@inkcast/core`'s `GateMode`.
+   */
+  gates?: GateMode;
 };
 
 export type RenderResult = {
@@ -209,4 +287,11 @@ export type RenderResult = {
   frames: number;
   /** True when a cached render was reused. */
   cached: boolean;
+  /**
+   * Gate messages this render carried through under `degrade` — the defects the
+   * compiler detected and was told to render anyway. Empty or absent on a clean
+   * board. The pipeline records these in `pipeline.json`, which is what makes
+   * `--degrade` an override rather than an eraser.
+   */
+  problems?: string[];
 };

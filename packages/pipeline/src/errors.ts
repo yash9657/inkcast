@@ -1,3 +1,4 @@
+import { redactProviderSecrets } from '@inkcast/core';
 /** Errors that name the stage that failed and keep the original cause attached. */
 
 import type { StageName } from './progress.js';
@@ -11,7 +12,7 @@ export class StageError extends Error {
     message: string,
     opts: { cause?: unknown; projectId?: string } = {},
   ) {
-    super(`[${stage}] ${message}`, { cause: opts.cause });
+    super(`[${stage}] ${redactProviderSecrets(message)}`, { cause: opts.cause });
     this.name = 'StageError';
     this.stage = stage;
     this.projectId = opts.projectId;
@@ -27,9 +28,9 @@ export function rootCauseMessage(err: unknown): string {
     seen.add(cur);
     cur = (cur as { cause?: unknown }).cause;
   }
-  if (cur instanceof Error) return cur.message;
-  if (typeof cur === 'string') return cur;
-  return err instanceof Error ? err.message : String(err);
+  if (cur instanceof Error) return redactProviderSecrets(cur.message);
+  if (typeof cur === 'string') return redactProviderSecrets(cur);
+  return redactProviderSecrets(err instanceof Error ? err.message : String(err));
 }
 
 /** Run `fn`, wrapping any throw in a StageError that names `stage`. */

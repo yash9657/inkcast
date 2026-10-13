@@ -6,23 +6,6 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A dropdown menu.
- *
- *   <DropdownMenu>
- *     <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
- *       <MoreHorizontalIcon />
- *     </DropdownMenuTrigger>
- *     <DropdownMenuContent align="end">
- *       <DropdownMenuItem onClick={rename}>Rename</DropdownMenuItem>
- *       <DropdownMenuSeparator />
- *       <DropdownMenuItem variant="destructive" onClick={remove}>Delete</DropdownMenuItem>
- *     </DropdownMenuContent>
- *   </DropdownMenu>
- *
- * Keyboard behaviour (arrows, typeahead, Home/End, Escape, submenu open on
- * ArrowRight) is Base UI's. Items use `onClick`, not `onSelect`.
- */
 export const DropdownMenu = MenuPrimitive.Root;
 export const DropdownMenuTrigger = MenuPrimitive.Trigger;
 export const DropdownMenuGroup = MenuPrimitive.Group;
@@ -31,7 +14,7 @@ export const DropdownMenuSub = MenuPrimitive.SubmenuRoot;
 
 const popupClasses = [
   'max-h-[var(--available-height)] min-w-40 overflow-y-auto overscroll-contain',
-  'rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
+  'rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
   'origin-[var(--transform-origin)]',
   'transition-[opacity,transform,translate] duration-brisk ease-out',
   'data-starting-style:scale-[0.97] data-starting-style:opacity-0',
@@ -70,10 +53,25 @@ export function DropdownMenuContent({
   );
 }
 
+// The highlighted row is stated twice, in colour and in shape, and the shape is
+// the part that is load-bearing. `--accent` is a 4.5% tint of paper (the C1 swap
+// deliberately kept it as a quiet interaction surface rather than making it the
+// hot violet — docs/DESIGN.md §11 "Not changed, deliberately"), which is a
+// perfectly good hover wash and a poor sole indicator of where the keyboard is:
+// it is nearly invisible on a bright screen at an angle and worth nothing at all
+// to a user with low colour discrimination. docs/DESIGN.md §8 states the rule
+// outright — never convey state by colour alone.
+//
+// A 2px accent edge on the leading side is the answer this system already has a
+// vocabulary for, and it is present-but-transparent in every state so that
+// arrowing down a menu does not shunt every label 2px sideways as the highlight
+// passes. The destructive variant recolours the same edge instead of adding a
+// second one, so a dangerous row is never the only row with two signals.
 const itemClasses = [
-  'relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5',
+  'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5',
   'text-sm text-foreground outline-none select-none',
-  'data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+  'border-l-2 border-transparent',
+  'data-highlighted:border-primary data-highlighted:bg-accent data-highlighted:text-accent-foreground',
   'data-disabled:pointer-events-none data-disabled:opacity-50',
   "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   '[&_svg]:text-muted-foreground data-highlighted:[&_svg]:text-current',
@@ -81,13 +79,13 @@ const itemClasses = [
 
 const destructiveItemClasses = [
   'text-destructive [&_svg]:text-destructive',
-  'data-highlighted:bg-destructive/10 data-highlighted:text-destructive',
+  'data-highlighted:border-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive',
   'data-highlighted:[&_svg]:text-destructive',
 ];
 
 export type DropdownMenuItemProps = WithClass<MenuPrimitive.Item.Props> & {
   variant?: 'default' | 'destructive';
-  /** Right-aligned trailing slot, for a shortcut or a chevron. */
+
   inset?: boolean;
 };
 
@@ -157,7 +155,16 @@ export function DropdownMenuSubTrigger({
   return (
     <MenuPrimitive.SubmenuTrigger
       data-slot="dropdown-menu-sub-trigger"
-      className={cn(itemClasses, 'data-[popup-open]:bg-accent', className)}
+      // The open sub-trigger recolours the same left edge the highlighted state
+      // uses, rather than relying on the tint alone. A submenu stays open while
+      // the pointer travels into it, so this is the one row in the menu that can
+      // be "the active one" without the keyboard being on it — which makes it the
+      // row where a 4.5% tint as sole signal is least defensible, not most.
+      className={cn(
+        itemClasses,
+        'data-[popup-open]:border-primary data-[popup-open]:bg-accent',
+        className,
+      )}
       {...props}
     >
       {children}
@@ -193,7 +200,8 @@ export function DropdownMenuLabel({
   return (
     <MenuPrimitive.GroupLabel
       data-slot="dropdown-menu-label"
-      className={cn('px-2 py-1.5 text-2xs uppercase text-muted-foreground', className)}
+      // Mono, like every other uppercase micro-label. See `command.tsx`.
+      className={cn('px-2 py-1.5 font-mono text-2xs uppercase text-muted-foreground', className)}
       {...props}
     />
   );
@@ -204,18 +212,20 @@ export function DropdownMenuSeparator({ className, ...props }: React.ComponentPr
     <div
       data-slot="dropdown-menu-separator"
       role="presentation"
-      className={cn('-mx-1 my-1 h-px bg-border', className)}
+      // Subtle, not ink: a full-ink rule inside a 1px-bordered popup reads as a
+      // second frame. docs/DESIGN.md §2 keeps `--border-subtle` for exactly the
+      // separators that live inside a bordered surface.
+      className={cn('-mx-1 my-1 h-px bg-border-subtle', className)}
       {...props}
     />
   );
 }
 
-/** A keyboard shortcut, right-aligned inside an item. */
 export function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       data-slot="dropdown-menu-shortcut"
-      className={cn('tabular ml-auto pl-4 text-2xs text-muted-foreground', className)}
+      className={cn('tabular ml-auto pl-4 font-mono text-2xs text-muted-foreground', className)}
       {...props}
     />
   );

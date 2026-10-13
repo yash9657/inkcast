@@ -2,20 +2,6 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-/**
- * A loading placeholder.
- *
- * A sweeping shimmer rather than a pulsing opacity: a pulse blinks the whole
- * page in unison and reads as broken, while a sweep reads as arriving. It
- * stops moving entirely under `prefers-reduced-motion` (handled globally in
- * `app/globals.css`) and degrades to a flat muted block.
- *
- * Size it to the content it stands in for — a skeleton that is the wrong shape
- * causes a visible reflow, which is worse than no skeleton at all.
- *
- *   <Skeleton className="h-4 w-32" />
- *   <Skeleton className="aspect-video w-full rounded-xl" />
- */
 export function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
@@ -32,10 +18,6 @@ export function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
   );
 }
 
-/**
- * A block of skeleton lines, with a short last line so it reads as prose.
- * `lines` defaults to 3.
- */
 export function SkeletonText({
   lines = 3,
   className,

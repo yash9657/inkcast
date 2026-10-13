@@ -14,11 +14,13 @@ import type { Beat } from './beats.js';
 import { buildBeats } from './beats.js';
 import {
   makeAsset,
+  makeCode,
   makeDiagram,
   makeEmphasis,
   makeShape,
   makeText,
   measureText,
+  setPlannerHand,
 } from './elements.js';
 import { matchIcons } from './icons.js';
 import type { Hints, PlacementHint } from './layout.js';
@@ -72,6 +74,8 @@ function seedOf(s: string): number {
 /* ------------------------------------------------------------------- plan */
 
 export function heuristicPlan(doc: SourceDoc, opts: PlanOptions = {}): Storyboard {
+  // Every measurement below reserves with the face this board will letter with.
+  setPlannerHand(opts.style ?? 'marker');
   const wps = opts.wordsPerSecond ?? 2.6;
   const maxWords = Math.round(clamp(wps * 10.5, 18, 34));
   const minWords = Math.round(clamp(wps * 4.5, 9, 16));
@@ -121,6 +125,7 @@ export function heuristicPlan(doc: SourceDoc, opts: PlanOptions = {}): Storyboar
       camera: { x: 0, y: 0, zoom: 1, transition: 0 },
       elements: [title],
       hold: 0,
+      emphasis: [],
     });
   }
 
@@ -351,16 +356,17 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
     }
 
     case 'code': {
-      const lines = beat.code?.lines ?? [];
-      if (!lines.length) return undefined;
+      // The code lane, not the diagram lane (plan item 6.2). This used to build a `stack`
+      // of one node per line, which put each line of source in a rounded box lettered by
+      // hand at proportional widths — indentation gone, comments stripped upstream, every
+      // line cut to twelve words. `beats.ts` now keeps the listing verbatim and this sets
+      // it: monospace, highlighted, revealed in document order.
+      const listing = beat.code;
+      if (!listing?.text.trim()) return undefined;
       const codeHead = pickLead(ctx, beat.heading || 'In code', headingShown);
       if (codeHead) add(makeText(eid('head'), codeHead, 'heading'), { span: 'full' }, 'anchor');
       add(
-        makeDiagram(
-          eid('code'),
-          'stack',
-          lines.map((l, k) => ({ id: `c${k}`, label: l })),
-        ),
+        makeCode(eid('code'), listing.text, listing.lang || 'text'),
         { span: 'full', breakBefore: true },
         'figure',
       );
@@ -419,6 +425,7 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
           camera: { x: 0, y: 0, zoom: 1, transition: 0.45 },
           elements,
           hold: 0,
+          emphasis: [],
         },
         hints,
         slots: { ...ctx.prevSlots, ...slots },
@@ -448,8 +455,11 @@ function buildScene(beat: Beat, index: number, doc: SourceDoc, ctx: BuildCtx): B
       elements,
       // Deliberate silence is a teaching decision, so it belongs to the lesson
       // compiler (see `compile.ts`). The document planner is the no-key CI
-      // fixture for the renderer and holds nothing.
+      // fixture for the renderer and holds nothing. `cadence` is absent for the
+      // same reason: a document beat has no delivery to speak of, so the voice
+      // stage uses its global rate, exactly as it did before cadence existed.
       hold: 0,
+      emphasis: [],
     },
     hints,
     slots,

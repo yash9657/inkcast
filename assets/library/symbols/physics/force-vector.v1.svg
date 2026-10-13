@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" width="200" height="100">
+  <!--
+    Crisp, and the filled head is the reason: a wobbled arrowhead is a wobbled
+    direction, and this is a symbol a learner reads a direction off. Drawn the way
+    it is read — point of application, then magnitude, then where it points.
+  -->
+  <circle cx="16" cy="50" r="6" fill="currentColor"/>
+  <path d="M16 50 L150 50"/>
+  <path d="M188 50 L148 33 L148 67 Z" fill="currentColor"/>
+</svg>

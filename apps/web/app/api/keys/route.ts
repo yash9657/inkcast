@@ -1,3 +1,5 @@
+import { accountKeys } from '../_lib/deployment';
+import { guardRequest, readCredentialBody } from '../_lib/request-guard';
 /**
  * `/api/keys` — list, set and delete the provider credentials.
  *
@@ -7,8 +9,8 @@
  *  1. **A raw key only ever travels inbound.** It arrives in a POST body, goes
  *     straight into the vault, and the handler returns a masked status derived
  *     from `keyStatuses()`. There is no code path from any method here to a
- *     plaintext key in a response — `GET` never even unseals one, because the
- *     mask is stored in plaintext beside the ciphertext.
+ *     plaintext key in a response. GET opens stored records to verify readability,
+ *     but returns only their masked status.
  *  2. **Nothing is logged.** These handlers deliberately do not use
  *     `unexpected()` from `_lib/http`: it calls `console.error(err)` with the
  *     whole error, and an error thrown while a key is in scope can carry that key
@@ -23,14 +25,47 @@
  * The key never reaches the client bundle either: the settings page is a server
  * component that renders a client panel with no props, and the panel fetches
  * these endpoints at runtime. Nothing about a key is ever serialised into HTML.
+ *
+ *  5. **Two stores, chosen by deployment, and never both.** `INKCAST_HOSTED=1`
+ *     switches every handler to the per-account store in `_lib/secrets.ts`;
+ *     locally they use `@inkcast/keyvault` through `_store.ts` exactly as before.
+ *     The two must not be reachable from one another, because on a hosted box the
+ *     keychain/vault holds the *operator's* credentials — the ones paying for
+ *     every visitor's film — and a fall-through would let a stranger list,
+ *     overwrite or delete them. That is not hypothetical: these endpoints were
+ *     once live and unguarded on the hosted box while `/settings` had already
+ *     stopped rendering the panel, which is precisely why it was easy to miss —
+ *     the door was closed in the UI and left open in the API, and an unlinked
+ *     endpoint is not a private one. So the local store is now loaded with a
+ *     **lazy import inside the local branch**: on a hosted box `_store.ts` is
+ *     never imported at all, and "a hosted request cannot reach the operator's
+ *     keychain" is a property of the module graph rather than of an `if`.
+ *
+ *  6. **Hosted requests are per-account, and identity decides before anything
+ *     else does.** `accountOwner()` resolves the caller through the one identity
+ *     module, refuses a signed-out caller when Clerk is configured, and yields
+ *     only a keyed digest of that identity. Every read and write below is
+ *     addressed by that digest, and the digest is bound into the AEAD that seals
+ *     the record — so one account's key does not decrypt for another even if a
+ *     bug or a hand-edited file puts the bytes in the wrong place. The guard runs
+ *     above `readJson`, so an unauthenticated hosted request never has a key
+ *     parsed out of its body.
  */
 
 import { z } from 'zod';
 
-import { badRequest, fail, json } from '../_lib/http';
+import { badRequest, fail, isHosted, json } from '../_lib/http';
+import { blobStorage } from '@/lib/store';
 import { PROVIDER_IDS, judgeKeyShape, providerInfo } from '@/components/settings/catalog';
-import { scrub } from './_vault/crypto.js';
-import { deleteKey, keyStatuses, saveKey, vaultInfo } from './_vault/index.js';
+import {
+  accountKeyStatuses,
+  accountOwner,
+  accountVaultInfo,
+  deleteAccountKey,
+  saveAccountKey,
+  withAccountCookie,
+} from './_account.js';
+import { scrub } from './_wire.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,13 +92,34 @@ const SetBody = z
 
 const DeleteQuery = z.object({ provider: ProviderParam }).strict();
 
+/**
+ * The local store, loaded only on a local box. See invariant 5.
+ *
+ * The same lazy-workspace-import shape `lib/store.ts` uses for the pipeline: the
+ * cost is one `await` on a path that is already async, and the benefit is that the
+ * module able to read the operator's keychain is absent from the module graph of
+ * every hosted request.
+ */
+function localStore() {
+  return import('./_store.js');
+}
+
 /* --------------------------------------------------------------------- GET */
 
-/** The four providers, their status, and where the vault lives. Masks only. */
-export async function GET() {
+/** The four providers, their status, and what protects them. Masks only. */
+export async function GET(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
-    const [keys, vault] = await Promise.all([keyStatuses(), vaultInfo()]);
-    return json({ keys, vault });
+    if (accountKeys()) {
+      const who = await accountOwner(request);
+      if (!who.ok) return who.response;
+      const keys = await accountKeyStatuses(who.owner);
+      return withAccountCookie(json({ keys, vault: accountVaultInfo() }), who.owner);
+    }
+    const { keyStatuses, vaultInfo } = await localStore();
+    const keys = await keyStatuses();
+    return json({ keys, vault: vaultInfo() });
   } catch (err) {
     return oops('list', err);
   }
@@ -72,8 +128,16 @@ export async function GET() {
 /* -------------------------------------------------------------------- POST */
 
 export async function POST(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   let key = '';
   try {
+    if (blobStorage() && !accountKeys()) return keysAreServerSide();
+    // Identity first, and above `readJson`: a request that may not store a key
+    // must not have one parsed out of its body, let alone sealed and written.
+    const who = accountKeys() ? await accountOwner(request) : undefined;
+    if (who !== undefined && !who.ok) return who.response;
+
     const body = await readJson(request);
     if (!body.ok) return body.response;
 
@@ -85,7 +149,22 @@ export async function POST(request: Request) {
       // A refusal quotes the *problem*, never the input.
       return badRequest(shape.problem);
     }
+    const info = providerInfo(provider);
 
+    if (who !== undefined && who.ok) {
+      const status = await saveAccountKey(who.owner, provider, key);
+      return withAccountCookie(
+        json({
+          ok: true,
+          key: status,
+          ...(shape.warning === undefined ? {} : { warning: shape.warning }),
+          note: `${info.label} is set for your account. It is stored encrypted, it is never shown again, and it is available only to requests authenticated as your account. Select it in the studio to use it.`,
+        }),
+        who.owner,
+      );
+    }
+
+    const { saveKey } = await localStore();
     const status = await saveKey(provider, key);
     return json({
       ok: true,
@@ -93,7 +172,7 @@ export async function POST(request: Request) {
       /** Saved, but the shape is unusual — validate it to be sure. */
       ...(shape.warning === undefined ? {} : { warning: shape.warning }),
       /** What changes now that this is set. */
-      note: `${providerInfo(provider).label} is set for this machine. It ${providerInfo(provider).role.toLowerCase()} from the next render on.`,
+      note: `${info.label} is set for this machine. It ${info.role.toLowerCase()} from the next render on.`,
     });
   } catch (err) {
     return oops('save', err, key);
@@ -114,7 +193,13 @@ export async function POST(request: Request) {
  * mode for a destructive verb.
  */
 export async function DELETE(request: Request) {
+  const refused = guardRequest(request, true);
+  if (refused) return refused;
   try {
+    if (blobStorage() && !accountKeys()) return keysAreServerSide();
+    const who = accountKeys() ? await accountOwner(request) : undefined;
+    if (who !== undefined && !who.ok) return who.response;
+
     const url = new URL(request.url);
     const parsed = DeleteQuery.safeParse({
       provider: url.searchParams.get('provider') ?? undefined,
@@ -122,9 +207,34 @@ export async function DELETE(request: Request) {
     if (!parsed.success) {
       return badRequest(`delete needs ?provider=<${PROVIDER_IDS.join('|')}>`);
     }
-
-    const outcome = await deleteKey(parsed.data.provider);
     const info = providerInfo(parsed.data.provider);
+
+    if (who !== undefined && who.ok) {
+      const outcome = await deleteAccountKey(who.owner, parsed.data.provider);
+      return withAccountCookie(
+        json({
+          ok: true,
+          removed: outcome.removed,
+          /**
+           * Always false on this path, and that is the honest answer rather than a
+           * shortcut. `stillFromEnv` exists to tell someone that a variable *they*
+           * set is overriding the entry they just deleted. On the hosted box the
+           * only environment is the operator's, which the user did not set and
+           * cannot unset, so reporting it would be telling them to edit a `.env`
+           * they will never see.
+           */
+          stillFromEnv: false,
+          key: outcome.status,
+          note: outcome.removed
+            ? `${info.label} is no longer stored for your account. ${info.without}`
+            : `There was nothing saved for ${info.label}.`,
+        }),
+        who.owner,
+      );
+    }
+
+    const { deleteKey } = await localStore();
+    const outcome = await deleteKey(parsed.data.provider);
     return json({
       ok: true,
       removed: outcome.removed,
@@ -143,9 +253,7 @@ export async function DELETE(request: Request) {
 
 /* ------------------------------------------------------------------ helpers */
 
-type Read =
-  | { ok: true; data: z.infer<typeof SetBody> }
-  | { ok: false; response: ReturnType<typeof badRequest> };
+type Read = { ok: true; data: z.infer<typeof SetBody> } | { ok: false; response: Response };
 
 /**
  * Read the body ourselves instead of using `parseJsonBody`.
@@ -155,31 +263,18 @@ type Read =
  * lets a zod message quote input. Here the only safe response is a fixed sentence.
  */
 async function readJson(request: Request): Promise<Read> {
-  let text: string;
-  try {
-    text = await request.text();
-  } catch {
-    return { ok: false, response: badRequest('could not read the request body') };
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return { ok: false, response: badRequest('the request body is not valid JSON') };
-  }
+  const read = await readCredentialBody(request);
+  if (!read.ok) return read;
+  const raw = read.data;
   const parsed = SetBody.safeParse(raw);
   if (!parsed.success) {
     // **Field names only.** A zod message quotes the offending value
     // (`received 'sk-ant-…'`), so `issue.message` must never be forwarded from
     // this route. `issue.path` is a key name we defined, so it is safe.
-    const fields = [
-      ...new Set(parsed.error.issues.map((issue) => issue.path.join('.') || 'body')),
-    ].slice(0, 4);
     return {
       ok: false,
       response: badRequest(
         `the request body must be { provider, key } with provider one of ${PROVIDER_IDS.join(', ')}`,
-        fields.map((field) => `${field} is missing or not acceptable`),
       ),
     };
   }
@@ -197,4 +292,20 @@ function oops(what: string, err: unknown, secret?: string) {
   );
   console.error(`[api:keys] ${what} failed: ${message}`);
   return fail(500, `Could not ${what} the key: ${message}`);
+}
+
+/**
+ * A Blob-storage (stateless) deployment without accounts has nowhere durable for
+ * the operator's vault: `@inkcast/keyvault` writes the keychain or
+ * `~/.inkcast/vault.json`, and a Function's filesystem does not outlive the
+ * instance, so a saved key would be accepted and then silently lost. Account keys
+ * (`INKCAST_HOSTED=1` or Clerk) are different — `_lib/secrets.ts` keeps their
+ * sealed records in Blob — so only this combination is refused. The operator's
+ * keys then come from the project environment.
+ */
+function keysAreServerSide() {
+  return fail(
+    501,
+    'This deployment does not store API keys without accounts. Set provider keys in the server environment instead.',
+  );
 }

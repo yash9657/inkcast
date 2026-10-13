@@ -16,11 +16,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { stateDir as inkcastStateDir } from '@inkcast/core';
 import { KeyvaultError } from './errors.js';
 
-/** The Inkcast state directory. Never inside the project. */
+/**
+ * The Inkcast state directory. Never inside the project.
+ *
+ * Re-exported from `@inkcast/core` rather than computed again: the shared asset
+ * cache lives under the same root, and a second reading of `INKCAST_HOME` here is
+ * how the vault and the cache would end up in different places.
+ */
 export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env.INKCAST_HOME ? path.resolve(env.INKCAST_HOME) : path.join(homedir(), '.inkcast');
+  return inkcastStateDir(env);
 }
 
 /** Absolute path of the encrypted vault. */

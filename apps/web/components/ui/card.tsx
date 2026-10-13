@@ -2,29 +2,13 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-/**
- * A card. In light mode it is pure white on warm off-white plus a hairline
- * border — no shadow at rest, because the lightness step already reads as
- * raised. In dark mode the border does the same job in reverse.
- *
- * Anatomy:
- *   <Card>
- *     <CardHeader>
- *       <CardTitle/> <CardDescription/> <CardAction/>
- *     </CardHeader>
- *     <CardContent/>
- *     <CardFooter/>
- *   </Card>
- *
- * `CardHeader` is a grid, so `CardAction` (a button, a menu trigger, a badge)
- * lands top-right and spans both rows without absolute positioning.
- */
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="card"
       className={cn(
         'flex flex-col gap-6 rounded-xl border border-border bg-card py-6 text-card-foreground',
+        'shadow-none',
         className,
       )}
       {...props}
@@ -32,14 +16,14 @@ export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   );
 }
 
-/** Adds a shadow and a hover lift. For cards that are themselves a link. */
 export function CardInteractive({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <Card
       className={cn(
-        'shadow-xs transition-[box-shadow,border-color,transform] duration-brisk ease-out',
-        'hover:-translate-y-0.5 hover:border-input hover:shadow-md',
-        'focus-within:border-input',
+        'transition-[box-shadow,border-color,translate] duration-brisk ease-out',
+        'hover:border-accent-border',
+        '',
+        'focus-within:border-accent-strong',
         className,
       )}
       {...props}

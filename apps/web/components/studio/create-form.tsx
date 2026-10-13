@@ -10,7 +10,7 @@ import {
   LinkIcon,
   PencilLineIcon,
   SettingsIcon,
-  SparklesIcon,
+  LightbulbIcon,
   UploadIcon,
 } from 'lucide-react';
 
@@ -39,173 +39,164 @@ import {
   toast,
 } from '@/components/ui';
 import {
-  acceptsTargetLength,
   errorMessage,
   generate,
   getCapabilities,
   keyStateFor,
   type Aspect,
   type Capabilities,
-  type Depth,
+  type FilmFormat,
   type GenerateInput,
   type InkStyle,
   type Palette,
 } from '@/lib/api';
+import {
+  STUDIO_TOPIC_MAX,
+  STUDIO_TOPIC_PARAM,
+  takeStashedTopic,
+} from '@/components/marketing/site-config';
 import { cn } from '@/lib/utils';
 
 import { FileDrop } from './file-drop';
+import { ProviderChoices } from './provider-choices';
+import { defaultSelection, selectedVoice, type ProviderSelection } from '@/lib/provider-selection';
 import { clock, estimateSpokenSeconds, wordCount } from './format';
 import {
   DEFAULT_VOICE,
   MAX_SOURCE_CHARS,
   MIN_SOURCE_CHARS,
   EXAMPLES,
-  INK_STYLES,
   LANGUAGES,
   LOCAL_LANGUAGES,
   PALETTES,
   VOICE_GROUPS,
   findExample,
   isTextualFile,
+  styleOptions,
   voiceLabel,
 } from './options';
 import { AspectGlyph, TileGroup } from './tile-group';
 
-/**
- * The create surface: one input, three ways to fill it, and options that stay
- * folded away until they are asked for.
- *
- * The three modes are tabs rather than three stacked fields because only one of
- * them can be the source — a screen with a paste box *and* a URL box *and* a
- * dropzone all live makes the user work out which one wins.
- */
-
 type Mode = 'text' | 'file' | 'url';
 
-/**
- * Frame shapes, vertical first.
- *
- * Not a re-ordering for taste: short-form vertical is the distribution channel
- * for teaching, and the 45-second constraint improves the video by forcing one
- * idea, one visual, one payoff. A picker that lists it third, in a collapsed
- * "Options" panel, states the opposite. So this lives above the fold with the
- * other two beside it, and the shape choice sets the default depth.
- *
- * Declared here rather than in `options.ts` because the two tables below are
- * about *teaching*, not about what the pipeline's enums happen to be; the values
- * themselves are still exactly `StoryboardMeta['aspect']`.
- */
 const FORMATS: { value: Aspect; label: string; hint: string; glyph: string }[] = [
   {
     value: '9:16',
-    label: 'Short · vertical',
-    hint: 'Shorts, Reels, TikTok. A tall canvas the camera walks down.',
+    label: 'Vertical',
+    hint: '9:16 · Shorts, Reels, TikTok',
     glyph: 'h-9 w-5',
   },
   {
     value: '16:9',
-    label: 'Wide · landscape',
-    hint: 'YouTube, slides, a doc. Room for a whole lesson to accumulate.',
+    label: 'Landscape',
+    hint: '16:9 · YouTube, lessons, slides',
     glyph: 'h-7 w-12',
   },
-  { value: '1:1', label: 'Square', hint: 'Feeds and embeds.', glyph: 'h-8 w-8' },
+  { value: '1:1', label: 'Square', hint: '1:1 · Feeds and embeds.', glyph: 'h-8 w-8' },
 ];
 
-/**
- * How thoroughly to teach.
- *
- * Phrased as pedagogy rather than as a duration slider, because the length is a
- * consequence of the choice and not the choice itself. `seconds` is the target
- * the lesson stage plans against — see `critiqueLesson(l, { maxSeconds })` in
- * `@inkcast/core`, which rejects a plan that overruns it by more than a quarter.
- */
-const DEPTHS: { value: Depth; label: string; hint: string; seconds: number }[] = [
+const FILM_FORMATS: { value: FilmFormat; label: string; hint: string; seconds: number }[] = [
   {
-    value: 'short',
-    label: 'One idea',
-    hint: '≈45s. A hook, a single idea, one payoff. Nothing else fits.',
-    seconds: 45,
+    value: 'explainer',
+    label: 'Explainer',
+    hint: 'About 75 seconds. One idea, clearly explained.',
+    seconds: 75,
   },
   {
-    value: 'standard',
-    label: 'A lesson',
-    hint: '≈90s. Hook, everyday anchor, a few steps, a worked example, recap.',
-    seconds: 90,
-  },
-  {
-    value: 'deep',
-    label: 'Thorough',
-    hint: '≈3 min. Every step justified from first principles, misconception named.',
-    seconds: 180,
+    value: 'deepdive',
+    label: 'Deep dive',
+    hint: 'About 2½ minutes. More context and detail.',
+    seconds: 150,
   },
 ];
 
-/** The depth a freshly chosen frame implies. Vertical is short-form by nature. */
-function depthForAspect(aspect: Aspect): Depth {
-  return aspect === '9:16' ? 'short' : 'standard';
-}
-
-function depthOption(depth: Depth) {
-  return DEPTHS.find((option) => option.value === depth) ?? DEPTHS[1]!;
+function formatOption(format: FilmFormat) {
+  return FILM_FORMATS.find((option) => option.value === format) ?? FILM_FORMATS[0]!;
 }
 
 export function CreateForm() {
   const router = useRouter();
+  const params = useSearchParams();
   // `/studio?example=gradient-descent` arrives from the library's empty state,
   // so a link can hand the box its starting content.
-  const preset = findExample(useSearchParams().get('example'));
+  const preset = findExample(params.get('example'));
+
+  const arriving = params.get(STUDIO_TOPIC_PARAM)?.trim().slice(0, STUDIO_TOPIC_MAX) || undefined;
 
   const [mode, setMode] = React.useState<Mode>('text');
-  const [text, setText] = React.useState(preset?.text ?? '');
+  const [text, setText] = React.useState(preset?.text ?? arriving ?? '');
   const [url, setUrl] = React.useState('');
   const [file, setFile] = React.useState<File | null>(null);
   const [title, setTitle] = React.useState(preset?.title ?? '');
 
-  const [aspect, setAspect] = React.useState<Aspect>('16:9');
-  const [depth, setDepth] = React.useState<Depth>(depthForAspect('16:9'));
-  /**
-   * Once the depth has been chosen by hand, changing the frame stops overriding
-   * it. A default that keeps reasserting itself over an explicit choice is a bug,
-   * however sensible the default is.
-   */
-  const [depthChosen, setDepthChosen] = React.useState(false);
+  const claimedStash = React.useRef(false);
+  React.useEffect(() => {
+    if (claimedStash.current) return;
+    claimedStash.current = true;
+    if (preset || arriving) return;
+    const stashed = takeStashedTopic();
+    if (!stashed) return;
+    setText((current) => (current.trim() === '' ? stashed : current));
+  }, [preset, arriving]);
+
+  const [aspect, setAspect] = React.useState<Aspect>(() => {
+    const requested = params.get('aspect');
+    return requested === '9:16' || requested === '1:1' ? requested : '16:9';
+  });
+  const [format, setFormat] = React.useState<FilmFormat>('explainer');
   const [style, setStyle] = React.useState<InkStyle>('marker');
   const [palette, setPalette] = React.useState<Palette>('color');
   const [language, setLanguage] = React.useState('en');
   const [voice, setVoice] = React.useState<string>(DEFAULT_VOICE);
+  const [cloudVoice, setCloudVoice] = React.useState('River');
+  const [selection, setSelection] = React.useState<ProviderSelection>();
+  const submittingRef = React.useRef(false);
 
   const [showOptions, setShowOptions] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
   const [problem, setProblem] = React.useState<string | undefined>(undefined);
-  /** A rejected upload is its own message: validation must not overwrite it. */
+
   const [rejection, setRejection] = React.useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = React.useState(false);
 
   const textRef = React.useRef<HTMLTextAreaElement>(null);
 
-  /**
-   * What this machine can do, asked once on mount.
-   *
-   * Two jobs. It decides whether the planner banner warns or reassures, and it
-   * carries `accepts` — the `meta` fields this build's generate endpoint
-   * validates — which is what lets the depth choice be sent without risking a 400
-   * against a server whose schema has not learned about it yet. A failure is
-   * swallowed: the form must work whether or not this answers, so an unknown
-   * capability shows no banner rather than a scary one.
-   */
   const [caps, setCaps] = React.useState<Capabilities | undefined>(undefined);
+  const [capsError, setCapsError] = React.useState<string>();
+  const refreshCapabilities = React.useCallback(async (signal?: AbortSignal) => {
+    try {
+      const value = await getCapabilities(signal);
+      if (signal?.aborted) return;
+      setCaps(value);
+      setCapsError(undefined);
+    } catch (err) {
+      if (!signal?.aborted) setCapsError(errorMessage(err));
+    }
+  }, []);
   React.useEffect(() => {
     const controller = new AbortController();
-    getCapabilities(controller.signal)
-      .then((value) => setCaps(value))
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
+    const refresh = () => void refreshCapabilities(controller.signal);
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      controller.abort();
+      window.removeEventListener('focus', refresh);
+    };
+  }, [refreshCapabilities]);
+  const providers = selection ?? caps?.selection ?? defaultSelection(caps?.keys ?? []);
+  const cloudSpeech = providers.speech === 'elevenlabs';
 
   const words = wordCount(text);
   const estimate = estimateSpokenSeconds(text);
-  const chosenDepth = depthOption(depth);
-  const lengthHonoured = acceptsTargetLength(caps?.accepts);
+  const chosenFormat = formatOption(format);
+  // Whether this build will honour the chosen length at all. A server that predates
+  // `formats` renders at its own default, and the copy below says so rather than
+  // showing a picker that quietly does nothing — which is what the control this one
+  // replaces did for its whole life.
+  const lengthHonoured = (caps?.formats.length ?? 0) > 0;
+  // The packs this box can actually draw with, which is a question only the box can
+  // answer (plan 9.4). Falls back to the shipped four until `/api/providers` replies.
+  const inkStyles = React.useMemo(() => styleOptions(caps?.styles ?? []), [caps?.styles]);
 
   const validate = React.useCallback((): string | undefined => {
     if (mode === 'text') {
@@ -246,24 +237,30 @@ export function CreateForm() {
   const shownError = rejection ?? (attempted ? problem : undefined);
 
   async function submit() {
+    if (submittingRef.current || !caps || capsError) return;
     setAttempted(true);
     setRejection(undefined);
     const found = validate();
     setProblem(found);
-    if (found) return;
+    if (found) {
+      if (mode === 'text') textRef.current?.focus();
+      else document.getElementById(mode === 'url' ? 'source-url' : 'source-error')?.focus();
+      return;
+    }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const input: GenerateInput = {
         aspect,
         language,
-        voice,
+        voice: selectedVoice(providers, cloudSpeech ? cloudVoice.trim() || 'River' : voice),
+        providers,
         style,
         palette,
-        depth,
-        targetSeconds: chosenDepth.seconds,
+        format,
         // Only fields the server advertised are actually sent. See `generate()`.
-        ...(caps ? { accepts: caps.accepts } : {}),
+        ...(caps ? { accepts: caps.accepts, formats: caps.formats } : {}),
       };
       const trimmedTitle = title.trim();
       if (trimmedTitle) input.title = trimmedTitle;
@@ -289,7 +286,9 @@ export function CreateForm() {
       });
       router.push(`/project/${projectId}?generating=1`);
     } catch (err) {
+      submittingRef.current = false;
       setSubmitting(false);
+      setRejection(errorMessage(err));
       toast.error('Could not start the render', { description: errorMessage(err) });
     }
   }
@@ -304,12 +303,16 @@ export function CreateForm() {
         event.preventDefault();
         void submit();
       }}
-      className="flex flex-col gap-6"
+      className="create-form"
     >
-      <PlannerNotice caps={caps} />
-
-      <Card className="gap-4 py-4">
-        <CardContent className="px-4">
+      <section className="source-editor">
+        <div className="mb-5">
+          <h2 className="text-xl">What’s the idea?</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add a topic, your notes, or something you’ve already written.
+          </p>
+        </div>
+        <div>
           <Tabs
             value={mode}
             onValueChange={(value: unknown) => {
@@ -323,7 +326,7 @@ export function CreateForm() {
               <TabsList>
                 <TabsTab value="text">
                   <PencilLineIcon aria-hidden />
-                  Paste
+                  Write or paste
                 </TabsTab>
                 <TabsTab value="file">
                   <UploadIcon aria-hidden />
@@ -349,10 +352,11 @@ export function CreateForm() {
               <Textarea
                 id="source-text"
                 ref={textRef}
-                rows={9}
+                rows={8}
                 value={text}
-                spellCheck={false}
+                spellCheck
                 aria-invalid={shownError ? true : undefined}
+                aria-describedby={shownError ? 'source-error' : undefined}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -361,15 +365,15 @@ export function CreateForm() {
                   }
                 }}
                 placeholder={
-                  'Paste a document, a set of notes, a README, a lecture outline…\n\nHeadings, lists and formulas all survive — the planner reads structure, so keep it.'
+                  'Explain a concept, tell a story, or paste your notes…\n\nFor example: How does a solar panel turn sunlight into electricity?'
                 }
-                className="max-h-96 text-md"
+                className="source-textarea max-h-96 text-md"
               />
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <SparklesIcon className="size-3.5" aria-hidden />
-                  Try one
+                  <LightbulbIcon className="size-3.5" aria-hidden />
+                  Need a starting point?
                 </span>
                 {EXAMPLES.map((example) => (
                   <Button
@@ -404,8 +408,8 @@ export function CreateForm() {
                 onReject={setRejection}
               />
               <LabelHint className="mt-3">
-                A pdf or docx is read on the server. Markdown and text files are read right here in
-                the browser and sent as text.
+                PDF, Word, Markdown and text files are supported. Your source is uploaded to Inkcast
+                for processing.
               </LabelHint>
             </TabsPanel>
 
@@ -413,6 +417,8 @@ export function CreateForm() {
               <Label htmlFor="source-url">Page address</Label>
               <Input
                 id="source-url"
+                aria-invalid={shownError ? true : undefined}
+                aria-describedby={shownError ? 'source-error' : undefined}
                 type="url"
                 inputMode="url"
                 value={url}
@@ -422,30 +428,28 @@ export function CreateForm() {
                 className="mt-2"
               />
               <LabelHint className="mt-2">
-                The page is fetched and stripped to its readable text. It has to be reachable from
-                this machine.
+                Use a public article or web page. We’ll extract the readable text.
               </LabelHint>
             </TabsPanel>
           </Tabs>
 
-          {shownError ? <LabelError className="mt-3">{shownError}</LabelError> : null}
-        </CardContent>
-      </Card>
+          {shownError ? (
+            <LabelError id="source-error" tabIndex={-1} role="alert" className="mt-3">
+              {shownError}
+            </LabelError>
+          ) : null}
+        </div>
+      </section>
 
-      {/* ------------------------------------------------- format and depth */}
-
-      <Card className="gap-6">
-        <CardContent className="flex flex-col gap-6">
+      <section className="create-format">
+        <h2 className="mb-5 text-xl">Shape the video</h2>
+        <div className="flex flex-col gap-6">
           <TileGroup
             name="format"
             legend="Format"
-            hint="Vertical is a first-class target with its own pacing, not a cropped landscape."
+            hint="Choose where your video will live."
             value={aspect}
-            onValueChange={(next) => {
-              setAspect(next);
-              // The frame implies a length until the user says otherwise.
-              if (!depthChosen) setDepth(depthForAspect(next));
-            }}
+            onValueChange={setAspect}
             options={FORMATS.map((option) => ({
               value: option.value,
               label: option.label,
@@ -458,41 +462,35 @@ export function CreateForm() {
           <Separator />
 
           <TileGroup
-            name="depth"
-            legend="Teaching depth"
-            hint="How much is explained, and therefore how long it runs."
-            value={depth}
-            onValueChange={(next) => {
-              setDepth(next);
-              setDepthChosen(true);
-            }}
-            options={DEPTHS.map((option) => ({
+            name="length"
+            legend="Length"
+            hint="A quick explanation or room to go deeper."
+            value={format}
+            onValueChange={setFormat}
+            options={FILM_FORMATS.filter(
+              (option) => !caps || caps.formats.includes(option.value),
+            ).map((option) => ({
               value: option.value,
               label: option.label,
               hint: option.hint,
             }))}
-            className="grid-cols-1 sm:grid-cols-3"
+            className="grid-cols-1 sm:grid-cols-2"
           />
 
           <LabelHint>
             {lengthHonoured ? (
-              <>
-                The planner aims for {clock(chosenDepth.seconds)} and is rejected if it overruns by
-                more than a quarter.
-              </>
+              <>Target length: {clock(chosenFormat.seconds)}. Final timing follows the narration.</>
             ) : (
               <>
-                This studio build plans from the length of the source rather than a target, so depth
-                is recorded with the project and the runtime follows the document.
+                This studio build plans from the length of the source rather than a target, so the
+                runtime follows the document.
               </>
             )}
           </LabelHint>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* ---------------------------------------------------------- options */}
-
-      <div className="flex flex-col gap-4">
+      <section className="create-options-section">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             type="button"
@@ -503,30 +501,28 @@ export function CreateForm() {
             onClick={() => setShowOptions((open) => !open)}
           >
             <SettingsIcon aria-hidden />
-            {showOptions ? 'Hide options' : 'Options'}
+            {showOptions ? 'Hide voice & style' : 'Voice & style'}
           </Button>
 
           {showOptions ? null : (
             <p className="tabular min-w-0 text-xs text-muted-foreground">
-              {languageLabel} · {voiceLabel(voice)} ·{' '}
-              {INK_STYLES.find((s) => s.value === style)?.label} ·{' '}
+              {languageLabel} · {cloudSpeech ? cloudVoice || 'River' : voiceLabel(voice)} ·{' '}
+              {inkStyles.find((s) => s.value === style)?.label} ·{' '}
               {PALETTES.find((p) => p.value === palette)?.label}
             </p>
           )}
         </div>
 
         {showOptions ? (
-          <Card id="create-options" className="animate-in fade-in gap-6 duration-brisk ease-out">
+          <Card id="create-options" className="mt-4 gap-6 border-0 bg-transparent p-0">
             <CardContent className="flex flex-col gap-6">
-              {/* Frame and depth are not here: they changed what the video *is*,
-                  so they were promoted above rather than folded away. */}
               <TileGroup
                 name="style"
                 legend="Ink"
                 hint="How the hand draws: stroke weight, texture, wobble."
                 value={style}
                 onValueChange={setStyle}
-                options={INK_STYLES.map((option) => ({
+                options={inkStyles.map((option) => ({
                   value: option.value,
                   label: option.label,
                   hint: option.hint,
@@ -567,37 +563,54 @@ export function CreateForm() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {localVoice ? (
+                  {localVoice || cloudSpeech ? (
                     <LabelHint>Narration is measured, so timing reflows per language.</LabelHint>
                   ) : (
                     <p className="flex flex-wrap items-center gap-1.5 text-xs leading-relaxed text-warning">
                       <Badge variant="warning">Needs a key</Badge>
-                      The local voice speaks English only. {languageLabel} narration needs
-                      ELEVENLABS_API_KEY; without it the run falls back to English.
+                      The local voice speaks English only. Select ElevenLabs above for{' '}
+                      {languageLabel} narration.
                     </p>
                   )}
                 </div>
 
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="voice">Voice</Label>
-                  <Select value={voice} onValueChange={(value: unknown) => setVoice(String(value))}>
-                    <SelectTrigger id="voice" aria-label="Narration voice">
-                      <span className="truncate">{voiceLabel(voice)}</span>
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {VOICE_GROUPS.map((group) => (
-                        <SelectGroup key={group.group}>
-                          <SelectGroupLabel>{group.group}</SelectGroupLabel>
-                          {group.voices.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <LabelHint>Runs locally with Kokoro. No key, no per-minute bill.</LabelHint>
+                  {cloudSpeech ? (
+                    <Input
+                      id="voice"
+                      value={cloudVoice}
+                      maxLength={100}
+                      placeholder="River, Rachel, or your ElevenLabs voice ID"
+                      onChange={(event) => setCloudVoice(event.target.value)}
+                    />
+                  ) : (
+                    <Select
+                      value={voice}
+                      onValueChange={(value: unknown) => setVoice(String(value))}
+                    >
+                      <SelectTrigger id="voice" aria-label="Narration voice">
+                        <span className="truncate">{voiceLabel(voice)}</span>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {VOICE_GROUPS.map((group) => (
+                          <SelectGroup key={group.group}>
+                            <SelectGroupLabel>{group.group}</SelectGroupLabel>
+                            {group.voices.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <LabelHint>
+                    {cloudSpeech
+                      ? 'A voice name or ID from your ElevenLabs account. Availability depends on your plan and key permissions.'
+                      : 'Runs locally with Kokoro. No speech API charge.'}
+                  </LabelHint>
                 </div>
               </div>
 
@@ -613,105 +626,59 @@ export function CreateForm() {
             </CardContent>
           </Card>
         ) : null}
-      </div>
+      </section>
 
-      {/* ----------------------------------------------------------- submit */}
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <section className="create-providers">
+        {' '}
+        {capsError ? (
+          <div role="alert" className="flex flex-col gap-2 text-sm text-destructive">
+            <p>Could not load your provider settings. {capsError}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() => void refreshCapabilities()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : caps ? (
+          <ProviderChoices caps={caps} value={providers} onChange={setSelection} />
+        ) : (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading your provider settings…
+          </p>
+        )}
+      </section>
+      <div className="create-submit">
         <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-          Five stages, on this machine: read the source, plan one growing canvas, narrate and
-          measure it, draw every entity once, then ink the frames.{' '}
+          Your source is uploaded to Inkcast. You can review every scene once your video is ready.{' '}
           {mode === 'text' && words > 0 ? (
             <span className="text-foreground">≈{clock(estimate)} of video.</span>
           ) : null}
         </p>
 
-        <Button type="submit" size="lg" disabled={submitting} className="shrink-0">
-          {submitting ? 'Starting…' : 'Draw it'}
+        <Button
+          type="submit"
+          size="lg"
+          disabled={submitting || !caps || Boolean(capsError)}
+          className="shrink-0"
+        >
+          {submitting ? 'Starting your video…' : 'Create video'}
           {submitting ? null : <ArrowRightIcon aria-hidden />}
         </Button>
       </div>
 
       <p
         className={cn(
-          'flex items-center justify-end gap-1.5 text-2xs text-muted-foreground',
+          'create-shortcut flex items-center justify-end gap-1.5 text-xs text-muted-foreground',
           'max-sm:hidden',
         )}
       >
         <Kbd>⌘</Kbd>
         <Kbd>↵</Kbd>
-        to start from the paste box
+        to create from the text field
       </p>
     </form>
-  );
-}
-
-/**
- * The one thing worth interrupting the form for: whether a lesson planner is
- * available at all.
- *
- * It is a banner rather than a line of helper text because the difference is not
- * a preference — with no Anthropic key the video summarises the document instead
- * of teaching it, and someone who renders three of those before finding the
- * setting will conclude the product is bad rather than unconfigured.
- *
- * While `caps` is undefined nothing is rendered. A banner that appears and then
- * disappears is worse than one that arrives late, and the studio's whole promise
- * is that it works with no keys — so the absence of an answer must never read as
- * an error.
- */
-function PlannerNotice({ caps }: { caps: Capabilities | undefined }) {
-  if (!caps) return null;
-
-  const anthropic = keyStateFor(caps, 'anthropic');
-  const planning = caps.planner.name === 'anthropic';
-
-  if (planning) {
-    return (
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <BrainIcon className="size-3.5 shrink-0" aria-hidden />
-        Planning the lesson with {caps.planner.model ?? 'Claude'}.
-        <Link
-          href="/settings"
-          className="focus-ring rounded-xs text-primary underline-offset-4 outline-none hover:underline"
-        >
-          Keys
-        </Link>
-      </p>
-    );
-  }
-
-  return (
-    <Card className="gap-3 border-warning/40 bg-warning/6 py-4">
-      <CardContent className="flex flex-col gap-3 px-4">
-        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-          <Badge variant="warning">
-            <KeyRoundIcon aria-hidden />
-            Limited output
-          </Badge>
-          No Anthropic key, so this will summarise rather than teach.
-        </p>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          The local planner splits your document into beats and narrates them in order. It is free,
-          instant and deterministic, and it cannot build an idea: no hook, no everyday anchor, no
-          worked example, no misconception named and refuted. Everything else — the drawing, the
-          narration, the timing — works exactly as it will with a key.
-          {anthropic?.unreadable
-            ? ' A key is saved but can no longer be decrypted; paste it again.'
-            : ''}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start"
-          render={<Link href="/settings" />}
-        >
-          <KeyRoundIcon aria-hidden />
-          Add a key
-          <ArrowRightIcon aria-hidden />
-        </Button>
-      </CardContent>
-    </Card>
   );
 }

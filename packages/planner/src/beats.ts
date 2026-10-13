@@ -7,6 +7,7 @@
  * side-by-side panels, "X is a Y" is a titled card, and a paragraph full of
  * measurements is a labelled figure.
  */
+import { CODE_MAX_COLS, CODE_MAX_LINES, codeGrid } from '@inkcast/core';
 import type { Block } from './blocks.js';
 import { parseBlocks } from './blocks.js';
 import { keyTerms, sentences, shorten, stripMarkdown, wordCount } from './text.js';
@@ -44,7 +45,7 @@ export type Beat = {
   definition?: string;
   panels?: [{ title: string; point: string }, { title: string; point: string }];
   facts?: NumberFact[];
-  code?: { lang: string; lines: string[] };
+  code?: { lang: string; text: string };
   table?: { header: string[]; rows: string[][] };
   lead?: string;
   /** For `annotate`: which slot of the previous scene to mark up. */
@@ -280,12 +281,25 @@ export function buildBeats(doc: SourceDoc, opts: BeatOptions = {}): Beat[] {
           });
           break;
         case 'code': {
-          const lines = block.text
-            .split('\n')
-            .map((l) => l.trim())
-            .filter((l) => l && !l.startsWith('//') && !l.startsWith('#'))
-            .slice(0, 4);
-          if (!lines.length) break;
+          /**
+           * The listing, verbatim — which is the whole change the code lane made here.
+           *
+           * This used to `trim()` every line, drop any beginning `//` or `#`, cut each to
+           * twelve words and hand the result to the diagram lane as a stack of
+           * handwritten boxes. Every one of those four steps destroyed something: the
+           * indentation *is* the block structure, a `#` line is a Python comment or a
+           * shell shebang or a C directive, and a truncated line of code does not run.
+           * The lane can now set a listing properly, so the honest thing to pass it is
+           * what the document said.
+           *
+           * The budget is a hard filter rather than a truncation, for the reason
+           * `CODE_MAX_LINES` gives: there is no author here to warn, so a block this
+           * board cannot set legibly does not become a beat at all. Losing a beat is
+           * recoverable; a listing set too small to read, or a strict render that fails
+           * on someone's README, is not.
+           */
+          const { lines, cols } = codeGrid(block.text);
+          if (!lines.length || lines.length > CODE_MAX_LINES || cols > CODE_MAX_COLS) break;
           beats.push({
             shape: 'code',
             // Nobody wants source code read aloud; say what it does instead.
@@ -295,7 +309,7 @@ export function buildBeats(doc: SourceDoc, opts: BeatOptions = {}): Beat[] {
             heading: section.heading,
             sectionIndex: si,
             weight: 50,
-            code: { lang: block.lang, lines: lines.map((l) => shorten(l, 12)) },
+            code: { lang: block.lang, text: lines.join('\n') },
           });
           break;
         }

@@ -16,7 +16,7 @@
  *   gap so ideas breathe. See `phrase.ts`.
  */
 export { narrate, sceneAudioPath, sceneTimingPath, NARRATION_FILE } from './narrate.js';
-export type { NarrateOptions } from './narrate.js';
+export type { NarrateOptions, NarrateResult, ResolvedVoice } from './narrate.js';
 
 /* --------------------------------------------------------- cues and phrases */
 
@@ -74,6 +74,28 @@ export type {
   VoiceProfile,
 } from './voices.js';
 
+/* --------------------------------------------------------- the curated moods */
+
+/**
+ * Four moods, not twenty-eight voice ids — the typed catalogue the CLI and the studio
+ * both read so neither has to mirror a list by hand. `apps/web/components/studio/
+ * options.ts` mirrors ids today because `@inkcast/voice` cannot be imported into a
+ * browser bundle; `VOICE_MOODS` is small, string-only and dependency-free, so a
+ * server component can hand it straight to the client and the mirror can go.
+ */
+export {
+  isVoiceMoodId,
+  moodCatalogueProblems,
+  moodVoiceId,
+  unverifiedMoods,
+  voiceMood,
+  DEFAULT_MOOD,
+  MOODS_UNVERIFIED_NOTE,
+  VOICE_MOODS,
+  VOICE_MOOD_IDS,
+} from './moods.js';
+export type { VoiceMood, VoiceMoodId } from './moods.js';
+
 /* ------------------------------------------------------- optional alignment */
 
 export {
@@ -86,8 +108,9 @@ export {
   openAligner,
   requestedAlign,
   ALIGN_SAMPLE_RATE,
+  MIN_ALIGN_FRACTION,
 } from './align.js';
-export type { AlignMode, Aligner, Hypothesis, OpenAlignerOptions } from './align.js';
+export type { Alignment, AlignMode, Aligner, Hypothesis, OpenAlignerOptions } from './align.js';
 
 /* ------------------------------------------------------------------ voices */
 
@@ -109,6 +132,16 @@ export {
   parseSayVoices,
   pickSayVoice,
   alignmentToWords,
+  elevenLabsCostUsd,
+  elevenLabsCreditsPerChar,
+  elevenLabsDelivery,
+  elevenLabsModel,
+  failureReason,
+  VoiceProviderError,
+  ELEVENLABS_FLASH_MODEL,
+  ELEVENLABS_MULTILINGUAL_MODEL,
+  ELEVENLABS_QUALITY_MODEL,
+  ELEVENLABS_USD_PER_CREDIT,
 } from './providers/index.js';
 export { SAY_NOT_FOR_PUBLISHING, sayRateForWpm } from './providers/system.js';
 export { estimateClipSeconds } from './providers/silence.js';
@@ -120,6 +153,8 @@ export type {
   SynthesisRequest,
   SynthesisResult,
   VoiceChain,
+  VoiceFailureReason,
+  VoiceFallback,
   VoiceProvider,
   VoiceProviderId,
   WordTiming,
@@ -141,6 +176,12 @@ export async function listVoices(provider: VoiceProviderId = 'kokoro'): Promise<
 
 /* ------------------------------------------------- text normalisation (pure) */
 
+/**
+ * Re-exported, not owned: the normaliser lives in `@inkcast/core`'s `speech.ts`
+ * since plan item 4.1, because the planner has to tokenise narration with the
+ * same function to write `Enter.cueWord`. The names stay here so a caller that
+ * asked the voice package how narration is spoken still gets an answer.
+ */
 export {
   normalizeNarration,
   normalizeNarrationDetailed,
@@ -158,8 +199,8 @@ export {
   estimateSpokenSeconds,
   ABBREVIATIONS,
   SYMBOLS,
-} from './text.js';
-export type { NormalizeResult } from './text.js';
+} from '@inkcast/core';
+export type { NormalizeResult } from '@inkcast/core';
 
 /* ----------------------------------------------------- audio utilities */
 

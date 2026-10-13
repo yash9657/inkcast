@@ -306,12 +306,31 @@ test('emphasis resolves its target box, and survives a missing target', async ()
   assert.ok(marked?.emphasis);
   assert.equal(marked.emphasis.resolved, true);
   assert.deepEqual(marked.emphasis.targetBox, manifest.elements.box?.box);
-  assert.equal(marked.enterAt, 0.6);
 
   const ghost = manifest.elements.ghost;
   assert.ok(ghost?.emphasis);
   assert.equal(ghost.emphasis.resolved, false, 'a missing target must be reported, not crash');
   assert.ok(ghost.strokes.length > 0, 'it should still draw something');
+});
+
+test('the sidecar records geometry and no copy of the storyboard timing', async () => {
+  // Plan 5.5 / audit A-1: `enterAt`, `enterDuration` and `persist` were copied out of
+  // the storyboard at resolve time and read by nothing, while `visualsFingerprint`
+  // deliberately excludes timing — so a re-voiced project's sidecar disagreed with its
+  // own storyboard about when ink arrives. The storyboard is the authority; this asserts
+  // the sidecar has stopped claiming to be a second one.
+  const { manifest, sb } = await run();
+  const stale = ['enterAt', 'enterDuration', 'persist'];
+  for (const [id, visual] of Object.entries(manifest.elements)) {
+    for (const key of stale) {
+      assert.ok(!(key in visual), `element ${id} still carries "${key}" in the sidecar`);
+    }
+    // `reveal` stays, and has to: `draw` and `write` resolve to different geometry.
+    assert.ok(typeof visual.reveal === 'string', `element ${id} lost its reveal style`);
+  }
+  // The fields it replaced are still on the board, where the renderer reads them.
+  const drawn = sb.scenes.flatMap((s) => s.elements);
+  assert.ok(drawn.some((el) => el.enter.at > 0) && drawn.every((el) => 'persist' in el));
 });
 
 test('a second run is fully cached and rewrites nothing', async () => {
@@ -333,6 +352,78 @@ test('changing the ink style invalidates the cache', async () => {
   const manifest = await loadVisualManifest(dir);
   assert.equal(manifest?.style.name, 'pencil');
   assert.equal(manifest?.font.family !== undefined, true);
+});
+
+test('switching the figure model re-resolves the figure asset and nothing else', async () => {
+  // Plan 6.5's other half. The raster key's new honesty is unreachable without this: a
+  // re-cast of an existing project finds the asset fresh in the manifest and never reaches
+  // `illustrationRaster` at all, so the film would keep the old model's picture and the
+  // switch would appear to do nothing.
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-figmodel-'));
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'The heart',
+    meta: { style: 'marker', palette: 'color' },
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    assets: [
+      { id: 'heart', kind: 'figure', prompt: 'a cutaway human heart' },
+      { id: 'brain', kind: 'icon', prompt: 'a brain thinking' },
+    ],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'The heart is a pump with four rooms.',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'heart-el',
+            type: 'asset',
+            assetId: 'heart',
+            at: { x: 200, y: 200, w: 600, h: 400 },
+          },
+          {
+            id: 'brain-el',
+            type: 'asset',
+            assetId: 'brain',
+            at: { x: 900, y: 200, w: 220, h: 220 },
+          },
+        ],
+      },
+    ],
+  });
+  const hashes = async (): Promise<Record<string, string>> =>
+    JSON.parse(await readFile(path.resolve(dir, 'cache.json'), 'utf8')) as Record<string, string>;
+
+  await resolveVisuals(sb, dir);
+  const before = await hashes();
+
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/nano-banana';
+  try {
+    await resolveVisuals(sb, dir);
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
+  const after = await hashes();
+  assert.notEqual(
+    after['visuals:asset:heart'],
+    before['visuals:asset:heart'],
+    'a figure is shown as it arrived, so the model that draws it is one of its inputs',
+  );
+  assert.equal(
+    after['visuals:asset:brain'],
+    before['visuals:asset:brain'],
+    'every other asset must be exactly as fresh as it was — the token is empty for them',
+  );
+
+  // Naming a built-in endpoint is the default, so it puts the project back where it was
+  // rather than inventing a third key.
+  process.env.INKCAST_FIGURE_MODEL = 'fal-ai/flux/dev';
+  try {
+    await resolveVisuals(sb, dir);
+  } finally {
+    delete process.env.INKCAST_FIGURE_MODEL;
+  }
+  assert.deepEqual(await hashes(), before);
 });
 
 test('resolveVisuals is a pure enrichment: it does not mutate its input', async () => {
@@ -610,4 +701,70 @@ test('a path element with neither points nor d warns and draws nothing', async (
   assert.equal(manifest.elements.nothing?.strokes.length, 0);
   assert.equal(manifest.elements.nothing?.path, undefined);
   assert.equal(out.scenes.length, 1, 'the pipeline must survive it');
+});
+
+test('an entity the matcher cannot place at all is recorded, not just drawn (plan 3.4)', async () => {
+  // A score-0 match means the matcher exhausted every tier — slug, keyword table,
+  // lucide tags, fuzzy — and answered with the standing-in glyph. That is a generic
+  // shape in a teaching frame, indistinguishable from a deliberate one, and before
+  // this it was a lane label in a manifest nobody reads after a render.
+  const sb = parseStoryboard({
+    version: 1,
+    title: 'unmatchable',
+    canvas: { x: 0, y: 0, w: 1920, h: 1080 },
+    assets: [{ id: 'xqzjvbn-frobnicator', kind: 'icon', prompt: 'zzqxvj plurbing' }],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'here it is',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'thing',
+            type: 'asset',
+            assetId: 'xqzjvbn-frobnicator',
+            at: { x: 800, y: 400, w: 300, h: 300 },
+          },
+        ],
+      },
+    ],
+  });
+  const dir = await mkdtemp(path.join(tmpdir(), 'inkcast-fallback-'));
+  const problems: string[] = [];
+  await resolveVisuals(sb, dir, {
+    images: 'off',
+    force: true,
+    onProblem: (p) => problems.push(p),
+  });
+  assert.equal(problems.length, 1, problems.join('\n'));
+  assert.match(problems[0] ?? '', /resolved to no icon at all/);
+  assert.match(problems[0] ?? '', /xqzjvbn-frobnicator/);
+
+  // And the honest half stays honest: a term the matcher *can* place says nothing.
+  const clean = parseStoryboard({
+    ...JSON.parse(JSON.stringify(sb)),
+    assets: [{ id: 'lightbulb', kind: 'icon', prompt: 'a lightbulb' }],
+    scenes: [
+      {
+        id: 's1',
+        narration: 'here it is',
+        camera: { x: 960, y: 540, zoom: 1 },
+        elements: [
+          {
+            id: 'thing',
+            type: 'asset',
+            assetId: 'lightbulb',
+            at: { x: 800, y: 400, w: 300, h: 300 },
+          },
+        ],
+      },
+    ],
+  });
+  const quiet: string[] = [];
+  await resolveVisuals(clean, await mkdtemp(path.join(tmpdir(), 'inkcast-fallback-')), {
+    images: 'off',
+    force: true,
+    onProblem: (p) => quiet.push(p),
+  });
+  assert.deepEqual(quiet, []);
 });

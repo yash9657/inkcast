@@ -1,3 +1,5 @@
+import { providerEnv } from '@inkcast/core';
+import { textProvider } from '@inkcast/core';
 /**
  * Natural-language editing of a storyboard.
  *
@@ -11,7 +13,7 @@
  * "needs a key" with a clear warning instead of being silently ignored.
  */
 import type { Storyboard } from '@inkcast/core';
-import { logger, parseStoryboard } from '@inkcast/core';
+import { logger, parseStoryboard, styleIds } from '@inkcast/core';
 import { anthropicEdit } from './anthropic.js';
 import { layoutStoryboard } from './layout.js';
 import type { EditOptions, EditReport } from './types.js';
@@ -114,7 +116,9 @@ function applyOne(sb: Storyboard, raw: string): Applied {
   }
 
   /* --- ink style --- */
-  const style = lower.match(/\b(marker|pencil|chalk|ink)\b/);
+  // From `styles/` (plan 7.3), not a literal: this path is what a keyless edit falls back
+  // to, and it would silently ignore "make it modern-minimal" for a pack that exists.
+  const style = lower.match(new RegExp(`\\b(${styleIds().join('|')})\\b`));
   if (style?.[1] && /\b(style|look|draw|drawn|use|switch|change|make)\b/.test(lower)) {
     sb.meta.style = style[1] as Storyboard['meta']['style'];
     return { sb, note: `ink style set to ${style[1]}` };
@@ -218,14 +222,9 @@ export async function editStoryboardDetailed(
   instruction: string,
   opts: EditOptions = {},
 ): Promise<{ storyboard: Storyboard; report: EditReport }> {
-  const adapter =
-    opts.adapter && opts.adapter !== 'auto'
-      ? opts.adapter
-      : process.env.ANTHROPIC_API_KEY
-        ? 'anthropic'
-        : 'heuristic';
+  const adapter = textProvider(providerEnv(), opts.adapter);
 
-  if (adapter === 'anthropic') {
+  if (adapter !== 'heuristic') {
     const patched = await anthropicEdit(sb, instruction, opts);
     if (patched) {
       const out =
@@ -257,7 +256,7 @@ export async function editStoryboardDetailed(
 
   if (report.needsKey.length) {
     log.warn(
-      `set ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new content`,
+      `set FIREWORKS_API_KEY or ANTHROPIC_API_KEY to apply: ${report.needsKey.join(' | ')} — these need a model to write new content`,
     );
   }
   if (report.unsupported.length) {

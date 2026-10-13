@@ -3,7 +3,7 @@ import { ChevronDownIcon } from 'lucide-react';
 
 import { Reveal } from './reveal';
 import { CodeChip, Section, SectionHeading } from './section';
-import { COST_CLOUD, COST_LOCAL, LICENCE, repoUrl } from './site-config';
+import { COST_CLOUD, COST_LOCAL, LICENCE, repoUrl, signInRequired } from './site-config';
 
 /**
  * The FAQ.
@@ -13,22 +13,66 @@ import { COST_CLOUD, COST_LOCAL, LICENCE, repoUrl } from './site-config';
  * works before hydration — three things a `div` with an `onClick` gives up in
  * exchange for nothing. There is no accordion primitive in
  * `components/ui`, and this is the reason none was needed.
+ *
+ * ## What the re-skin changed here
+ *
+ * The list is one bordered block with `shadow-card` instead of a row per
+ * question ruled off from an otherwise empty section. The reason is a token
+ * value, not taste: `--border` is ink now (docs/DESIGN.md §11), so the old
+ * `border-b border-border` between rows draws a 1px *black* rule, and a stack of
+ * them on bare paper reads as a table with no table. Ink goes on the outside
+ * where it is the block's edge; the separators between questions drop to
+ * `border-subtle`, which is what that token was added for. The two `rounded-*`
+ * classes that used to sit on the summary and the licence link are gone rather
+ * than set to `rounded-none` — the radius ladder is flat, so they produced no
+ * CSS and would have quietly become wrong again the day somebody gave
+ * `--radius-md` a value.
  */
 
 type Entry = { q: string; a: React.ReactNode };
+
+/**
+ * The account question, and why it is only asked on the deployment that has one.
+ *
+ * A FAQ is where a reader goes to find the catch, so the catch has to be in it —
+ * on the hosted site the first thing anybody discovers is that the button asks
+ * them to sign in, and a FAQ that opened with "Do I need an API key? No." and
+ * said nothing about accounts would read as an evasion the moment they clicked.
+ *
+ * It is absent rather than reworded on a self-hosted box, because there the
+ * honest answer is "there is no such thing here" and a question whose answer is
+ * "not applicable" is noise in a list this long. `signInRequired` is the same
+ * switch the hero and the cost table read, so all three move together or none of
+ * them do — which is the point of keeping it in `site-config.ts` rather than
+ * testing an env var in three files.
+ */
+const ACCOUNT_ENTRY: Entry = {
+  q: 'Do I need an account?',
+  a: (
+    <>
+      On this deployment, yes, and only to draw one: a render runs a planner, a voice and a headless
+      browser for minutes on a machine somebody else is paying for, and a queue with no owner cannot
+      be shared out fairly or cleaned up afterwards. Reading the page, the examples and the source
+      needs nothing. Inkcast itself has no accounts — self-hosted there is no sign-in anywhere in
+      it, and the only record of who made what is the project directory on your own disk.
+    </>
+  ),
+};
 
 const ENTRIES: Entry[] = [
   {
     q: 'Do I need an API key?',
     a: (
       <>
-        No. With no environment variables set, planning is a deterministic structure-aware pass,
-        narration is Kokoro running locally through ONNX, and the artwork comes from a built-in icon
-        set with procedural diagrams. Cloud providers are opt-in adapters selected by env var; if a
-        key is missing the run logs a warning and continues on the local path instead of failing.
+        Not to run Inkcast. With no environment variables set, planning is a deterministic
+        structure-aware pass, narration is Kokoro running locally through ONNX, and the artwork
+        comes from a built-in icon set with procedural diagrams. Cloud providers are opt-in adapters
+        selected by env var; if a key is missing the run logs a warning and continues on the local
+        path instead of failing.
       </>
     ),
   },
+  ...(signInRequired ? [ACCOUNT_ENTRY] : []),
   {
     q: 'What does a video actually cost to make?',
     a: (
@@ -100,7 +144,7 @@ const ENTRIES: Entry[] = [
               href={`${repoUrl.replace(/\/+$/, '')}/LICENSE`}
               target="_blank"
               rel="noreferrer noopener"
-              className="focus-ring rounded-sm text-primary underline underline-offset-4"
+              className="focus-ring text-primary underline underline-offset-4"
             >
               LICENSE
             </a>
@@ -127,25 +171,31 @@ export function Faq() {
         lead="Short answers. Where a claim depends on something you can check, the field or the file is named."
       />
 
-      <ul className="max-w-3xl">
+      <ul className="max-w-3xl border border-border bg-card shadow-card">
         {ENTRIES.map((entry, i) => (
           <Reveal
             as="li"
             key={entry.q}
             index={i}
-            className="border-b border-border last:border-b-0"
+            className="border-b border-border-subtle last:border-b-0"
           >
             <details className="group">
               {/* `list-none` kills the triangle in Chrome and Firefox; the
-                  `-webkit-details-marker` rule is what Safari needs. */}
-              <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-4 [&::-webkit-details-marker]:hidden">
+                  `-webkit-details-marker` rule is what Safari needs.
+
+                  The open row tints rather than moves. An 8% accent wash on the
+                  summary is enough to hold your place in a list this long while
+                  you read the answer, and it costs no layout: `bg-accent-soft` on
+                  `group-open` and on hover are the same colour, so opening a row
+                  under the pointer does not flash. */}
+              <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 transition-colors duration-fast ease-out group-open:bg-accent-soft hover:bg-accent-soft [&::-webkit-details-marker]:hidden">
                 <h3 className="text-md font-medium">{entry.q}</h3>
                 <ChevronDownIcon
                   className="size-4 shrink-0 text-muted-foreground transition-transform duration-brisk ease-out group-open:rotate-180"
                   aria-hidden
                 />
               </summary>
-              <p className="pr-8 pb-5 text-md text-muted-foreground">{entry.a}</p>
+              <p className="px-5 pt-1 pb-5 text-md text-muted-foreground">{entry.a}</p>
             </details>
           </Reveal>
         ))}

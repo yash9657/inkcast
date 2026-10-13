@@ -24,6 +24,15 @@ export type ProviderMeta = {
   lastValidatedOk?: boolean;
   /** Masked preview, recorded on write so a listing need not read the secret. */
   masked?: string;
+  /**
+   * Character count of the stored key, recorded on write.
+   *
+   * A length is not key material, and having it here is what lets a status
+   * listing say "97 characters" without opening the keychain. That number is the
+   * cheapest way for a user to spot the single most common failure — a paste that
+   * dropped the tail — because a truncated key masks identically to a whole one.
+   */
+  length?: number;
   /** ISO timestamp of the last set/rotate through this package. */
   updatedAt?: string;
 };

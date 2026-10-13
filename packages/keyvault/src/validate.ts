@@ -27,7 +27,7 @@
  */
 import { logger } from '@inkcast/core';
 import type { Provider } from './providers.js';
-import { redact } from './redact.js';
+import { redact, withSecretRedaction } from './redact.js';
 
 const log = logger('keyvault:validate');
 
@@ -42,7 +42,7 @@ export type ValidationReason =
   | 'rejected'
   /** 403: the key is real but lacks permission (or the account is suspended). */
   | 'forbidden'
-  /** 429: authenticated, but throttled — the key works. */
+  /** 429: throttled; authentication is not established. */
   | 'rate-limited'
   /** 5xx: the provider is having a bad day; says nothing about the key. */
   | 'server-error'
@@ -72,6 +72,10 @@ type Probe = {
 };
 
 const PROBES: Record<Provider, Probe> = {
+  fireworks: {
+    url: 'https://api.fireworks.ai/inference/v1/models',
+    init: (key) => ({ method: 'GET', headers: { Authorization: `Bearer ${key}` } }),
+  },
   anthropic: {
     url: 'https://api.anthropic.com/v1/models?limit=1',
     init: (key) => ({
@@ -101,13 +105,13 @@ const PROBES: Record<Provider, Probe> = {
   },
 };
 
-/** Map a status onto a verdict. Only 2xx and 429 mean the key authenticated. */
+/** Map a status onto a verdict. Only 2xx confirms that the key authenticated. */
 function classify(status: number): { ok: boolean; reason: ValidationReason } {
   if (status >= 200 && status < 300) return { ok: true, reason: 'accepted' };
   if (status === 401) return { ok: false, reason: 'rejected' };
   if (status === 403) return { ok: false, reason: 'forbidden' };
-  // The request got past authentication to a quota check, so the key is good.
-  if (status === 429) return { ok: true, reason: 'rate-limited' };
+  // A throttle may be applied before authentication; do not mark the key valid.
+  if (status === 429) return { ok: false, reason: 'rate-limited' };
   if (status >= 500) return { ok: false, reason: 'server-error' };
   return { ok: false, reason: 'unexpected' };
 }
@@ -135,17 +139,24 @@ async function detail(res: Response): Promise<string | undefined> {
  * Never throws: a validator that crashes an offline machine would violate the
  * zero-key, zero-network guarantee. Everything becomes a `ValidationResult`.
  */
-export async function probeKey(provider: Provider, key: string): Promise<ValidationResult> {
+export function probeKey(provider: Provider, key: string): Promise<ValidationResult> {
+  return withSecretRedaction([key], () => runProbe(provider, key));
+}
+async function runProbe(provider: Provider, key: string): Promise<ValidationResult> {
   const probe = PROBES[provider];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(probe.url, { ...probe.init(key), signal: controller.signal });
+    const res = await fetch(probe.url, {
+      ...probe.init(key),
+      redirect: 'error',
+      signal: controller.signal,
+    });
     const { ok, reason } = classify(res.status);
     const message = ok ? undefined : await detail(res);
     // Only 'network' and 'server-error' are indefinite: they say nothing about
     // the key, so they must not overwrite a previously recorded verdict.
-    const definitive = reason !== 'server-error';
+    const definitive = reason === 'accepted' || reason === 'rejected';
     return {
       provider,
       ok,
@@ -156,14 +167,12 @@ export async function probeKey(provider: Provider, key: string): Promise<Validat
     };
   } catch (err) {
     const aborted = err instanceof Error && err.name === 'AbortError';
-    log.debug(`${provider} validation could not reach the provider`, err as Error);
+    log.debug(`${provider} validation could not reach the provider`);
     return {
       provider,
       ok: false,
       reason: 'network',
-      message: aborted
-        ? `no response within ${TIMEOUT_MS}ms`
-        : redact(err instanceof Error ? err.message : String(err)).slice(0, 200),
+      message: aborted ? `no response within ${TIMEOUT_MS}ms` : 'Could not reach the provider',
     };
   } finally {
     clearTimeout(timer);
@@ -179,11 +188,11 @@ export function describeValidation(r: ValidationResult): string {
     case 'accepted':
       return `${r.provider}: key accepted${where}`;
     case 'rate-limited':
-      return `${r.provider}: key accepted${where} — rate limited, so quota is exhausted but the key is valid`;
+      return `${r.provider}: check rate limited${where} — try again; the key was not verified`;
     case 'rejected':
       return `${r.provider}: key rejected${where} — ${r.message ?? 'HTTP 401'}`;
     case 'forbidden':
-      return `${r.provider}: key authenticated${where} but lacks permission — ${r.message ?? 'HTTP 403'}`;
+      return `${r.provider}: metadata check refused${where}; check permissions — ${r.message ?? 'HTTP 403'}`;
     case 'server-error':
       return `${r.provider}: provider returned ${r.status ?? '5xx'} — try again later, this says nothing about the key`;
     case 'network':

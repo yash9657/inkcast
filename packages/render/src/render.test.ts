@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -92,7 +92,17 @@ test('renders a 2 second storyboard to a real mp4', { skip: SKIP, timeout: 300_0
   const thumb = await stat(result.thumbnailPath);
   assert.ok(thumb.size > 5000, `thumbnail should be a real frame, got ${thumb.size} bytes`);
 
-  assert.ok(!existsSync(path.join(dir, 'frames')), 'segment scratch files are cleaned up');
+  // The segment directory survives on purpose since plan 7.1 — it *is* the cache, and
+  // deleting it on success would mean only a failed render ever left anything to reuse.
+  // What must not survive is scratch: a `.part-*` is a half-written mp4 and the next run
+  // would have no way to tell it from a finished one.
+  const segDir = path.join(dir, 'frames');
+  const kept = await readdir(segDir);
+  assert.ok(
+    kept.some((f) => f.startsWith('seg-') && f.endsWith('.mp4')),
+    'the encoded segments are kept for the next render to reuse',
+  );
+  assert.ok(!kept.some((f) => f.startsWith('.part-')), 'no half-written segment is left behind');
   assert.equal(seen.at(-1)?.pct, 100);
   assert.ok(
     seen.some((p) => (p.note ?? '').startsWith('frame ')),

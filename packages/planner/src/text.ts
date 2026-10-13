@@ -37,13 +37,31 @@ const ABBREVIATIONS = [
   'Sr.',
 ];
 
-/** Collapse whitespace, normalise quotes and dashes. */
-export function normalizeWhitespace(s: string): string {
+/**
+ * The half of `normalizeWhitespace` that a listing survives.
+ *
+ * Line endings, non-breaking spaces and smart quotes — substitutions that swap a character
+ * for the character it stands for, and never change how many there are. Split out because
+ * `parseBlocks` has to normalise a document *without* normalising the fenced blocks inside
+ * it (plan item 6.2): a code block's leading spaces are its block structure, and collapsing
+ * them deleted the one thing the code lane exists to preserve — before the lane ever saw it.
+ */
+export function normalizeChars(s: string): string {
   return s
     .replace(/\r\n?/g, '\n')
-    .replace(/ /g, ' ')
+    .replace(/\u00a0/g, ' ')
     .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
+    .replace(/[“”]/g, '"');
+}
+
+/** Runs of spaces and tabs collapsed to one, and the ends trimmed. Prose only. */
+export function collapseSpaces(s: string): string {
+  return s.replace(/[ \t]+/g, ' ').trim();
+}
+
+/** Collapse whitespace, normalise quotes and dashes. */
+export function normalizeWhitespace(s: string): string {
+  return normalizeChars(s)
     .replace(/[ \t]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .trim();
@@ -176,9 +194,70 @@ export function keyTerms(s: string, limit = 8): string[] {
 /**
  * Words that cannot end a phrase, because they promise a next word that is not
  * coming. Dropping them is what turns a cut into an ending.
+ *
+ * The added prepositions, auxiliaries and determiners are the ones the first
+ * version happened not to hit: the list was written from the failures on one
+ * board rather than from the closed classes it is really enumerating, so
+ * "through", "has", "against" and "each" were as danglable as "of" and "is" all
+ * along and simply had not shipped a caption yet.
  */
 const DANGLING =
-  /^(?:the|a|an|and|or|but|of|to|in|on|at|by|for|from|with|into|onto|as|is|are|was|were|be|been|that|which|who|whose|whom|it|its|this|these|those|so|than|then|when|while|where|how|why|if|because|about|over|under|per|via|one|you|your|we|our|they|their|he|she|his|her)$/i;
+  /^(?:the|a|an|and|or|but|nor|of|to|in|on|at|by|for|from|with|within|without|into|onto|unto|upon|through|throughout|across|along|around|against|toward|towards|between|among|amongst|amid|beyond|beneath|below|above|behind|beside|inside|outside|during|before|after|since|until|till|near|atop|as|is|are|was|were|be|been|being|am|has|have|had|do|does|did|can|could|shall|should|will|would|may|might|must|that|which|who|whose|whom|it|its|this|these|those|so|such|than|then|when|whenever|while|whereas|where|wherever|how|why|if|unless|whether|though|although|because|about|over|under|per|via|plus|versus|one|each|every|another|you|your|we|our|they|their|he|she|his|her)$/i;
+
+/**
+ * Words that can only be read as modifiers of a noun that the cut removed.
+ *
+ * Defect 0b shipped as "A charged battery is lithium held on the wrong" — nine
+ * words, `captionWords: 9`, and the tenth word was "side". Every word in that
+ * caption passed `DANGLING`, because "wrong" is not a function word; it is an
+ * adjective, and an adjective left at the end of a cut promises a noun exactly
+ * the way "of" promises an object.
+ *
+ * This list is deliberately narrower than "adjectives", because most adjectives
+ * are perfectly good endings — "the slope is steep", "the gap is empty" — and a
+ * list that trimmed those would turn good captions into stubs. What is in here
+ * is the two classes that cannot stand alone in a noun phrase: attributive-only
+ * modifiers ("mere", "sheer", "own", "same", "other"), and the comparative /
+ * superlative / ordinal degrees, which are always *the something-est thing*.
+ *
+ * "right" and "left" are deliberately absent: "the ball rolls to the right" is a
+ * finished sentence and this list has no way to tell it from "the right answer".
+ * The two guards in `shorten` — a clause word as the first casualty, and a
+ * determiner in front of the adjective — are what keep the rest of the list from
+ * firing on a predicative or adverbial use. Both were found by measurement, not
+ * by reasoning: over the two shipped lessons the unguarded list cut "Measuring
+ * north is easy. The sun climbs higher" back to "…The sun climbs", because
+ * "higher" there modifies the verb and there was no noun coming.
+ */
+const DANGLING_ADJ =
+  /^(?:wrong|whole|entire|main|mere|sheer|utter|own|same|other|various|several|particular|respective|overall|single|only|further|additional|extra|upper|lower|inner|outer|opposite|previous|following|remaining|first|second|third|fourth|fifth|next|last|final|more|most|less|least|better|best|worse|worst|bigger|biggest|smaller|smallest|larger|largest|higher|highest|lowest|longer|longest|shorter|shortest|greater|greatest|faster|fastest|slower|slowest|stronger|strongest|weaker|weakest|deeper|deepest|wider|widest|narrower|narrowest|heavier|heaviest|lighter|lightest|harder|hardest|easier|easiest)$/i;
+
+/**
+ * Words that start a new clause, so the words before them are already finished.
+ *
+ * This is the guard that lets `DANGLING_ADJ` be used at all. "The answer is
+ * wrong because the slope points uphill" cut at "wrong" is a complete thought
+ * whose *next* word begins a new clause; "lithium held on the wrong side" cut at
+ * "wrong" is a noun phrase with its head torn off. The difference is not in the
+ * caption — the two are identical up to the cut — it is in the word that was
+ * dropped, which is why the cut has to look at what it removed and not only at
+ * what it kept.
+ */
+const CLAUSE_HEAD =
+  /^(?:and|or|but|nor|so|because|since|as|although|though|while|whereas|whether|if|unless|until|when|whenever|where|wherever|which|who|whom|whose|that|then|therefore|thus|however|yet|before|after|once|too|also|instead|rather)$/i;
+
+/**
+ * Words that open a noun phrase, so whatever modifier follows them is waiting on
+ * a noun.
+ *
+ * The second guard on `DANGLING_ADJ`, and the one that does most of the work. A
+ * comparative after a determiner or a preposition is attributive — "on the wrong
+ * ‹side›", "made of larger ‹grains›" — while the same word after a verb is
+ * adverbial and finished: "the sun climbs higher", "the ball rolls faster". One
+ * word of left context tells those apart, which no list of adjectives can.
+ */
+const NP_OPENER =
+  /^(?:the|a|an|its|his|her|their|our|your|my|this|that|these|those|each|every|any|no|one|two|three|of|to|in|on|at|by|for|from|with|into|onto|than|as|very|much|even|still|next)$/i;
 
 /**
  * Shorten a phrase to at most `max` words, preferring to cut at a natural break.
@@ -195,6 +274,28 @@ const DANGLING =
  * dangle ("…is the one knob you" → "…is the one knob"). Only if that eats the
  * phrase down to nothing do we fall back to the plain word cut, which is at worst
  * a terse label rather than an unkept promise.
+ *
+ * Retreating to the previous phrase boundary is *preferred* to emitting a
+ * dangling word: dropping the dangling tail is that retreat, and it drops the
+ * whole phrase rather than two thirds of it — "on the wrong side of a gap" goes
+ * entirely, because a phrase is the unit that reads as finished, not a word
+ * count.
+ *
+ * The punctuation break is still the *first* one that fits and not the last, and
+ * that is a deliberate restraint rather than an oversight. Taking the last break
+ * in range keeps more of the sentence and reads no worse — measured over the two
+ * shipped lessons it improves six captions, e.g. "Nothing tells you how far to
+ * go" becoming "…, only which way" — but it also rewrites captions that had no
+ * defect, and all four pinned storyboard hashes move for cuts that were never
+ * broken. Defect 0b is a caption that ends mid-phrase; picking a later boundary
+ * is a different change, worth making on its own with its own re-pinning.
+ *
+ * The shipped failure this was extended for is defect 0b: "A charged battery is
+ * lithium held on the wrong", from `A charged battery is lithium held on the
+ * wrong side.` at `captionWords: 9`. Nothing in the old list matched "wrong", so
+ * the cut emitted it and the board promised a noun it never wrote. See
+ * `DANGLING_ADJ` for why the fix is a narrow list and two guards rather than
+ * "trim adjectives".
  */
 export function shorten(s: string, max: number): string {
   const clean = stripMarkdown(s)
@@ -208,9 +309,77 @@ export function shorten(s: string, max: number): string {
     const head = clean.slice(0, cut).trim();
     if (wordCount(head) <= max && wordCount(head) >= Math.min(2, max)) return head;
   }
-  const tokens = clean.split(/\s+/).slice(0, max);
-  while (tokens.length > 1 && DANGLING.test(tokens[tokens.length - 1] as string)) tokens.pop();
-  return tokens.join(' ').replace(/[,;:.\-–—]+$/, '');
+  const tokens = clean.split(/\s+/);
+  const kept = tokens.slice(0, max);
+  // The first word the budget cut off, which is the only evidence available about
+  // whether the cut landed inside a phrase or between two of them. A trailing
+  // adjective is trimmed only in the first case; see `CLAUSE_HEAD`. Punctuation
+  // needs no guard here because both lists are anchored, so a token that carries
+  // a comma or a full stop matches neither and stops the loop on its own.
+  const casualty = (tokens[max] ?? '').replace(/^[^\p{L}\p{N}]+/u, '');
+  const midPhrase = casualty !== '' && !CLAUSE_HEAD.test(casualty);
+  return unpaired(trimDangling(kept, midPhrase), casualty)
+    .join(' ')
+    .replace(/[,;:.\-–—]+$/, '');
+}
+
+/**
+ * Trim words off the end of a cut that promise a word the cut removed.
+ *
+ * Shared by both shorteners, because "how do you finish a cut" is one question:
+ * `DANGLING` is the closed classes (a determiner, a preposition, an auxiliary) and
+ * `DANGLING_ADJ` — guarded, see its own note — is the attributive-only modifiers.
+ */
+function trimDangling(tokens: readonly string[], midPhrase: boolean): string[] {
+  const kept = [...tokens];
+  while (kept.length > 1) {
+    const last = kept[kept.length - 1] as string;
+    const before = kept[kept.length - 2] as string;
+    const adjective = midPhrase && DANGLING_ADJ.test(last) && NP_OPENER.test(before);
+    if (!DANGLING.test(last) && !adjective) break;
+    kept.pop();
+  }
+  return kept;
+}
+
+/**
+ * A correlative whose second half the cut removed, and the words in front of it.
+ *
+ * The defect this closes, from a shipped film: "Falling is a tug of war between a
+ * bigger pull and a bigger inertia" at nine words came out as **"Falling is a tug of
+ * war between bigger pull"**, which QC's frame-vision flagged. Every guard above
+ * passes it — the cut landed on "and", which is a clause head, so the mid-phrase
+ * rule is off; the last kept word is "pull", which is an ordinary noun. Nothing
+ * looking at the *end* of the caption can see the problem, because the problem is
+ * "between", six words earlier, still waiting for its second object.
+ *
+ * So this looks at the one thing that identifies the case exactly: the cut fell on a
+ * coordinator, and the retained words open a correlative that coordinator was going
+ * to close. `between … and`, `either … or`, `neither … nor`, `from … to`. The head
+ * is re-cut in front of the opener, which is the last place the phrase was finished.
+ *
+ * Deliberately narrow. "a difference between two places" cut after "two" is not this
+ * — its casualty is a noun, not a coordinator — and firing there would shorten a
+ * caption that reads perfectly well.
+ */
+const CORRELATIVE = /^(?:between|either|neither|from)$/i;
+const COORDINATOR = /^(?:and|or|nor|to)$/i;
+
+function unpaired(kept: readonly string[], casualty: string): string[] {
+  if (!COORDINATOR.test(casualty)) return [...kept];
+  const bare = (t: string): string => t.replace(/[^\p{L}\p{N}'-]/gu, '');
+  for (let i = kept.length - 1; i > 0; i--) {
+    if (!CORRELATIVE.test(bare(kept[i] as string))) continue;
+    // Already closed inside the caption — "between A and B, between C" — so the
+    // opener this cut orphaned is not this one.
+    if (kept.slice(i + 1).some((t) => COORDINATOR.test(bare(t)))) return [...kept];
+    // Never down to a stub. A correlative that opens the phrase — "Either the ball
+    // speeds up **or** …" — has nothing in front of it to fall back to, and one word
+    // is not a caption. The broken cut is the better of the two bad answers there.
+    const head = trimDangling(kept.slice(0, i), true);
+    return head.length >= 2 ? head : [...kept];
+  }
+  return [...kept];
 }
 
 /** Longest common word overlap ratio, for matching a term to narration. */
