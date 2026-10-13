@@ -366,6 +366,9 @@ function packDirs(): string[] {
     path.resolve(here, '../../../styles'), // src/ → repo root
     path.resolve(here, '../../../../styles'), // dist/src/ → repo root
     path.resolve(process.cwd(), 'styles'),
+    // A Next app run from apps/web (Vercel Functions: /var/task/apps/web), where
+    // the bundler has moved `here` and the traced `styles/` sits at the repo root.
+    path.resolve(process.cwd(), '../../styles'),
   ].filter((p): p is string => !!p);
 }
 
