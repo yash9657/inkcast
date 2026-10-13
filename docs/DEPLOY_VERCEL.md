@@ -379,8 +379,11 @@ its system libraries, is 340 MB (VCR limit: 500 MB per layer).
   Active CPU at Performance size for the render's duration; Blob for storage,
   operations (measured: 44 writes and ~160 reads per film, mostly progress) and
   transfer of each view.
-- **Account keys are written per instance order only.** Two saves of different
-  providers by one account at the same instant on two instances can race (last
-  write wins); re-saving fixes it. Same-instance saves are serialised.
+- **Account key and ownership writes use conditional Blob updates.** First writes
+  refuse overwrites; subsequent mutations use ETags and retry the full mutation
+  after a conflict. Corrupted records fail closed. Job admission uses the same
+  conditional write so concurrent Functions cannot start the same film twice.
+  Credentials are resolved again after a busy-renderer retry; an admitted run
+  retains its initial credential snapshot.
 - **Filesystem server paths are refused with accounts on** (`filePath` → 403,
   upstream behaviour); pasted text, URLs and uploads ≤ 4 MB work.

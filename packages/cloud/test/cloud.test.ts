@@ -136,3 +136,56 @@ test('a busy instance is a retryable error, a dead stream is not a success', asy
     await dies.close();
   }
 });
+
+test('render dispatch refuses redirects instead of replaying credentials', async () => {
+  let received = 0;
+  const target = await serve((_req, res) => {
+    received++;
+    res.end();
+  });
+  const redirect = await serve((_req, res) => {
+    res.writeHead(307, { location: target.url }).end();
+  });
+  try {
+    await assert.rejects(
+      callRenderService(
+        redirect.url,
+        'dispatch-token',
+        {
+          ...request,
+          isolated: true,
+          providerEnv: { FIREWORKS_API_KEY: 'private-account-key' },
+        },
+        () => {},
+      ),
+    );
+    assert.equal(received, 0);
+  } finally {
+    await redirect.close();
+    await target.close();
+  }
+});
+
+test('a render-service HTTP error cannot reflect submitted keys', async () => {
+  const service = await serve((_req, res) => res.writeHead(500).end('private-account-key'));
+  try {
+    await assert.rejects(
+      callRenderService(
+        service.url,
+        'dispatch-token',
+        {
+          ...request,
+          providerEnv: { FIREWORKS_API_KEY: 'private-account-key' },
+        },
+        () => {},
+      ),
+      (error: Error) => {
+        assert.match(error.message, /500/);
+        assert.ok(!error.message.includes('private-account-key'));
+        return true;
+      },
+    );
+  } finally {
+    await service.close();
+  }
+});

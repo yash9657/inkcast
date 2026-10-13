@@ -85,7 +85,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { blobPrefix, blobStorageEnabled, readJson, writeJson } from '@inkcast/cloud';
+import { blobPrefix, blobStorageEnabled, readJson, updateJson } from '@inkcast/cloud';
 
 // Imported for the module side effect as much as for `PROJECTS_DIR`: `lib/store`
 // is the environment bootstrap, and it is what has read the repo-root `.env` into
@@ -734,8 +734,8 @@ async function readFileFor(owner: string, env: NodeJS.ProcessEnv): Promise<Secre
  * Two providers saved at once would otherwise be a read-modify-write race over one
  * file, and the loser's key would vanish with a 200 — the same lost-update shape
  * `projects/index.json` had (PLAN-LAUNCH D4). A promise chain per owner is enough
- * because a Next box is one process; a multi-process deployment would need a lock
- * file, and this comment is where whoever adds the second process should start.
+ * for the single-process filesystem deployment. Blob deployments instead use
+ * `mutateOwner` and conditional writes across instances.
  */
 const writes = new Map<string, Promise<unknown>>();
 
@@ -759,10 +759,7 @@ async function writeFileFor(
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
   if (blobStorageEnabled(env)) {
-    // One small JSON document per account, replaced whole — the same unit the disk
-    // path renames into place. `serialised` still orders this instance's writes.
-    await writeJson(ownerBlob(owner, env), file);
-    return;
+    throw new Error('Blob credential writes require a conditional update');
   }
   const target = ownerFile(owner, env);
   const dir = path.dirname(target);
@@ -789,6 +786,37 @@ async function writeFileFor(
     await rm(temp, { force: true }).catch(() => undefined);
     throw err;
   }
+}
+
+/** Disk uses the local mutex; Blob retries the entire mutation on ETag conflict. */
+async function mutateOwner<T>(
+  owner: string,
+  env: NodeJS.ProcessEnv,
+  mutate: (file: SecretsFile) => T,
+): Promise<T> {
+  if (blobStorageEnabled(env)) {
+    return updateJson(ownerBlob(owner, env), (current) => {
+      let file: SecretsFile;
+      try {
+        file = current === undefined ? empty() : FileSchema.parse(current);
+        if (Object.entries(file.keys).some(([id, record]) => id !== record.provider))
+          throw new Error();
+      } catch {
+        throw new SecretsError(
+          'tampered',
+          'The account key store is damaged; no keys were overwritten.',
+        );
+      }
+      const result = mutate(file);
+      return { value: file, result };
+    });
+  }
+  return serialised(ownerFile(owner, env), async () => {
+    const file = await readFileFor(owner, env);
+    const result = mutate(file);
+    await writeFileFor(owner, file, env);
+    return result;
+  });
 }
 
 /** Every stored credential for one account, as summaries. Unseals nothing. */
@@ -827,11 +855,9 @@ export async function writeOwnerSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<SecretSummary> {
   assertRef(ref);
-  return serialised(ownerFile(ref.owner, env), async () => {
-    const file = await readFileFor(ref.owner, env);
+  return mutateOwner(ref.owner, env, (file) => {
     const sealed = sealSecret(key, ref, env, file.keys[ref.provider]);
     file.keys[ref.provider] = sealed;
-    await writeFileFor(ref.owner, file, env);
     return summarise(sealed);
   });
 }
@@ -842,11 +868,9 @@ export async function deleteOwnerSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   assertRef(ref);
-  return serialised(ownerFile(ref.owner, env), async () => {
-    const file = await readFileFor(ref.owner, env);
+  return mutateOwner(ref.owner, env, (file) => {
     if (file.keys[ref.provider] === undefined) return false;
     delete file.keys[ref.provider];
-    await writeFileFor(ref.owner, file, env);
     return true;
   });
 }
@@ -859,13 +883,11 @@ export async function markOwnerSecretValidated(
   checkedKey?: string,
 ): Promise<void> {
   assertRef(ref);
-  await serialised(ownerFile(ref.owner, env), async () => {
-    const file = await readFileFor(ref.owner, env);
+  await mutateOwner(ref.owner, env, (file) => {
     const sealed = file.keys[ref.provider];
     if (sealed === undefined) return;
     if (checkedKey !== undefined && openSecret(sealed, ref, env) !== checkedKey) return;
     file.keys[ref.provider] = { ...sealed, validatedAt: new Date().toISOString(), validatedOk: ok };
-    await writeFileFor(ref.owner, file, env);
   });
 }
 

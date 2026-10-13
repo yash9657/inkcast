@@ -117,11 +117,14 @@ test('progress streams to the caller, and a second film on a busy instance is re
 
 test('a runner that throws still ends the stream with an error line', async () => {
   const s = await start(async () => {
-    throw new Error('ffmpeg exploded');
+    throw new Error('provider reflected secret-do-not-disclose');
   });
   try {
     const terminal = await callRenderService(s.url, TOKEN, request, () => {});
-    assert.deepEqual(terminal, { type: 'error', failure: { error: 'ffmpeg exploded' } });
+    assert.deepEqual(terminal, {
+      type: 'error',
+      failure: { error: 'The render failed unexpectedly. Check the service configuration.' },
+    });
   } finally {
     await s.close();
   }

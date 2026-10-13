@@ -35,25 +35,42 @@ export const RenderInputSchema = z
   })
   .strict();
 
-export const RenderRequestSchema = z.object({
-  projectId: z.string().refine(isValidId, 'not a valid project id'),
-  blobPrefix: z.string().refine(isValidBlobPrefix, 'not a valid blob prefix'),
-  kind: z.literal('cast'),
-  input: RenderInputSchema,
-  force: z.boolean().optional(),
-  /**
-   * The provider environment the pipeline runs inside: keys and provider/model
-   * settings, resolved by the studio for this request (an account's own keys when
-   * accounts are on). Used for this run only — never written to Blob or logged.
-   */
-  providerEnv: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string()).optional(),
-  /**
-   * True when the studio runs with per-account keys: the render service must then
-   * use `providerEnv` as the complete provider environment and never fall back to
-   * keys in its own environment (the account-isolation rule in apps/web/lib/keys.ts).
-   */
-  isolated: z.boolean().optional(),
-});
+export const RenderRequestSchema = z
+  .object({
+    projectId: z.string().refine(isValidId, 'not a valid project id'),
+    blobPrefix: z.string().refine(isValidBlobPrefix, 'not a valid blob prefix'),
+    kind: z.literal('cast'),
+    input: RenderInputSchema,
+    force: z.boolean().optional(),
+    /**
+     * The provider environment the pipeline runs inside: keys and provider/model
+     * settings, resolved by the studio for this request (an account's own keys when
+     * accounts are on). Used for this run only — never written to Blob or logged.
+     */
+    providerEnv: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string()).optional(),
+    /**
+     * True when the studio runs with per-account keys: the render service must then
+     * use `providerEnv` as the complete provider environment and never fall back to
+     * keys in its own environment (the account-isolation rule in apps/web/lib/keys.ts).
+     */
+    isolated: z.boolean().optional(),
+  })
+  .superRefine((request, ctx) => {
+    if (request.isolated && !request.providerEnv) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['providerEnv'],
+        message: 'isolated runs require a credential scope',
+      });
+    }
+    if (request.isolated && request.input.repoPath !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['input', 'repoPath'],
+        message: 'account runs cannot read server files',
+      });
+    }
+  });
 
 export type RenderInput = z.infer<typeof RenderInputSchema>;
 export type RenderRequest = z.infer<typeof RenderRequestSchema>;
@@ -115,6 +132,8 @@ export async function callRenderService(
       ...(options.bypassToken ? { 'x-vercel-protection-bypass': options.bypassToken } : {}),
     },
     body: JSON.stringify(request),
+    // A redirect must never replay provider keys to a different server.
+    redirect: 'error',
     ...(options.signal ? { signal: options.signal } : {}),
   });
   if (response.status === 503) {
@@ -122,8 +141,9 @@ export async function callRenderService(
     throw new RenderServiceBusy();
   }
   if (!response.ok || !response.body) {
-    const detail = (await response.text().catch(() => '')).slice(0, 300);
-    throw new Error(`the render service answered ${response.status}${detail ? `: ${detail}` : ''}`);
+    // An upstream/proxy error may reflect the submitted credential-bearing body.
+    await response.body?.cancel();
+    throw new Error(`the render service answered ${response.status}`);
   }
 
   const decoder = new TextDecoder();

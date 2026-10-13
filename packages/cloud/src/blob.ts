@@ -27,17 +27,20 @@ export type JsonRead = { value: unknown; etag: string };
  *
  * `useCache: false` matters: `job.json` and `meta.json` are overwritten in place,
  * and a CDN-cached copy would show a progress bar a minute behind the render.
- * Returns `undefined` when the blob does not exist or is not JSON.
+ * Returns `undefined` only when the blob does not exist. Damaged records fail
+ * closed, so a caller cannot overwrite credentials or ownership as if absent.
  */
 export async function readJson(pathname: string): Promise<JsonRead | undefined> {
   const { get } = await blob();
   const result = await get(pathname, { access: blobAccess(), useCache: false });
-  if (!result || result.statusCode !== 200) return undefined;
+  if (!result) return undefined;
+  if (result.statusCode !== 200) throw new Error('Stored JSON could not be read');
+  if (!result.blob.etag) throw new Error('Stored JSON has no concurrency token');
   const text = await new Response(result.stream).text();
   try {
     return { value: JSON.parse(text) as unknown, etag: result.blob.etag };
   } catch {
-    return undefined;
+    throw new Error('Stored JSON is damaged');
   }
 }
 
@@ -51,17 +54,42 @@ export async function readJson(pathname: string): Promise<JsonRead | undefined> 
 export async function writeJson(
   pathname: string,
   value: unknown,
-  options: { ifMatch?: string } = {},
+  options: { ifMatch?: string; createOnly?: boolean } = {},
 ): Promise<void> {
   const { put } = await blob();
   await put(pathname, `${JSON.stringify(value, null, 2)}\n`, {
     access: blobAccess(),
     addRandomSuffix: false,
-    allowOverwrite: true,
+    allowOverwrite: !options.createOnly,
     contentType: 'application/json; charset=utf-8',
     cacheControlMaxAge: MIN_CACHE_SEC,
     ...(options.ifMatch === undefined ? {} : { ifMatch: options.ifMatch }),
   });
+}
+
+/** Cross-instance read/modify/write, including an atomic first creation. */
+export async function updateJson<T>(
+  pathname: string,
+  update: (current: unknown | undefined) => { value?: unknown; result: T },
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const current = await readJson(pathname);
+    const next = update(current?.value);
+    if (next.value === undefined) return next.result;
+    try {
+      await writeJson(
+        pathname,
+        next.value,
+        current ? { ifMatch: current.etag } : { createOnly: true },
+      );
+      return next.result;
+    } catch (err) {
+      if (attempt >= 4) throw err;
+      // A create-only conflict has no dedicated SDK error class. Re-read it:
+      // retry only when a competing writer actually created the document.
+      if (current ? !(await isPreconditionFailed(err)) : !(await readJson(pathname))) throw err;
+    }
+  }
 }
 
 /** True when `err` is the SDK's "someone else wrote first" error. */
