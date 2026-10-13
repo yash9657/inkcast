@@ -324,6 +324,22 @@ keyed lesson) while ElevenLabs replaces most of Kokoro's 83 s — **roughly
 `[render-service] <id> cast finished: …` in the render project's logs prints the
 per-stage seconds for every film, which is the number to watch.
 
+**Voice after the continuous-narration merge (2e2f5b7).** Kokoro now speaks one
+scene paragraph per call instead of one sentence per call. Measured on an M4 Pro
+with the same inputs before (a4f4fa4) and after (3114da2), this is **not slower**:
+photosynthesis/explainer, voice 141 s → 132 s in the amd64 (Rosetta) image at
+`--cpus 2 --memory 4g`, 50 s natively in the arm64 image; four more inputs run
+natively were within ±1 s. Kokoro's cost is linear in the text (340 characters as
+one call ≈ the same four sentences called separately), and Whisper still aligns
+each scene once. Two things to know: a Kokoro call blocks the event loop for its
+whole duration (up to ~20 s per scene in the emulated image), so progress and
+heartbeat writes pause while it runs. A host starved far below two real cores can
+therefore exceed the 3-minute stale threshold (`STALE_AFTER_MS`) mid-scene. If
+that ever happens, `INKCAST_VOICE_UNIT=sentence` restores the old
+sentence-per-call unit (shorter blocking calls, choppier delivery); `clause` and
+`paragraph` are also accepted. Each scene's synthesis time is logged at `info`
+(`scene 2/8: … in 10.3s (paragraph)`).
+
 Memory: 2.7 GB peak including page cache, so two capture workers leave ~1.3 GB of
 headroom on 4 GB. Do not raise `INKCAST_RENDER_WORKERS` above 2 on this size: there
 are only two vCPUs to feed, and memory is the first thing a third worker spends.

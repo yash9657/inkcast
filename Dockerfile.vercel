@@ -73,6 +73,9 @@ ENV NODE_ENV=production \
     INKCAST_PROJECTS=/tmp/inkcast/projects \
     INKCAST_HOME=/tmp/inkcast/state \
     INKCAST_LOG=info
+# INKCAST_VOICE_UNIT is deliberately unset: Kokoro speaks a scene paragraph per call,
+# measured no slower than sentence-per-call. Set it to `sentence` only as an escape
+# hatch (see docs/DEPLOY_VERCEL.md, Measured).
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini \
