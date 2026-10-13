@@ -1,324 +1,110 @@
-/* ==========================================================================
-   Inkcast — the design system.
-
-   This file is the ONLY place a colour, type step, radius, shadow or motion
-   curve is defined. Tailwind v4 is configured CSS-first: there is no
-   `tailwind.config.js` and there must never be one.
-
-   Read docs/DESIGN.md before adding anything here. Two rules matter most:
-
-   1. Tailwind's stock colour palette is deliberately DELETED below
-      (`--color-*: initial`). `bg-zinc-800`, `text-red-500`, `border-slate-200`
-      and friends do not exist in this app. Use the semantic tokens. If a class
-      silently does nothing, that is why — and the fix is a token, not a hex.
-   2. Components never contain a `dark:` variant of their own. Both themes are
-      defined once, here, at the token layer.
-
-   2026-08-21 — the values below were replaced wholesale (plan item C1). The
-   architecture is unchanged; the look is not. We moved from a soft, layered,
-   warm-grey system to a neo-brutalist one: paper, a 24px dot grid, near-black
-   ink, ONE hot accent, 1px ink borders, hard zero-blur offset shadows, and a
-   radius ladder that is flat all the way down. Anything that reads as "gentle
-   SaaS" — a 4-layer ambient shadow, a 10px corner, a hairline grey border —
-   was the previous system and is gone on purpose. Do not reintroduce it one
-   component at a time.
-   ========================================================================== */
+/* Inkcast design system — semantic tokens shared by every route. See docs/DESIGN.md. */
 
 @import 'tailwindcss' source(none);
 @import 'tw-animate-css';
-
-/* Explicit scan roots: everything under apps/web, minus what .gitignore
-   already excludes (node_modules, .next). Deterministic and fast. */
 @source '../';
-
-/* next-themes is configured with attribute={['class', 'data-theme']}, so both
-   selectors are honoured. `data-theme` also lets CSS-only surfaces (the render
-   preview page) force a theme without React. */
 @custom-variant dark (&:where(.dark, .dark *, [data-theme='dark'], [data-theme='dark'] *));
-
-/* ==========================================================================
-   1. RAW TOKEN VALUES
-   Every value is OKLCH. Every value below was contrast-checked in both themes
-   by converting OKLCH -> linear sRGB -> WCAG 2.1 relative luminance: body text
-   >= 4.5:1, large text and UI chrome >= 3:1, and each *-foreground pair
-   >= 4.5:1 against its own surface. The measured ratios are quoted inline; the
-   worst case in either theme is 5.25:1 (warning-foreground on warning), and
-   every non-decorative pair clears its bar with margin.
-
-   Hue anchors:
-     accent    277      "cast violet". The same 275-277 family the product has
-                        always used, but punched from chroma 0.205 to 0.23 so
-                        it survives being used as a flat fill next to pure ink.
-                        oklch(0.51 0.23 277) resolves to #4F46E5 — note that
-                        docs/PLAN-LAUNCH.md C1 writes the target as "#5B45E0",
-                        which is actually oklch(0.513 0.223 282). We follow the
-                        OKLCH value, not the hex approximation, because OKLCH is
-                        the authoritative form in this file.
-     neutral    95      light theme: paper. The product draws on a whiteboard;
-                        the chrome is the paper the whiteboard is made of. Almost
-                        no chroma, warm side of neutral, so #FFFEFB rather than
-                        a screen white.
-     neutral   285      ink, and the dark theme's whole ramp. COLDER than the
-                        warm 75 the previous system used for greys: against a
-                        hot violet accent a warm grey reads as dirty, and the
-                        brutalist reference is a blue-black, not a sepia.
-     yellow     95      the second, hand-only accent — highlighter. It exists
-                        for ONE job (the marker underline in ink.tsx) and is not
-                        a status colour, not a chart colour, and not a surface.
-   ========================================================================== */
-
 :root {
   color-scheme: light;
-
-  /* -- surfaces --------------------------------------------------------- */
-  --background: oklch(0.995 0.004 95); /* #FEFDFA — paper */
-  --foreground: oklch(0.17 0.01 285); /* #0F0F14 — ink, 18.87:1 on paper */
-
-  /* Cards sit ABOVE the background: pure white against warm off-white. In the
-     previous system that 1.4% lightness step plus a hairline border WAS the
-     elevation story. It is not any more — a card is now white paper with a 1px
-     ink border and a hard 6px offset shadow. The lightness step survives
-     because it still separates a card from the dot grid behind it. */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.17 0.01 285); /* 19.14:1 */
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.17 0.01 285); /* 19.14:1 */
-
-  /* -- text and quiet surfaces ------------------------------------------ */
-  --muted: oklch(0.965 0.004 285); /* #F3F3F6 */
-  --muted-foreground: oklch(0.47 0.016 285); /* 6.75:1 on bg, 6.18:1 on muted */
-
-  /* -- lines ------------------------------------------------------------ *
-   * THE BIGGEST BEHAVIOURAL CHANGE IN THIS FILE. `--border` used to be a
-   * hairline grey (oklch(0.916 0.0055 75), ~1.4:1). It is now ink. The base
-   * layer applies `border-color: var(--color-border)` to every element, so
-   * every `border`, `border-b` and `border-border` in the app becomes a 1px
-   * solid black rule. That is the design target ("1px solid ink on every
-   * card/input"), not an accident.
-   *
-   * `--border-subtle` is new, and is the escape hatch for the places where a
-   * full ink rule is a bar rather than a line: separators inside a card,
-   * table row dividers, the inside edges of a segmented control. Reach for it
-   * deliberately; the default is ink. */
-  --border: oklch(0.17 0.01 285); /* 18.87:1 on bg */
-  --border-subtle: oklch(0.885 0.004 285); /* 1.41:1 on card — a line, not a rule */
-
-  /* A control edge is the same ink as a card edge now. The old rule ("stronger
-     than --border: a control edge must read as interactive") no longer needs a
-     separate value, but the token stays because 14 call sites say
-     `border-input` and because keeping the role named means we can diverge
-     again without a rename. */
-  --input: oklch(0.17 0.01 285);
-
-  /* Filled control tracks — switch bed, scrollbar thumb, drawer grab handle.
-     These used `bg-input` when `--input` was a mid grey; with `--input` at full
-     ink an "off" switch would be a solid black pill, which reads as ON. New
-     token, and the three call sites are listed in docs/DESIGN.md. */
-  --track: oklch(0.885 0.005 285);
-
-  /* -- accent (the one saturated hue) ----------------------------------- *
-   * `--primary` and `--accent-strong` are the same colour on purpose:
-   * `--primary` is the shadcn/Base-UI slot every existing component already
-   * targets, and `--accent-strong` is the name the brutalist rules read
-   * naturally in ("an accent-filled block with an ink border").
-   *
-   * `--accent` itself stays what it has always been in this codebase: a tinted
-   * INTERACTION surface (hover, highlighted menu item, selected row), never a
-   * page background and never a flat fill. It could not be repurposed as the
-   * hot accent, because five call sites paint it at partial alpha
-   * (`bg-accent/30`, `/40`, `/50`) with `--foreground` text on top; turning it
-   * saturated would drop those below 4.5:1, and one of them
-   * (components/studio/generation-view.tsx:167) is owned by another workflow
-   * and could not be fixed here. So `--accent` is now the violet-tinted wash
-   * that `--accent-soft` describes in alpha terms, and the solid is
-   * `--primary` / `--accent-strong`. */
-  --primary: oklch(0.51 0.23 277); /* #4F46E5 — 6.22:1 on bg */
-  --primary-foreground: oklch(0.99 0.005 277); /* 6.12:1 on primary */
-  --ring: oklch(0.51 0.23 277); /* 6.22:1 on bg */
-
-  --accent: oklch(0.955 0.016 277); /* opaque twin of an 8% violet wash */
-  --accent-foreground: oklch(0.3 0.14 277); /* 12.51:1 on accent */
-  --accent-strong: oklch(0.51 0.23 277); /* alias of --primary */
-
-  /* The two derivatives the reference system builds everything from: an 8%
-     wash and a 28% border. Translucent on purpose — they compose over card,
-     popover and paper alike without three variants each. `--foreground` on
-     `--accent-soft` measures 17.60:1 over paper and 17.85:1 over card. */
-  --accent-soft: oklch(0.51 0.23 277 / 0.08);
-  --accent-border: oklch(0.51 0.23 277 / 0.28);
-
-  /* -- the second, hand-only accent ------------------------------------- *
-   * Highlighter yellow. This is a MARKER colour, not a UI colour: it is for the
-   * hand-drawn underline in components/ui/ink.tsx and the wordmark's flourish,
-   * and nothing else. It is deliberately too low-contrast (1.33:1 on paper) to
-   * carry information, which is exactly why it must never be a border, a
-   * status, or a text colour on its own. Text set ON it uses
-   * `--highlighter-foreground` (11.53:1). */
-  --highlighter: oklch(0.9 0.16 95); /* #FFDC4C */
+  --brand-canvas: oklch(0.9 0.027 155);
+  --brand-canvas-ink: oklch(0.28 0.045 163);
+  --brand-apricot: oklch(0.88 0.064 65);
+  --brand-apricot-ink: oklch(0.32 0.06 45);
+  --page-width: 76rem;
+  --content-width: 68rem;
+  --background: oklch(0.977 0.009 88);
+  --foreground: oklch(0.245 0.027 160);
+  --card: oklch(0.998 0.003 88);
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --muted: oklch(0.945 0.01 88);
+  --muted-foreground: oklch(0.48 0.019 155);
+  --border: oklch(0.86 0.012 100);
+  --border-subtle: oklch(0.915 0.009 100);
+  --input: oklch(0.64 0.015 150);
+  --track: oklch(0.86 0.016 150);
+  --primary: oklch(0.37 0.075 163);
+  --primary-foreground: oklch(0.99 0.004 100);
+  --ring: var(--primary);
+  --accent: oklch(0.925 0.026 155);
+  --accent-foreground: oklch(0.31 0.063 163);
+  --accent-strong: var(--primary);
+  --accent-soft: oklch(0.37 0.075 163 / 0.07);
+  --accent-border: oklch(0.37 0.075 163 / 0.28);
+  --highlighter: oklch(0.9 0.16 95);
   --highlighter-foreground: oklch(0.26 0.06 95);
-
-  /* -- status ----------------------------------------------------------- *
-   * Darkened from the previous system so each one clears 4.5:1 against its own
-   * near-white foreground when used as a flat fill. In a system where the
-   * primary action is a flat block, a status colour has to survive the same
-   * treatment. */
-  --destructive: oklch(0.53 0.215 25); /* 5.83:1 on bg */
-  --destructive-foreground: oklch(0.99 0.006 25); /* 5.72:1 on destructive */
-  --success: oklch(0.5 0.135 152); /* 5.53:1 on bg */
-  --success-foreground: oklch(0.99 0.008 152); /* 5.47:1 on success */
-  --warning: oklch(0.53 0.14 72); /* 5.33:1 on bg */
-  --warning-foreground: oklch(0.99 0.008 72); /* 5.25:1 on warning — worst pair */
-
-  /* -- secondary (a neutral button surface, not a second accent) -------- *
-   * Kept a hair below `--card` rather than promoted to white, so a bare
-   * `bg-secondary` with no border is still a visible block. The brutalist
-   * secondary button is paper fill + ink border + `shadow-card`; the border is
-   * the component's job, and this value means the component is not broken
-   * until it grows one. */
-  --secondary: oklch(0.975 0.004 285);
-  --secondary-foreground: oklch(0.22 0.012 285); /* 16.12:1 on secondary */
-
-  /* -- the dot grid ----------------------------------------------------- *
-   * The paper's texture, and the one piece of ornament the system allows. A 1px
-   * dot every 24px, at 1.41:1 against the paper — visible as a field, invisible
-   * as individual marks, and it lands on the same 4px spacing base
-   * (24 = 6 x 4) so a grid dot never sits half a pixel off a padded edge. */
+  --destructive: oklch(0.53 0.215 25);
+  --destructive-foreground: oklch(0.99 0.006 25);
+  --success: oklch(0.5 0.135 152);
+  --success-foreground: oklch(0.99 0.008 152);
+  --warning: oklch(0.53 0.14 72);
+  --warning-foreground: oklch(0.99 0.008 72);
+  --secondary: oklch(0.94 0.012 95);
+  --secondary-foreground: var(--foreground);
   --grid-dot: oklch(0.88 0.005 95);
   --grid-size: 24px;
-
-  /* -- categorical chart ramp (perceptually even, hue-spaced) ----------- */
-  --chart-1: oklch(0.51 0.23 277);
+  --chart-1: var(--primary);
   --chart-2: oklch(0.56 0.14 200);
   --chart-3: oklch(0.55 0.14 152);
   --chart-4: oklch(0.68 0.16 82);
   --chart-5: oklch(0.55 0.2 25);
-
-  /* -- ink: the whiteboard's own palette, for UI that quotes the canvas --
-     `--paper` and `--ink` are now the renderer's exact values, converted from
-     the hexes in packages/render/src/palette.ts (paper #fcfbf9, ink #1b232e),
-     so `bg-paper`/`text-ink` on a mini-board preview is the same colour a real
-     frame renders.
-
-     HONEST NOTE, because the previous comment overclaimed: the five chromatic
-     `--ink-*` tokens do NOT mirror the renderer. The renderer's COLOR palette
-     has exactly two marker colours — accent #2f6fed (oklch(0.574 0.202 262),
-     a blue) and contrast #c2410c (oklch(0.553 0.174 38), a burnt orange) — and
-     no violet at all. docs/PLAN-LAUNCH.md C1 claims cast violet "keeps brand
-     continuity with the whiteboard's --ink-violet so chips still match
-     strokes"; the truth is that --ink-violet (hue 292) matches neither the new
-     accent (277) nor anything the renderer draws. The five hues are kept as a
-     hue-separated ramp because that is what mini-board.tsx actually needs — a
-     legible five-stroke preview — and aligning two of them to 262/277 would
-     collapse them into each other. Closing the real gap means giving the
-     renderer more hues (plan item A4.4), which lives in packages/. */
-  --paper: oklch(0.988 0.003 85); /* = #fcfbf9, render palette */
-  --ink: oklch(0.2535 0.024 256); /* = #1b232e, render palette */
+  --paper: oklch(0.988 0.003 85);
+  --ink: oklch(0.2535 0.024 256);
   --ink-blue: oklch(0.55 0.16 250);
   --ink-red: oklch(0.575 0.19 22);
   --ink-green: oklch(0.545 0.13 152);
   --ink-amber: oklch(0.665 0.14 72);
   --ink-violet: oklch(0.55 0.19 292);
-
-  /* -- elevation -------------------------------------------------------- *
-   * HARD, ZERO-BLUR, OFFSET. The five-step soft ladder that used to live here
-   * (each step adding a wider, more diffuse layer tinted toward the neutral
-   * hue) is deleted. It was a good ambient-depth system and it is the wrong
-   * one: an offset shadow with no blur does not simulate light, it states that
-   * one flat plane is in front of another, which is the entire idea here.
-   *
-   * There are three, and there is no fourth:
-   *   card    resting surfaces — cards, inputs, tiles, secondary buttons.
-   *   pop     the primary action and the one hero frame per page. Accent
-   *           coloured, so the shadow is brand rather than dirt.
-   *   overlay things that float over the page — dropdowns, dialogs, drawers,
-   *           toasts, tooltips. Deeper offset, still black: an accent-coloured
-   *           shadow on a menu is a distraction, not a signal.
-   *
-   * The press affordance is NOT a fourth shadow: a button collapses to
-   * `--shadow-none` and translates 2px on `:active`, so it visibly moves down
-   * onto the page. That belongs in the component, not here. */
-  --elevation-card: 6px 6px 0 oklch(0 0 0 / 0.12);
-  --elevation-pop: 10px 10px 0 var(--primary);
-  --elevation-overlay: 10px 10px 0 oklch(0 0 0 / 0.16);
-
-  /* A pressed/inset well, for toggled segments and code blocks. Survives the
-     rewrite unchanged: a well is a hole in the paper, not a plane above it, so
-     a soft inset is still the honest description. */
+  --elevation-card: 0 2px 8px oklch(0.2 0.03 160 / 0.04);
+  --elevation-pop: 0 10px 32px oklch(0.2 0.03 160 / 0.09);
+  --elevation-overlay: 0 16px 48px oklch(0.2 0.03 160 / 0.16);
   --elevation-inset: inset 0 1px 2px 0 oklch(0.24 0.03 285 / 0.07);
 }
-
 .dark,
 [data-theme='dark'] {
   color-scheme: dark;
-
-  --background: oklch(0.16 0.01 285); /* #0D0D11 — ink paper */
-  --foreground: oklch(0.955 0.008 285); /* 17.02:1 */
-
-  /* In the previous system dark-mode elevation was LIGHTNESS, because a soft
-     shadow on a dark surface is invisible. That is still true of soft shadows
-     and irrelevant to hard ones: a 6px black offset reads perfectly well on
-     ink paper. The lightness steps stay anyway — they separate stacked
-     surfaces when a shadow is clipped by an overflow boundary. */
-  --card: oklch(0.198 0.012 285);
-  --card-foreground: oklch(0.955 0.008 285); /* 15.95:1 */
-  --popover: oklch(0.222 0.013 285);
-  --popover-foreground: oklch(0.955 0.008 285);
-
-  --muted: oklch(0.245 0.013 285);
-  --muted-foreground: oklch(0.73 0.016 285); /* 8.10:1 on bg, 6.78:1 on muted */
-
-  /* Inverted, and inverted properly: "1px solid ink on paper" in a dark theme
-     is a 1px solid PAPER line on ink. Pulled to 0.93 rather than the full 0.985
-     of `--foreground` so a border never out-shouts the text it frames. */
-  --border: oklch(0.93 0.006 285); /* ~17.5:1 on card */
-  --border-subtle: oklch(0.32 0.014 285);
-  --input: oklch(0.93 0.006 285);
-  --track: oklch(0.33 0.015 285);
-
-  /* Lifted and slightly desaturated: the same hue at light-mode chroma would
-     glare against a dark field. */
-  --primary: oklch(0.68 0.19 277); /* #7E87FF — 6.29:1 on bg */
-  --primary-foreground: oklch(0.16 0.045 277); /* 6.31:1 on primary */
-  --ring: oklch(0.68 0.19 277);
-
-  --accent: oklch(0.275 0.04 277);
-  --accent-foreground: oklch(0.93 0.03 277); /* 12.10:1 on accent */
-  --accent-strong: oklch(0.68 0.19 277);
-
-  /* The washes are heavier here. 8% of a light violet over near-black is
-     essentially invisible; 12% and 34% land at the same perceived weight the
-     light theme's 8%/28% do. */
-  --accent-soft: oklch(0.68 0.19 277 / 0.12);
-  --accent-border: oklch(0.68 0.19 277 / 0.34);
-
+  --brand-canvas: oklch(0.275 0.035 155);
+  --brand-canvas-ink: oklch(0.9 0.025 155);
+  --brand-apricot: oklch(0.34 0.038 65);
+  --brand-apricot-ink: oklch(0.91 0.04 65);
+  --background: oklch(0.185 0.015 160);
+  --foreground: oklch(0.95 0.012 90);
+  --card: oklch(0.225 0.017 160);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.255 0.02 160);
+  --popover-foreground: var(--foreground);
+  --muted: oklch(0.275 0.016 160);
+  --muted-foreground: oklch(0.74 0.02 145);
+  --border: oklch(0.35 0.02 160);
+  --border-subtle: oklch(0.3 0.018 160);
+  --input: oklch(0.56 0.024 155);
+  --track: oklch(0.38 0.025 160);
+  --primary: oklch(0.79 0.095 155);
+  --primary-foreground: oklch(0.2 0.03 163);
+  --ring: var(--primary);
+  --accent: oklch(0.31 0.038 158);
+  --accent-foreground: oklch(0.9 0.04 155);
+  --accent-strong: var(--primary);
+  --accent-soft: oklch(0.79 0.095 155 / 0.09);
+  --accent-border: oklch(0.79 0.095 155 / 0.3);
   --highlighter: oklch(0.86 0.17 95);
-  --highlighter-foreground: oklch(0.22 0.06 95); /* 11.31:1 on highlighter */
-
-  --destructive: oklch(0.68 0.2 25); /* 6.15:1 on bg */
-  --destructive-foreground: oklch(0.16 0.05 25); /* 6.20:1 */
-  --success: oklch(0.72 0.15 152); /* 8.32:1 on bg */
-  --success-foreground: oklch(0.16 0.04 152); /* 8.27:1 */
-  --warning: oklch(0.79 0.15 75); /* 9.84:1 on bg */
-  --warning-foreground: oklch(0.18 0.04 75); /* 9.55:1 */
-
-  --secondary: oklch(0.255 0.013 285);
-  --secondary-foreground: oklch(0.94 0.008 285); /* 13.24:1 */
-
-  /* 6% white: 2.11:1 against the ink paper. Any denser and the grid starts to
-     look like screen noise on a dark field. */
+  --highlighter-foreground: oklch(0.22 0.06 95);
+  --destructive: oklch(0.68 0.2 25);
+  --destructive-foreground: oklch(0.16 0.05 25);
+  --success: oklch(0.72 0.15 152);
+  --success-foreground: oklch(0.16 0.04 152);
+  --warning: oklch(0.79 0.15 75);
+  --warning-foreground: oklch(0.18 0.04 75);
+  --secondary: oklch(0.28 0.02 160);
+  --secondary-foreground: var(--foreground);
   --grid-dot: oklch(1 0 0 / 0.06);
   --grid-size: 24px;
-
-  --chart-1: oklch(0.68 0.19 277);
+  --chart-1: var(--primary);
   --chart-2: oklch(0.72 0.115 200);
   --chart-3: oklch(0.74 0.13 152);
   --chart-4: oklch(0.8 0.135 82);
   --chart-5: oklch(0.7 0.17 25);
-
-  /* The whiteboard stays a whiteboard in dark mode — the canvas is content,
-     not chrome. Only the chromatic ink brightens so chips stay legible on dark
-     cards; `--paper` and `--ink` hold the renderer's real values in both
-     themes because a rendered frame does not have a dark mode. */
   --paper: oklch(0.988 0.003 85);
   --ink: oklch(0.2535 0.024 256);
   --ink-blue: oklch(0.7 0.145 250);
@@ -326,47 +112,12 @@
   --ink-green: oklch(0.72 0.135 152);
   --ink-amber: oklch(0.8 0.135 72);
   --ink-violet: oklch(0.7 0.17 292);
-
-  /* Deeper alphas, same geometry. There is no inner top highlight any more:
-     that trick existed to give a soft-shadowed surface an edge it could not
-     otherwise show, and every surface here has a 1px border instead. */
-  --elevation-card: 6px 6px 0 oklch(0 0 0 / 0.5);
-  --elevation-pop: 10px 10px 0 var(--primary);
-  --elevation-overlay: 10px 10px 0 oklch(0 0 0 / 0.6);
-
+  --elevation-card: 0 2px 8px oklch(0 0 0 / 0.1);
+  --elevation-pop: 0 10px 32px oklch(0 0 0 / 0.2);
+  --elevation-overlay: 0 16px 48px oklch(0 0 0 / 0.35);
   --elevation-inset: inset 0 1px 2px 0 oklch(0 0 0 / 0.35);
 }
-
-/* ==========================================================================
-   2. THE THEME — type, space, radius, motion, fonts
-   Everything in `@theme` becomes both a CSS custom property and a Tailwind
-   utility.
-   ========================================================================== */
-
 @theme {
-  /* -- typefaces -------------------------------------------------------- *
-   * The `--font-*` var each name points at is injected by next/font/local in
-   * lib/fonts.ts, from woff2 files vendored in assets/fonts/ (zero-network
-   * builds are a contract requirement — see docs/CONTRACT.md).
-   *
-   * Three of the four faces changed on 2026-08-21 (plan item C2):
-   *   sans    Geist -> Inter. Geist is a fine grotesk; Inter is the one with
-   *           the tighter defaults and the larger x-height that a 14px dense UI
-   *           needs, and it is the reference system's body face.
-   *   mono    Geist Mono -> JetBrains Mono. Timecodes and figures, and it has
-   *           the more distinct 0/O and 1/l, which matters when the mono text
-   *           in this app is largely IDs and durations.
-   *   display Instrument Serif -> Space Grotesk. The old rule was "display type
-   *           is font-display and there is no third option", plus "never below
-   *           48px" — because a high-contrast condensed serif is illegible at
-   *           heading size. Space Grotesk has no such ceiling, so `--font-display`
-   *           is now the HEADING face as well: the base layer sets it on
-   *           h1-h6 and it is correct from 20px to 76px.
-   *   hand    Shantell Sans, unchanged. It is the same face the renderer writes
-   *           on the canvas with `meta.style: 'marker'`, which is the point —
-   *           the UI quotes the artefact.
-   *
-   * `serif` is intentionally absent. There is no serif in this system. */
   --font-*: initial;
   --font-sans:
     var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -374,115 +125,59 @@
     var(--font-jetbrains-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-hand: var(--font-shantell-sans), 'Segoe Print', 'Bradley Hand', cursive;
-
-  /* -- optical weights -------------------------------------------------- *
-   * `--font-*: initial` above also clears the `--font-weight-*` namespace, so
-   * these four are the ONLY weights that exist. `font-light`, `font-extrabold`
-   * and `font-black` are gone on purpose: four weights is enough to build any
-   * hierarchy, and a fifth is how a type system starts to look accidental.
-   *
-   * These used to be 400/500/560/650 — off-integer values chosen because Geist
-   * is variable and 560 reads as "more composed" than 600. That was the right
-   * call for a soft system and the wrong one here, for two reasons. First,
-   * brutalism wants weight to be unambiguous: 700 or nothing. Second, Space
-   * Grotesk's wght axis stops at 700, so 650 was a real weight but the top of
-   * the ramp had no headroom above it; 600/700 uses the axis as designed. All
-   * three new faces are variable, so these remain real interpolations rather
-   * than synthesised — and `font-synthesis-weight: none` in the base layer
-   * guarantees the browser never fakes one. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
-
-  /* -- type scale ------------------------------------------------------- *
-   * Optical, not geometric. Two things move with size:
-   *   - tracking tightens as size grows (+0.04em at 11px -> -0.035em at 76px),
-   *     because letterfit that reads correctly at caption size looks loose at
-   *     display size;
-   *   - line-height loosens as size shrinks.
-   * Small type gets its hierarchy from weight and tracking, not from size.
-   *
-   * Note `--text-base` is 14px, not 16px. This is a dense product UI in the
-   * Linear/Raycast register; 14px body is deliberate. Marketing prose steps up
-   * to `text-lg`/`text-xl`.
-   *
-   * The SIZES are unchanged from the previous system and must stay that way at
-   * the top of the ramp for a boring reason: docs/HANDOFF.md records that the
-   * naive type-scale unification moved four pinned storyboard hashes and was
-   * reverted in 45d4ff9. (Those hashes key off the renderer's own scales in
-   * core/src/camera.ts and planner/src/elements.ts, not this file — but the
-   * lesson about touching type sizes casually stands.) What DID move is
-   * tracking: every step from `text-xl` up is now inside the -0.02 to -0.035em
-   * band the reference system uses, which is what makes a Space Grotesk
-   * heading read as a set block rather than as default letterfit. */
   --text-*: initial;
-
-  --text-2xs: 0.6875rem; /* 11px — uppercase eyebrows, table meta, kbd */
+  --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-2xs--letter-spacing: 0.04em;
   --text-2xs--font-weight: 500;
-
-  --text-xs: 0.75rem; /* 12px — captions, helper text, badges */
+  --text-xs: 0.75rem;
   --text-xs--line-height: 1.125rem;
   --text-xs--letter-spacing: 0.02em;
   --text-xs--font-weight: 500;
-
-  --text-sm: 0.8125rem; /* 13px — secondary UI text, menu items */
+  --text-sm: 0.875rem;
   --text-sm--line-height: 1.25rem;
   --text-sm--letter-spacing: 0.008em;
-
-  --text-base: 0.875rem; /* 14px — DEFAULT UI body */
-  --text-base--line-height: 1.375rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.625rem;
   --text-base--letter-spacing: 0em;
-
-  --text-md: 0.9375rem; /* 15px — long-form body, editor prose */
+  --text-md: 0.9375rem;
   --text-md--line-height: 1.5rem;
   --text-md--letter-spacing: -0.003em;
-
-  --text-lg: 1.0625rem; /* 17px — lead paragraph, marketing body */
+  --text-lg: 1.0625rem;
   --text-lg--line-height: 1.625rem;
   --text-lg--letter-spacing: -0.008em;
-
-  --text-xl: 1.25rem; /* 20px — card titles, section subheads */
+  --text-xl: 1.25rem;
   --text-xl--line-height: 1.75rem;
   --text-xl--letter-spacing: -0.02em;
   --text-xl--font-weight: 600;
-
-  --text-2xl: 1.5rem; /* 24px — page titles */
+  --text-2xl: 1.5rem;
   --text-2xl--line-height: 2rem;
   --text-2xl--letter-spacing: -0.022em;
   --text-2xl--font-weight: 600;
-
-  --text-3xl: 1.875rem; /* 30px — section headings */
+  --text-3xl: 1.875rem;
   --text-3xl--line-height: 2.25rem;
   --text-3xl--letter-spacing: -0.025em;
   --text-3xl--font-weight: 600;
-
-  --text-4xl: 2.375rem; /* 38px */
+  --text-4xl: 2.375rem;
   --text-4xl--line-height: 2.5rem;
   --text-4xl--letter-spacing: -0.028em;
   --text-4xl--font-weight: 600;
-
-  --text-5xl: 3rem; /* 48px — display floor */
+  --text-5xl: 3rem;
   --text-5xl--line-height: 1.06;
   --text-5xl--letter-spacing: -0.03em;
   --text-5xl--font-weight: 700;
-
-  --text-6xl: 3.75rem; /* 60px */
+  --text-6xl: 3.75rem;
   --text-6xl--line-height: 1.02;
   --text-6xl--letter-spacing: -0.032em;
   --text-6xl--font-weight: 700;
-
-  --text-7xl: 4.75rem; /* 76px — hero claim, one per page */
+  --text-7xl: 4.75rem;
   --text-7xl--line-height: 0.98;
   --text-7xl--letter-spacing: -0.035em;
   --text-7xl--font-weight: 700;
-
-  /* -- tracking --------------------------------------------------------- *
-   * `tighter`/`tight` moved with the rest of the system (-0.03/-0.015 ->
-   * -0.035/-0.02) so that overriding a step's tracking by hand lands in the
-   * same band the step itself uses. */
   --tracking-*: initial;
   --tracking-tighter: -0.035em;
   --tracking-tight: -0.02em;
@@ -490,105 +185,48 @@
   --tracking-wide: 0.015em;
   --tracking-wider: 0.03em;
   --tracking-widest: 0.08em;
-
-  /* -- spacing ---------------------------------------------------------- *
-   * 4px base. Tailwind generates every multiple from this, so `p-3` is 12px,
-   * `gap-6` is 24px. Never write an arbitrary `[13px]`. The dot grid's 24px
-   * pitch is `gap-6`, which is why a padded card's edges land on grid. */
   --spacing: 0.25rem;
-
-  /* -- radius ----------------------------------------------------------- *
-   * The ladder is FLAT. Every step from `xs` to `4xl` resolves to 0, which
-   * means the ~90 `rounded-*` classes already in the app go square without a
-   * single component edit — and, more importantly, means a component author
-   * cannot reintroduce a soft corner by reaching for `rounded-xl`. The ladder
-   * is kept rather than deleted precisely so those call sites keep resolving;
-   * deleting the namespace would make them silently no-op, which is the same
-   * result with none of the intent recorded.
-   *
-   * The one exception is the pill. `--radius-full` and its alias
-   * `--radius-pill` are 999px, for the shapes that are geometrically round
-   * rather than rounded: badges, tags, the nav CTA, switch knobs, slider
-   * thumbs, avatars, scrollbar thumbs. If it is a rectangle, it has square
-   * corners; if it is a lozenge or a circle, use the pill. There is nothing
-   * in between. */
   --radius-*: initial;
   --radius-none: 0px;
-  --radius-xs: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
-  --radius-2xl: 0px;
-  --radius-3xl: 0px;
-  --radius-4xl: 0px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 32px;
   --radius-pill: 999px;
   --radius-full: 999px;
-
-  /* -- easing ----------------------------------------------------------- *
-   * `ease-out` is overridden with an expo curve: things that enter should
-   * decelerate hard, so they feel placed rather than floated. Springs (in
-   * motion/react) are preferred for anything responding to a pointer; these
-   * curves are for CSS transitions and enter/exit animations. */
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-overshoot: cubic-bezier(0.34, 1.4, 0.64, 1);
-
-  /* -- duration --------------------------------------------------------- *
-   * Named on the `--transition-duration-*` namespace, which is what Tailwind
-   * resolves `duration-*` from. So these are both utilities (`duration-fast`)
-   * and custom properties (`var(--transition-duration-fast)`). There are five;
-   * do not introduce a sixth or reach for `duration-[250ms]`. */
-  --transition-duration-instant: 80ms; /* colour/opacity only */
-  --transition-duration-fast: 140ms; /* hover, focus, press */
-  --transition-duration-brisk: 200ms; /* popovers, tooltips, menus */
-  --transition-duration-slow: 320ms; /* dialogs, drawers, layout shifts */
-  --transition-duration-slower: 480ms; /* page-level, ink drawing */
+  --transition-duration-instant: 80ms;
+  --transition-duration-fast: 140ms;
+  --transition-duration-brisk: 200ms;
+  --transition-duration-slow: 320ms;
+  --transition-duration-slower: 480ms;
   --default-transition-duration: 140ms;
   --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-
-  /* -- shadows ---------------------------------------------------------- *
-   * `shadow-card`, `shadow-pop` and `shadow-overlay` are the whole vocabulary.
-   *
-   * Everything below the blank line is a DEPRECATED ALIAS. The old ladder
-   * (`shadow-xs` .. `shadow-xl`, `shadow-primary`) has ~30 call sites across
-   * components/ui and components/studio, several of them in files this change
-   * does not own. Deleting the names would have made every one of them
-   * silently lose its shadow — the exact failure mode docs/HANDOFF.md calls the
-   * dominant one in this repo. So they are aliased instead, mapped by intent
-   * (resting -> card, floating -> overlay, primary action -> pop), and
-   * docs/DESIGN.md lists every call site for the component sweep to clean up.
-   * When that list is empty, delete this block. */
   --shadow-*: initial;
   --shadow-none: none;
   --shadow-card: var(--elevation-card);
   --shadow-pop: var(--elevation-pop);
   --shadow-overlay: var(--elevation-overlay);
-
   --shadow-xs: var(--elevation-card);
   --shadow-sm: var(--elevation-card);
   --shadow-md: var(--elevation-card);
   --shadow-lg: var(--elevation-overlay);
   --shadow-xl: var(--elevation-overlay);
   --shadow-primary: var(--elevation-pop);
-
   --inset-shadow-*: initial;
   --inset-shadow-well: var(--elevation-inset);
-
-  /* -- animations ------------------------------------------------------- *
-   * tw-animate-css supplies the enter/exit set (fade-in, zoom-in, slide-in-*,
-   * accordion, caret-blink). These are the two it does not have. */
   --animate-shimmer: shimmer 1.6s var(--ease-in-out) infinite;
   --animate-ink-draw: ink-draw var(--transition-duration-slower) var(--ease-out-quart) forwards;
 }
-
-/* Tailwind's stock palette is removed here. Everything after the wipe is
-   either a semantic token or one of the five CSS keywords utilities genuinely
-   need. `inline` means the generated utilities reference the var directly, so
-   flipping .dark reflows colours without recompiling anything. */
 @theme inline {
   --color-*: initial;
   --color-inherit: inherit;
@@ -596,7 +234,10 @@
   --color-transparent: transparent;
   --color-black: #000;
   --color-white: #fff;
-
+  --color-brand-canvas: var(--brand-canvas);
+  --color-brand-canvas-ink: var(--brand-canvas-ink);
+  --color-brand-apricot: var(--brand-apricot);
+  --color-brand-apricot-ink: var(--brand-apricot-ink);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -627,7 +268,6 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-
   --color-paper: var(--paper);
   --color-ink: var(--ink);
   --color-ink-blue: var(--ink-blue);
@@ -636,18 +276,12 @@
   --color-ink-amber: var(--ink-amber);
   --color-ink-violet: var(--ink-violet);
   --color-grid-dot: var(--grid-dot);
-
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 }
-
-/* ==========================================================================
-   3. KEYFRAMES
-   ========================================================================== */
-
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
@@ -656,9 +290,6 @@
     background-position: -200% 0;
   }
 }
-
-/* Draws an SVG path on. Requires `pathLength="1"` on the path so the dash
-   maths is resolution-independent. */
 @keyframes ink-draw {
   from {
     stroke-dasharray: 1;
@@ -669,45 +300,22 @@
     stroke-dashoffset: 0;
   }
 }
-
-/* ==========================================================================
-   4. BASE LAYER
-   ========================================================================== */
-
 @layer base {
   *,
   ::before,
   ::after {
     border-color: var(--color-border);
   }
-
   * {
-    /* Never suppress a focus ring without replacing it. The replacement is
-       `outline` on `:focus-visible`, set per component; this only removes the
-       browser default for pointer focus. */
     outline-color: var(--color-ring);
   }
-
   html {
     -webkit-text-size-adjust: 100%;
     scrollbar-color: var(--color-border-subtle) transparent;
     scrollbar-width: thin;
   }
-
   body {
     background-color: var(--color-background);
-    /* THE DOT GRID. It lives on `body` rather than on a decorative element so
-       there is no stacking-context to escape and nothing to remember to add per
-       page. Left at the default `background-attachment: scroll` on purpose:
-       `fixed` is janky on iOS, and because the tile is exactly `--grid-size`
-       square the grid is seamless under scroll anyway.
-
-       Any section that needs to repaint the grid over its own background — a
-       hero with a card behind it, a full-bleed band — uses the `dot-grid`
-       utility below rather than redeclaring the gradient. */
-    background-image: radial-gradient(circle, var(--color-grid-dot) 1px, transparent 1px);
-    background-size: var(--grid-size) var(--grid-size);
-    background-position: 0 0;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-size: var(--text-base);
@@ -716,21 +324,11 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Contextual alternates and proportional lining figures; `tnum` is opted
-       into locally on timestamps and durations via `.tabular`. */
     font-feature-settings:
       'calt' 1,
       'liga' 1;
     font-variant-numeric: proportional-nums;
   }
-
-  /* Every heading is Space Grotesk now, not just the ones over 48px. That is
-     the substantive typographic change: the old display face was a serif that
-     could only be used at hero size, so headings from 20px to 38px were set in
-     the body face at a heavier weight and the hierarchy came from weight alone.
-     A grotesk display face carries the whole range, so a section heading and
-     the hero claim are visibly the same voice. Weight and tracking still come
-     from the type scale rather than from the UA's bold. */
   h1,
   h2,
   h3,
@@ -741,23 +339,31 @@
     font-weight: var(--font-weight-semibold);
     text-wrap: balance;
   }
-
+  input,
+  textarea {
+    caret-color: var(--primary);
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  a {
+    text-underline-offset: 0.2em;
+  }
   p {
     text-wrap: pretty;
   }
-
   ::selection {
     background-color: color-mix(in oklab, var(--color-primary) 22%, transparent);
     color: var(--color-foreground);
   }
-
-  /* Native controls (date pickers, file inputs) follow the theme. */
   ::placeholder {
     color: var(--color-muted-foreground);
     opacity: 1;
   }
-
-  /* Chromium autofill would otherwise paint its own yellow. */
   input:-webkit-autofill,
   input:-webkit-autofill:hover,
   input:-webkit-autofill:focus {
@@ -765,10 +371,6 @@
     -webkit-box-shadow: 0 0 0 1000px var(--color-card) inset;
     caret-color: var(--color-foreground);
   }
-
-  /* One global honour of the OS setting, wired once. Motion's
-     `<MotionConfig reducedMotion="user">` in components/ui/providers.tsx does
-     the same for JS-driven animation. Neither is re-implemented per component. */
   @media (prefers-reduced-motion: reduce) {
     *,
     ::before,
@@ -779,72 +381,802 @@
       scroll-behavior: auto !important;
     }
   }
-
   @media (prefers-reduced-motion: no-preference) {
     html {
       scroll-behavior: smooth;
     }
   }
 }
-
-/* ==========================================================================
-   5. UTILITIES
-   Composable, token-only. Reach for these instead of re-deriving the pattern.
-   ========================================================================== */
-
-/* The house focus ring. Two rings: the accent ring plus a background-coloured
-   offset ring, so it stays visible on any surface including a coloured button. */
 @utility focus-ring {
   &:focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
 }
-
-/* Tabular figures for anything that ticks: timecodes, durations, percentages,
-   costs. Stops numbers jittering as they update. */
 @utility tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
-
-/* Repaints the paper's dot grid on any element that has its own background —
-   a full-bleed hero band, a bordered frame that should read as a piece of the
-   same sheet. Same gradient, same 24px pitch, same token, so a section can
-   never drift out of phase with the body grid as long as its box starts on a
-   multiple of 24px.
-
-   This REPLACES `surface-grain`, which was deleted in the C1 token swap. The
-   grain utility painted a 2.8% turbulence wash on a `::after` at `z-index: -1`,
-   which put it between the element and the body background — so on any section
-   with a transparent background it sat directly on top of the dot grid and
-   visibly softened the 1px dots into smudges. The two do not compose, and of
-   the two the grid is the one the system is built on. There is also a taste
-   argument, which is the same argument: film-grain texture exists to make a
-   flat surface look less flat, and a flat surface is the point here. The one
-   call site was components/marketing/hero.tsx. */
 @utility dot-grid {
   background-image: radial-gradient(circle, var(--color-grid-dot) 1px, transparent 1px);
   background-size: var(--grid-size) var(--grid-size);
   background-position: 0 0;
 }
-
-/* Hides the scrollbar without disabling scrolling. Only for short horizontal
-   rails (scene thumbnails); never for a vertical region a user must page. */
 @utility scrollbar-none {
   scrollbar-width: none;
   -ms-overflow-style: none;
-
   &::-webkit-scrollbar {
     display: none;
   }
 }
-
-/* Fades the trailing edge of a horizontal rail so it reads as continuing. */
 @utility mask-fade-r {
   mask-image: linear-gradient(to right, black calc(100% - 3rem), transparent 100%);
 }
-
 @utility mask-fade-b {
   mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent 100%);
+}
+
+/* Shared composition primitives */
+.page-container {
+  width: min(100% - 4rem, var(--page-width));
+  margin-inline: auto;
+}
+.marketing-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.landing-opening {
+  padding-top: 5rem;
+}
+.landing-intro {
+  display: grid;
+  grid-template-columns: 1.08fr 1fr;
+  align-items: center;
+  gap: 5rem;
+}
+.landing-intro h1 {
+  font-size: clamp(3.2rem, 5.8vw, 5.5rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+}
+.landing-start {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.topic-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-xl);
+}
+.topic-composer:focus-within {
+  border-color: var(--primary);
+  outline: 2px solid var(--accent-border);
+  outline-offset: 3px;
+}
+.landing-example {
+  display: grid;
+  grid-template-columns: 0.75fr 1.6fr;
+  margin-top: 4rem;
+  background: var(--brand-canvas);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  scroll-margin-top: 2rem;
+}
+.example-source {
+  padding: 2rem;
+  color: var(--brand-canvas-ink);
+}
+.source-note {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--foreground);
+}
+.example-output {
+  align-self: center;
+  overflow: hidden;
+  margin: 1.5rem 1.5rem 1.5rem 0;
+  background: var(--card);
+  border-radius: var(--radius-lg);
+}
+.example-output .inkcast-demo {
+  margin: 0;
+}
+.example-output .inkcast-demo > div {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.example-output .inkcast-demo > figcaption {
+  padding: 1rem 1.25rem;
+  margin-top: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.landing-proof {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.75rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+.landing-proof > span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.landing-proof svg {
+  width: 1rem;
+  height: 1rem;
+  color: var(--primary);
+}
+.landing-workflow,
+.ownership-section,
+.faq-section {
+  padding-block: 6rem;
+  scroll-margin-top: 2rem;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 2rem;
+  margin-bottom: 3rem;
+}
+.section-heading h2,
+.ownership-section > h2,
+.closing-section h2 {
+  font-size: clamp(2rem, 3.8vw, 3.5rem);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  font-weight: 500;
+}
+.section-heading > p {
+  color: var(--muted-foreground);
+  font-size: var(--text-md);
+  line-height: 1.7;
+}
+.workflow-steps {
+  border-top: 1px solid var(--border);
+}
+.workflow-steps li {
+  display: grid;
+  grid-template-columns: 3rem 1fr auto;
+  align-items: start;
+  gap: 1.5rem;
+  padding-block: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+.step-number {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: var(--text-sm);
+  color: var(--primary);
+}
+.workflow-steps h3 {
+  font-size: var(--text-xl);
+  margin-bottom: 0.5rem;
+}
+.workflow-steps p {
+  max-width: 36rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-md);
+}
+.step-detail {
+  padding-top: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.format-section {
+  padding-block: 5rem;
+  background: var(--muted);
+}
+.format-gallery {
+  display: grid;
+  grid-template-columns: 1.35fr 0.8fr 1fr;
+  gap: 1.5rem;
+  align-items: end;
+}
+.format-example {
+  min-width: 0;
+  border-radius: var(--radius-md);
+}
+.format-example > div:last-child {
+  margin-top: 1.25rem;
+  font-size: var(--text-xs);
+}
+.format-example h3 {
+  font-size: var(--text-md);
+}
+.format-example p {
+  margin-top: 0.35rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.format-board {
+  --ink-green: oklch(0.545 0.13 152);
+  --ink-blue: oklch(0.55 0.16 250);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--transition-duration-fast);
+}
+.format-example:hover .format-board {
+  border-color: var(--primary);
+}
+.wide-board {
+  aspect-ratio: 16 / 10;
+}
+.tall-board {
+  aspect-ratio: 9 / 14;
+}
+.square-board {
+  aspect-ratio: 1;
+}
+.ownership-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6rem;
+  border-bottom: 1px solid var(--border);
+}
+.ownership-copy h3 {
+  font-size: var(--text-xl);
+  margin-bottom: 0.75rem;
+}
+.ownership-copy p {
+  color: var(--muted-foreground);
+  line-height: 1.8;
+  font-size: var(--text-md);
+}
+.faq-list details {
+  border-bottom: 1px solid var(--border);
+}
+.faq-list details:first-child {
+  border-top: 1px solid var(--border);
+}
+.faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  list-style: none;
+  cursor: pointer;
+  padding: 1.5rem 0;
+}
+.faq-list summary::-webkit-details-marker {
+  display: none;
+}
+.faq-list h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+.faq-list details p {
+  max-width: 65ch;
+  padding: 0 0 1.75rem;
+  font-size: var(--text-md);
+  line-height: 1.8;
+  color: var(--muted-foreground);
+}
+.closing-section {
+  padding-bottom: 5rem;
+}
+.closing-section > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  padding: 3.5rem;
+  border-radius: var(--radius-xl);
+  background: var(--brand-canvas);
+  color: var(--brand-canvas-ink);
+}
+@media (max-width: 900px) {
+  .landing-intro {
+    gap: 2.5rem;
+  }
+  .landing-example {
+    grid-template-columns: 1fr 1.45fr;
+  }
+  .example-source {
+    padding: 1.25rem;
+  }
+  .source-note {
+    padding: 1rem;
+  }
+  .example-output {
+    margin: 1rem 1rem 1rem 0;
+  }
+  .step-detail {
+    display: none;
+  }
+  .workflow-steps li {
+    grid-template-columns: 2rem 1fr;
+  }
+  .format-gallery {
+    gap: 1rem;
+  }
+  .format-board {
+    padding: 1rem;
+  }
+  .ownership-section {
+    gap: 3rem;
+  }
+}
+@media (max-width: 640px) {
+  .page-container {
+    width: calc(100% - 2rem);
+  }
+  .marketing-header .page-container {
+    height: 4.5rem;
+    gap: 0.75rem;
+  }
+  .landing-opening {
+    padding-top: 2.5rem;
+  }
+  .landing-intro {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  .landing-intro h1 {
+    font-size: clamp(2.6rem, 11vw, 3.7rem);
+  }
+  .landing-example {
+    grid-template-columns: 1fr;
+    margin-top: 2rem;
+  }
+  .example-source {
+    padding: 1.25rem;
+  }
+  .source-note {
+    margin-top: 1rem;
+  }
+  .source-note p:last-child {
+    display: none;
+  }
+  .source-note h2 {
+    margin-top: 0.75rem;
+  }
+  .example-output {
+    margin: 0 1rem 1rem;
+  }
+  .landing-proof {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    font-size: var(--text-xs);
+  }
+  .landing-workflow,
+  .ownership-section,
+  .faq-section {
+    padding-block: 3.5rem;
+  }
+  .section-heading {
+    display: block;
+    margin-bottom: 2rem;
+  }
+  .section-heading p {
+    margin-top: 1rem;
+  }
+  .workflow-steps li {
+    gap: 1rem;
+    padding-block: 1.5rem;
+  }
+  .workflow-steps h3 {
+    font-size: var(--text-lg);
+  }
+  .format-section {
+    padding-block: 3.5rem;
+  }
+  .format-gallery {
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem 1rem;
+  }
+  .format-wide {
+    grid-column: 1 / -1;
+  }
+  .tall-board {
+    aspect-ratio: 9 / 14;
+  }
+  .format-board .font-hand {
+    font-size: var(--text-md);
+  }
+  .square-board svg {
+    max-width: 100%;
+  }
+  .ownership-section {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  .closing-section {
+    padding-bottom: 3rem;
+  }
+  .closing-section > div {
+    align-items: start;
+    flex-direction: column;
+    padding: 2rem 1.5rem;
+  }
+}
+
+/* Studio shell and working surfaces */
+.studio-shell {
+  display: flex;
+  min-height: 100svh;
+}
+.studio-sidebar {
+  width: 14.5rem;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem 1.25rem 1.25rem;
+  border-right: 1px solid var(--border);
+  background: var(--muted);
+}
+.studio-brand {
+  display: inline-flex;
+  align-self: start;
+  margin: 0 0.5rem 3rem;
+  border-radius: var(--radius-md);
+}
+.studio-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.studio-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.875rem;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition:
+    background-color var(--transition-duration-fast),
+    color var(--transition-duration-fast);
+}
+.studio-nav-link:hover {
+  color: var(--foreground);
+  background: var(--background);
+}
+.studio-nav-link.is-active {
+  background: var(--card);
+  color: var(--primary);
+}
+.sidebar-bottom {
+  margin-top: auto;
+  padding: 1.5rem 0.5rem 0;
+}
+.studio-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.studio-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4.5rem;
+  padding: 1rem 2.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 1rem;
+}
+.studio-main {
+  width: min(100%, var(--content-width));
+  margin-inline: auto;
+  padding: 2.5rem;
+  flex: 1;
+}
+.studio-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 1.25rem 2.5rem;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.page-heading h1 {
+  font-size: var(--text-3xl);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+.page-heading p {
+  margin-top: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-md);
+  line-height: 1.7;
+  max-width: 65ch;
+}
+.create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(17rem, 1fr);
+  gap: 1.5rem 2rem;
+  align-items: start;
+}
+.source-editor {
+  grid-column: 1;
+  padding: 1.5rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.source-textarea {
+  min-height: 16rem;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0.75rem 0.25rem !important;
+  line-height: 1.8;
+}
+.create-format {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  padding: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+.create-format [name='format'] ~ span {
+  font-size: var(--text-xs);
+}
+.create-format fieldset > .grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.create-format fieldset:has([name='length']) > .grid {
+  grid-template-columns: 1fr;
+}
+.create-format label {
+  padding: 0.75rem;
+}
+.create-format label:has([name='format']) > span:last-child {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+.create-options-section {
+  grid-column: 1;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.create-providers {
+  grid-column: 1 / -1;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+.create-providers section > .grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.create-submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  grid-column: 1 / -1;
+  padding-top: 0.5rem;
+}
+.create-shortcut {
+  grid-column: 1 / -1;
+}
+@media (max-width: 1180px) {
+  .studio-sidebar {
+    width: 12.5rem;
+    padding-inline: 1rem;
+  }
+  .studio-main {
+    padding: 2rem;
+  }
+  .create-form {
+    grid-template-columns: 1fr;
+  }
+  .create-format,
+  .source-editor,
+  .create-options-section {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .create-format fieldset:has([name='length']) > .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1023px) {
+  .studio-shell {
+    flex-direction: column;
+  }
+  .studio-sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 2rem;
+    padding: 1rem 1.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .studio-brand {
+    margin: 0;
+  }
+  .studio-navigation {
+    flex-direction: row;
+    flex: 1;
+    justify-content: flex-end;
+    gap: 0.25rem;
+  }
+  .studio-nav-link {
+    padding: 0.65rem 0.75rem;
+  }
+  .sidebar-bottom {
+    display: none;
+  }
+  .studio-topbar {
+    min-height: 3.5rem;
+    padding: 0.75rem 1.5rem;
+  }
+  .studio-main {
+    padding: 2rem 1.5rem;
+  }
+  .studio-footer {
+    padding: 1.25rem 1.5rem;
+  }
+}
+@media (max-width: 640px) {
+  .studio-sidebar {
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem 1rem 0.75rem;
+  }
+  .studio-brand {
+    margin-inline: auto;
+  }
+  .studio-navigation {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+  .studio-nav-link {
+    gap: 0.5rem;
+    font-size: var(--text-xs);
+    padding: 0.75rem 0.5rem;
+  }
+  .studio-main {
+    padding: 1.75rem 1rem;
+  }
+  .studio-topbar {
+    padding: 0.75rem 1rem;
+  }
+  .studio-footer {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-inline: 1rem;
+  }
+  .source-editor,
+  .create-format,
+  .create-providers {
+    padding: 1rem;
+  }
+  .create-providers section > .grid {
+    grid-template-columns: 1fr;
+  }
+  .create-submit {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .create-submit button {
+    width: 100%;
+  }
+  .create-format label {
+    padding: 0.75rem 0.5rem;
+  }
+  .source-textarea {
+    min-height: 13rem;
+  }
+}
+.library-toolbar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.library-toolbar > div:first-child {
+  min-width: 12rem;
+}
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4rem 1.5rem;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+@media (max-width: 640px) {
+  .library-toolbar > div:first-child {
+    flex-basis: 100%;
+  }
+  .library-toolbar {
+    gap: 0.75rem;
+  }
+  .library-toolbar select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.auth-layout {
+  display: flex;
+  min-height: 100svh;
+  flex-direction: column;
+}
+.auth-content {
+  display: grid;
+  flex: 1;
+  align-items: center;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  padding-block: 4rem;
+}
+.auth-intro h1 {
+  font-size: clamp(2.5rem, 4.5vw, 4.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  font-weight: 500;
+}
+.auth-intro p {
+  margin-top: 1.5rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-md);
+  line-height: 1.8;
+}
+@media (max-width: 760px) {
+  .auth-content {
+    grid-template-columns: 1fr;
+    padding-block: 2rem;
+    gap: 2rem;
+  }
+  .auth-intro {
+    text-align: center;
+  }
+  .auth-intro h1 {
+    font-size: var(--text-3xl);
+  }
+  .auth-intro > div {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .library-toolbar select {
+    flex-basis: 100%;
+  }
+  .library-toolbar [role='group'] {
+    flex: 1;
+    justify-content: space-between;
+  }
 }

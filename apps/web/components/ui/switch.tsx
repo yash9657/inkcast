@@ -5,20 +5,6 @@ import { Switch as SwitchPrimitive } from '@base-ui/react/switch';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A switch — for a setting that takes effect immediately.
- *
- * If the change only applies after a Save button, use a checkbox instead: a
- * switch that has not done anything yet is a lie.
- *
- *   <div className="flex items-center gap-3">
- *     <Switch id="color" defaultChecked />
- *     <Label htmlFor="color">Colour palette</Label>
- *   </div>
- *
- * Base UI renders a hidden `<input type="checkbox">` alongside, so this works
- * inside a plain `<form>` with `name`.
- */
 export function Switch({ className, ...props }: WithClass<SwitchPrimitive.Root.Props>) {
   return (
     <SwitchPrimitive.Root

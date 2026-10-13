@@ -14,26 +14,8 @@ export const metadata: Metadata = {
     'Paste a document, drop a pdf, or hand it a link. Inkcast plans one growing canvas, writes on it stroke by stroke, and narrates it.',
 };
 
-/**
- * The create page, and the one place on this site where losing a sentence would
- * cost us the visitor.
- *
- * The landing page's try strip is a plain GET form: it navigates to
- * `/studio?topic=explain%20photosynthesis` and that query *is* the funnel. So a
- * signed-out arrival must not redirect, must not 404, and must not render an
- * empty page. It renders the door in place, with the URL untouched, the typed
- * sentence shown back, and `redirect_url` pointing at this exact address — three
- * independent reasons the topic is still there after the round trip, plus a
- * fourth in `sign-in-gate.tsx` for the tab-switching sign-up flow.
- *
- * Not `redirect()` to a sign-in page, and not `notFound()`. A redirect replaces
- * the URL, so pressing Back after signing in lands on the sign-in page again
- * rather than on the studio, and a visitor who abandons the flow has lost the
- * only copy of what they typed.
- */
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/** The topic the try strip handed us, trimmed and capped, or nothing. */
 function arrivingTopic(params: SearchParams): string | undefined {
   const raw = params[STUDIO_TOPIC_PARAM];
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -52,11 +34,15 @@ export default async function StudioPage({
   if (!admitted(access)) {
     return (
       <SignInWall
-        heading={topic ? 'Sign in and it draws that' : 'Sign in to draw one'}
+        heading={
+          topic
+            ? 'Your idea is ready. Let’s bring it to life.'
+            : 'Your next great explanation starts here.'
+        }
         lead={
           topic
-            ? 'Your topic is held below. Signing in brings you straight back to this page with it already in the box.'
-            : 'Drawing a video runs a planner, a voice and a headless browser for a couple of minutes, so this deployment asks who it is doing that for. Nothing else here is behind the door.'
+            ? 'Sign in to continue. We’ve kept your topic ready for you.'
+            : 'Sign in to create narrated whiteboard videos, keep your projects together, and pick up where you left off.'
         }
         links={accessLinks()}
         unavailable={access.mode === 'unavailable' ? access.reason : undefined}
@@ -67,24 +53,12 @@ export default async function StudioPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-3">
-        <h1 className="max-w-2xl text-3xl text-foreground">
-          Draw an explainer from{' '}
-          <InkUnderline tone="primary" seed="studio">
-            anything
-          </InkUnderline>{' '}
-          you have written
-        </h1>
-        <p className="max-w-2xl text-md leading-relaxed text-muted-foreground">
-          One canvas the camera moves across, real strokes, narration measured against the audio.
-          {
-            ' Your source is uploaded to Inkcast. Choose local processing or use your own provider keys below.'
-          }
-        </p>
+      <header className="page-heading">
+        <h1>Create a video</h1>
+        <p>Start with what you know. We’ll help you draw it out.</p>
       </header>
 
-      {/* `CreateForm` reads `?example=` and `?topic=` to prefill, so it needs a
-          boundary. */}
+      {}
       <Suspense fallback={<CreateFormFallback />}>
         <CreateForm />
       </Suspense>

@@ -5,28 +5,6 @@ import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * Tabs, with a sliding indicator.
- *
- *   <Tabs defaultValue="script">
- *     <TabsList>
- *       <TabsTab value="script">Script</TabsTab>
- *       <TabsTab value="board">Board</TabsTab>
- *     </TabsList>
- *     <TabsPanel value="script">…</TabsPanel>
- *   </Tabs>
- *
- * `TabsList` renders a `TabsIndicator` that Base UI positions from the active
- * tab's measured box (exposed as `--active-tab-left`/`--active-tab-width`), so
- * the block slides between tabs instead of cross-fading. That movement is the
- * whole point: it tells you where you came from.
- *
- * The strip is an ink-bordered recessed well and the indicator is a solid
- * accent block — a segmented control that states which segment is on, rather
- * than lifting one segment a shade lighter than the rest. docs/DESIGN.md §2
- * lists "checked indicators" among the jobs `primary` exists for, and an active
- * tab is one.
- */
 export const Tabs = TabsPrimitive.Root;
 
 export function TabsList({ className, children, ...props }: WithClass<TabsPrimitive.List.Props>) {
@@ -41,7 +19,7 @@ export function TabsList({ className, children, ...props }: WithClass<TabsPrimit
         // bottom. 2px gutters fit, and the indicator still lands exactly —
         // `offsetTop`/`offsetLeft` and an `absolute top-0` are both measured
         // from the padding edge, so a border cannot shift one without the other.
-        'relative isolate inline-flex h-9 items-center gap-1 rounded-none border border-border bg-muted p-0.5',
+        'relative isolate inline-flex h-9 items-center gap-1 rounded-md border border-border bg-muted p-0.5',
         'inset-shadow-well',
         className,
       )}
@@ -56,7 +34,7 @@ export function TabsList({ className, children, ...props }: WithClass<TabsPrimit
           // padded well, and a 6px offset plane would spill straight out of the
           // strip it is supposed to sit in. The well is the depth; the block is
           // the state.
-          'absolute top-0 left-0 z-0 rounded-none bg-primary',
+          'absolute top-0 left-0 z-0 rounded-md bg-primary',
           'h-[var(--active-tab-height)] w-[var(--active-tab-width)]',
           'translate-x-[var(--active-tab-left)] translate-y-[var(--active-tab-top)]',
           'transition-[translate,width,height] duration-brisk ease-out',
@@ -72,7 +50,7 @@ export function TabsTab({ className, ...props }: WithClass<TabsPrimitive.Tab.Pro
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-none px-3',
+        'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3',
         'text-sm font-medium whitespace-nowrap text-muted-foreground select-none',
         'transition-colors duration-fast ease-out',
         'hover:text-foreground',

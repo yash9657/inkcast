@@ -6,34 +6,13 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A drawer / sheet — an edge-anchored surface you can also swipe away.
- *
- *   <Drawer swipeDirection="up">
- *     <DrawerTrigger render={<Button variant="outline" />}>Scenes</DrawerTrigger>
- *     <DrawerContent side="bottom">
- *       <DrawerHandle />
- *       <DrawerHeader><DrawerTitle>Scenes</DrawerTitle></DrawerHeader>
- *       …
- *     </DrawerContent>
- *   </Drawer>
- *
- * This is Base UI's own `Drawer` (as of 1.6.0) rather than `vaul`, which
- * docs/research/design-stack.md listed before that primitive existed. Base UI's
- * version has the gesture handling, snap points and inertial dismissal vaul was
- * chosen for, and shares Base UI's focus trap and scroll lock with `Dialog` —
- * so using it means one popup implementation in the app instead of two.
- *
- * `swipeDirection` goes on `Drawer` (the root), and must match `side`:
- * bottom/up, top/down, left/left, right/right.
- */
 export const Drawer = DrawerPrimitive.Root;
 export const DrawerTrigger = DrawerPrimitive.Trigger;
 export const DrawerClose = DrawerPrimitive.Close;
 
 const drawerVariants = cva(
   [
-    'fixed z-50 flex flex-col rounded-none bg-popover text-popover-foreground shadow-overlay',
+    'fixed z-50 flex flex-col rounded-md bg-popover text-popover-foreground shadow-overlay',
     'transition-transform duration-slow ease-out',
     // While a finger is down the popup follows the pointer, so the transition
     // has to get out of the way or it fights the gesture.
@@ -86,10 +65,6 @@ export function DrawerContent({ className, children, side, ...props }: DrawerCon
   );
 }
 
-/**
- * The grab affordance. It is also the swipe area, so dragging it works even
- * when the drawer's body scrolls.
- */
 export function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <DrawerPrimitive.SwipeArea
@@ -100,10 +75,7 @@ export function DrawerHandle({ className, ...props }: React.ComponentProps<'div'
       )}
       {...props}
     >
-      {/* `bg-input` was a mid grey when this was written and is full ink now,
-          so the handle had become a solid black bar. `--track` is the token for
-          the fill of a control track (docs/DESIGN.md §11, breakage 1), and a
-          grab handle is one. It stays a pill: it is a lozenge, not a box. */}
+      {}
       <div className="h-1.5 w-10 rounded-pill bg-track" />
     </DrawerPrimitive.SwipeArea>
   );
@@ -142,7 +114,6 @@ export function DrawerDescription({
   );
 }
 
-/** Scrollable body. Base UI's `Viewport` keeps the gesture and the scroll from fighting. */
 export function DrawerBody({ className, ...props }: WithClass<DrawerPrimitive.Viewport.Props>) {
   return (
     <DrawerPrimitive.Viewport

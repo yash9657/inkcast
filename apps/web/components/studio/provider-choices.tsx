@@ -37,7 +37,7 @@ export function ProviderChoices({
     <section className="flex flex-col gap-4" aria-labelledby="video-providers">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="video-providers" className="text-md font-semibold">
-          Providers for this video
+          Processing & providers
         </h2>
         <Button variant="link" size="sm" nativeButton={false} render={<Link href="/settings" />}>
           Manage API keys
@@ -93,7 +93,7 @@ export function ProviderChoices({
           <LabelHint>
             {value.speech === 'local'
               ? 'Kokoro speech in English, processed on the Inkcast server.'
-              : 'Multilingual speech with native word timings. Choose the voice in Options.'}
+              : 'Multilingual speech with native word timings. Choose the voice in Voice & style.'}
           </LabelHint>
         </div>
       </div>

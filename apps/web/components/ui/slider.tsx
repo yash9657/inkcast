@@ -5,17 +5,6 @@ import { Slider as SliderPrimitive } from '@base-ui/react/slider';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A slider. Single value or a range — pass an array to `value`/`defaultValue`
- * and Base UI renders one thumb per entry.
- *
- *   <Slider defaultValue={1} min={0.5} max={2} step={0.1} label="Pace" />
- *   <Slider defaultValue={[2, 8]} min={0} max={12} label="Trim" />
- *
- * `label`/`showValue` render the readout; the value uses tabular figures so it
- * does not jitter while dragging. `format` takes `Intl.NumberFormatOptions`,
- * which is how you get "1.4×" or "68%" without formatting by hand.
- */
 export type SliderProps = WithClass<SliderPrimitive.Root.Props> & {
   label?: React.ReactNode;
   showValue?: boolean;
@@ -63,13 +52,9 @@ export function Slider({
           'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}
       >
-        {/* A bordered rail, not a soft lozenge: 8px tall, square, ink edge, and
-            still inset because a track is a hole in the paper rather than a
-            plane above it (docs/DESIGN.md §5). The fill is square too — a
-            rounded cap on a square rail is the concentric-corner problem the
-            flat radius ladder abolished. */}
-        <SliderPrimitive.Track className="inset-shadow-well relative h-2 w-full rounded-none border border-border bg-muted">
-          <SliderPrimitive.Indicator className="absolute h-full rounded-none bg-primary" />
+        {}
+        <SliderPrimitive.Track className="inset-shadow-well relative h-2 w-full rounded-md border border-border bg-muted">
+          <SliderPrimitive.Indicator className="absolute h-full rounded-md bg-primary" />
           {Array.from({ length: thumbCount }, (_unused, i) => (
             <SliderPrimitive.Thumb
               key={i}

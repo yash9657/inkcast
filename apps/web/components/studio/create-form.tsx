@@ -10,7 +10,7 @@ import {
   LinkIcon,
   PencilLineIcon,
   SettingsIcon,
-  SparklesIcon,
+  LightbulbIcon,
   UploadIcon,
 } from 'lucide-react';
 
@@ -77,71 +77,35 @@ import {
 } from './options';
 import { AspectGlyph, TileGroup } from './tile-group';
 
-/**
- * The create surface: one input, three ways to fill it, and options that stay
- * folded away until they are asked for.
- *
- * The three modes are tabs rather than three stacked fields because only one of
- * them can be the source — a screen with a paste box *and* a URL box *and* a
- * dropzone all live makes the user work out which one wins.
- */
-
 type Mode = 'text' | 'file' | 'url';
 
-/**
- * Frame shapes, vertical first.
- *
- * Not a re-ordering for taste: short-form vertical is the distribution channel
- * for teaching, and the 45-second constraint improves the video by forcing one
- * idea, one visual, one payoff. A picker that lists it third, in a collapsed
- * "Options" panel, states the opposite. So this lives above the fold with the
- * other two beside it, and the shape choice sets the default depth.
- *
- * Declared here rather than in `options.ts` because the two tables below are
- * about *teaching*, not about what the pipeline's enums happen to be; the values
- * themselves are still exactly `StoryboardMeta['aspect']`.
- */
 const FORMATS: { value: Aspect; label: string; hint: string; glyph: string }[] = [
   {
     value: '9:16',
-    label: 'Short · vertical',
-    hint: 'Shorts, Reels, TikTok. A tall canvas the camera walks down.',
+    label: 'Vertical',
+    hint: '9:16 · Shorts, Reels, TikTok',
     glyph: 'h-9 w-5',
   },
   {
     value: '16:9',
-    label: 'Wide · landscape',
-    hint: 'YouTube, slides, a doc. Room for a whole lesson to accumulate.',
+    label: 'Landscape',
+    hint: '16:9 · YouTube, lessons, slides',
     glyph: 'h-7 w-12',
   },
-  { value: '1:1', label: 'Square', hint: 'Feeds and embeds.', glyph: 'h-8 w-8' },
+  { value: '1:1', label: 'Square', hint: '1:1 · Feeds and embeds.', glyph: 'h-8 w-8' },
 ];
 
-/**
- * How long the film runs, and what the board does between beats.
- *
- * This replaces a "Teaching depth" control that could not do anything. That one
- * offered 45 / 90 / 180 seconds and sent them as `meta.depth` or `meta.targetSeconds`
- * — neither of which the generate endpoint validates, so `teachingMeta()` dropped
- * both on every submit and the form printed a note saying the runtime followed the
- * document. Three tiles, no effect, and an honest sentence underneath them.
- *
- * These two are real: they select a **preset**, which decides the word budget, the
- * beat count, the pause ceiling and the board mode together. Both wipe — one card
- * per beat, cleared between them. The mega-canvas presets are reachable from the CLI
- * and deliberately not from here; see `studioFormat` in `lib/jobs.ts`.
- */
 const FILM_FORMATS: { value: FilmFormat; label: string; hint: string; seconds: number }[] = [
   {
     value: 'explainer',
     label: 'Explainer',
-    hint: '≈75s. Eight beats, one card each, nothing that does not earn its place.',
+    hint: 'About 75 seconds. One idea, clearly explained.',
     seconds: 75,
   },
   {
     value: 'deepdive',
     label: 'Deep dive',
-    hint: '≈2½ min. Fourteen beats for a subject that genuinely needs them.',
+    hint: 'About 2½ minutes. More context and detail.',
     seconds: 150,
   },
 ];
@@ -156,21 +120,7 @@ export function CreateForm() {
   // `/studio?example=gradient-descent` arrives from the library's empty state,
   // so a link can hand the box its starting content.
   const preset = findExample(params.get('example'));
-  /**
-   * `/studio?topic=explain%20photosynthesis` arrives from the landing page's try
-   * strip, which is a plain GET form aimed straight at this route.
-   *
-   * This is the other end of the contract stated in `site-config.ts`, and it was
-   * an open loop until now: `STUDIO_TOPIC_PARAM` shipped with the strip so the
-   * link would resolve, but nothing read it, so a visitor who typed a sentence on
-   * the landing page arrived at an empty box. Capped by the same
-   * `STUDIO_TOPIC_MAX` the strip enforces, because a query string is not a
-   * container for a document and the textarea below is.
-   *
-   * A `?topic=` and a `?example=` in the same URL cannot both win. The example
-   * does, because it names a whole bundled document with a title, and a topic is
-   * one line — the more specific instruction is the one to honour.
-   */
+
   const arriving = params.get(STUDIO_TOPIC_PARAM)?.trim().slice(0, STUDIO_TOPIC_MAX) || undefined;
 
   const [mode, setMode] = React.useState<Mode>('text');
@@ -179,17 +129,6 @@ export function CreateForm() {
   const [file, setFile] = React.useState<File | null>(null);
   const [title, setTitle] = React.useState(preset?.title ?? '');
 
-  /**
-   * The last line of defence for a topic typed before a sign-in.
-   *
-   * On the hosted deployment `/studio?topic=…` can bounce through Clerk, and a
-   * sign-up that finishes via an emailed link finishes in whatever tab the mail
-   * client opened — where the query string never existed. The wall stashed the
-   * sentence in `sessionStorage` on the way out; this claims it once, on mount,
-   * and only when the URL asked for nothing and the box is still empty. On a
-   * self-hosted box there is no wall, so there is never anything stashed and this
-   * effect reads `null` and stops.
-   */
   const claimedStash = React.useRef(false);
   React.useEffect(() => {
     if (claimedStash.current) return;
@@ -200,7 +139,10 @@ export function CreateForm() {
     setText((current) => (current.trim() === '' ? stashed : current));
   }, [preset, arriving]);
 
-  const [aspect, setAspect] = React.useState<Aspect>('16:9');
+  const [aspect, setAspect] = React.useState<Aspect>(() => {
+    const requested = params.get('aspect');
+    return requested === '9:16' || requested === '1:1' ? requested : '16:9';
+  });
   const [format, setFormat] = React.useState<FilmFormat>('explainer');
   const [style, setStyle] = React.useState<InkStyle>('marker');
   const [palette, setPalette] = React.useState<Palette>('color');
@@ -213,22 +155,12 @@ export function CreateForm() {
   const [showOptions, setShowOptions] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
   const [problem, setProblem] = React.useState<string | undefined>(undefined);
-  /** A rejected upload is its own message: validation must not overwrite it. */
+
   const [rejection, setRejection] = React.useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = React.useState(false);
 
   const textRef = React.useRef<HTMLTextAreaElement>(null);
 
-  /**
-   * What this machine can do, asked once on mount.
-   *
-   * Two jobs. It decides whether the planner banner warns or reassures, and it
-   * carries `accepts` — the `meta` fields this build's generate endpoint
-   * validates — which is what lets the depth choice be sent without risking a 400
-   * against a server whose schema has not learned about it yet. A failure is
-   * swallowed: the form must work whether or not this answers, so an unknown
-   * capability shows no banner rather than a scary one.
-   */
   const [caps, setCaps] = React.useState<Capabilities | undefined>(undefined);
   const [capsError, setCapsError] = React.useState<string>();
   const refreshCapabilities = React.useCallback(async (signal?: AbortSignal) => {
@@ -310,7 +242,11 @@ export function CreateForm() {
     setRejection(undefined);
     const found = validate();
     setProblem(found);
-    if (found) return;
+    if (found) {
+      if (mode === 'text') textRef.current?.focus();
+      else document.getElementById(mode === 'url' ? 'source-url' : 'source-error')?.focus();
+      return;
+    }
 
     submittingRef.current = true;
     setSubmitting(true);
@@ -367,30 +303,16 @@ export function CreateForm() {
         event.preventDefault();
         void submit();
       }}
-      className="flex flex-col gap-6"
+      className="create-form"
     >
-      {capsError ? (
-        <div role="alert" className="flex flex-col gap-2 text-sm text-destructive">
-          <p>Could not load your provider settings. {capsError}</p>
-          <Button
-            type="button"
-            variant="outline"
-            className="self-start"
-            onClick={() => void refreshCapabilities()}
-          >
-            Try again
-          </Button>
+      <section className="source-editor">
+        <div className="mb-5">
+          <h2 className="text-xl">What’s the idea?</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add a topic, your notes, or something you’ve already written.
+          </p>
         </div>
-      ) : caps ? (
-        <ProviderChoices caps={caps} value={providers} onChange={setSelection} />
-      ) : (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading your provider settings…
-        </p>
-      )}
-
-      <Card className="gap-4 py-4">
-        <CardContent className="px-4">
+        <div>
           <Tabs
             value={mode}
             onValueChange={(value: unknown) => {
@@ -404,7 +326,7 @@ export function CreateForm() {
               <TabsList>
                 <TabsTab value="text">
                   <PencilLineIcon aria-hidden />
-                  Paste
+                  Write or paste
                 </TabsTab>
                 <TabsTab value="file">
                   <UploadIcon aria-hidden />
@@ -430,10 +352,11 @@ export function CreateForm() {
               <Textarea
                 id="source-text"
                 ref={textRef}
-                rows={9}
+                rows={8}
                 value={text}
-                spellCheck={false}
+                spellCheck
                 aria-invalid={shownError ? true : undefined}
+                aria-describedby={shownError ? 'source-error' : undefined}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -442,15 +365,15 @@ export function CreateForm() {
                   }
                 }}
                 placeholder={
-                  'Paste a document, a set of notes, a README, a lecture outline…\n\nHeadings, lists and formulas all survive — the planner reads structure, so keep it.'
+                  'Explain a concept, tell a story, or paste your notes…\n\nFor example: How does a solar panel turn sunlight into electricity?'
                 }
-                className="max-h-96 text-md"
+                className="source-textarea max-h-96 text-md"
               />
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <SparklesIcon className="size-3.5" aria-hidden />
-                  Try one
+                  <LightbulbIcon className="size-3.5" aria-hidden />
+                  Need a starting point?
                 </span>
                 {EXAMPLES.map((example) => (
                   <Button
@@ -485,8 +408,8 @@ export function CreateForm() {
                 onReject={setRejection}
               />
               <LabelHint className="mt-3">
-                A pdf or docx is read on the server. Markdown and text files are read right here in
-                the browser and sent as text.
+                PDF, Word, Markdown and text files are supported. Your source is uploaded to Inkcast
+                for processing.
               </LabelHint>
             </TabsPanel>
 
@@ -494,6 +417,8 @@ export function CreateForm() {
               <Label htmlFor="source-url">Page address</Label>
               <Input
                 id="source-url"
+                aria-invalid={shownError ? true : undefined}
+                aria-describedby={shownError ? 'source-error' : undefined}
                 type="url"
                 inputMode="url"
                 value={url}
@@ -503,24 +428,26 @@ export function CreateForm() {
                 className="mt-2"
               />
               <LabelHint className="mt-2">
-                The page is fetched and stripped to its readable text. It has to be reachable from
-                this machine.
+                Use a public article or web page. We’ll extract the readable text.
               </LabelHint>
             </TabsPanel>
           </Tabs>
 
-          {shownError ? <LabelError className="mt-3">{shownError}</LabelError> : null}
-        </CardContent>
-      </Card>
+          {shownError ? (
+            <LabelError id="source-error" tabIndex={-1} role="alert" className="mt-3">
+              {shownError}
+            </LabelError>
+          ) : null}
+        </div>
+      </section>
 
-      {/* ------------------------------------------------ frame and length */}
-
-      <Card className="gap-6">
-        <CardContent className="flex flex-col gap-6">
+      <section className="create-format">
+        <h2 className="mb-5 text-xl">Shape the video</h2>
+        <div className="flex flex-col gap-6">
           <TileGroup
             name="format"
             legend="Format"
-            hint="Vertical is a first-class target with its own pacing, not a cropped landscape."
+            hint="Choose where your video will live."
             value={aspect}
             onValueChange={setAspect}
             options={FORMATS.map((option) => ({
@@ -537,7 +464,7 @@ export function CreateForm() {
           <TileGroup
             name="length"
             legend="Length"
-            hint="How much is explained, and therefore how long it runs."
+            hint="A quick explanation or room to go deeper."
             value={format}
             onValueChange={setFormat}
             options={FILM_FORMATS.filter(
@@ -552,10 +479,7 @@ export function CreateForm() {
 
           <LabelHint>
             {lengthHonoured ? (
-              <>
-                The planner aims for {clock(chosenFormat.seconds)}. The camera follows a growing
-                canvas; final timing follows the narration.
-              </>
+              <>Target length: {clock(chosenFormat.seconds)}. Final timing follows the narration.</>
             ) : (
               <>
                 This studio build plans from the length of the source rather than a target, so the
@@ -563,12 +487,10 @@ export function CreateForm() {
               </>
             )}
           </LabelHint>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* ---------------------------------------------------------- options */}
-
-      <div className="flex flex-col gap-4">
+      <section className="create-options-section">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             type="button"
@@ -579,7 +501,7 @@ export function CreateForm() {
             onClick={() => setShowOptions((open) => !open)}
           >
             <SettingsIcon aria-hidden />
-            {showOptions ? 'Hide options' : 'Options'}
+            {showOptions ? 'Hide voice & style' : 'Voice & style'}
           </Button>
 
           {showOptions ? null : (
@@ -592,10 +514,8 @@ export function CreateForm() {
         </div>
 
         {showOptions ? (
-          <Card id="create-options" className="animate-in fade-in gap-6 duration-brisk ease-out">
+          <Card id="create-options" className="mt-4 gap-6 border-0 bg-transparent p-0">
             <CardContent className="flex flex-col gap-6">
-              {/* Frame and depth are not here: they changed what the video *is*,
-                  so they were promoted above rather than folded away. */}
               <TileGroup
                 name="style"
                 legend="Ink"
@@ -706,14 +626,33 @@ export function CreateForm() {
             </CardContent>
           </Card>
         ) : null}
-      </div>
+      </section>
 
-      {/* ----------------------------------------------------------- submit */}
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <section className="create-providers">
+        {' '}
+        {capsError ? (
+          <div role="alert" className="flex flex-col gap-2 text-sm text-destructive">
+            <p>Could not load your provider settings. {capsError}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() => void refreshCapabilities()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : caps ? (
+          <ProviderChoices caps={caps} value={providers} onChange={setSelection} />
+        ) : (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading your provider settings…
+          </p>
+        )}
+      </section>
+      <div className="create-submit">
         <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-          Read the source, plan the lesson, narrate and measure it, draw the canvas, then render the
-          video.{' '}
+          Your source is uploaded to Inkcast. You can review every scene once your video is ready.{' '}
           {mode === 'text' && words > 0 ? (
             <span className="text-foreground">≈{clock(estimate)} of video.</span>
           ) : null}
@@ -725,36 +664,21 @@ export function CreateForm() {
           disabled={submitting || !caps || Boolean(capsError)}
           className="shrink-0"
         >
-          {submitting ? 'Starting…' : 'Draw it'}
+          {submitting ? 'Starting your video…' : 'Create video'}
           {submitting ? null : <ArrowRightIcon aria-hidden />}
         </Button>
       </div>
 
       <p
         className={cn(
-          'flex items-center justify-end gap-1.5 text-2xs text-muted-foreground',
+          'create-shortcut flex items-center justify-end gap-1.5 text-xs text-muted-foreground',
           'max-sm:hidden',
         )}
       >
         <Kbd>⌘</Kbd>
         <Kbd>↵</Kbd>
-        to start from the paste box
+        to create from the text field
       </p>
     </form>
   );
 }
-
-/**
- * The one thing worth interrupting the form for: whether a lesson planner is
- * available at all.
- *
- * It is a banner rather than a line of helper text because the difference is not
- * a preference — with no Anthropic key the video summarises the document instead
- * of teaching it, and someone who renders three of those before finding the
- * setting will conclude the product is bad rather than unconfigured.
- *
- * While `caps` is undefined nothing is rendered. A banner that appears and then
- * disappears is worse than one that arrives late, and the studio's whole promise
- * is that it works with no keys — so the absence of an answer must never read as
- * an error.
- */

@@ -32,9 +32,10 @@ export type ProjectViewProps = {
   id: string;
   /** Set by the create flow's redirect, so the stream opens immediately. */
   initialGenerating: boolean;
+  canEdit?: boolean;
 };
 
-export function ProjectView({ id, initialGenerating }: ProjectViewProps) {
+export function ProjectView({ id, initialGenerating, canEdit = true }: ProjectViewProps) {
   const router = useRouter();
 
   const [detail, setDetail] = React.useState<ProjectDetail | null>(null);
@@ -87,7 +88,7 @@ export function ProjectView({ id, initialGenerating }: ProjectViewProps) {
       setDirty(false);
       setGenerating(false);
       void refresh().catch(() => undefined);
-      toast.success('Video ready', { description: 'Rendered and muxed. It is on disk.' });
+      toast.success('Video ready', { description: 'Ready to watch, download and share.' });
     },
   });
 
@@ -156,7 +157,7 @@ export function ProjectView({ id, initialGenerating }: ProjectViewProps) {
         title={storyboard?.title ?? project.title}
         state={generation}
         storyboard={storyboard}
-        onRetry={() => void onRerender()}
+        onRetry={() => (canEdit ? void onRerender() : router.push('/studio'))}
         retrying={rerendering}
       />
     );
@@ -164,6 +165,7 @@ export function ProjectView({ id, initialGenerating }: ProjectViewProps) {
 
   return (
     <ResultView
+      canEdit={canEdit}
       project={project}
       storyboard={storyboard}
       dirty={dirty}
