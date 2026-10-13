@@ -1,0 +1,196 @@
+WEBVTT
+
+1
+00:00:00.000 --> 00:00:03.519
+You open a map on your phone, and a blue
+dot settles on the street where you are
+
+2
+00:00:03.599 --> 00:00:04.599
+standing.
+
+3
+00:00:04.772 --> 00:00:08.871
+Nobody typed your address, so the phone
+worked the dot out from signals arriving
+
+4
+00:00:08.951 --> 00:00:09.951
+on its own.
+
+5
+00:00:10.930 --> 00:00:15.632
+You already use this idea when a flash
+of lightning arrives before its thunder.
+
+6
+00:00:16.630 --> 00:00:20.926
+Counting the seconds between them
+tells you how far away the strike was,
+
+7
+00:00:21.344 --> 00:00:23.863
+because sound travels at a steady speed.
+
+8
+00:00:24.409 --> 00:00:27.660
+That delay gives one distance,
+not a location.
+
+9
+00:00:28.622 --> 00:00:33.558
+Each GPS satellite broadcasts a radio
+signal stamped with the time it was sent,
+
+10
+00:00:33.638 --> 00:00:34.556
+plus information
+
+11
+00:00:34.636 --> 00:00:36.494
+about its orbit. Your phone
+
+12
+00:00:37.004 --> 00:00:41.905
+notes when that signal arrives, so travel
+time multiplied by the speed of light
+
+13
+00:00:41.985 --> 00:00:42.985
+gives a range estimate.
+
+14
+00:00:44.957 --> 00:00:50.089
+That estimate is not yet exact, because
+the phone's own clock drifts a little.
+
+15
+00:00:50.541 --> 00:00:55.870
+Until that clock error is accounted for,
+these distances are called pseudoranges.
+
+16
+00:00:56.810 --> 00:00:59.376
+This picture is a
+two-dimensional schematic.
+
+17
+00:00:59.921 --> 00:01:03.219
+One range places you on a
+circle around its satellite.
+
+18
+00:01:03.730 --> 00:01:06.469
+A second range, holding at the same time,
+
+19
+00:01:06.853 --> 00:01:09.720
+leaves two possibilities
+where the circles cross.
+
+20
+00:01:10.487 --> 00:01:14.109
+The real three-dimensional
+problem uses spheres instead,
+
+21
+00:01:14.446 --> 00:01:16.779
+and must also solve the clock error.
+
+22
+00:01:18.887 --> 00:01:20.338
+Now count the unknowns:
+
+23
+00:01:20.791 --> 00:01:24.947
+your three coordinates in space,
+plus the error in your phone's clock,
+
+24
+00:01:25.226 --> 00:01:27.002
+which we call the clock offset.
+
+25
+00:01:27.699 --> 00:01:31.926
+Four independent measurements from four
+satellites in suitable positions are
+
+26
+00:01:32.006 --> 00:01:37.070
+solved together for all four at once,
+so your phone needs no atomic clock of its
+
+27
+00:01:37.150 --> 00:01:37.987
+own.
+
+28
+00:01:38.067 --> 00:01:40.656
+Real receivers often use more than four.
+
+29
+00:01:42.754 --> 00:01:46.620
+Take the speed of light as three
+hundred million metres per second.
+
+30
+00:01:47.166 --> 00:01:50.591
+If a signal's time is off by
+one millionth of a second,
+
+31
+00:01:51.125 --> 00:01:56.129
+multiply the two numbers, and the range
+error is about three hundred metres.
+
+32
+00:01:56.941 --> 00:02:00.912
+That is a range error,
+not a guaranteed position error.
+
+33
+00:02:02.252 --> 00:02:07.037
+It is tempting to think three satellites
+pin you down and a fourth just measures
+
+34
+00:02:07.117 --> 00:02:08.117
+altitude.
+
+35
+00:02:08.312 --> 00:02:12.782
+That is not how it works, because your
+phone's clock error is unknown too,
+
+36
+00:02:13.119 --> 00:02:17.252
+so the measurements are solved together,
+not one satellite per job.
+
+37
+00:02:18.592 --> 00:02:20.798
+So the blue dot comes from timing.
+
+38
+00:02:21.390 --> 00:02:26.603
+A signal's travel time gives a range,
+several ranges narrow the possibilities,
+
+39
+00:02:26.986 --> 00:02:31.885
+and four independent measurements from
+well-placed satellites are solved together
+
+40
+00:02:32.257 --> 00:02:35.113
+for three coordinates
+and the clock offset.
+
+41
+00:02:35.844 --> 00:02:41.278
+Real receivers often use more, and
+accuracy also depends on the atmosphere,
+
+42
+00:02:41.533 --> 00:02:44.273
+reflected signals and satellite geometry.

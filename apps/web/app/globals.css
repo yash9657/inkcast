@@ -486,19 +486,6 @@
   background: var(--card);
   border-radius: var(--radius-lg);
 }
-.example-output .inkcast-demo {
-  margin: 0;
-}
-.example-output .inkcast-demo > div {
-  border: 0;
-  box-shadow: none;
-  padding: 0;
-}
-.example-output .inkcast-demo > figcaption {
-  padding: 1rem 1.25rem;
-  margin-top: 0;
-  border-top: 1px solid var(--border-subtle);
-}
 .landing-proof {
   display: flex;
   justify-content: space-between;

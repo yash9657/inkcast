@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { ArrowDownIcon, ArrowRightIcon, CheckIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 import { Button, GithubIcon } from '@/components/ui';
-import { InkDemo } from './ink-demo';
-import { repoUrl, signInRequired, STUDIO_TOPIC_MAX } from './site-config';
+import { GpsShowcase } from './gps-showcase';
+import { repoUrl, signInRequired, STUDIO_TOPIC_MAX, studioTopicHref } from './site-config';
 
 const questions = [
   [
@@ -77,33 +77,38 @@ export function Landing() {
         <div className="landing-example" id="examples">
           <div className="example-source">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <FileTextIcon className="size-4" aria-hidden /> The starting point
+              <FileTextIcon className="size-4" aria-hidden /> The question
             </div>
             <div className="source-note">
-              <span className="text-xs text-muted-foreground">Your notes</span>
-              <h2 className="mt-5 text-xl">Make gradient descent make sense.</h2>
+              <span className="text-xs text-muted-foreground">GPS, explained</span>
+              <h2 className="mt-5 text-xl">How does GPS find my phone?</h2>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                Imagine finding the lowest point in a valley. You take a step downhill, check the
-                slope, and take another.
+                Follow a satellite signal from space to your phone, then see how timing turns into a
+                position on a map.
               </p>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                Small steps. A little less error. Until you reach the bottom.
+                Ranges, clock corrections, and the story behind that little blue dot.
               </p>
             </div>
             <Link
-              href="/studio?example=gradient-descent"
+              href={studioTopicHref('How does GPS find my phone?')}
               className="focus-ring mt-6 inline-flex items-center gap-2 text-sm font-medium"
             >
-              Try this example <ArrowRightIcon className="size-4" aria-hidden />
+              Explain this topic <ArrowRightIcon className="size-4" aria-hidden />
             </Link>
           </div>
-          <div className="example-output">
-            <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 text-sm">
-              <span className="font-medium">An idea, drawn out</span>
-              <span className="text-xs text-muted-foreground">Animation preview</span>
+          <figure className="example-output">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 text-sm">
+              <span id="gps-film-title" className="font-medium">
+                How GPS finds your position
+              </span>
+              <span className="text-xs text-muted-foreground">2:47 · 1080p</span>
             </div>
-            <InkDemo />
-          </div>
+            <GpsShowcase />
+            <figcaption className="border-t border-border-subtle px-5 py-4 text-sm text-muted-foreground">
+              A finished Inkcast film. Press play for the full narrated explanation.
+            </figcaption>
+          </figure>
         </div>
         <div className="landing-proof">
           <span>
