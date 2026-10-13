@@ -5,19 +5,6 @@ import { Progress as ProgressPrimitive } from '@base-ui/react/progress';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A determinate or indeterminate progress bar.
- *
- * Pass `value={null}` for indeterminate — which is the honest state when a
- * stage has started but has not reported a percentage yet. Never fake a
- * percentage: docs/research/golpo-ux.md §5.14 is a study in what an opaque,
- * dishonest progress indicator costs.
- *
- *   <Progress value={pct} label="Drawing" note="scene 3 of 9" />
- *
- * `label`/`note`/`showValue` render the staged, named-step readout the pipeline
- * needs — `onProgress` gives `{stage, pct, note}` and all three land here.
- */
 export type ProgressProps = WithClass<ProgressPrimitive.Root.Props> & {
   label?: React.ReactNode;
   note?: React.ReactNode;
@@ -55,20 +42,16 @@ export function Progress({
         </div>
       ) : null}
 
-      {/* Same rail as `Slider`: 8px, square, ink-bordered, inset. Deliberately
-          identical, because a progress bar and a slider track are the same
-          object with different agency, and in a system this reduced two
-          near-identical rails that differ by 2px of height and a corner radius
-          look like an accident rather than a decision. */}
+      {}
       <ProgressPrimitive.Track
         className={cn(
-          'relative h-2 w-full overflow-hidden rounded-none border border-border bg-muted',
+          'relative h-2 w-full overflow-hidden rounded-md border border-border bg-muted',
           'inset-shadow-well',
         )}
       >
         <ProgressPrimitive.Indicator
           className={cn(
-            'h-full rounded-none bg-primary',
+            'h-full rounded-md bg-primary',
             'transition-[width] duration-slow ease-out',
             // Indeterminate: a sweep across the full track, so the bar reads as
             // "working, duration unknown" rather than as a stalled 0%.

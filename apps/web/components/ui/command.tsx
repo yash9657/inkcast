@@ -7,26 +7,6 @@ import { SearchIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
 
-/**
- * A command palette (⌘K) and the filterable list it is built from.
- *
- * Standalone list (for an inline picker — a voice, a language, a scene):
- *   <Command>
- *     <CommandInput placeholder="Find a voice…" />
- *     <CommandList>
- *       <CommandEmpty>No matches.</CommandEmpty>
- *       <CommandGroup heading="Voices">
- *         <CommandItem value="af_heart" onSelect={pick}>Heart</CommandItem>
- *       </CommandGroup>
- *     </CommandList>
- *   </Command>
- *
- * As a palette, wrap it in `CommandDialog`, which supplies the required
- * accessible name via a visually hidden title.
- *
- * cmdk owns filtering, scoring and arrow-key navigation. Do not filter the
- * children yourself — pass everything and let it score.
- */
 export function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
@@ -37,7 +17,7 @@ export function Command({ className, ...props }: React.ComponentProps<typeof Com
         // of `DialogContent`, which already supplies the ink frame and
         // `shadow-overlay`. A second border here would draw a line 0px from the
         // dialog's.
-        'flex size-full flex-col overflow-hidden rounded-none bg-popover text-popover-foreground',
+        'flex size-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
         className,
       )}
       {...props}
@@ -86,19 +66,7 @@ export function CommandInput({
     // real line, a list divider is a hairline.
     <div className="flex h-12 items-center gap-2.5 border-b border-border px-4">
       <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      {/* The one focusable element in the primitives that deliberately carries no
-          ring, and the reason is that adding one here makes the palette worse in
-          both directions. `focus-ring` draws its outline 2px outside the border
-          box, and this input is flush against three edges of a `Command` root
-          that is `overflow-hidden` — so the ring would be clipped on the left,
-          right and top and survive only along the bottom, which is a worse signal
-          than none because it reads as a rendering fault. An inset ring (the fix
-          `scroll-area.tsx` uses) would fit, but this field is focused
-          unconditionally the moment the palette opens and is the only thing in it
-          that can take focus, so the ring would be permanently on: a 2px violet
-          frame that never means anything because it never changes. The caret is
-          the indicator, which is what WCAG 2.4.7 accepts for a text field, and
-          the dialog's own frame is the boundary. */}
+      {}
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
@@ -168,7 +136,7 @@ export function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        'relative flex cursor-default items-center gap-2.5 rounded-none px-2 py-2',
+        'relative flex cursor-default items-center gap-2.5 rounded-md px-2 py-2',
         'text-sm text-foreground outline-none select-none',
         // The selected row carries a shape as well as a tint, and this is an
         // accessibility fix rather than a flourish. cmdk drives selection through

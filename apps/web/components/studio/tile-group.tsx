@@ -63,7 +63,7 @@ export function TileGroup<T extends string>({
               // component sweep: docs/DESIGN.md's clean-up list names this line,
               // and the alias block in globals.css cannot be deleted while a
               // call site still reads through it.
-              'rounded-lg border border-input bg-card p-3 shadow-card',
+              'rounded-lg border border-input bg-card p-4',
               'transition-[background-color,border-color] duration-fast ease-out',
               'hover:bg-accent/40',
               'has-[input:checked]:border-primary has-[input:checked]:bg-primary/8',
@@ -110,7 +110,7 @@ export function AspectGlyph({ glyph }: { glyph: string }) {
     <span
       aria-hidden
       className={cn(
-        'block rounded-xs border-2 border-current text-input',
+        'block rounded-xs border-2 border-current text-muted-foreground',
         'transition-colors duration-fast ease-out',
         'group-has-[input:checked]:text-primary',
         glyph,

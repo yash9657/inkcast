@@ -1,3 +1,4 @@
+import { INKCAST_BRAND } from './brand.js';
 /**
  * Storyboard IR -> RenderPlan.
  *
@@ -83,7 +84,6 @@ import { curveTrace, plotArea, plotPhases } from './plot.js';
 import type { PlotPhase } from './plot.js';
 import { dotPrim, geom, geoms, textPrim } from './prims.js';
 import {
-  BRAND_MARK,
   Rng,
   TITLE_UNDERLINE,
   hachureEllipse,
@@ -93,7 +93,6 @@ import {
   sketchAlong,
   sketchArrowHead,
   sketchBracket,
-  sketchBrandMark,
   sketchCurve,
   sketchEllipse,
   sketchLine,
@@ -1151,8 +1150,14 @@ function brandPlateItem(
   const start = Math.max(last.start + last.dur, duration - window);
   const dur = Math.max(0.2, Math.min(BRAND_PLATE_DRAW, window * 0.7));
 
-  const rng = new Rng(seedOf('brand-plate', last.id));
-  const mark = sketchBrandMark(rng, ctx.st, box);
+  // Both generated paths use absolute coordinate pairs in a 40-unit box.
+  // Position the shared mark without changing the safe-corner placement logic.
+  const brandPath = (path: string) => {
+    let index = 0;
+    return path.replace(/-?\d+(?:\.\d+)?/g, (value) =>
+      String(round3((Number(value) * side) / 40 + (index++ % 2 === 0 ? box.x : box.y))),
+    );
+  };
   return {
     id: 'inkcast~brand',
     scene: scenes.length - 1,
@@ -1165,11 +1170,14 @@ function brandPlateItem(
     sceneEnd: round3(duration),
     center: center(box),
     prims: [
-      ...geoms(mark.tile, ctx.pal.ink, mark.borderWidth),
-      ...geoms(mark.cast, BRAND_MARK.stroke, mark.castWidth),
-      // Closed and filled, so the runtime dash-reveals its three edges and ramps the
-      // fill in over the same window — the nib arrives as ink, not as a switch.
-      geom(mark.nib, BRAND_MARK.stroke, mark.castWidth * 0.4, { fill: BRAND_MARK.stroke }),
+      geom(brandPath(INKCAST_BRAND.tilePath), INKCAST_BRAND.fill, 0, {
+        fill: INKCAST_BRAND.fill,
+        noDash: true,
+      }),
+      geom(brandPath(INKCAST_BRAND.path), INKCAST_BRAND.foreground, 0, {
+        fill: INKCAST_BRAND.foreground,
+        noDash: true,
+      }),
     ],
   };
 }

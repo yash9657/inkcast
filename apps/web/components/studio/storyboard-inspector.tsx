@@ -1,4 +1,5 @@
 'use client';
+import { LANGUAGES, voiceLabel } from './options';
 
 import * as React from 'react';
 import { ChevronDownIcon, PlayIcon } from 'lucide-react';
@@ -52,10 +53,14 @@ export function StoryboardInspector({ storyboard, onSeek, className }: Storyboar
 
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{meta.aspect}</Badge>
-          <Badge variant="outline">{meta.style}</Badge>
-          <Badge variant="outline">{meta.palette}</Badge>
-          <Badge variant="outline">{meta.voice}</Badge>
-          <Badge variant="outline">{meta.language}</Badge>
+          <Badge variant="outline">
+            {meta.style.charAt(0).toUpperCase() + meta.style.slice(1)}
+          </Badge>
+          <Badge variant="outline">{meta.palette === 'color' ? 'Colour' : 'Monochrome'}</Badge>
+          <Badge variant="outline">{voiceLabel(meta.voice)}</Badge>
+          <Badge variant="outline">
+            {LANGUAGES.find((language) => language.value === meta.language)?.label ?? meta.language}
+          </Badge>
           <Badge variant="outline">{meta.fps} fps</Badge>
         </div>
       </CardContent>
@@ -134,10 +139,9 @@ function SceneRow({
           <p className="text-md leading-relaxed text-foreground">{scene.narration}</p>
 
           <p className="text-xs text-muted-foreground">
-            {describeCamera(scene, index > 0 ? storyboard.scenes[index - 1] : undefined)}
             {elements.length
-              ? ` · ${elements.length} element${elements.length === 1 ? '' : 's'}`
-              : ' · nothing new drawn'}
+              ? `${elements.length} visual element${elements.length === 1 ? '' : 's'}`
+              : 'No new visual elements'}
           </p>
 
           <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -195,11 +199,10 @@ function SceneRow({
 
 function AssetLibrary({ storyboard }: { storyboard: Storyboard }) {
   return (
-    <section className="border-t border-border p-4">
-      <h3 className="text-2xs uppercase text-muted-foreground">Entity library</h3>
+    <details className="border-t border-border p-4">
+      <summary className="focus-ring cursor-pointer text-sm font-medium">Reusable artwork</summary>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        Each of these is drawn once and referenced by id everywhere it appears, so it cannot drift
-        between scenes.
+        Artwork used across multiple scenes stays visually consistent.
       </p>
       <ul className="mt-3 flex flex-col gap-1.5">
         {storyboard.assets.map((asset) => (
@@ -216,6 +219,6 @@ function AssetLibrary({ storyboard }: { storyboard: Storyboard }) {
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }

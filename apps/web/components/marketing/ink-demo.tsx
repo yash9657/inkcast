@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { RotateCcwIcon } from 'lucide-react';
+import { RotateCcwIcon, PauseIcon, PlayIcon } from 'lucide-react';
 
 import { Button, inkCirclePath, inkStrokePath } from '@/components/ui';
 import { cn, randomFromSeed } from '@/lib/utils';
@@ -370,6 +370,7 @@ function Handwritten({
 }
 
 export function InkDemo({ className }: { className?: string }) {
+  const [paused, setPaused] = React.useState(false);
   // Remounting the <svg> restarts every CSS animation from its delay, which is
   // the whole implementation of "draw it again" — no timers, no animation API.
   const [run, setRun] = React.useState(0);
@@ -427,7 +428,11 @@ export function InkDemo({ className }: { className?: string }) {
   const descId = `${scope}-desc`;
 
   return (
-    <div ref={root} data-hold={hold ? 'true' : undefined} className={cn('inkcast-demo', className)}>
+    <div
+      ref={root}
+      data-hold={hold || paused ? 'true' : undefined}
+      className={cn('inkcast-demo', className)}
+    >
       {/* React hoists and de-duplicates this, so it is emitted once however many
           boards are on the page. */}
       <style href="inkcast-ink-demo" precedence="medium">
@@ -443,7 +448,7 @@ export function InkDemo({ className }: { className?: string }) {
           resolves to `shadow-overlay` through the deprecated alias block — the
           board would have kept a soft-system shadow forever without this edit,
           which is the exact silent-degradation case §11 was written for. */}
-      <div className="border border-border bg-card p-2 shadow-pop">
+      <div className="bg-paper">
         <div className="overflow-hidden border border-border-subtle bg-paper">
           <svg
             key={run}
@@ -618,14 +623,30 @@ export function InkDemo({ className }: { className?: string }) {
           </svg>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-3 pb-1">
-          <p className="font-mono text-2xs uppercase text-muted-foreground">
-            One canvas · three framings · nothing erased
-          </p>
-          <Button variant="ghost" size="xs" onClick={() => setRun((n) => n + 1)}>
-            <RotateCcwIcon aria-hidden />
-            Draw it again
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground">A closer look at gradient descent</p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={paused ? 'Resume animation' : 'Pause animation'}
+              onClick={() => setPaused((value) => !value)}
+            >
+              {paused ? <PlayIcon aria-hidden /> : <PauseIcon aria-hidden />}
+              {paused ? 'Resume' : 'Pause'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPaused(false);
+                setRun((n) => n + 1);
+              }}
+            >
+              <RotateCcwIcon aria-hidden />
+              Replay
+            </Button>
+          </div>
         </div>
       </div>
     </div>

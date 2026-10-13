@@ -791,11 +791,14 @@ test('the outro is signed, and only when there is outro enough to sign it', () =
     `plate is still being drawn at the final frame (${plate.start}+${plate.dur} vs ${plan.duration})`,
   );
   assert.equal(plate.persist, true, 'the board ends with the mark, so it never fades');
-  // Four tile edges, the cast stroke, and the nib — the nib filled, because a closed
-  // filled path is what lets the runtime ramp it in as ink instead of switching it on.
-  assert.ok(plate.prims.length >= 6, `expected tile + cast + nib, got ${plate.prims.length} prims`);
+  assert.equal(plate.prims.length, 2, 'the shared identity has a tile and ink-to-play glyph');
   const filled = plate.prims.filter((p) => (p as GeomPrim).fill !== 'none');
-  assert.equal(filled.length, 1, 'exactly one filled prim: the nib');
+  assert.equal(filled.length, 2, 'both parts stay visible in the final frame');
+  assert.notEqual(
+    (filled[0] as GeomPrim).fill,
+    (filled[1] as GeomPrim).fill,
+    'the glyph contrasts with its tile',
+  );
 });
 
 test('the brand plate goes to the emptiest corner of the last frame', () => {

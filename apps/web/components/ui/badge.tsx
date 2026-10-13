@@ -3,28 +3,6 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
 
-/**
- * A badge — a status, a count, a tag. Never interactive; if it can be clicked
- * it is a `Button size="xs"`, not a badge.
- *
- * Hierarchy comes from tracking and weight rather than size: badges are all
- * one size, and the tint carries the meaning.
- *
- * The badge is the one place the pill survives. docs/DESIGN.md §4: "if it is a
- * rectangle, it has square corners; if it is a lozenge or a circle, use the
- * pill. There is nothing in between." A badge is a lozenge, so `rounded-pill`
- * is named explicitly rather than inherited from a `rounded-full` that happens
- * to still resolve.
- *
- * Every variant now draws a real line. `border-transparent` on a tinted chip
- * was the previous system's way of reserving the 1px without spending it; in a
- * system built on 1px edges an invisible edge is just a chip that floats. Each
- * status variant borders itself at 35% — its own hue, so the chip reads as one
- * object — and the accent variant uses the two derivatives the reference system
- * derives everything from (`accent-soft` at 8%/12%, `accent-border` at
- * 28%/34%). No hard shadow anywhere: a 6px offset plane under an 18px chip is
- * an object the size of its own shadow.
- */
 const badgeVariants = cva(
   [
     'inline-flex w-fit shrink-0 items-center justify-center gap-1 whitespace-nowrap',
@@ -40,7 +18,7 @@ const badgeVariants = cva(
         success: 'border-success/35 bg-success/12 text-success',
         warning: 'border-warning/35 bg-warning/14 text-warning',
         destructive: 'border-destructive/35 bg-destructive/12 text-destructive',
-        /** For the whiteboard's own vocabulary: an ink-style legend chip. */
+
         ink: 'border-ink-violet/30 bg-ink-violet/12 font-hand text-sm text-ink-violet',
       },
     },
@@ -56,10 +34,6 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
   );
 }
 
-/**
- * A live status dot, for pipeline stages. Pairs with `Badge` or stands alone.
- * `pulse` is opt-in and only for genuinely in-flight work.
- */
 export function StatusDot({
   tone = 'neutral',
   pulse = false,
@@ -83,13 +57,7 @@ export function StatusDot({
       className={cn('relative inline-flex size-2 shrink-0', className)}
       {...props}
     >
-      {/* `rounded-pill`, not `rounded-full`. The two tokens are both 999px and
-          always will be, so this changes no pixels — it changes which name the
-          file uses for "round", and this file's own docstring six lines up
-          argues that the pill should be named rather than inherited from a
-          `rounded-full` that happens to still resolve. A file that makes that
-          argument in its header and then contradicts it in its footer teaches
-          the wrong lesson to whoever copies from it next. */}
+      {}
       {pulse ? (
         <span className={cn('absolute inset-0 animate-ping rounded-pill opacity-60', toneClass)} />
       ) : null}

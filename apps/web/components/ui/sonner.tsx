@@ -4,22 +4,6 @@ import * as React from 'react';
 import { useTheme } from 'next-themes';
 import { Toaster as SonnerToaster, toast } from 'sonner';
 
-/**
- * Toasts.
- *
- * Mounted once, by `Providers`. Everywhere else you only ever call `toast`:
- *
- *   toast.success('Render finished', { description: '1m 42s · 3.4 MB' });
- *   toast.promise(render(), { loading: 'Rendering…', success: 'Done', error: 'Render failed' });
- *
- * Sonner is styled entirely through `toastOptions.classNames` with our own
- * tokens rather than its `richColors`/CSS-variable theming, so a toast is
- * visually identical to a popover and follows the theme without a second
- * palette to keep in sync.
- *
- * A toast is for confirming something that already happened. If the user has to
- * act, or must not miss it, that is a dialog.
- */
 export function Toaster() {
   const { resolvedTheme } = useTheme();
 
@@ -40,7 +24,7 @@ export function Toaster() {
           // §11 lists this line) and it did resolve, which is why nothing looked
           // broken — it just gave every toast the elevation of a resting card.
           toast: [
-            'group flex w-full items-start gap-3 rounded-none border border-border',
+            'group flex w-full items-start gap-3 rounded-md border border-border',
             'bg-popover p-4 text-popover-foreground shadow-overlay',
           ].join(' '),
           title: 'text-sm font-medium leading-snug',
@@ -53,11 +37,11 @@ export function Toaster() {
           // that is itself floating on `shadow-overlay` is two elevations arguing
           // inside one box, and the frame already says which is which.
           actionButton: [
-            'shrink-0 rounded-none border border-input bg-primary px-2.5 py-1 text-xs font-medium',
+            'shrink-0 rounded-md border border-transparent bg-primary px-2.5 py-1 text-xs font-medium',
             'text-primary-foreground focus-ring outline-none',
           ].join(' '),
           cancelButton: [
-            'shrink-0 rounded-none border border-input bg-secondary px-2.5 py-1 text-xs font-medium',
+            'shrink-0 rounded-md border border-input bg-secondary px-2.5 py-1 text-xs font-medium',
             'text-secondary-foreground focus-ring outline-none',
           ].join(' '),
           // `border-border` with no `border` was a colour with nothing to paint —
@@ -65,7 +49,7 @@ export function Toaster() {
           // a real line. It is a ghost control until you reach for it, which is
           // right for a dismiss affordance, so the edge arrives on hover.
           closeButton: [
-            'rounded-none border border-transparent bg-popover text-muted-foreground',
+            'rounded-md border border-transparent bg-popover text-muted-foreground',
             'transition-[border-color,color] duration-fast ease-out',
             'hover:border-input hover:text-foreground focus-ring outline-none',
           ].join(' '),
