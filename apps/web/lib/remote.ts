@@ -32,6 +32,7 @@ import {
   RenderServiceBusy,
   blobPrefix,
   callRenderService,
+  claimJob,
   isActiveJob,
   newJob,
   readJob,
@@ -117,14 +118,16 @@ const WAITING: QueueEvent = {
 export async function startRemoteCast(
   id: string,
   input: RenderInput,
-  options: { force?: boolean; providerEnv?: Record<string, string>; isolated?: boolean } = {},
+  options: {
+    force?: boolean;
+    resolveProviderEnv?: () => Promise<Record<string, string>>;
+    isolated?: boolean;
+  } = {},
 ): Promise<{ snapshot: JobSnapshot; started: boolean }> {
   const prefix = blobPrefix();
-  const existing = await readJob(prefix, id).catch(() => undefined);
-  if (existing && isActiveJob(existing)) return { snapshot: snapshotOf(existing), started: false };
-
-  const job: JobState = { ...newJob(id, 'cast', 'queued'), queue: WAITING };
-  await writeJob(prefix, job);
+  const claim = await claimJob(prefix, { ...newJob(id, 'cast', 'queued'), queue: WAITING });
+  if (!claim.started) return { snapshot: snapshotOf(claim.job), started: false };
+  const job = claim.job;
 
   const request: RenderRequest = {
     projectId: id,
@@ -132,20 +135,23 @@ export async function startRemoteCast(
     kind: 'cast',
     input,
     ...(options.force === undefined ? {} : { force: options.force }),
-    ...(options.providerEnv ? { providerEnv: options.providerEnv } : {}),
     ...(options.isolated === undefined ? {} : { isolated: options.isolated }),
   };
   // `after` is `waitUntil` on Vercel: the invocation stays alive (and billed for
   // memory, not CPU, while it waits) until the render service answers or the
   // route's `maxDuration` ends it.
-  after(dispatch(job, request));
+  after(() => dispatch(job, request, options.resolveProviderEnv));
   return { snapshot: snapshotOf(job), started: true };
 }
 
 /** How long to keep retrying when every instance reached is mid-render. */
 const BUSY_RETRY_MS = 3 * 60 * 1000;
 
-async function dispatch(job: JobState, request: RenderRequest): Promise<void> {
+async function dispatch(
+  job: JobState,
+  request: RenderRequest,
+  resolveProviderEnv?: () => Promise<Record<string, string>>,
+): Promise<void> {
   const prefix = request.blobPrefix;
   const id = request.projectId;
   const baseUrl = (process.env.INKCAST_RENDER_URL ?? '').trim();
@@ -172,7 +178,13 @@ async function dispatch(job: JobState, request: RenderRequest): Promise<void> {
   const deadline = Date.now() + BUSY_RETRY_MS;
   for (let attempt = 1; ; attempt++) {
     try {
-      const terminal = await callRenderService(baseUrl, token, request, () => {}, {
+      // Resolve on every admission attempt: removal or replacement while waiting
+      // for a busy renderer must take effect before a provider is called.
+      const admitted = {
+        ...request,
+        ...(resolveProviderEnv ? { providerEnv: await resolveProviderEnv() } : {}),
+      };
+      const terminal = await callRenderService(baseUrl, token, admitted, () => {}, {
         ...(bypassToken ? { bypassToken } : {}),
       });
       const settled: JobState =

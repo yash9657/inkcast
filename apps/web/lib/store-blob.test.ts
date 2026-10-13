@@ -76,3 +76,29 @@ test('a failed job becomes a failed record with its reason, and never a ready on
   // "done" without a result is not evidence of a film.
   assert.equal(store.patchFromJob({ ...base, status: 'done' }).status, 'failed');
 });
+
+test('Blob first-claim races cannot change a project owner', async () => {
+  const { blobEmulator } = await import('../../../packages/cloud/test/blob-emulator.js');
+  const blob = blobEmulator();
+  const storage = process.env.INKCAST_STORAGE;
+  const hosted = process.env.INKCAST_HOSTED;
+  process.env.INKCAST_STORAGE = 'blob';
+  process.env.INKCAST_HOSTED = '1';
+  try {
+    const result = await Promise.allSettled([
+      store.upsertProject('race-film', { ownerSession: 'owner-a' }, 'owner-a'),
+      store.upsertProject('race-film', { ownerSession: 'owner-b' }, 'owner-b'),
+    ]);
+    assert.equal(result.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal(result.filter((r) => r.status === 'rejected').length, 1);
+    assert.ok(
+      ['owner-a', 'owner-b'].includes((await store.readProjectTruth('race-film'))!.ownerSession!),
+    );
+  } finally {
+    if (storage === undefined) delete process.env.INKCAST_STORAGE;
+    else process.env.INKCAST_STORAGE = storage;
+    if (hosted === undefined) delete process.env.INKCAST_HOSTED;
+    else process.env.INKCAST_HOSTED = hosted;
+    await blob.close();
+  }
+});

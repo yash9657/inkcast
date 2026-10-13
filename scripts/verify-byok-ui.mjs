@@ -49,7 +49,7 @@ const shot = async (name) => {
 };
 try {
   await page.goto('/settings', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Your API keys' }).waitFor();
+  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
   const snapshot = await context.request.get('/api/keys', { timeout: 120_000 });
   assert.equal(
     (await snapshot.json()).vault.scope,
@@ -115,10 +115,10 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await shot('settings-mobile');
   await page.goto('/studio', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Providers for this video' }).waitFor();
+  await page.getByRole('heading', { name: 'Processing & providers' }).waitFor();
   assert.match(await page.locator('#planning-provider').textContent(), /Fireworks/);
   assert.match(await page.locator('#speech-provider').textContent(), /ElevenLabs/);
-  await page.getByRole('button', { name: 'Options', exact: true }).click();
+  await page.getByRole('button', { name: 'Voice & style', exact: true }).click();
   assert.equal(await page.getByLabel('Voice', { exact: true }).inputValue(), 'River');
   await shot('studio-mobile');
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -138,7 +138,7 @@ try {
     .fill(
       'The Earth rotates once each day. The side facing the Sun is lit, while the other side is in shadow.',
     );
-  await page.getByRole('button', { name: 'Draw it', exact: true }).click();
+  await page.getByRole('button', { name: 'Create video', exact: true }).click();
   await page
     .getByText('Test request captured. No video was generated.', { exact: true })
     .first()
@@ -160,7 +160,7 @@ try {
   await page.getByRole('option', { name: 'Local · basic summary', exact: true }).click();
   await page.locator('#speech-provider').click();
   await page.getByRole('option', { name: 'Local · Kokoro', exact: true }).click();
-  await page.getByRole('button', { name: 'Draw it', exact: true }).click();
+  await page.getByRole('button', { name: 'Create video', exact: true }).click();
   await page.waitForTimeout(300);
   assert.equal(requests[1].providers.planner, 'local');
   assert.equal(requests[1].providers.speech, 'local');

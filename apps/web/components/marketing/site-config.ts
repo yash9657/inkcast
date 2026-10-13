@@ -212,13 +212,13 @@ function showcaseId(value: string | undefined): string | null {
 /**
  * The three films on the format row, one per frame shape, by project id.
  *
- * They are configuration rather than checked-in assets for a reason that is
- * structural: there is no `apps/web/public/`, and there is not going to be one.
- * A finished film lives in a project directory outside the build (see
+ * These optional project previews are deployment configuration. User films
+ * live in project directories outside the build (see
  * `app/api/media/[id]/[...path]/route.ts` — "working state rather than static
  * assets"), so the landing page can only ever *point at* one. The launch runbook
- * renders three showcase films and pins them; these env vars are how they arrive
- * on this page.
+ * renders three showcase films and pins them; these env vars select those
+ * previews. The approved GPS hero film is a separate, checked-in public asset
+ * under `apps/web/public/showcase/`; it never needs access to a user's project.
  *
  * Unset is a supported state, not a broken one — the same `degrade, never
  * fabricate` rule `repoUrl` follows. An unconfigured card draws an ink sketch of

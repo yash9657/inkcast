@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 
-import { readJson, writeJson } from './blob.js';
+import { readJson, updateJson, writeJson } from './blob.js';
 import { JOB_BLOB, projectKey } from './config.js';
 
 export const ProgressSchema = z.object({
@@ -120,4 +120,19 @@ export async function writeJob(prefix: string, job: JobState): Promise<void> {
 export function newJob(id: string, kind: JobState['kind'], status: JobState['status']): JobState {
   const now = new Date().toISOString();
   return { version: 1, projectId: id, kind, status, startedAt: now, updatedAt: now };
+}
+
+/** Only one Function may admit a project, even on its first request. */
+export async function claimJob(
+  prefix: string,
+  job: JobState,
+): Promise<{ job: JobState; started: boolean }> {
+  return updateJson<{ job: JobState; started: boolean }>(
+    projectKey(prefix, job.projectId, JOB_BLOB),
+    (raw) => {
+      const current = raw === undefined ? undefined : JobStateSchema.parse(raw);
+      if (current && isActiveJob(current)) return { result: { job: current, started: false } };
+      return { value: job, result: { job, started: true } };
+    },
+  );
 }

@@ -600,3 +600,48 @@ server's `INKCAST_PUBLIC_URL` to that test URL. No real Clerk login or paid vide
 The Storyboard IR, renderer and video-quality algorithms are unchanged. No dependency
 installation or lockfile change was made. Per the user's latest instruction, keep the
 finished commit local and wait for their go-ahead before pushing.
+
+### Deployment integration and release verification — 2026-10-13
+
+Integrated the editorial studio update, the latest `deploy/vercel` work, and
+`fix/voice-perf` into one release candidate. The voice change bounds long Kokoro
+sentences without restoring fragmented neural narration. The existing source
+review, narration preservation, measured cues, semantic label bindings and
+persistent-canvas behavior remain in place.
+
+The integration review found and fixed defects specific to stateless deployment:
+
+- Blob credential records now fail closed on invalid JSON/schema. Conditional
+  creation and ETag updates preserve concurrent provider saves and recheck project
+  ownership after a conflict. The implementation follows the Blob SDK's
+  [conditional-write contract](https://vercel.com/docs/vercel-blob#conditional-writes).
+- Job admission is atomic across Function instances, including first creation.
+  Credentials are resolved again on each busy-renderer retry. A running job keeps
+  its admitted snapshot; missing isolated credentials cannot select operator keys.
+- Remote account runs enforce public URL ingestion and refuse server file paths.
+  Dispatch rejects redirects, drops reflected HTTP error bodies, and redacts
+  progress/failure fields before persistence or streaming. Terminal state writes
+  must succeed before the worker reports completion.
+- The browser check follows the redesigned Settings, Processing & providers,
+  Voice & style, and Create video controls.
+
+Verification on the Tailscale-connected Mac mini: **1,330 tests passed, 4 skipped,
+zero failures**, and every workspace typecheck passed. Three skips require local
+credential facilities; one refers to an optional historical project that was not
+copied to the isolated checkout. Both filesystem and Blob production builds passed.
+Production browser checks passed for separate accounts, provider selection,
+credential save/removal/error states, and desktop/mobile light/dark layouts.
+
+A real Kokoro/Chromium/ffmpeg smoke check is available as
+`node --import tsx scripts/verify-render-service.mts`. It uses cached local models,
+an isolated temporary projects directory, and an in-memory HTTP emulator for the
+real Blob SDK; external network requests are blocked. It verifies the protected
+worker protocol, durable terminal record, uploaded MP4, dimensions and audio track.
+The photosynthesis fixture passed: eight scenes, 74.1 seconds, 1920×1080 H.264
+with AAC audio, generated in approximately 69 seconds with no provider charges.
+It does not measure paid Fireworks/ElevenLabs quality, exercise a real Clerk login,
+or prove that a Vercel deployment is configured correctly. The original scientific
+and first-attempt benchmark limitations above still apply.
+
+The user has now authorized pushing the integrated changes. The release target is
+`deploy/vercel`; `main` remains unchanged.

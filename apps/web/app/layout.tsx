@@ -44,7 +44,7 @@ import './globals.css';
  */
 export const metadata: Metadata = {
   title: {
-    default: 'Inkcast — draw an explainer from anything you have written',
+    default: 'Inkcast — A good idea. Beautifully explained.',
     template: '%s · Inkcast',
   },
   description:
@@ -82,8 +82,8 @@ export const viewport: Viewport = {
     // take a `var()`, so this is the one place a hex is allowed to exist; if
     // `--background` moves in either theme, it has to move here in the same
     // change or the phone draws a seam.
-    { media: '(prefers-color-scheme: light)', color: '#fefdfa' },
-    { media: '(prefers-color-scheme: dark)', color: '#0d0d11' },
+    { media: '(prefers-color-scheme: light)', color: '#f9f7f1' },
+    { media: '(prefers-color-scheme: dark)', color: '#101511' },
   ],
   colorScheme: 'light dark',
 };

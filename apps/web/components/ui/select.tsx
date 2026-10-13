@@ -6,24 +6,6 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A select.
- *
- *   <Select defaultValue="16:9">
- *     <SelectTrigger className="w-40"><SelectValue placeholder="Aspect" /></SelectTrigger>
- *     <SelectContent>
- *       <SelectItem value="16:9">Landscape</SelectItem>
- *       <SelectItem value="9:16">Vertical</SelectItem>
- *     </SelectContent>
- *   </Select>
- *
- * `Select` is Base UI's `Root` re-exported unwrapped, so its generics survive:
- * `value`/`onValueChange` stay typed to whatever you put in `SelectItem`.
- *
- * Enter/exit is driven by Base UI's `data-starting-style` / `data-ending-style`
- * attributes with a CSS transition, and scaled from `--transform-origin` so the
- * popup grows out of its trigger regardless of which side it flipped to.
- */
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
 export const SelectValue = SelectPrimitive.Value;
@@ -38,8 +20,8 @@ export function SelectTrigger({
       data-slot="select-trigger"
       className={cn(
         'group/select-trigger',
-        'flex h-9 w-full items-center justify-between gap-2 rounded-none border border-input bg-card px-3',
-        'text-base text-foreground shadow-card select-none',
+        'flex h-11 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3',
+        'text-base text-foreground shadow-none select-none',
         'transition-[border-color,background-color] duration-fast ease-out',
         'hover:bg-accent/40',
         // Same colour, honest name: `--ring` and `--accent-strong` are both the
@@ -91,7 +73,7 @@ export function SelectContent({
         <SelectPrimitive.Popup
           className={cn(
             'max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-hidden',
-            'rounded-none border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
+            'rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
             'origin-[var(--transform-origin)]',
             'transition-[opacity,transform,translate] duration-brisk ease-out',
             'data-starting-style:scale-[0.97] data-starting-style:opacity-0',
@@ -121,7 +103,7 @@ export function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        'relative flex cursor-default items-center gap-2 rounded-none py-1.5 pr-2 pl-8',
+        'relative flex cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-8',
         'text-sm text-foreground outline-none select-none',
         // A shape as well as a tint on the highlighted row, matching
         // `dropdown-menu.tsx` — see the long note above `itemClasses` there for

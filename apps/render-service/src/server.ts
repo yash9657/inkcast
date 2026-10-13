@@ -96,7 +96,7 @@ export function createRenderServer(options: ServerOptions): Server & { busy: () 
       try {
         body = JSON.parse(await readBody(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY));
       } catch (err) {
-        sendJson(res, 400, { error: err instanceof Error ? err.message : 'unreadable body' });
+        sendJson(res, 400, { error: 'Invalid or oversized JSON body' });
         return;
       }
       const parsed = RenderRequestSchema.safeParse(body);
@@ -127,7 +127,7 @@ export function createRenderServer(options: ServerOptions): Server & { busy: () 
       } catch (err) {
         write({
           type: 'error',
-          failure: { error: err instanceof Error ? err.message : 'the render failed' },
+          failure: { error: 'The render failed unexpectedly. Check the service configuration.' },
         });
       } finally {
         clearInterval(beat);

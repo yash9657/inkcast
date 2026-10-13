@@ -521,10 +521,10 @@ async function startOnRenderService(args: {
     ...studioFormat(fields.preset),
   };
 
-  const providerEnv = forRenderService(await credentialEnvironment(session, selection));
   const { snapshot, started } = await startRemoteCast(id, input, {
     force: fields.force ?? false,
-    providerEnv,
+    resolveProviderEnv: async () =>
+      forRenderService(await credentialEnvironment(session, selection)),
     isolated: accountKeys(),
   });
 

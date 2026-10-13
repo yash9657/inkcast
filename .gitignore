@@ -20,6 +20,8 @@ out/
 /projects/
 /renders/
 *.mp4
+# The approved public landing-page film ships with the site.
+!/apps/web/public/showcase/gps-v4.mp4
 *.wav
 *.webm
 !assets/**/*.wav

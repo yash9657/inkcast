@@ -1,3 +1,4 @@
+import { Logo } from '@/components/marketing/logo';
 import { cache } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -114,6 +115,9 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   return (
     <div className="flex min-h-svh flex-col items-center px-4 py-10 sm:py-16">
       <main id="main" className="flex w-full max-w-3xl flex-col gap-6">
+        <Link href="/" className="focus-ring mb-3 self-start" aria-label="Inkcast home">
+          <Logo />
+        </Link>
         {src ? (
           <video
             controls
@@ -132,7 +136,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
           >
             <p className="text-base font-medium text-foreground">Still being drawn</p>
             <p className="max-w-sm text-sm text-muted-foreground">
-              This explainer has no rendered video yet. The storyboard exists — the frames do not.
+              This video is still being prepared. Check back shortly.
             </p>
           </div>
         )}
@@ -157,8 +161,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
               has no answer, and `parametric` is not the honest default for it. */}
           {project.grounding === 'parametric' ? (
             <p className="text-sm text-warning">
-              Taught from no source: every claim here is the model’s own knowledge, and nothing
-              checked it.
+              Created from model knowledge. Review factual claims before sharing.
             </p>
           ) : project.grounding === 'document' ? (
             <p className="text-sm text-muted-foreground">Taught from a source document.</p>
@@ -183,7 +186,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
             href="/studio"
             className="focus-ring rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-xs outline-none transition-colors duration-fast ease-out hover:bg-accent hover:text-accent-foreground"
           >
-            Draw your own
+            Create your own
           </Link>
         </footer>
       </main>

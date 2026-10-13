@@ -84,21 +84,22 @@ export function createRunner(options: { repoRoot: string }): Runner {
       lastWrite = Date.now();
       // Serialised: two overlapping puts to one pathname could land out of order
       // and leave an older progress figure as the final word.
-      writing = writing.then(() => writeJob(prefix, job)).catch(() => {});
-      return writing;
+      const pending = writing.then(() => writeJob(prefix, next));
+      writing = pending.catch(() => {});
+      return pending;
     };
     await persist(job);
 
     const heartbeat = setInterval(() => {
-      if (Date.now() - lastWrite >= HEARTBEAT_WRITE_MS) void persist(job);
+      if (Date.now() - lastWrite >= HEARTBEAT_WRITE_MS) void persist(job).catch(() => {});
     }, HEARTBEAT_WRITE_MS / 2);
 
     const onProgress = (p: { stage: string; pct: number; note?: string }) => {
       const stagePct = (p as { stagePct?: unknown }).stagePct;
       const progress: JobProgress = {
-        stage: p.stage,
+        stage: core.redactProviderSecrets(p.stage),
         pct: Math.round(p.pct),
-        ...(p.note === undefined ? {} : { note: p.note }),
+        ...(p.note === undefined ? {} : { note: core.redactProviderSecrets(p.note) }),
         ...(typeof stagePct === 'number' && Number.isFinite(stagePct)
           ? { stagePct: Math.round(stagePct) }
           : {}),
@@ -106,7 +107,7 @@ export function createRunner(options: { repoRoot: string }): Runner {
       emit({ type: 'progress', progress });
       const stageChanged = job.progress?.stage !== progress.stage;
       if (stageChanged || Date.now() - lastWrite >= PROGRESS_WRITE_MS) {
-        void persist({ ...job, progress });
+        void persist({ ...job, progress }).catch(() => {});
       } else {
         job = { ...job, progress };
       }
@@ -142,7 +143,8 @@ export function createRunner(options: { repoRoot: string }): Runner {
                 );
                 if (err instanceof Error) error.name = err.name;
                 const stage = (err as { stage?: unknown } | null)?.stage;
-                if (typeof stage === 'string') Object.assign(error, { stage });
+                if (typeof stage === 'string')
+                  Object.assign(error, { stage: core.redactProviderSecrets(stage) });
                 throw error;
               }
             }),
@@ -273,17 +275,21 @@ type ProviderSpecs = Record<string, { envVars: readonly string[] }>;
  * `INKCAST_CACHE_DIR` names a per-account cache on the studio's disk; it is moved
  * under this instance's `/tmp`, keeping the per-account separation.
  */
-function providerEnvFor(
+export function providerEnvFor(
   request: RenderRequest,
   specs: ProviderSpecs,
 ): NodeJS.ProcessEnv | undefined {
   const sent = request.providerEnv;
-  if (!sent) return undefined;
+  if (!sent) {
+    if (request.isolated) throw new Error('Account runs require a credential scope');
+    return undefined;
+  }
   const base: NodeJS.ProcessEnv = request.isolated
     ? { NODE_ENV: process.env.NODE_ENV }
     : { ...process.env };
   for (const spec of Object.values(specs)) for (const name of spec.envVars) delete base[name];
   const env: NodeJS.ProcessEnv = { ...base, ...sent };
+  if (request.isolated) env.INKCAST_PUBLIC_SOURCES = '1';
   if (sent.INKCAST_CACHE_DIR) {
     env.INKCAST_CACHE_DIR = path.join(
       tmpdir(),

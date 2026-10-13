@@ -6,23 +6,6 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A dropdown menu.
- *
- *   <DropdownMenu>
- *     <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
- *       <MoreHorizontalIcon />
- *     </DropdownMenuTrigger>
- *     <DropdownMenuContent align="end">
- *       <DropdownMenuItem onClick={rename}>Rename</DropdownMenuItem>
- *       <DropdownMenuSeparator />
- *       <DropdownMenuItem variant="destructive" onClick={remove}>Delete</DropdownMenuItem>
- *     </DropdownMenuContent>
- *   </DropdownMenu>
- *
- * Keyboard behaviour (arrows, typeahead, Home/End, Escape, submenu open on
- * ArrowRight) is Base UI's. Items use `onClick`, not `onSelect`.
- */
 export const DropdownMenu = MenuPrimitive.Root;
 export const DropdownMenuTrigger = MenuPrimitive.Trigger;
 export const DropdownMenuGroup = MenuPrimitive.Group;
@@ -31,7 +14,7 @@ export const DropdownMenuSub = MenuPrimitive.SubmenuRoot;
 
 const popupClasses = [
   'max-h-[var(--available-height)] min-w-40 overflow-y-auto overscroll-contain',
-  'rounded-none border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
+  'rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
   'origin-[var(--transform-origin)]',
   'transition-[opacity,transform,translate] duration-brisk ease-out',
   'data-starting-style:scale-[0.97] data-starting-style:opacity-0',
@@ -85,7 +68,7 @@ export function DropdownMenuContent({
 // passes. The destructive variant recolours the same edge instead of adding a
 // second one, so a dangerous row is never the only row with two signals.
 const itemClasses = [
-  'relative flex cursor-default items-center gap-2 rounded-none px-2 py-1.5',
+  'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5',
   'text-sm text-foreground outline-none select-none',
   'border-l-2 border-transparent',
   'data-highlighted:border-primary data-highlighted:bg-accent data-highlighted:text-accent-foreground',
@@ -102,7 +85,7 @@ const destructiveItemClasses = [
 
 export type DropdownMenuItemProps = WithClass<MenuPrimitive.Item.Props> & {
   variant?: 'default' | 'destructive';
-  /** Right-aligned trailing slot, for a shortcut or a chevron. */
+
   inset?: boolean;
 };
 
@@ -238,7 +221,6 @@ export function DropdownMenuSeparator({ className, ...props }: React.ComponentPr
   );
 }
 
-/** A keyboard shortcut, right-aligned inside an item. */
 export function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span

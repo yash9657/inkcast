@@ -83,14 +83,13 @@ import {
   blobStorageEnabled,
   deletePrefix,
   downloadBuffer,
-  isPreconditionFailed,
   listPathnames,
   projectKey,
   projectPrefix,
   readJob,
   readJson,
   settleStale,
-  writeJson,
+  updateJson,
   type JobState,
 } from '@inkcast/cloud';
 
@@ -1109,8 +1108,6 @@ async function mtime(dir: string): Promise<string> {
  * must not lose either write.
  */
 
-const UPSERT_ATTEMPTS = 5;
-
 async function blobReadMeta(id: string): Promise<{ meta: ProjectMeta; etag: string } | undefined> {
   const read = await readJson(projectKey(blobPrefix(), id, META_BLOB));
   if (!read) return undefined;
@@ -1127,11 +1124,10 @@ async function blobUpsert(
     throw new Error(`"${id}" is not a valid project id, so it has no metadata to write`);
   }
   const key = projectKey(blobPrefix(), id, META_BLOB);
-  for (let attempt = 1; ; attempt++) {
-    const current = await blobReadMeta(id);
+  return updateJson(key, (raw) => {
+    const previous = raw === undefined ? undefined : ProjectMetaSchema.parse(raw);
     // The same ownership guard as the disk path: re-checked on every attempt,
     // because the record a lost race re-reads may have changed hands.
-    const previous = current?.meta;
     if (
       expectedOwner &&
       previous &&
@@ -1140,14 +1136,9 @@ async function blobUpsert(
     ) {
       throw new Error('Project ownership changed. Start a new video.');
     }
-    const merged = mergeMeta(id, current?.meta, patch);
-    try {
-      await writeJson(key, merged, current ? { ifMatch: current.etag } : {});
-      return publicRecord(merged);
-    } catch (err) {
-      if (attempt >= UPSERT_ATTEMPTS || !(await isPreconditionFailed(err))) throw err;
-    }
-  }
+    const merged = mergeMeta(id, previous, patch);
+    return { value: merged, result: publicRecord(merged) };
+  });
 }
 
 /**

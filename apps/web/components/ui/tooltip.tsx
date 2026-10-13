@@ -5,23 +5,6 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-/**
- * A tooltip.
- *
- *   <Tooltip>
- *     <TooltipTrigger render={<Button variant="ghost" size="icon" />}>
- *       <UndoIcon />
- *     </TooltipTrigger>
- *     <TooltipContent>Undo last edit</TooltipContent>
- *   </Tooltip>
- *
- * The shared hover delay lives in `Tooltip.Provider` (components/ui/providers.tsx),
- * not here, so moving along a toolbar does not re-wait 280ms per button.
- *
- * A tooltip is a hint, never the only place information exists: it does not
- * appear on touch and it is not read reliably by every assistive technology.
- * If a control needs a name, give it `aria-label` too.
- */
 export const Tooltip = TooltipPrimitive.Root;
 export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipProvider = TooltipPrimitive.Provider;
@@ -53,10 +36,10 @@ export function TooltipContent({
             // lines that can.
             //
             // `shadow-md` was the deprecated alias here and resolved to
-            // `shadow-card`, giving a tooltip the elevation of a resting input.
+            // `shadow-none`, giving a tooltip the elevation of a resting input.
             // A tooltip floats, so it takes `shadow-overlay` like every other
             // portalled surface (docs/DESIGN.md §11 names this call site).
-            'max-w-64 rounded-none bg-foreground px-2.5 py-1.5',
+            'max-w-64 rounded-md bg-foreground px-2.5 py-1.5',
             'text-xs leading-snug font-medium text-background shadow-overlay',
             'origin-[var(--transform-origin)]',
             'transition-[opacity,transform] duration-instant ease-out',

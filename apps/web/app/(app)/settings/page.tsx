@@ -5,7 +5,7 @@ import { accessLinks, admitted, readAccess } from '../access';
 import { SignInWall } from '../sign-in-gate';
 
 export const metadata: Metadata = {
-  title: 'API keys',
+  title: 'Settings',
   description: 'Connect your own planning, speech and illustration providers.',
 };
 
@@ -22,12 +22,11 @@ export default async function SettingsPage() {
     );
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex max-w-2xl flex-col gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Your API keys</h1>
+      <header className="page-heading flex max-w-2xl flex-col gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
         <p className="text-md leading-relaxed text-muted-foreground">
-          Use Fireworks to write and draw the lesson, and ElevenLabs to narrate it. Choose providers
-          for each video; their usage is billed to your provider accounts. Local planning and speech
-          remain available without keys.
+          Connect your preferred providers for lesson planning, narration and illustrations. You can
+          also create with local processing and no API keys.
         </p>
         <p className="text-sm leading-relaxed text-muted-foreground">
           {accountKeys()

@@ -2,7 +2,13 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { DownloadIcon, ExternalLinkIcon, FilmIcon, RotateCcwIcon } from 'lucide-react';
+import {
+  ArrowLeftIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  FilmIcon,
+  RotateCcwIcon,
+} from 'lucide-react';
 
 import {
   Badge,
@@ -35,6 +41,7 @@ import { VideoPlayer, type VideoPlayerHandle } from './video-player';
 
 export type ResultViewProps = {
   project: Project;
+  canEdit?: boolean;
   storyboard?: Storyboard;
   /** The storyboard has changed since this video was encoded. */
   dirty: boolean;
@@ -71,7 +78,7 @@ function GroundingNote({ grounding }: { grounding?: Project['grounding'] }) {
       ? 'Taught from the source you supplied.'
       : grounding === 'supplied'
         ? 'Rendered from a ready-made lesson — this studio sourced nothing itself.'
-        : 'Taught from no source: every claim here is the model’s own knowledge, and nothing checked it.';
+        : 'Created from model knowledge. Review factual claims before sharing.';
   return (
     <p
       className={cn(
@@ -129,6 +136,7 @@ function LaneNote({ lanes }: { lanes?: string[] }) {
 
 export function ResultView({
   project,
+  canEdit = true,
   storyboard,
   dirty,
   rerendering,
@@ -147,6 +155,13 @@ export function ResultView({
 
   return (
     <div className="flex flex-col gap-6">
+      <Link
+        href="/library"
+        className="focus-ring self-start rounded-sm text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeftIcon className="mr-1.5 inline size-4" aria-hidden />
+        Your library
+      </Link>
       <header className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -160,7 +175,6 @@ export function ResultView({
                   · {created}
                 </span>
               ) : null}
-              <span className="font-mono">· {project.id}</span>
             </p>
             <GroundingNote grounding={project.grounding} />
             <LaneNote lanes={project.unservedLanes} />
@@ -173,16 +187,18 @@ export function ResultView({
                 render={<a href={src} download={downloadName(project.title, project.id)} />}
               >
                 <DownloadIcon aria-hidden />
-                Download
+                Download video
               </Button>
             ) : null}
 
             <CopyLinkButton projectId={project.id} />
 
-            <Button variant="outline" size="sm" onClick={onRerender} disabled={rerendering}>
-              <RotateCcwIcon aria-hidden />
-              {rerendering ? 'Starting…' : 'Re-render'}
-            </Button>
+            {canEdit ? (
+              <Button variant="outline" size="sm" onClick={onRerender} disabled={rerendering}>
+                <RotateCcwIcon aria-hidden />
+                {rerendering ? 'Starting…' : 'Re-render'}
+              </Button>
+            ) : null}
 
             <Tooltip>
               <TooltipTrigger
@@ -238,21 +254,27 @@ export function ResultView({
                 <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <FilmIcon className="size-4" aria-hidden />
                 </span>
-                <p className="text-base font-medium text-foreground">No video on disk yet</p>
+                <p className="text-base font-medium text-foreground">Your video is not ready yet</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
                   {project.error
                     ? project.error
-                    : 'The storyboard is here, but nothing has been encoded from it. Rendering is a pure function of the storyboard, so this is one click.'}
+                    : 'This project has no finished video. You can try rendering again in the self-hosted studio, or create another video.'}
                 </p>
-                <Button size="sm" onClick={onRerender} disabled={rerendering}>
-                  <RotateCcwIcon aria-hidden />
-                  {rerendering ? 'Starting…' : 'Render it'}
-                </Button>
+                {canEdit ? (
+                  <Button size="sm" onClick={onRerender} disabled={rerendering}>
+                    <RotateCcwIcon aria-hidden />
+                    {rerendering ? 'Starting…' : 'Render it'}
+                  </Button>
+                ) : (
+                  <Button size="sm" render={<Link href="/studio" />}>
+                    Create another video
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
 
-          {storyboard ? (
+          {storyboard && canEdit ? (
             <EditBox
               projectId={project.id}
               storyboard={storyboard}

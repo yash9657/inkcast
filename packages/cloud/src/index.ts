@@ -18,12 +18,14 @@ export {
   listPathnames,
   putFile,
   readJson,
+  updateJson,
   writeJson,
 } from './blob.js';
 export type { BlobDownload, JsonRead } from './blob.js';
 export {
   JobStateSchema,
   STALE_AFTER_MS,
+  claimJob,
   isActiveJob,
   newJob,
   readJob,
