@@ -109,6 +109,12 @@ const nextConfig: NextConfig = {
 
   ...(statelessBuild ? { outputFileTracingExcludes: { '*': STAGE_ONLY_FILES } } : {}),
 
+  /**
+   * Style packs are JSON read at runtime by `stylePacks()`, which no import
+   * reaches, so tracing never finds them. `/api/providers` lists them.
+   */
+  outputFileTracingIncludes: { '/api/providers': ['../../styles/*.json'] },
+
   experimental: {
     /**
      * Native View Transitions for same-document navigation. Progressive
