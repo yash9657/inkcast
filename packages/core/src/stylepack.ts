@@ -366,6 +366,8 @@ function packDirs(): string[] {
     path.resolve(here, '../../../styles'), // src/ → repo root
     path.resolve(here, '../../../../styles'), // dist/src/ → repo root
     path.resolve(process.cwd(), 'styles'),
+    // Next runs from apps/web; on Vercel the traced repo-root styles/ sits two levels up.
+    path.resolve(process.cwd(), '../../styles'),
   ].filter((p): p is string => !!p);
 }
 

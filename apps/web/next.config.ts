@@ -109,6 +109,13 @@ const nextConfig: NextConfig = {
 
   ...(statelessBuild ? { outputFileTracingExcludes: { '*': STAGE_ONLY_FILES } } : {}),
 
+  /**
+   * Style packs are read from `<root>/styles` with `readdirSync`, which file tracing
+   * cannot follow, so a Function bundle would ship without them and every route that
+   * touches the pipeline's provider report fails with "no style packs found".
+   */
+  outputFileTracingIncludes: { '*': ['../../styles/*.json'] },
+
   experimental: {
     /**
      * Native View Transitions for same-document navigation. Progressive
