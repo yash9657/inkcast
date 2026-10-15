@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ArrowDownIcon, ArrowRightIcon, CheckIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 import { Button, GithubIcon } from '@/components/ui';
-import { GpsShowcase } from './gps-showcase';
+import { ShowcaseFilm } from './showcase-film';
 import { repoUrl, signInRequired, STUDIO_TOPIC_MAX, studioTopicHref } from './site-config';
 
 const questions = [
@@ -104,7 +104,12 @@ export function Landing() {
               </span>
               <span className="text-xs text-muted-foreground">2:47 · 1080p</span>
             </div>
-            <GpsShowcase />
+            <ShowcaseFilm
+              name="gps-v4"
+              alt="A finished GPS diagram with two satellite range circles and their intersections highlighted in cyan."
+              playLabel="Play How GPS finds your position"
+              titleId="gps-film-title"
+            />
             <figcaption className="border-t border-border-subtle px-5 py-4 text-sm text-muted-foreground">
               A finished Inkcast film. Press play for the full narrated explanation.
             </figcaption>
@@ -139,6 +144,24 @@ export function Landing() {
             More time getting your idea across.
           </p>
         </div>
+        <figure className="product-film">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 text-sm">
+            <span id="product-film-title" className="font-medium">
+              Inkcast in 40 seconds
+            </span>
+            <span className="text-xs text-muted-foreground">0:40 · narrated · captions</span>
+          </div>
+          <ShowcaseFilm
+            name="inkcast-demo"
+            alt="The Inkcast demo: type a topic, then watch a narrated, hand-drawn video lesson get drawn."
+            playLabel="Play Inkcast in 40 seconds"
+            titleId="product-film-title"
+            cta={null}
+          />
+          <figcaption className="border-t border-border-subtle px-5 py-4 text-sm text-muted-foreground">
+            Every lesson, edit and clip in this demo is real Inkcast output.
+          </figcaption>
+        </figure>
         <ol className="workflow-steps">
           <li>
             <span className="step-number">1</span>
