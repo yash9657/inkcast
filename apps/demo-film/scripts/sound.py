@@ -132,7 +132,7 @@ def bed():
     gain = np.ones(n)
     for ln in data['lines']:
         a, b = ln['at'] - 0.15, ln['at'] + (ln['to'] - ln['from']) + 0.2
-        gain[int(a * SR):int(b * SR)] = 0.45
+        gain[int(a * SR):int(b * SR)] = 0.3
     gain = np.convolve(gain, np.ones(int(0.12 * SR)) / int(0.12 * SR), mode='same')
     mix *= gain
     fade = np.minimum(1, np.minimum(np.arange(n) / (0.4 * SR), (n - np.arange(n)) / (2.5 * SR)))
@@ -144,16 +144,22 @@ def bed():
 
 # ---------------------------------------------------------------- effects
 def pen(d=0.7, seed=1):
+    """Felt marker on paper: soft mid-band friction with paper grain, shaped per stroke."""
     r = np.random.default_rng(seed)
     x = t(d)
     strokes = np.zeros(len(x))
     pos = 0.0
     while pos < d:
-        ln = r.uniform(0.05, 0.16)
+        ln = r.uniform(0.12, 0.3)
         seg = (x >= pos) & (x < pos + ln)
-        strokes[seg] = np.sin(np.pi * (x[seg] - pos) / ln) * r.uniform(0.5, 1)
-        pos += ln + r.uniform(0.01, 0.04)
-    return bp(r.standard_normal(len(x)), 2500, 7500) * strokes * 0.6
+        u = (x[seg] - pos) / ln
+        # Quick touch-down, steady drag, lift-off.
+        strokes[seg] = np.minimum(1, u / 0.08) * np.minimum(1, (1 - u) / 0.2) * r.uniform(0.6, 1)
+        pos += ln + r.uniform(0.04, 0.1)
+    friction = lp(hp(r.standard_normal(len(x)), 500), 2800)
+    grain = 0.55 + 0.45 * lp(np.abs(r.standard_normal(len(x))), 90) / 0.8
+    body = lp(r.standard_normal(len(x)), 350) * 0.25
+    return lp((friction * grain + body) * strokes, 4000) * 0.5
 
 
 def pop_():
