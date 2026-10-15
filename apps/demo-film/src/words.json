@@ -1,0 +1,542 @@
+{
+  "lines": [
+    {
+      "id": "vo0",
+      "from": 0.0,
+      "to": 5.445,
+      "at": 0.8,
+      "text": "Got something worth explaining? Type a topic, drop in a PDF, or paste a link.",
+      "clipStart": 0.8
+    },
+    {
+      "id": "vo1",
+      "from": 6.246,
+      "to": 14.071,
+      "at": 7.0,
+      "text": "Inkcast doesn't just summarize. It designs a lesson: a hook, a real example, and the mistake people usually make.",
+      "clipStart": 6.96
+    },
+    {
+      "id": "vo2",
+      "from": 15.012,
+      "to": 17.914,
+      "at": 15.6,
+      "text": "Then it draws it, every stroke in sync with the voice.",
+      "clipStart": 15.56
+    },
+    {
+      "id": "vo3",
+      "from": 19.005,
+      "to": 21.223,
+      "at": 20.8,
+      "text": "Choose the voice, the style, the shape.",
+      "clipStart": 20.76
+    },
+    {
+      "id": "vo4",
+      "from": 21.548,
+      "to": 25.344,
+      "at": 23.6,
+      "text": "Want a change? Just ask, and it redraws.",
+      "clipStart": 23.56
+    },
+    {
+      "id": "vo5",
+      "from": 26.157,
+      "to": 30.882,
+      "at": 28.3,
+      "text": "Download it, share a link, or host it yourself. It's open source.",
+      "clipStart": 28.26
+    },
+    {
+      "id": "vo6",
+      "from": 31.324,
+      "to": 35.341,
+      "at": 33.8,
+      "text": "Inkcast. Type a topic. Watch it get drawn.",
+      "clipStart": 33.76
+    }
+  ],
+  "words": [
+    {
+      "w": "Got",
+      "line": "vo0",
+      "at": 0.8,
+      "end": 1.032
+    },
+    {
+      "w": "something",
+      "line": "vo0",
+      "at": 1.079,
+      "end": 1.346
+    },
+    {
+      "w": "worth",
+      "line": "vo0",
+      "at": 1.38,
+      "end": 1.543
+    },
+    {
+      "w": "explaining",
+      "line": "vo0",
+      "at": 1.589,
+      "end": 2.112
+    },
+    {
+      "w": "Type",
+      "line": "vo0",
+      "at": 3.215,
+      "end": 3.505
+    },
+    {
+      "w": "a",
+      "line": "vo0",
+      "at": 3.528,
+      "end": 3.552
+    },
+    {
+      "w": "topic",
+      "line": "vo0",
+      "at": 3.598,
+      "end": 4.028
+    },
+    {
+      "w": "drop",
+      "line": "vo0",
+      "at": 4.132,
+      "end": 4.387
+    },
+    {
+      "w": "in",
+      "line": "vo0",
+      "at": 4.446,
+      "end": 4.504
+    },
+    {
+      "w": "a",
+      "line": "vo0",
+      "at": 4.55,
+      "end": 4.573
+    },
+    {
+      "w": "PDF",
+      "line": "vo0",
+      "at": 4.631,
+      "end": 5.212
+    },
+    {
+      "w": "or",
+      "line": "vo0",
+      "at": 5.281,
+      "end": 5.351
+    },
+    {
+      "w": "paste",
+      "line": "vo0",
+      "at": 5.421,
+      "end": 5.688
+    },
+    {
+      "w": "a",
+      "line": "vo0",
+      "at": 5.723,
+      "end": 5.746
+    },
+    {
+      "w": "link",
+      "line": "vo0",
+      "at": 5.804,
+      "end": 6.083
+    },
+    {
+      "w": "Inkcast",
+      "line": "vo1",
+      "at": 7.0,
+      "end": 7.685
+    },
+    {
+      "w": "doesn't",
+      "line": "vo1",
+      "at": 7.732,
+      "end": 8.01
+    },
+    {
+      "w": "just",
+      "line": "vo1",
+      "at": 8.057,
+      "end": 8.219
+    },
+    {
+      "w": "summarize",
+      "line": "vo1",
+      "at": 8.254,
+      "end": 8.985
+    },
+    {
+      "w": "It",
+      "line": "vo1",
+      "at": 9.438,
+      "end": 9.566
+    },
+    {
+      "w": "designs",
+      "line": "vo1",
+      "at": 9.612,
+      "end": 9.961
+    },
+    {
+      "w": "a",
+      "line": "vo1",
+      "at": 9.996,
+      "end": 10.019
+    },
+    {
+      "w": "lesson",
+      "line": "vo1",
+      "at": 10.065,
+      "end": 10.46
+    },
+    {
+      "w": "a",
+      "line": "vo1",
+      "at": 11.319,
+      "end": 11.366
+    },
+    {
+      "w": "hook",
+      "line": "vo1",
+      "at": 11.447,
+      "end": 11.76
+    },
+    {
+      "w": "a",
+      "line": "vo1",
+      "at": 12.074,
+      "end": 12.143
+    },
+    {
+      "w": "real",
+      "line": "vo1",
+      "at": 12.213,
+      "end": 12.376
+    },
+    {
+      "w": "example",
+      "line": "vo1",
+      "at": 12.434,
+      "end": 12.933
+    },
+    {
+      "w": "and",
+      "line": "vo1",
+      "at": 12.991,
+      "end": 13.084
+    },
+    {
+      "w": "the",
+      "line": "vo1",
+      "at": 13.119,
+      "end": 13.188
+    },
+    {
+      "w": "mistake",
+      "line": "vo1",
+      "at": 13.223,
+      "end": 13.595
+    },
+    {
+      "w": "people",
+      "line": "vo1",
+      "at": 13.629,
+      "end": 13.873
+    },
+    {
+      "w": "usually",
+      "line": "vo1",
+      "at": 13.943,
+      "end": 14.28
+    },
+    {
+      "w": "make",
+      "line": "vo1",
+      "at": 14.338,
+      "end": 14.732
+    },
+    {
+      "w": "Then",
+      "line": "vo2",
+      "at": 15.6,
+      "end": 15.785
+    },
+    {
+      "w": "it",
+      "line": "vo2",
+      "at": 15.832,
+      "end": 15.89
+    },
+    {
+      "w": "draws",
+      "line": "vo2",
+      "at": 15.925,
+      "end": 16.203
+    },
+    {
+      "w": "it",
+      "line": "vo2",
+      "at": 16.273,
+      "end": 16.424
+    },
+    {
+      "w": "every",
+      "line": "vo2",
+      "at": 16.668,
+      "end": 16.946
+    },
+    {
+      "w": "stroke",
+      "line": "vo2",
+      "at": 16.993,
+      "end": 17.283
+    },
+    {
+      "w": "in",
+      "line": "vo2",
+      "at": 17.306,
+      "end": 17.376
+    },
+    {
+      "w": "sync",
+      "line": "vo2",
+      "at": 17.434,
+      "end": 17.631
+    },
+    {
+      "w": "with",
+      "line": "vo2",
+      "at": 17.666,
+      "end": 17.782
+    },
+    {
+      "w": "the",
+      "line": "vo2",
+      "at": 17.805,
+      "end": 17.875
+    },
+    {
+      "w": "voice",
+      "line": "vo2",
+      "at": 17.91,
+      "end": 18.432
+    },
+    {
+      "w": "Choose",
+      "line": "vo3",
+      "at": 20.8,
+      "end": 21.102
+    },
+    {
+      "w": "the",
+      "line": "vo3",
+      "at": 21.125,
+      "end": 21.195
+    },
+    {
+      "w": "voice",
+      "line": "vo3",
+      "at": 21.242,
+      "end": 21.543
+    },
+    {
+      "w": "the",
+      "line": "vo3",
+      "at": 21.601,
+      "end": 21.694
+    },
+    {
+      "w": "style",
+      "line": "vo3",
+      "at": 21.741,
+      "end": 22.252
+    },
+    {
+      "w": "the",
+      "line": "vo3",
+      "at": 22.368,
+      "end": 22.484
+    },
+    {
+      "w": "shape",
+      "line": "vo3",
+      "at": 22.53,
+      "end": 22.971
+    },
+    {
+      "w": "Want",
+      "line": "vo4",
+      "at": 23.6,
+      "end": 23.786
+    },
+    {
+      "w": "a",
+      "line": "vo4",
+      "at": 23.821,
+      "end": 23.844
+    },
+    {
+      "w": "change",
+      "line": "vo4",
+      "at": 23.879,
+      "end": 24.343
+    },
+    {
+      "w": "Just",
+      "line": "vo4",
+      "at": 25.237,
+      "end": 25.481
+    },
+    {
+      "w": "ask",
+      "line": "vo4",
+      "at": 25.55,
+      "end": 25.945
+    },
+    {
+      "w": "and",
+      "line": "vo4",
+      "at": 26.235,
+      "end": 26.41
+    },
+    {
+      "w": "it",
+      "line": "vo4",
+      "at": 26.468,
+      "end": 26.526
+    },
+    {
+      "w": "redraws",
+      "line": "vo4",
+      "at": 26.572,
+      "end": 27.187
+    },
+    {
+      "w": "Download",
+      "line": "vo5",
+      "at": 28.3,
+      "end": 28.683
+    },
+    {
+      "w": "it",
+      "line": "vo5",
+      "at": 28.73,
+      "end": 28.857
+    },
+    {
+      "w": "share",
+      "line": "vo5",
+      "at": 29.357,
+      "end": 29.577
+    },
+    {
+      "w": "a",
+      "line": "vo5",
+      "at": 29.6,
+      "end": 29.624
+    },
+    {
+      "w": "link",
+      "line": "vo5",
+      "at": 29.682,
+      "end": 29.937
+    },
+    {
+      "w": "or",
+      "line": "vo5",
+      "at": 30.32,
+      "end": 30.518
+    },
+    {
+      "w": "host",
+      "line": "vo5",
+      "at": 30.599,
+      "end": 30.808
+    },
+    {
+      "w": "it",
+      "line": "vo5",
+      "at": 30.854,
+      "end": 30.912
+    },
+    {
+      "w": "yourself",
+      "line": "vo5",
+      "at": 30.947,
+      "end": 31.412
+    },
+    {
+      "w": "It's",
+      "line": "vo5",
+      "at": 31.911,
+      "end": 32.108
+    },
+    {
+      "w": "open",
+      "line": "vo5",
+      "at": 32.155,
+      "end": 32.398
+    },
+    {
+      "w": "source",
+      "line": "vo5",
+      "at": 32.456,
+      "end": 32.967
+    },
+    {
+      "w": "Inkcast",
+      "line": "vo6",
+      "at": 33.8,
+      "end": 34.531
+    },
+    {
+      "w": "Type",
+      "line": "vo6",
+      "at": 35.123,
+      "end": 35.39
+    },
+    {
+      "w": "a",
+      "line": "vo6",
+      "at": 35.413,
+      "end": 35.437
+    },
+    {
+      "w": "topic",
+      "line": "vo6",
+      "at": 35.483,
+      "end": 35.924
+    },
+    {
+      "w": "Watch",
+      "line": "vo6",
+      "at": 36.539,
+      "end": 36.83
+    },
+    {
+      "w": "it",
+      "line": "vo6",
+      "at": 36.876,
+      "end": 36.934
+    },
+    {
+      "w": "get",
+      "line": "vo6",
+      "at": 36.981,
+      "end": 37.108
+    },
+    {
+      "w": "drawn",
+      "line": "vo6",
+      "at": 37.143,
+      "end": 37.491
+    }
+  ]
+}

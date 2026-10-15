@@ -5,8 +5,29 @@ import { useRef, useState } from 'react';
 import { PlayIcon } from 'lucide-react';
 import { Button } from '@/components/ui';
 
+type ShowcaseFilmProps = {
+  /** Path stem under /showcase: `<name>.mp4`, `<name>-poster.jpg`, `<name>.vtt`. */
+  name: string;
+  /** Describes the poster image. */
+  alt: string;
+  /** Accessible name of the play button. */
+  playLabel: string;
+  /** Id of the element that titles the film. */
+  titleId: string;
+  /** Visible play button text, or `null` when the poster draws its own. */
+  cta?: string | null;
+};
+
 /** Keep the poster clear until play, then hand controls to the native player. */
-export function GpsShowcase() {
+export function ShowcaseFilm({
+  name,
+  alt,
+  playLabel,
+  titleId,
+  cta = 'Watch the film',
+}: ShowcaseFilmProps) {
+  const src = `/showcase/${name}.mp4`;
+  const poster = `/showcase/${name}-poster.jpg`;
   const player = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -36,44 +57,53 @@ export function GpsShowcase() {
         {!started && (
           <>
             <Image
-              src="/showcase/gps-v4-poster.jpg"
-              alt="A finished GPS diagram with two satellite range circles and their intersections highlighted in cyan."
+              src={poster}
+              alt={alt}
               className="block aspect-video w-full"
               width={1920}
               height={1080}
             />
-            <Button
-              onClick={play}
-              variant="secondary"
-              size="lg"
-              className="absolute bottom-4 left-4"
-              aria-label="Play How GPS finds your position"
-            >
-              <PlayIcon aria-hidden /> Watch the film
-            </Button>
+            {cta === null ? (
+              <button
+                type="button"
+                onClick={play}
+                className="focus-ring absolute inset-0 cursor-pointer"
+                aria-label={playLabel}
+              />
+            ) : (
+              <Button
+                onClick={play}
+                variant="secondary"
+                size="lg"
+                className="absolute bottom-4 left-4"
+                aria-label={playLabel}
+              >
+                <PlayIcon aria-hidden /> {cta}
+              </Button>
+            )}
           </>
         )}
         <video
           ref={player}
-          aria-labelledby="gps-film-title"
+          aria-labelledby={titleId}
           className={started ? 'focus-ring block aspect-video w-full' : 'hidden'}
           controls
           playsInline
           preload="none"
-          poster="/showcase/gps-v4-poster.jpg"
+          poster={poster}
           width={1920}
           height={1080}
           onError={showFailure}
         >
-          <source src="/showcase/gps-v4.mp4" type="video/mp4" />
-          <track kind="captions" src="/showcase/gps-v4.vtt" srcLang="en" label="English" />
-          <a href="/showcase/gps-v4.mp4">Watch the GPS video</a>
+          <source src={src} type="video/mp4" />
+          <track kind="captions" src={`/showcase/${name}.vtt`} srcLang="en" label="English" />
+          <a href={src}>Watch the video</a>
         </video>
       </div>
       {failed && (
         <p role="alert" className="px-5 py-4 text-sm text-muted-foreground">
           The video could not play. Try again or{' '}
-          <a href="/showcase/gps-v4.mp4" className="focus-ring underline underline-offset-4">
+          <a href={src} className="focus-ring underline underline-offset-4">
             open the video directly
           </a>
           .
