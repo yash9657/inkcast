@@ -29,13 +29,17 @@
 import { after } from 'next/server';
 
 import {
+  RUN_BLOB,
   RenderServiceBusy,
   blobPrefix,
   callRenderService,
   claimJob,
   isActiveJob,
   newJob,
+  projectKey,
+  putFile,
   readJob,
+  sealRun,
   settleStale,
   writeJob,
   type JobState,
@@ -43,6 +47,7 @@ import {
   type RenderRequest,
 } from '@inkcast/cloud';
 
+import { ecsConfig, runRenderTask } from './ecs';
 import type { DoneEvent, ErrorEvent, JobEvent, JobSnapshot, QueueEvent } from './jobs';
 import { getProject, mediaUrl, patchFromJob, upsertProject } from './store';
 
@@ -166,6 +171,32 @@ async function dispatch(
     }).catch(() => {});
     await upsertProject(id, { status: 'failed', error }).catch(() => {});
   };
+
+  // Fargate: seal the request into Blob, start a task, and return. The task writes
+  // `job.json` like the HTTP renderer does and `store.ts` reconciles the record from
+  // it, so nothing has to stay alive here for the length of the film.
+  const ecs = ecsConfig();
+  if (ecs && token) {
+    try {
+      const admitted = {
+        ...request,
+        ...(resolveProviderEnv ? { providerEnv: await resolveProviderEnv() } : {}),
+      };
+      const runBlob = projectKey(prefix, id, RUN_BLOB);
+      await putFile(runBlob, sealRun(admitted, token), 'application/octet-stream');
+      // Before the task exists, so this can never overwrite the task's own first write.
+      await writeJob(prefix, {
+        ...job,
+        queue: { ...WAITING, message: 'Starting a renderer — this takes about a minute.' },
+      }).catch(() => {});
+      await runRenderTask(ecs, runBlob);
+    } catch (err) {
+      await fail(
+        `The renderer could not be started: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return;
+  }
 
   if (!baseUrl || !token) {
     await fail(

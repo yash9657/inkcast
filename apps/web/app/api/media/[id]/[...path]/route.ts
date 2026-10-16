@@ -51,7 +51,7 @@ import {
 } from '../../../_lib/media';
 import { requireViewable, resolveIdentity } from '../../../_lib/session';
 import { blobStorage, isValidProjectId, projectDir } from '@/lib/store';
-import { JOB_BLOB, META_BLOB, blobPrefix, download, projectKey } from '@inkcast/cloud';
+import { JOB_BLOB, META_BLOB, RUN_BLOB, blobPrefix, download, projectKey } from '@inkcast/cloud';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -219,7 +219,8 @@ async function serveFromBlob(
     return badRequest('invalid media path');
   }
   const rel = segments.join('/');
-  if (rel === META_BLOB || rel === JOB_BLOB) return notFound(`no such file in project "${id}"`);
+  if (rel === META_BLOB || rel === JOB_BLOB || rel === RUN_BLOB)
+    return notFound(`no such file in project "${id}"`);
 
   const range = request.headers.get('range') ?? undefined;
   const found = await download(projectKey(blobPrefix(), id, rel), {

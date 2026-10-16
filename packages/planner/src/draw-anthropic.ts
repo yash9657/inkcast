@@ -834,8 +834,12 @@ export async function underlayFor(
   return { png: made.png, box, kind: 'form' };
 }
 
-/** How many drawings are in flight at once. Politeness, not a rate limit. */
-const CONCURRENCY = 4;
+/**
+ * How many drawings are in flight at once. Politeness, not a rate limit. An explainer
+ * has about six to eight drawings, so this draws them in one wave rather than two —
+ * each wave is a compose plus a vision critique, tens of seconds on the lesson model.
+ */
+const CONCURRENCY = 8;
 
 /**
  * Fill in every `draw` intent's marks, in place, in parallel.

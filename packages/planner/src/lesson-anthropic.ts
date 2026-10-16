@@ -211,7 +211,14 @@ export async function anthropicLesson(
           JSON.stringify(candidate, null, 2),
         );
       }
-      const review = await reviewLessonSource(candidate, input, opts, model, c!);
+      // Draw while the review runs. Drawings are cached by instruction and narration, so
+      // when the review passes (or a repair leaves a beat alone) the drawLesson below is
+      // all cache hits, and the drawing wave no longer waits behind the review.
+      // ponytail: a beat a repair rewrites was drawn for nothing (spend, not time).
+      const [review] = await Promise.all([
+        reviewLessonSource(candidate, input, opts, model, c!),
+        drawLesson(structuredClone(candidate), opts).catch(() => 0),
+      ]);
       if (diagnosticsDir)
         await writeFile(
           path.join(diagnosticsDir, `lesson.source-review-${round + 1}.json`),

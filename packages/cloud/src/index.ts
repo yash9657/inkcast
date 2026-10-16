@@ -42,3 +42,4 @@ export {
   callRenderService,
 } from './protocol.js';
 export type { RenderEvent, RenderInput, RenderRequest } from './protocol.js';
+export { RUN_BLOB, openRun, sealRun } from './seal.js';
