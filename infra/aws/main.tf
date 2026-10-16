@@ -231,7 +231,9 @@ output "render_ecs" {
   value = local.deploy ? jsonencode({
     region         = "us-east-1"
     cluster        = aws_ecs_cluster.render.name
-    taskDefinition = aws_ecs_task_definition.render[0].arn
+    # The family, not the revision ARN: RunTask takes the latest ACTIVE revision, so
+    # ./deploy.sh ships a new image without touching the Vercel variable.
+    taskDefinition = aws_ecs_task_definition.render[0].family
     container      = "render"
     subnets        = [data.aws_subnet.public.id]
     securityGroups = [aws_security_group.render.id]

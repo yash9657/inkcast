@@ -37,6 +37,13 @@ terraform init && terraform apply -auto-approve
    `cast finished: …` in CloudWatch (`/ecs/inkcast-render`) with the Vercel log line.
 3. Keep the Vercel `inkcast-render` project until a day runs clean.
 
+## Shipping renderer or planner changes
+
+The lesson, voice and render stages all run in the task, so a merge to `main` reaches films
+only after a new image: `./deploy.sh -auto-approve` from an up-to-date `main`. The studio
+names the task family, so it picks up the new revision with no Vercel change. (The studio
+itself deploys to production from the `deploy/vercel` branch, not `main`.)
+
 Rollback: remove `INKCAST_RENDER_ECS` and redeploy; the studio goes back to `INKCAST_RENDER_URL`.
 
 ## Not covered
