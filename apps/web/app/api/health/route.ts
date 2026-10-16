@@ -67,7 +67,8 @@ export async function GET() {
     // here is configuration, so that is what is reported.
     if (blobStorage()) {
       const renderService = Boolean(
-        process.env.INKCAST_RENDER_URL?.trim() && process.env.INKCAST_RENDER_TOKEN?.trim(),
+        (process.env.INKCAST_RENDER_URL?.trim() || process.env.INKCAST_RENDER_ECS?.trim()) &&
+        process.env.INKCAST_RENDER_TOKEN?.trim(),
       );
       const blob = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
       return json({

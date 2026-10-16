@@ -1,49 +1,45 @@
-# Inkcast render service on AWS Lambda
+# Inkcast render on AWS Fargate
 
 ```
-studio (Vercel, apps/web) ── POST /run, bearer ──▶ Lambda Function URL (RESPONSE_STREAM)
-                                                    │
-                       render-service container (Dockerfile.lambda, arm64, 10 GB / 6 vCPU)
-                                                    │
-                                Vercel Blob (job.json, out.mp4, …) — unchanged
+studio (Vercel, apps/web) ── seal request → Blob run.sealed ── ecs:RunTask (Vercel OIDC role)
+                                                                     │
+               Fargate task, one per film: Dockerfile.vercel image, src/task.ts, 8 vCPU / 16 GB arm64
+                                                                     │
+                                  Vercel Blob (job.json progress, out.mp4, …) — unchanged
 ```
 
-The studio stays on Vercel; only `INKCAST_RENDER_URL` changes. State lives in the same
-`tfstate-481912007673-use1` bucket as tally (`inkcast/terraform.tfstate`).
+The studio stays on Vercel. With `INKCAST_RENDER_ECS` set it starts a task and returns
+instead of holding `POST /run` open; the task writes `job.json` and `store.ts` reconciles
+the project record from it. Without the variable the HTTP renderer path is unchanged.
 
 | Choice | Reason |
 |---|---|
-| Lambda container image, not Vercel container | 6 vCPU / 10 GB instead of 2 / 4: five capture workers instead of two, and Kokoro/Whisper get real cores. |
-| Lambda Web Adapter | The existing HTTP server runs unchanged; `/run` keeps its bearer check and NDJSON reply. |
-| One request per instance | Lambda's own model, so the studio's `503 busy` retry path no longer fires. |
-| No CloudFront | Server-to-server only; nobody needs a custom domain for it. |
+| Fargate, not Lambda | The account caps Lambda at 3008 MB (new-account limit, AWS Support only). Fargate allows 16 vCPU and has 30 vCPU of quota today. |
+| One task per film, pay per film | About $0.03 a film; nothing runs while idle. |
+| Request sealed in Blob | ECS overrides cap at 8 KB; the request carries provider keys, so it is AES-256-GCM sealed under `INKCAST_RENDER_TOKEN` and deleted by the task on read. |
+| Vercel OIDC role | No AWS key on Vercel. The role trusts only `inkcast` production and may only `RunTask` this family on this cluster. |
+| Public subnet + public IP, no inbound | The 0.9 GB image pulls through the internet gateway, not the shared NAT instance. |
 
 ## First-time setup
 
 ```bash
-# 1. secrets, copied from the Vercel inkcast-render project
-vercel env pull /tmp/render.env --environment production   # in a dir linked to inkcast-render
-set -a; . /tmp/render.env; set +a
-aws secretsmanager create-secret --region us-east-1 --name inkcast/render --secret-string \
-  "$(jq -n --arg b "$BLOB_READ_WRITE_TOKEN" --arg t "$INKCAST_RENDER_TOKEN" '{BLOB_READ_WRITE_TOKEN:$b,INKCAST_RENDER_TOKEN:$t}')"
-rm /tmp/render.env
-
-# 2. ECR + role, then image + function
-terraform init && terraform apply
-./deploy.sh
+# 1. secrets (done 2026-10-15): inkcast/render with BLOB_READ_WRITE_TOKEN, INKCAST_RENDER_TOKEN
+# 2. ECR, roles, cluster; then image + task definition
+terraform init && terraform apply -auto-approve
+./deploy.sh -auto-approve
 ```
 
 ## Cutover
 
-1. `curl $(terraform output -raw function_url)health` → `{"ok":true,...}`.
-2. Point the studio at it and redeploy:
-   `vercel env rm INKCAST_RENDER_URL production` then `vercel env add INKCAST_RENDER_URL production`
-   (value: the function URL) in a dir linked to the `inkcast` project.
-3. Render one film; compare `cast finished: …` in CloudWatch (`/aws/lambda/inkcast-render`)
-   against the Vercel log line. Keep the Vercel `inkcast-render` project until a day runs clean.
+1. `terraform output -raw render_ecs` → set it as `INKCAST_RENDER_ECS` on the Vercel
+   `inkcast` project (production) and redeploy the studio from this branch.
+2. Render one film; the first takes about a minute longer while the task starts. Compare
+   `cast finished: …` in CloudWatch (`/ecs/inkcast-render`) with the Vercel log line.
+3. Keep the Vercel `inkcast-render` project until a day runs clean.
 
-Rollback: set `INKCAST_RENDER_URL` back to the Vercel render URL.
+Rollback: remove `INKCAST_RENDER_ECS` and redeploy; the studio goes back to `INKCAST_RENDER_URL`.
 
-## Deploys
+## Not covered
 
-`./deploy.sh` builds both images, pushes `<sha>` to ECR (immutable tags) and applies.
+- No alarm on failed tasks: a failed film already shows as an error in the studio.
+- A task that dies without writing `job.json` is caught by the 3-minute staleness rule.

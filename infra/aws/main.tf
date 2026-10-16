@@ -1,8 +1,9 @@
-# Inkcast render service on AWS:
-#   studio (Vercel) --POST /run, bearer--> Lambda Function URL (response stream)
-#   --> render-service container (Dockerfile.lambda) --> Vercel Blob (unchanged).
+# Inkcast render on AWS Fargate, one task per film:
+#   studio (Vercel) seals the request into Blob, then ecs:RunTask (Vercel OIDC role)
+#   --> render task (Dockerfile.vercel image, src/task.ts, 8 vCPU / 16 GB arm64)
+#   --> Vercel Blob: job.json progress, out.mp4 (unchanged). Pay per film, nothing idle.
 #
-# First apply creates the ECR repository with no function (image_tag empty);
+# First apply creates the ECR repository only (image_tag empty);
 # ./deploy.sh then builds, pushes and applies with the tag. Runbook: README.md
 
 terraform {
@@ -35,6 +36,8 @@ data "terraform_remote_state" "platform" {
   }
 }
 
+data "aws_caller_identity" "me" {}
+
 variable "image_tag" {
   description = "ECR image tag to run; set by deploy.sh. Empty creates only the repository."
   type        = string
@@ -42,15 +45,25 @@ variable "image_tag" {
 }
 
 locals {
-  name   = "inkcast-render"
-  deploy = var.image_tag != ""
+  name        = "inkcast-render"
+  deploy      = var.image_tag != ""
+  vercel_team = "yash9657s-projects"
 }
 
 # BLOB_READ_WRITE_TOKEN and INKCAST_RENDER_TOKEN, copied from the Vercel
 # inkcast-render project (see README "First-time setup").
-data "aws_secretsmanager_secret_version" "render" {
-  count     = local.deploy ? 1 : 0
-  secret_id = "inkcast/render"
+data "aws_secretsmanager_secret" "render" {
+  name = "inkcast/render"
+}
+
+# The platform VPC's one public subnet: tasks get a public IP and pull the image
+# straight through the internet gateway instead of through the shared NAT instance.
+data "aws_subnet" "public" {
+  vpc_id = data.terraform_remote_state.platform.outputs.vpc_id
+  filter {
+    name   = "tag:Name"
+    values = ["*-public-a"]
+  }
 }
 
 resource "aws_ecr_repository" "render" {
@@ -70,72 +83,158 @@ resource "aws_ecr_lifecycle_policy" "render" {
   })
 }
 
-resource "aws_iam_role" "fn" {
+resource "aws_cloudwatch_log_group" "render" {
+  name              = "/ecs/${local.name}"
+  retention_in_days = 14
+}
+
+# ---------------------------------------------------------------- task
+
+resource "aws_ecs_cluster" "render" {
   name = local.name
+}
+
+# Pulls the image, writes logs, reads the two secrets. The task itself calls no AWS API.
+resource "aws_iam_role" "exec" {
+  name = "${local.name}-exec"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
       Action    = "sts:AssumeRole"
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "fn_logs" {
-  role       = aws_iam_role.fn.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+resource "aws_iam_role_policy_attachment" "exec" {
+  role       = aws_iam_role.exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_cloudwatch_log_group" "fn" {
-  name              = "/aws/lambda/${local.name}"
-  retention_in_days = 14
+resource "aws_iam_role_policy" "exec_secret" {
+  role = aws_iam_role.exec.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "secretsmanager:GetSecretValue"
+      Resource = data.aws_secretsmanager_secret.render.arn
+    }]
+  })
 }
 
-resource "aws_lambda_function" "render" {
-  count         = local.deploy ? 1 : 0
-  function_name = local.name
-  role          = aws_iam_role.fn.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.render.repository_url}:${var.image_tag}"
-  architectures = ["arm64"]
-  # 10 GB is the Lambda maximum and the only way to get 6 vCPU (Vercel capped this at 2).
-  memory_size = 10240
-  # The studio holds /run open for up to 800 s (its after() maxDuration).
-  timeout = 900
-  ephemeral_storage { size = 10240 }
-
-  environment {
-    variables = jsondecode(data.aws_secretsmanager_secret_version.render[0].secret_string)
+resource "aws_security_group" "render" {
+  name        = local.name
+  description = "Fargate render tasks: outbound only"
+  vpc_id      = data.terraform_remote_state.platform.outputs.vpc_id
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
-
-  depends_on = [aws_cloudwatch_log_group.fn, aws_iam_role_policy_attachment.fn_logs]
 }
 
-# Public URL: /run checks the bearer token itself (constant-time, see server.ts).
-# Response streaming because /run answers NDJSON for the whole render.
-resource "aws_lambda_function_url" "render" {
-  count              = local.deploy ? 1 : 0
-  function_name      = aws_lambda_function.render[0].function_name
-  authorization_type = "NONE"
-  invoke_mode        = "RESPONSE_STREAM"
+resource "aws_ecs_task_definition" "render" {
+  count                    = local.deploy ? 1 : 0
+  family                   = local.name
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  # 8 vCPU / 16 GB: 4x the Vercel container's CPU. Six capture workers, two cores
+  # left for the encoders and Kokoro.
+  cpu                = 8192
+  memory             = 16384
+  execution_role_arn = aws_iam_role.exec.arn
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+  ephemeral_storage { size_in_gib = 30 }
+
+  container_definitions = jsonencode([{
+    name      = "render"
+    image     = "${aws_ecr_repository.render.repository_url}:${var.image_tag}"
+    essential = true
+    command   = ["node", "--import", "tsx", "src/task.ts"]
+    environment = [
+      { name = "INKCAST_RENDER_WORKERS", value = "6" },
+    ]
+    secrets = [
+      for k in ["BLOB_READ_WRITE_TOKEN", "INKCAST_RENDER_TOKEN"] :
+      { name = k, valueFrom = "${data.aws_secretsmanager_secret.render.arn}:${k}::" }
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.render.name
+        awslogs-region        = "us-east-1"
+        awslogs-stream-prefix = "film"
+      }
+    }
+  }])
 }
 
-resource "aws_cloudwatch_metric_alarm" "errors" {
-  count               = local.deploy ? 1 : 0
-  alarm_name          = "${local.name}-errors"
-  namespace           = "AWS/Lambda"
-  metric_name         = "Errors"
-  dimensions          = { FunctionName = aws_lambda_function.render[0].function_name }
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 3
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [data.terraform_remote_state.platform.outputs.alerts_topic_arn]
-  ok_actions          = [data.terraform_remote_state.platform.outputs.alerts_topic_arn]
+# ---------------------------------------------------------------- studio access
+
+# Vercel Functions present a short-lived OIDC token; no AWS key is stored on Vercel.
+resource "aws_iam_openid_connect_provider" "vercel" {
+  url            = "https://oidc.vercel.com/${local.vercel_team}"
+  client_id_list = ["https://vercel.com/${local.vercel_team}"]
 }
+
+resource "aws_iam_role" "studio" {
+  name = "${local.name}-studio"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.vercel.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "oidc.vercel.com/${local.vercel_team}:aud" = "https://vercel.com/${local.vercel_team}"
+          "oidc.vercel.com/${local.vercel_team}:sub" = "owner:${local.vercel_team}:project:inkcast:environment:production"
+        }
+      }
+    }]
+  })
+}
+
+# Start render tasks on this cluster, and nothing else.
+resource "aws_iam_role_policy" "studio" {
+  role = aws_iam_role.studio.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Action    = "ecs:RunTask"
+        Resource  = "arn:aws:ecs:us-east-1:${data.aws_caller_identity.me.account_id}:task-definition/${local.name}:*"
+        Condition = { ArnEquals = { "ecs:cluster" = aws_ecs_cluster.render.arn } }
+      },
+      {
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = aws_iam_role.exec.arn
+      },
+    ]
+  })
+}
+
+# ---------------------------------------------------------------- outputs
 
 output "ecr_repository_url" { value = aws_ecr_repository.render.repository_url }
-output "function_url" { value = local.deploy ? aws_lambda_function_url.render[0].function_url : "" }
+
+# Set as INKCAST_RENDER_ECS on the Vercel inkcast project (production).
+output "render_ecs" {
+  value = local.deploy ? jsonencode({
+    region         = "us-east-1"
+    cluster        = aws_ecs_cluster.render.name
+    taskDefinition = aws_ecs_task_definition.render[0].arn
+    container      = "render"
+    subnets        = [data.aws_subnet.public.id]
+    securityGroups = [aws_security_group.render.id]
+    roleArn        = aws_iam_role.studio.arn
+  }) : ""
+}
