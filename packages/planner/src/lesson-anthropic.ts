@@ -228,23 +228,42 @@ export async function anthropicLesson(
         'source review found factual gaps; repairing before drawing',
         review.problems.join('; '),
       );
-      const raw = await callTool(
-        c!,
-        model,
-        system,
-        [
-          {
-            role: 'user',
-            content: `${documentContext(input, opts)}\n\nCURRENT LESSON:\n${JSON.stringify(candidate)}\n\nSOURCE REVIEW:\n${review.problems.join('\n')}\n\nCorrect every reported claim and its visual instructions. Preserve complete causal reasoning, ALL source qualifications (independence, geometry, approximation, limitations), calm connected speech, and exact spoken terms. Use at least/minimum rather than exactly when the source does. An overrun is preferable to deleting a condition that makes the claim true. Return the whole lesson. Do not add unsupported details.`,
-          },
-        ],
-        schema!,
-        { name: TOOL, description: DESCRIPTION },
-        16000,
-        (u) =>
-          noteSpend(opts, { lane: 'source-repair', provider: c!.provider ?? 'anthropic', ...u }),
-      );
-      candidate = LessonSchema.parse(normalise(raw, input, opts));
+      const repairMessages: Message[] = [
+        {
+          role: 'user',
+          content: `${documentContext(input, opts)}\n\nCURRENT LESSON:\n${JSON.stringify(candidate)}\n\nSOURCE REVIEW:\n${review.problems.join('\n')}\n\nCorrect every reported claim and its visual instructions. Preserve complete causal reasoning, ALL source qualifications (independence, geometry, approximation, limitations), calm connected speech, and exact spoken terms. Use at least/minimum rather than exactly when the source does. An overrun is preferable to deleting a condition that makes the claim true. Return the whole lesson. Do not add unsupported details.`,
+        },
+      ];
+      // A repair that breaks the schema (an emptied `steps`, say) is fed back once like
+      // the first draft's; if it is still invalid, the last valid lesson goes to the next
+      // review round instead of failing the whole render.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const raw = await callTool(
+          c!,
+          model,
+          system,
+          repairMessages,
+          schema!,
+          { name: TOOL, description: DESCRIPTION },
+          16000,
+          (u) =>
+            noteSpend(opts, { lane: 'source-repair', provider: c!.provider ?? 'anthropic', ...u }),
+        );
+        try {
+          candidate = LessonSchema.parse(normalise(raw, input, opts));
+          break;
+        } catch (err) {
+          const detail = errorDetail(err);
+          log.warn(`repaired lesson failed validation (attempt ${attempt + 1})`, detail);
+          repairMessages.push(
+            { role: 'assistant', content: JSON.stringify(raw).slice(0, 60_000) },
+            {
+              role: 'user',
+              content: `That lesson failed schema validation:\n${detail}\n\nCall ${TOOL} again with the whole corrected lesson, keeping every beat (including all steps).`,
+            },
+          );
+        }
+      }
     }
     throw new Error('Source review did not complete');
   }
