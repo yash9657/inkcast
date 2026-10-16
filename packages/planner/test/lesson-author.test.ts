@@ -177,3 +177,64 @@ test('the author is reported exactly once per authored lesson', async () => {
   await teachLesson('Osmosis', { adapter: 'heuristic', onAuthor: (a) => authors.push(a) });
   assert.deepEqual(authors, ['heuristic']);
 });
+
+test('a source-review repair that breaks the schema is retried, not fatal', async () => {
+  // Production run 891e0abc61f2 died with a raw `steps: too_small` error: the review
+  // asked for a repair, the model returned an empty `steps`, and the repair was parsed
+  // without the feedback loop every other call here has.
+  const shipped: Lesson = await readLessonFile(SHIPPED);
+  const beats = lessonBeats(shipped).map(({ id }) => id);
+  const review = (reject: boolean) => ({
+    beats: beats.map((id, i) => ({
+      id,
+      supported: !(reject && i === beats.length - 1),
+      quotes: [],
+      reason: reject && i === beats.length - 1 ? 'Overstates the claim.' : 'Consistent.',
+    })),
+    issues: [],
+  });
+  const seen: string[] = [];
+  let reviews = 0;
+  let lessons = 0;
+  const server: Server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const tool = (JSON.parse(body) as { tool_choice?: { name?: string } }).tool_choice?.name;
+      seen.push(tool ?? '?');
+      let input: unknown;
+      if (tool === 'emit_lesson') {
+        lessons += 1;
+        // 1: first draft. 2: the repair, with every step dropped. 3: the corrected repair.
+        input = lessons === 2 ? { ...shipped, steps: [] } : shipped;
+      } else {
+        reviews += 1;
+        input = review(reviews === 1);
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: 'msg_test',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-opus-5',
+          content: [{ type: 'tool_use', id: 'tu_1', name: tool, input }],
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 10, output_tokens: 10 },
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  let lesson: Lesson;
+  try {
+    lesson = await withKeyedApi(`http://127.0.0.1:${port}`, () =>
+      teachLesson('Gradient descent', { adapter: 'anthropic' }),
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+  assert.equal(lessons, 3, `expected draft, broken repair, fixed repair; saw ${seen.join(',')}`);
+  assert.ok(lesson.steps.length > 0);
+});
