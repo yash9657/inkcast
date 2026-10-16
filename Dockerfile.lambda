@@ -1,0 +1,23 @@
+# Inkcast render service on AWS Lambda: the Vercel image plus the Lambda Web Adapter.
+#
+# The adapter runs as a Lambda extension and proxies each invocation to the same HTTP
+# server (`apps/render-service`), so the service code is unchanged. Lambda runs one
+# request per instance, which is the render service's own one-film-per-instance rule.
+#
+#   docker buildx build --platform linux/arm64 --provenance=false -f Dockerfile.vercel -t inkcast-render:base .
+#   docker buildx build --platform linux/arm64 --provenance=false -f Dockerfile.lambda -t inkcast-render:lambda .
+# infra/aws/deploy.sh does both and pushes to ECR.
+
+ARG BASE=inkcast-render:base
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 AS lwa
+FROM ${BASE}
+COPY --from=lwa /lambda-adapter /opt/extensions/lambda-adapter
+# Lambda runs the image as a non-root user with only /tmp writable: no port 80, no $HOME.
+# 10 GB of memory buys 6 vCPU; five capture workers leave one core for the encoders.
+ENV PORT=8080 \
+    HOME=/tmp \
+    AWS_LWA_PORT=8080 \
+    AWS_LWA_READINESS_CHECK_PATH=/health \
+    AWS_LWA_INVOKE_MODE=response_stream \
+    AWS_LWA_ASYNC_INIT=true \
+    INKCAST_RENDER_WORKERS=5
