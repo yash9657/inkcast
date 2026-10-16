@@ -199,9 +199,12 @@ export async function anthropicLesson(
   const messages: Message[] = [{ role: 'user', content: documentContext(input, opts) }];
 
   async function finalize(draft: Lesson): Promise<Lesson> {
-    let candidate = await fitScript(draft, opts, model, c!);
+    let candidate = draft;
     const diagnosticsDir = opts.diagnosticsDir ?? opts.dir;
     for (let round = 0; round < 3; round++) {
+      // Every round, not once: a repair returns the whole lesson and can grow it back past
+      // the budget, and the check stage then blocks the finished film. A no-op when it fits.
+      candidate = await fitScript(candidate, opts, model, c!);
       await routeFigures(candidate, opts);
       report(opts, { stage: 'lesson', pct: 55, note: 'checking the script against its source' });
       if (diagnosticsDir) {
@@ -238,7 +241,7 @@ export async function anthropicLesson(
       const repairMessages: Message[] = [
         {
           role: 'user',
-          content: `${documentContext(input, opts)}\n\nCURRENT LESSON:\n${JSON.stringify(candidate)}\n\nSOURCE REVIEW:\n${review.problems.join('\n')}\n\nCorrect every reported claim and its visual instructions. Preserve complete causal reasoning, ALL source qualifications (independence, geometry, approximation, limitations), calm connected speech, and exact spoken terms. Use at least/minimum rather than exactly when the source does. An overrun is preferable to deleting a condition that makes the claim true. Return the whole lesson. Do not add unsupported details.`,
+          content: `${documentContext(input, opts)}\n\nCURRENT LESSON:\n${JSON.stringify(candidate)}\n\nSOURCE REVIEW:\n${review.problems.join('\n')}\n\nCorrect every reported claim and its visual instructions. Preserve complete causal reasoning, ALL source qualifications (independence, geometry, approximation, limitations), calm connected speech, and exact spoken terms. Use at least/minimum rather than exactly when the source does. Keep the narration within ${maxSeconds}s: make room by tightening other phrasing, but an overrun is preferable to deleting a condition that makes the claim true. Return the whole lesson. Do not add unsupported details.`,
         },
       ];
       // A repair that breaks the schema (an emptied `steps`, say) is fed back once like
