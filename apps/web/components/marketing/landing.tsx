@@ -188,6 +188,29 @@ export function Landing() {
               </svg>
             </Step>
           </ol>
+
+          <figure className="mt-16 sm:mt-20">
+            <div className="overflow-hidden rounded-2xl border border-border-subtle bg-paper shadow-pop">
+              <ShowcaseFilm
+                name="inkcast-demo"
+                alt="The Inkcast demo poster: “Type a topic. Watch it get drawn.” beside a real hand-drawn frame about why the sky is blue."
+                playLabel="Play the 40-second tour of Inkcast"
+                titleId="demo-film-title"
+                cta={null}
+              />
+            </div>
+            <figcaption className="mt-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-1 text-sm">
+              <span>
+                <span id="demo-film-title" className="font-medium text-foreground">
+                  The whole flow in 40 seconds
+                </span>
+                <span className="text-muted-foreground"> · narrated, with captions</span>
+              </span>
+              <span className="text-muted-foreground">
+                Every lesson, edit and clip in it is real Inkcast output.
+              </span>
+            </figcaption>
+          </figure>
         </div>
       </section>
 

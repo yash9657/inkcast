@@ -92,7 +92,7 @@ Everything comes from `components/ui`. If a screen needs something new, add a pr
 
 ## 5. Surfaces
 
-- **Marketing.** Centered hero: headline with one marked phrase, one-line lead, a pill composer that is a plain GET form to `/studio?topic=`, three starter questions, one line of fine print. Then the real GPS film, three steps, three formats, questions, a closing composer on the pale highlighter band.
+- **Marketing.** Centered hero: headline with one marked phrase, one-line lead, a pill composer that is a plain GET form to `/studio?topic=`, three starter questions, one line of fine print. Then the real GPS film, three steps followed by the 40-second demo film (`apps/demo-film`, rendered with these same tokens), three formats, questions, a closing composer on the pale highlighter band.
 - **Studio shell.** One sticky top bar: logo, Create / Library / Settings, theme, account. No sidebar, no taglines, no footer.
 - **Create.** A single centred column: "What do you want to explain?", the source (write / upload / link), starter chips, format and length, a "More options" disclosure (voice, style, title, providers) with its summary, and the Create button.
 - **Library.** Title + count + New video. Search and filters. Cards show the real `thumbnail.png`, title, duration, age; status only when not ready.

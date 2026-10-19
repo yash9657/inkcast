@@ -200,18 +200,25 @@ function Question({ f }: { readonly f: number }): React.ReactElement {
       <svg
         width={1920}
         height={1080}
-        style={{ position: 'absolute', left: x - 960, top: y - 540, overflow: 'visible' }}
+        style={{
+          position: 'absolute',
+          left: x - 960,
+          top: y - 540,
+          overflow: 'visible',
+          mixBlendMode: 'multiply',
+        }}
       >
+        {/* The highlighter: a fat marker pass across the words that matter. */}
         <Stroke
-          d="M560 690 C780 668 1060 700 1380 676"
+          d="M470 642 C760 630 1100 650 1470 634"
           p={ramp(f, 2.1, 2.6)}
-          color={C.amber}
-          width={9}
+          color={C.highlighter}
+          width={64}
         />
         <Stroke
           d="M1540 300 l26 -40 M1580 330 l44 -12 M1520 270 l-6 -46"
           p={ramp(f, 2.3, 2.7)}
-          color={C.amber}
+          color={C.ink}
           width={6}
         />
       </svg>
@@ -331,24 +338,24 @@ function Lesson({ f }: { readonly f: number }): React.ReactElement {
     {
       k: 'Hook',
       at: word('hook') - 0.12,
-      bg: C.apricot,
-      ink: C.apricotInk,
+      bg: C.highlighterSoft,
+      ink: C.fg,
       text: LESSON.hook,
       tilt: -2.5,
     },
     {
       k: 'Worked example',
       at: word('example') - 0.15,
-      bg: C.canvas,
-      ink: C.canvasInk,
+      bg: C.sky,
+      ink: C.skyInk,
       text: LESSON.worked,
       tilt: 1.5,
     },
     {
       k: 'Misconception',
       at: word('mistake') - 0.1,
-      bg: 'oklch(0.93 0.04 22)',
-      ink: 'oklch(0.36 0.09 22)',
+      bg: C.rose,
+      ink: C.roseInk,
       text: LESSON.misconception,
       tilt: -1,
     },
@@ -486,7 +493,7 @@ function Frame({
           overflow: 'hidden',
           background: C.paper,
           opacity: ramp(f, t + 0.25, t + 0.6),
-          boxShadow: '0 30px 80px oklch(0.25 0.03 160 / 0.18)',
+          boxShadow: `0 30px 80px ${C.shadow}`,
         }}
       >
         {children}
@@ -535,8 +542,8 @@ function Draw({ f }: { readonly f: number }): React.ReactElement {
                   fontWeight: 600,
                   padding: '6px 14px',
                   borderRadius: 10,
-                  background: on ? C.canvas : 'transparent',
-                  color: on ? C.canvasInk : C.border,
+                  background: on ? C.highlighter : 'transparent',
+                  color: on ? C.fg : C.border,
                 }}
               >
                 {w.w}
@@ -551,7 +558,7 @@ function Draw({ f }: { readonly f: number }): React.ReactElement {
 
 const STYLES = [
   { name: 'marker', bg: C.paper, ink: C.ink, w: 9 },
-  { name: 'chalk', bg: 'oklch(0.32 0.04 160)', ink: 'oklch(0.95 0.01 90)', w: 7 },
+  { name: 'chalk', bg: '#1b232e', ink: 'oklch(0.95 0.01 90)', w: 7 },
   { name: 'blueprint', bg: 'oklch(0.36 0.09 255)', ink: 'oklch(0.95 0.02 240)', w: 4 },
   { name: 'pencil', bg: C.paper, ink: 'oklch(0.55 0.01 250)', w: 3 },
   { name: 'ink', bg: C.paper, ink: C.blue, w: 5 },
@@ -779,10 +786,11 @@ function Ship({ f }: { readonly f: number }): React.ReactElement {
             <div
               style={{
                 fontFamily: DISPLAY,
-                fontSize: 40,
-                fontWeight: 600,
+                fontSize: 46,
+                fontWeight: 480,
+                letterSpacing: '-0.02em',
                 color: C.fg,
-                marginTop: 18,
+                marginTop: 16,
               }}
             >
               {it.title}
@@ -801,7 +809,7 @@ function Ship({ f }: { readonly f: number }): React.ReactElement {
         f={f}
         at={word('host') - 0.15}
         seed={72}
-        bg="oklch(0.22 0.02 160)"
+        bg={C.night}
         ink={C.ink}
         tilt={1}
       >
@@ -811,14 +819,14 @@ function Ship({ f }: { readonly f: number }): React.ReactElement {
             fontFamily: MONO,
             fontSize: 27,
             lineHeight: 1.6,
-            color: 'oklch(0.95 0.01 90)',
+            color: 'oklch(0.955 0.006 90)',
           }}
         >
-          <span style={{ color: 'oklch(0.79 0.095 155)' }}>$</span> pnpm dev
+          <span style={{ color: C.highlighter }}>$</span> pnpm dev
           <br />
-          <span style={{ color: 'oklch(0.79 0.095 155)' }}>$</span> inkcast teach “why…”
+          <span style={{ color: C.highlighter }}>$</span> inkcast teach “why…”
           <br />
-          <span style={{ color: 'oklch(0.74 0.02 145)' }}>your machine, your keys</span>
+          <span style={{ color: 'oklch(0.74 0.012 262)' }}>your machine, your keys</span>
         </div>
       </Card>
       <At
@@ -837,9 +845,9 @@ function Ship({ f }: { readonly f: number }): React.ReactElement {
             padding: '18px 34px',
             borderRadius: 99,
             background: C.primary,
-            color: 'oklch(0.99 0.004 100)',
-            fontFamily: DISPLAY,
-            fontSize: 40,
+            color: C.onPrimary,
+            fontFamily: BODY,
+            fontSize: 38,
             fontWeight: 600,
           }}
         >
@@ -858,7 +866,7 @@ function EndCard({ f }: { readonly f: number }): React.ReactElement | null {
   const tWatch = word('Watch');
   const tDrawn = word('drawn');
   return (
-    <AbsoluteFill style={{ background: `oklch(0.977 0.009 88 / ${veil * 0.94})` }}>
+    <AbsoluteFill style={{ background: `oklch(0.982 0.005 90 / ${veil * 0.95})` }}>
       <div
         style={{
           position: 'absolute',
@@ -874,16 +882,16 @@ function EndCard({ f }: { readonly f: number }): React.ReactElement | null {
         <Mark size={150} p={ramp(f, t0, t0 + 0.8)} fill={ramp(f, t0 + 0.5, t0 + 0.9)} />
         <div
           style={{
-            fontFamily: DISPLAY,
-            fontSize: 150,
+            fontFamily: BODY,
+            fontSize: 132,
             fontWeight: 600,
-            letterSpacing: '-0.04em',
+            letterSpacing: '-0.035em',
             color: C.fg,
             opacity: ramp(f, t0 + 0.2, t0 + 0.6),
             transform: `translateX(${(1 - ramp(f, t0 + 0.2, t0 + 0.7)) * -30}px)`,
           }}
         >
-          Inkcast
+          inkcast
         </div>
       </div>
       <div
@@ -894,27 +902,33 @@ function EndCard({ f }: { readonly f: number }): React.ReactElement | null {
           top: 560,
           textAlign: 'center',
           fontFamily: DISPLAY,
-          fontSize: 84,
-          fontWeight: 500,
-          letterSpacing: '-0.03em',
+          fontSize: 100,
+          fontWeight: 430,
+          letterSpacing: '-0.025em',
           color: C.fg,
         }}
       >
         <span style={{ opacity: ramp(f, tType - 0.1, tType + 0.25) }}>Type a topic. </span>
         <span style={{ opacity: ramp(f, tWatch - 0.1, tWatch + 0.25) }}>
           Watch it get{' '}
-          <span style={{ position: 'relative', color: C.primary }}>
+          <span style={{ position: 'relative' }}>
             drawn.
             <svg
-              width={300}
-              height={40}
-              style={{ position: 'absolute', left: -10, bottom: -26, overflow: 'visible' }}
+              width={290}
+              height={60}
+              style={{
+                position: 'absolute',
+                left: 12,
+                bottom: 4,
+                overflow: 'visible',
+                mixBlendMode: 'multiply',
+              }}
             >
               <Stroke
-                d="M6 22 C80 8 170 30 286 12"
+                d="M8 34 C80 28 160 38 240 30"
                 p={ramp(f, tDrawn, tDrawn + 0.5)}
-                color={C.amber}
-                width={9}
+                color={C.highlighter}
+                width={46}
               />
             </svg>
           </span>
@@ -957,7 +971,7 @@ export function Film(): React.ReactElement {
           height: 3700,
           transformOrigin: '0 0',
           transform: `translate(${W / 2 - cam.x * cam.z}px, ${H / 2 - cam.y * cam.z}px) scale(${cam.z})`,
-          backgroundImage: 'radial-gradient(oklch(0.86 0.012 100) 2px, transparent 2.5px)',
+          backgroundImage: `radial-gradient(${C.dot} 2px, transparent 2.5px)`,
           backgroundSize: '36px 36px',
         }}
       >
