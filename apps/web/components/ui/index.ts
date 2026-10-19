@@ -12,6 +12,8 @@
 
 export { Badge, badgeVariants, StatusDot, type BadgeProps } from './badge';
 export { Button, buttonVariants, type ButtonProps } from './button';
+export { Callout, type CalloutProps } from './callout';
+export { Chip, chipVariants, type ChipProps } from './chip';
 export {
   Card,
   CardAction,

@@ -44,7 +44,7 @@ import './globals.css';
  */
 export const metadata: Metadata = {
   title: {
-    default: 'Inkcast — A good idea. Beautifully explained.',
+    default: 'Inkcast: explain anything with a hand-drawn video',
     template: '%s · Inkcast',
   },
   description:
@@ -78,12 +78,12 @@ export const viewport: Viewport = {
     // Matches --background in each theme, so the mobile browser chrome blends
     // into the page instead of drawing a seam across the top. These are the sRGB
     // conversions of the OKLCH tokens in globals.css — light
-    // `oklch(0.995 0.004 95)`, dark `oklch(0.16 0.01 285)`. Meta tags cannot
+    // `oklch(0.982 0.005 90)`, dark `oklch(0.17 0.016 262)`. Meta tags cannot
     // take a `var()`, so this is the one place a hex is allowed to exist; if
     // `--background` moves in either theme, it has to move here in the same
     // change or the phone draws a seam.
-    { media: '(prefers-color-scheme: light)', color: '#f9f7f1' },
-    { media: '(prefers-color-scheme: dark)', color: '#101511' },
+    { media: '(prefers-color-scheme: light)', color: '#faf9f5' },
+    { media: '(prefers-color-scheme: dark)', color: '#0c0f16' },
   ],
   colorScheme: 'light dark',
 };

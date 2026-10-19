@@ -38,18 +38,33 @@ const sections = [
   css.slice(css.indexOf(':root {'), css.indexOf('\n.dark,\n')),
   css.slice(css.indexOf('\n.dark,\n'), css.indexOf('@theme {')),
 ];
-const token = (name, dark = false) =>
-  rgb(sections[dark ? 1 : 0].match(new RegExp(`--${name}: ([^;]+);`))[1]);
+// Tokens may reference primitives (`--background: var(--paper-100)`), and dark-theme
+// roles may reference primitives declared only in :root, so resolve var() chains.
+const raw = (name, dark) => {
+  const own = dark && sections[1].match(new RegExp(`--${name}: ([^;]+);`));
+  const value = own ? own[1] : sections[0].match(new RegExp(`--${name}: ([^;]+);`))[1];
+  const ref = value.match(/^var\(--([\w-]+)\)$/);
+  return ref ? raw(ref[1], dark) : value;
+};
+const token = (name, dark = false) => rgb(raw(name, dark));
 const primary = token('primary'),
   paper = token('background'),
-  ink = token('foreground');
-const mark = (fill, fg) =>
-  `<rect width="40" height="40" rx="${geometry.tileRadius}" fill="${fill}"/><path d="${geometry.path}" fill="${fg}"/>`;
+  ink = token('foreground'),
+  highlighter = token('highlighter');
+const markColors = (dark = false) => [
+  token('mark-tile', dark),
+  token('mark-stroke', dark),
+  token('mark-play', dark),
+];
+const mark = (tile, stroke, play) =>
+  `<rect width="40" height="40" rx="${geometry.tileRadius}" fill="${tile}"/><path d="${geometry.stroke}" fill="${stroke}"/><path d="${geometry.play}" fill="${play}"/>`;
 const svg = (dark = false) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${geometry.viewBox}">${mark(token('primary', dark), token('primary-foreground', dark))}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${geometry.viewBox}">${mark(...markColors(dark))}</svg>`;
 writeFileSync(join(here, 'mark.svg'), svg());
 writeFileSync(join(here, 'mark-dark.svg'), svg(true));
-const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${geometry.viewBox}"><style>:root{--a:${primary};--b:${token('primary-foreground')}}@media(prefers-color-scheme:dark){:root{--a:${token('primary', true)};--b:${token('primary-foreground', true)}}}</style>${mark('var(--a)', 'var(--b)')}</svg>`;
+const [lt, ls, lp] = markColors();
+const [dt, ds, dp] = markColors(true);
+const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${geometry.viewBox}"><style>:root{--t:${lt};--s:${ls};--p:${lp}}@media(prefers-color-scheme:dark){:root{--t:${dt};--s:${ds};--p:${dp}}}</style>${mark('var(--t)', 'var(--s)', 'var(--p)')}</svg>`;
 writeFileSync(join(here, 'mark-icon.svg'), icon);
 writeFileSync(join(app, 'icon.svg'), icon);
 const sizes = [16, 32, 48, 64];
@@ -73,21 +88,22 @@ for (let i = 0; i < sizes.length; i++) {
 writeFileSync(join(app, 'favicon.ico'), Buffer.concat([header, ...buffers]));
 await sharp(
   Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="180" height="180" fill="${paper}"/><g transform="translate(26 26) scale(3.2)">${mark(primary, token('primary-foreground'))}</g></svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="180" height="180" fill="${paper}"/><g transform="translate(26 26) scale(3.2)">${mark(...markColors())}</g></svg>`,
   ),
 )
   .png()
   .toFile(join(app, 'apple-icon.png'));
-const og = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="${paper}"/><g transform="translate(76 64) scale(1.5)">${mark(primary, token('primary-foreground'))}</g><text x="152" y="107" font-family="sans-serif" font-size="38" font-weight="600" fill="${ink}">inkcast</text><text x="76" y="288" font-family="sans-serif" font-size="80" font-weight="600" letter-spacing="-3" fill="${ink}">A good idea.</text><text x="76" y="388" font-family="sans-serif" font-size="80" font-weight="600" letter-spacing="-3" fill="${primary}">Beautifully explained.</text><path d="M76 475H1124" stroke="${token('border')}"/><text x="76" y="532" font-family="sans-serif" font-size="26" fill="${token('muted-foreground')}">Ideas, notes and documents. Turned into whiteboard videos.</text><text x="76" y="581" font-family="sans-serif" font-size="21" fill="${primary}">inkcast.video</text></svg>`;
+const serif = "Newsreader, 'Iowan Old Style', Georgia, serif";
+const og = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="${paper}"/><g transform="translate(76 64) scale(1.5)">${mark(...markColors())}</g><text x="150" y="106" font-family="sans-serif" font-size="36" font-weight="600" letter-spacing="-0.5" fill="${ink}">inkcast</text><text x="76" y="300" font-family="${serif}" font-size="92" letter-spacing="-2.5" fill="${ink}">Explain anything with</text><rect x="70" y="352" width="792" height="50" rx="6" fill="${highlighter}" transform="rotate(-0.6 400 377)"/><text x="76" y="400" font-family="${serif}" font-size="92" letter-spacing="-2.5" fill="${ink}">a hand-drawn video.</text><text x="76" y="520" font-family="sans-serif" font-size="27" fill="${token('muted-foreground')}">Type a question or drop in your notes. Inkcast writes it, draws it and narrates it.</text><text x="76" y="574" font-family="sans-serif" font-size="22" font-weight="600" fill="${ink}">inkcast.video</text></svg>`;
 await sharp(Buffer.from(og)).png().toFile(join(app, 'opengraph-image.png'));
 writeFileSync(
   join(app, 'opengraph-image.alt.txt'),
-  'Inkcast — A good idea. Beautifully explained. Ideas, notes and documents turned into whiteboard videos.',
+  'Inkcast — Explain anything with a hand-drawn video. Type a question or drop in your notes; Inkcast writes it, draws it and narrates it.',
 );
 // The renderer cannot import a JSON file outside its TypeScript rootDir.
 writeFileSync(
   join(root, 'packages/render/src/brand.ts'),
-  `// Generated by assets/brand/make-brand-assets.mjs. Do not edit.\nexport const INKCAST_BRAND = ${JSON.stringify({ path: geometry.path, tilePath: geometry.tilePath, tileRadius: geometry.tileRadius, fill: primary, foreground: token('primary-foreground') }, null, 2)} as const;\n`,
+  `// Generated by assets/brand/make-brand-assets.mjs. Do not edit.\nexport const INKCAST_BRAND = ${JSON.stringify({ path: geometry.path, tilePath: geometry.tilePath, tileRadius: geometry.tileRadius, fill: token('mark-tile'), foreground: token('mark-stroke') }, null, 2)} as const;\n`,
 );
 console.log(
   'Generated SVG marks, multi-size favicon, Apple icon, social preview and render branding.',

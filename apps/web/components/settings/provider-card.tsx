@@ -5,6 +5,7 @@ import {
   ArrowUpRightIcon,
   AudioLinesIcon,
   BrainIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   EyeIcon,
@@ -36,7 +37,6 @@ import {
   Label,
   LabelError,
   LabelHint,
-  Separator,
   StatusDot,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -99,6 +99,7 @@ export function ProviderCard({
   const [draft, setDraft] = React.useState('');
   const [revealed, setRevealed] = React.useState(false);
   const [problem, setProblem] = React.useState<string | undefined>(undefined);
+  const [explained, setExplained] = React.useState(false);
 
   const configured = state?.configured === true;
   const fromEnv = state?.source === 'env';
@@ -106,6 +107,7 @@ export function ProviderCard({
   const fieldId = `key-${provider.id}`;
   const hintId = `${fieldId}-hint`;
   const statusId = `${fieldId}-status`;
+  const detailsId = `${fieldId}-details`;
 
   // A key that saved successfully clears the box. Watching `updatedAt` rather
   // than the save callback keeps the reset tied to the server confirming it.
@@ -138,21 +140,23 @@ export function ProviderCard({
       // The one key that changes whether the product teaches gets a visible
       // outline until it is set. Rank 3 providers never do — three cards asking
       // for attention is no hierarchy at all.
-      className={cn(
-        'gap-5',
-        provider.rank === 1 && !configured && 'border-primary/40 bg-primary/4',
-      )}
+      className={cn('gap-5', provider.rank === 1 && !configured && 'border-input shadow-card')}
     >
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          <StageIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <CardHeader className="grid-cols-[auto_1fr_auto] gap-x-3.5 has-data-[slot=card-action]:grid-cols-[auto_1fr_auto]">
+        <span
+          aria-hidden
+          className="row-span-2 grid size-10 place-items-center rounded-pill bg-muted text-foreground"
+        >
+          <StageIcon className="size-4.5" />
+        </span>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
           {provider.label}
           {provider.rank === 1 && !configured ? <Badge variant="default">Start here</Badge> : null}
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="col-start-2">
           {provider.role} · {provider.cost}
         </CardDescription>
-        <CardAction>
+        <CardAction className="col-start-3">
           <StatusPill state={state} />
         </CardAction>
       </CardHeader>
@@ -160,16 +164,38 @@ export function ProviderCard({
       <CardContent className="flex flex-col gap-5">
         {/* ----------------------------------------------- what it changes */}
 
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <dt className="text-2xs font-medium uppercase text-muted-foreground">With a key</dt>
-            <dd className="text-sm leading-relaxed text-foreground">{provider.unlocks}</dd>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <dt className="text-2xs font-medium uppercase text-muted-foreground">Without one</dt>
-            <dd className="text-sm leading-relaxed text-muted-foreground">{provider.without}</dd>
-          </div>
-        </dl>
+        <div>
+          <button
+            type="button"
+            aria-expanded={explained}
+            aria-controls={detailsId}
+            onClick={() => setExplained((open) => !open)}
+            className="focus-ring -mx-1 inline-flex items-center gap-1.5 rounded-sm px-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            What changes with a key
+            <ChevronDownIcon
+              aria-hidden
+              className={cn(
+                'size-4 transition-transform duration-brisk',
+                explained && 'rotate-180',
+              )}
+            />
+          </button>
+          <dl
+            id={detailsId}
+            hidden={!explained}
+            className="mt-3 grid gap-4 rounded-lg bg-muted px-4 py-3.5 sm:grid-cols-2"
+          >
+            <div className="flex flex-col gap-1">
+              <dt className="eyebrow">With a key</dt>
+              <dd className="text-sm leading-relaxed text-foreground">{provider.unlocks}</dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt className="eyebrow">Without one</dt>
+              <dd className="text-sm leading-relaxed text-muted-foreground">{provider.without}</dd>
+            </div>
+          </dl>
+        </div>
 
         {provider.alternativeTo && siblingConfigured && !configured ? (
           <LabelHint>
@@ -178,14 +204,12 @@ export function ProviderCard({
           </LabelHint>
         ) : null}
 
-        <Separator />
-
         {/* ------------------------------------------------ current state */}
 
         {configured || state?.unreadable ? (
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <code className="tabular rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground">
+              <code className="tabular rounded-pill bg-muted px-2.5 py-1 font-mono text-xs text-foreground">
                 {state?.mask ?? '••••'}
               </code>
               <span className="text-xs text-muted-foreground">
@@ -316,13 +340,13 @@ export function ProviderCard({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             disabled={disabled || (!configured && draft.trim() === '')}
             onClick={() => onValidate(provider.id, draft.trim() === '' ? undefined : draft.trim())}
           >
             {busy === 'validate' ? <Spinner /> : <ShieldCheckIcon aria-hidden />}
-            {busy === 'validate' ? 'Checking…' : 'Validate now'}
+            {busy === 'validate' ? 'Checking…' : 'Check key'}
           </Button>
 
           {(configured || state?.unreadable) && !fromEnv ? (
@@ -345,10 +369,11 @@ export function ProviderCard({
           <Button
             variant="link"
             size="sm"
+            className="ml-auto max-sm:ml-0"
             nativeButton={false}
             render={<a href={provider.console.href} target="_blank" rel="noreferrer noopener" />}
           >
-            Get a key · {provider.console.label}
+            Get a key at {provider.console.label}
             <ArrowUpRightIcon aria-hidden />
           </Button>
         </div>

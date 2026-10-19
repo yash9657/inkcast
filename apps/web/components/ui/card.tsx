@@ -21,9 +21,9 @@ export function CardInteractive({ className, ...props }: React.ComponentProps<'d
     <Card
       className={cn(
         'transition-[box-shadow,border-color,translate] duration-brisk ease-out',
-        'hover:border-accent-border',
+        'hover:border-input',
         '',
-        'focus-within:border-accent-strong',
+        'focus-within:border-foreground',
         className,
       )}
       {...props}

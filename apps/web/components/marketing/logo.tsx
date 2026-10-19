@@ -14,8 +14,9 @@ export function LogoMark({ size = 32, className }: { size?: number; className?: 
       focusable="false"
       className={cn('shrink-0', className)}
     >
-      <rect width="40" height="40" rx="12" className="fill-primary" />
-      <path d={MARK.path} className="fill-primary-foreground" />
+      <rect width="40" height="40" rx={MARK.tileRadius} fill="var(--mark-tile)" />
+      <path d={MARK.stroke} fill="var(--mark-stroke)" />
+      <path d={MARK.play} fill="var(--mark-play)" />
     </svg>
   );
 }
@@ -31,11 +32,11 @@ export function Logo({
 }) {
   if (variant === 'mark') return <LogoMark size={size} className={className} />;
   return (
-    <span className={cn('inline-flex items-center gap-2.5', className)}>
+    <span className={cn('inline-flex items-center gap-2', className)}>
       <LogoMark size={size} />
       <span
-        className="font-display font-semibold tracking-tight text-foreground"
-        style={{ fontSize: Math.round(size * 0.76), lineHeight: 1 }}
+        className="font-sans font-semibold tracking-[-0.03em] text-foreground"
+        style={{ fontSize: Math.round(size * 0.7), lineHeight: 1 }}
       >
         inkcast
       </span>

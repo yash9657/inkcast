@@ -124,7 +124,7 @@ export function ProjectView({ id, initialGenerating, canEdit = true }: ProjectVi
           <span className="flex size-9 items-center justify-center rounded-full bg-destructive/12 text-destructive">
             <AlertTriangleIcon className="size-4" aria-hidden />
           </span>
-          <h1 className="text-xl text-foreground">This project could not be opened</h1>
+          <h1 className="text-xl text-foreground">This project couldn’t be opened</h1>
           <p className="max-w-prose text-sm text-muted-foreground">{loadError}</p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" render={<Link href="/library" />}>

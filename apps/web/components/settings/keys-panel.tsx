@@ -1,15 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
-import { ArrowRightIcon, LockIcon, RefreshCwIcon } from 'lucide-react';
+import { ArrowUpRightIcon, ChevronDownIcon, RefreshCwIcon } from 'lucide-react';
 
 import {
   Badge,
   Button,
+  Callout,
   Card,
   CardContent,
-  Separator,
   Skeleton,
   SkeletonText,
   StatusDot,
@@ -18,7 +17,7 @@ import {
 import { errorMessage, getCapabilities, type Capabilities, type KeyState } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-import { PROVIDERS, providerInfo, type ProviderId } from './catalog';
+import { isProviderId, PROVIDERS, providerInfo, type ProviderId } from './catalog';
 import {
   deleteKey,
   listKeys,
@@ -58,6 +57,7 @@ export function KeysPanel() {
   const [loadError, setLoadError] = React.useState<string | undefined>(undefined);
   const [busy, setBusy] = React.useState<Busy | undefined>(undefined);
   const pending = React.useRef(false);
+  const [showOptional, setShowOptional] = React.useState(false);
   const [validations, setValidations] = React.useState<Partial<Record<ProviderId, Validation>>>({});
 
   const refresh = React.useCallback(async (signal?: AbortSignal) => {
@@ -225,31 +225,25 @@ export function KeysPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <EffectivePipeline caps={caps} loading={loading} />
 
       {keys && !plannerConfigured ? <StartHere /> : null}
 
       {loadError ? (
-        <Card className="border-destructive/40">
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm font-medium text-destructive" role="alert">
-              Could not read the key status: {loadError}
-            </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Your keys could not be loaded. Check your connection and sign-in, then try again.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() => void refresh()}
-            >
+        <Callout
+          tone="destructive"
+          role="alert"
+          title={`Could not read the key status: ${loadError}`}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void refresh()}>
               <RefreshCwIcon aria-hidden />
               Try again
             </Button>
-          </CardContent>
-        </Card>
+          }
+        >
+          Check your connection and sign-in, then try again.
+        </Callout>
       ) : null}
 
       {loading ? (
@@ -265,23 +259,44 @@ export function KeysPanel() {
           ))}
         </div>
       ) : keys ? (
-        <div className="flex flex-col gap-4">
+        <section aria-labelledby="providers-heading" className="flex flex-col gap-4">
+          <h2 id="providers-heading" className="font-sans text-lg font-semibold tracking-tight">
+            Providers
+          </h2>
           {['fireworks', 'elevenlabs'].map((id) => renderProvider(providerInfo(id as ProviderId)))}
-          <details className="group mt-2">
-            <summary className="cursor-pointer rounded-md py-3 text-md font-medium focus-visible:outline-2 focus-visible:outline-ring">
-              Optional providers · Anthropic, Replicate and fal
-            </summary>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Choose another planner or add generated illustrations. These keys are not needed for
-              Fireworks and ElevenLabs.
-            </p>
-            <div className="flex flex-col gap-4">
+
+          <div className="mt-2 flex flex-col gap-4">
+            <button
+              type="button"
+              aria-expanded={showOptional}
+              aria-controls="optional-providers"
+              onClick={() => setShowOptional((open) => !open)}
+              className="focus-ring group flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-5 py-4 text-left transition-colors hover:border-input"
+            >
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-foreground">Optional providers</span>
+                <span className="text-sm text-muted-foreground">
+                  Anthropic as another planner; Replicate or fal for generated illustrations.
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                <span className="max-sm:hidden">{showOptional ? 'Hide' : 'Show'}</span>
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn(
+                    'size-4 transition-transform duration-brisk',
+                    showOptional && 'rotate-180',
+                  )}
+                />
+              </span>
+            </button>
+            <div id="optional-providers" hidden={!showOptional} className="flex flex-col gap-4">
               {PROVIDERS.filter(
                 (provider) => !['fireworks', 'elevenlabs'].includes(provider.id),
               ).map(renderProvider)}
             </div>
-          </details>
-        </div>
+          </div>
+        </section>
       ) : null}
 
       <VaultNote vault={vault} />
@@ -331,88 +346,73 @@ function EffectivePipeline({
     : [];
 
   return (
-    <Card className="gap-4">
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-foreground">Default providers for new videos</h2>
-          {caps ? (
-            <Badge variant={caps.local ? 'neutral' : 'default'}>
-              {caps.local ? 'Local processing' : 'Calls your providers'}
-            </Badge>
-          ) : null}
-        </div>
+    <section aria-labelledby="defaults-heading" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="defaults-heading" className="font-sans text-lg font-semibold tracking-tight">
+          Defaults for new videos
+        </h2>
+        {caps ? (
+          <Badge variant="neutral">
+            {caps.local ? 'Everything runs locally' : 'Uses your providers'}
+          </Badge>
+        ) : null}
+      </div>
 
-        {loading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : !caps ? (
-          <p className="text-sm text-muted-foreground">
-            Provider status is unavailable. Retry loading your keys below.
-          </p>
-        ) : (
-          <>
-            <dl className="grid gap-3 sm:grid-cols-3">
-              {stages.map((stage) => (
-                <div
-                  key={stage.label}
-                  className="flex min-w-0 flex-col gap-1 rounded-lg bg-muted px-3 py-2"
-                >
-                  <dt className="text-2xs font-medium uppercase text-muted-foreground">
-                    {stage.label}
-                  </dt>
-                  <dd className="flex items-center gap-1.5 truncate font-mono text-sm text-foreground">
-                    <StatusDot tone={stage.chosen.cloud ? 'primary' : 'success'} />
-                    {stage.chosen.name}
-                  </dd>
-                  <dd className="text-xs leading-snug text-muted-foreground">
-                    {stage.description}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+      {loading ? (
+        <Skeleton className="h-24 w-full rounded-xl" />
+      ) : !caps ? (
+        <p className="text-sm text-muted-foreground">
+          Provider status is unavailable. Retry loading your keys below.
+        </p>
+      ) : (
+        <>
+          <dl className="grid overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-3">
+            {stages.map((stage) => (
+              <div
+                key={stage.label}
+                className="flex min-w-0 flex-col gap-1 border-border-subtle px-4 py-3.5 not-last:border-b sm:not-last:border-r sm:not-last:border-b-0"
+              >
+                <dt className="eyebrow">{stage.label}</dt>
+                <dd className="flex items-center gap-2 truncate text-base font-medium text-foreground">
+                  <StatusDot tone={stage.chosen.cloud ? 'primary' : 'success'} />
+                  {displayName(stage.chosen.name)}
+                </dd>
+                <dd className="text-xs leading-snug text-muted-foreground">{stage.description}</dd>
+              </div>
+            ))}
+          </dl>
 
-            {caps.warnings.length > 0 ? (
-              <ul className="flex flex-col gap-1.5">
+          {caps.warnings.length > 0 ? (
+            <Callout tone="warning">
+              <ul className="flex flex-col gap-1">
                 {caps.warnings.map((warning) => (
-                  <li
-                    key={warning}
-                    className="flex items-start gap-2 text-xs leading-relaxed text-warning"
-                  >
-                    <span
-                      aria-hidden
-                      className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning"
-                    />
-                    {warning}
-                  </li>
+                  <li key={warning}>{warning}</li>
                 ))}
               </ul>
-            ) : (
-              <p className="text-xs leading-relaxed text-success">
-                You can change these choices for each video in the studio.
-              </p>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+            </Callout>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              You can pick different providers for each video when you create it.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
 /** The one piece of advice this page exists to give. */
 function StartHere() {
   return (
-    <Card className={cn('gap-3 border-primary/40 bg-primary/6')}>
-      <CardContent className="flex flex-col gap-3">
-        <p className="text-md leading-relaxed text-foreground">
-          Start with Fireworks for authored lessons and diagrams. Add ElevenLabs for narration with
-          word timings. An image provider is optional for generated illustrations.
-        </p>
-        {/* Outline, not `default`. The page's one primary action is Save on the
-            card below — this is the errand you run first, not the thing you came
-            here to do, and two primaries would make neither one primary. */}
+    <Callout
+      title="Want better lessons? Start with Fireworks."
+      action={
+        // Secondary, not `default`. The page's one primary action is Save on the
+        // card below — this is the errand you run first, not the thing you came
+        // here to do, and two primaries would make neither one primary.
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
-          className="self-start"
           nativeButton={false}
           render={
             <a
@@ -422,35 +422,31 @@ function StartHere() {
             />
           }
         >
-          Get a Fireworks key
-          <ArrowRightIcon aria-hidden />
+          Get a key
+          <ArrowUpRightIcon aria-hidden />
         </Button>
-      </CardContent>
-    </Card>
+      }
+    >
+      It writes the lessons and diagrams. Add ElevenLabs for more voices; an image provider is
+      optional.
+    </Callout>
   );
 }
 
 /** Where the keys live and what protects them. Stated plainly, including the limits. */
 function VaultNote({ vault }: { vault: VaultInfo | undefined }) {
   return (
-    <>
-      <Separator />
-      <div className="flex flex-col gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <LockIcon className="size-4 text-muted-foreground" aria-hidden />
-          Where these are kept
-        </h2>
+    <Callout title="Where your keys are kept">
+      <div className="flex flex-col gap-2">
         {!vault ? (
-          <p className="text-sm text-muted-foreground">
-            Storage details will appear when key status loads.
-          </p>
+          <p>Storage details will appear when key status loads.</p>
         ) : vault.scope === 'account' ? (
-          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <p className="leading-relaxed">
             {vault.why} Removing a key stops new jobs from using it. A job already running may
             finish with the key it loaded; revoke the key at the provider to stop all use.
           </p>
         ) : vault.backend === 'vault' ? (
-          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          <p className="leading-relaxed">
             A saved key is sealed with {vault.cipher ?? 'AES-256-GCM'} and written to{' '}
             <span className="font-mono text-foreground">{vault.path}</span>, owner-readable only, in
             a directory git already ignores. The sealing key is derived from{' '}
@@ -464,7 +460,7 @@ function VaultNote({ vault }: { vault: VaultInfo | undefined }) {
               : 'No passphrase is available right now, so a stored key cannot be unsealed and every stage is running locally.'}
           </p>
         ) : (
-          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          <p className="leading-relaxed">
             A saved key goes into your{' '}
             <span className="font-mono text-foreground">macOS login keychain</span> — no Inkcast
             file on disk contains it, so there is nothing here for a backup, a synced folder or a
@@ -474,29 +470,27 @@ function VaultNote({ vault }: { vault: VaultInfo | undefined }) {
           </p>
         )}
         {vault && vault.scope !== 'account' ? (
-          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <p className="leading-relaxed">
             Saved keys take priority over environment keys. Only the selected providers receive
             credentials and the source, narration or drawing data needed for that stage. Keys are
             sent to Inkcast for storage and are never returned in full to this page.
           </p>
         ) : null}
         {vault?.legacyPath ? (
-          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          <p className="leading-relaxed">
             An older studio vault is still at{' '}
             <span className="font-mono text-foreground">{vault.legacyPath}</span>. Nothing reads it
             any more — it was sealed with different material — so any key saved only there needs
             pasting again above. Delete the file once you have.
           </p>
         ) : null}
-        <p className="text-xs text-muted-foreground">
-          <Link
-            href="/studio"
-            className="focus-ring rounded-xs text-primary underline-offset-4 outline-none hover:underline"
-          >
-            Back to the studio
-          </Link>
-        </p>
       </div>
-    </>
+    </Callout>
   );
+}
+
+/** Brand names keep their own casing (ElevenLabs, fal); local engines get a capital. */
+function displayName(name: string): string {
+  if (isProviderId(name)) return providerInfo(name).label;
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }

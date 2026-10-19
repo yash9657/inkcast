@@ -21,7 +21,7 @@ function DialogBackdrop() {
         // hard-edged dialog fights the whole premise: this system says one flat
         // plane is in front of another. Denser than the old 25% to compensate
         // for the lost blur — the dialog has to win against a dot grid.
-        'fixed inset-0 z-50 bg-foreground/40',
+        'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
         'transition-opacity duration-slow ease-out',
         'data-starting-style:opacity-0 data-ending-style:opacity-0',
       )}
@@ -44,7 +44,7 @@ export function DialogContent({
           // 2rem === spacing-8: a gutter on small screens, capped at max-w-lg.
           'fixed top-1/2 left-1/2 z-50 grid w-[calc(100vw-2rem)] max-w-lg gap-6',
           '-translate-x-1/2 -translate-y-1/2',
-          'rounded-md border border-border bg-popover p-6 text-popover-foreground shadow-overlay',
+          'rounded-2xl border border-border-subtle bg-popover p-6 text-popover-foreground shadow-overlay',
           'transition-[opacity,transform] duration-slow ease-out',
           // Rises 8px and settles. Scale is subtle on purpose: a big zoom reads
           // as a notification, not as a surface you are meant to work in.
@@ -62,7 +62,7 @@ export function DialogContent({
               // The same object as `Button variant="ghost" size="icon-sm"`: a
               // transparent border that becomes ink on hover, so the control
               // grows an edge without moving its glyph.
-              'absolute top-4 right-4 flex size-7 items-center justify-center rounded-md',
+              'absolute top-4 right-4 flex size-8 items-center justify-center rounded-pill',
               'border border-transparent text-muted-foreground',
               'transition-[background-color,border-color,color] duration-fast ease-out',
               'hover:bg-accent hover:text-accent-foreground',

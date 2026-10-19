@@ -24,7 +24,7 @@ export function Toaster() {
           // §11 lists this line) and it did resolve, which is why nothing looked
           // broken — it just gave every toast the elevation of a resting card.
           toast: [
-            'group flex w-full items-start gap-3 rounded-md border border-border',
+            'group flex w-full items-start gap-3 rounded-xl border border-border-subtle',
             'bg-popover p-4 text-popover-foreground shadow-overlay',
           ].join(' '),
           title: 'text-sm font-medium leading-snug',
@@ -37,11 +37,11 @@ export function Toaster() {
           // that is itself floating on `shadow-overlay` is two elevations arguing
           // inside one box, and the frame already says which is which.
           actionButton: [
-            'shrink-0 rounded-md border border-transparent bg-primary px-2.5 py-1 text-xs font-medium',
+            'shrink-0 rounded-pill border border-transparent bg-primary px-3 py-1 text-xs font-medium',
             'text-primary-foreground focus-ring outline-none',
           ].join(' '),
           cancelButton: [
-            'shrink-0 rounded-md border border-input bg-secondary px-2.5 py-1 text-xs font-medium',
+            'shrink-0 rounded-pill border border-border bg-secondary px-3 py-1 text-xs font-medium',
             'text-secondary-foreground focus-ring outline-none',
           ].join(' '),
           // `border-border` with no `border` was a colour with nothing to paint —

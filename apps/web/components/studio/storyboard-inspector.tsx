@@ -4,7 +4,7 @@ import { LANGUAGES, voiceLabel } from './options';
 import * as React from 'react';
 import { ChevronDownIcon, PlayIcon } from 'lucide-react';
 
-import { Badge, Button, Card, CardContent, ScrollArea } from '@/components/ui';
+import { Badge, Button, ScrollArea } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { Storyboard } from '@inkcast/core';
 
@@ -41,31 +41,32 @@ export function StoryboardInspector({ storyboard, onSeek, className }: Storyboar
   const meta = storyboard.meta;
 
   return (
-    <Card className={cn('gap-4 py-4', className)}>
-      <CardContent className="flex flex-col gap-3 px-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-foreground">Storyboard</h2>
+    <section
+      aria-labelledby="storyboard-heading"
+      className={cn('overflow-hidden rounded-xl border border-border bg-card', className)}
+    >
+      <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="storyboard-heading" className="font-sans text-base font-semibold">
+            Storyboard
+          </h2>
           <p className="tabular text-xs text-muted-foreground">
             {storyboard.scenes.length} scenes
             {measured ? ` · ${clock(totalDuration(storyboard))}` : ''}
           </p>
         </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {[
+            meta.style.charAt(0).toUpperCase() + meta.style.slice(1),
+            meta.palette === 'color' ? 'Colour' : 'Black and white',
+            voiceLabel(meta.voice),
+            LANGUAGES.find((language) => language.value === meta.language)?.label ?? meta.language,
+            `${meta.fps} fps`,
+          ].join(' · ')}
+        </p>
+      </div>
 
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline">{meta.aspect}</Badge>
-          <Badge variant="outline">
-            {meta.style.charAt(0).toUpperCase() + meta.style.slice(1)}
-          </Badge>
-          <Badge variant="outline">{meta.palette === 'color' ? 'Colour' : 'Monochrome'}</Badge>
-          <Badge variant="outline">{voiceLabel(meta.voice)}</Badge>
-          <Badge variant="outline">
-            {LANGUAGES.find((language) => language.value === meta.language)?.label ?? meta.language}
-          </Badge>
-          <Badge variant="outline">{meta.fps} fps</Badge>
-        </div>
-      </CardContent>
-
-      <ScrollArea className="max-h-144 border-t border-border" fadeEdges>
+      <ScrollArea className="max-h-[36rem] border-t border-border-subtle" fadeEdges>
         <ol className="flex flex-col">
           {storyboard.scenes.map((scene, index) => (
             <SceneRow
@@ -81,7 +82,7 @@ export function StoryboardInspector({ storyboard, onSeek, className }: Storyboar
 
         {storyboard.assets.length > 0 ? <AssetLibrary storyboard={storyboard} /> : null}
       </ScrollArea>
-    </Card>
+    </section>
   );
 }
 
@@ -106,8 +107,8 @@ function SceneRow({
   const detailsId = `scene-${scene.id}-elements`;
 
   return (
-    <li className="border-b border-border last:border-b-0">
-      <div className="flex gap-3 p-4">
+    <li className="border-b border-border-subtle last:border-b-0">
+      <div className="flex gap-3 px-4 py-3.5">
         {/* `self-start` is load-bearing, not alignment taste. This is a flex
             row, so the default `align-items: stretch` gives the thumbnail the
             height of the whole row — and once BOTH dimensions are determined
@@ -118,40 +119,35 @@ function SceneRow({
             `self-start` returns the cross-axis size to `auto` so the aspect
             ratio is what sets it. */}
         <div
-          className="w-20 shrink-0 self-start overflow-hidden rounded-sm border border-border bg-paper"
+          className="w-20 shrink-0 self-start overflow-hidden rounded-md border border-border-subtle bg-paper"
           style={{ aspectRatio: aspectRatio(storyboard.meta.aspect) }}
         >
           <MiniBoard storyboard={storyboard} sceneIndex={index} />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex items-baseline gap-2">
-            <span className="tabular text-2xs uppercase text-muted-foreground">
-              Scene {index + 1}
-            </span>
+          <p className="tabular text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Scene {index + 1}</span>
             {measured && scene.durationSec ? (
-              <span className="tabular text-2xs text-muted-foreground">
-                {clock(offset)} · {scene.durationSec.toFixed(1)}s
-              </span>
+              <>
+                {' '}
+                · {clock(offset)} · {scene.durationSec.toFixed(1)}s
+              </>
             ) : null}
-          </div>
-
-          <p className="text-md leading-relaxed text-foreground">{scene.narration}</p>
-
-          <p className="text-xs text-muted-foreground">
-            {elements.length
-              ? `${elements.length} visual element${elements.length === 1 ? '' : 's'}`
-              : 'No new visual elements'}
           </p>
 
-          <div className="mt-1 flex flex-wrap items-center gap-1">
+          <p className={cn('text-sm leading-relaxed text-foreground', !open && 'line-clamp-3')}>
+            {scene.narration}
+          </p>
+
+          <div className="-ml-2.5 flex flex-wrap items-center gap-0.5">
             {onSeek && measured ? (
               <Button variant="ghost" size="xs" onClick={() => onSeek(offset)}>
                 <PlayIcon aria-hidden />
                 Play from here
               </Button>
             ) : null}
-            {elements.length ? (
+            {elements.length || scene.narration.length > 140 ? (
               <Button
                 variant="ghost"
                 size="xs"
@@ -166,7 +162,7 @@ function SceneRow({
                     open && 'rotate-180',
                   )}
                 />
-                {open ? 'Hide elements' : 'Elements'}
+                {open ? 'Less' : elements.length ? `Details · ${elements.length}` : 'More'}
               </Button>
             ) : null}
           </div>

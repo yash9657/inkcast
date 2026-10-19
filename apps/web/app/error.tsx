@@ -10,16 +10,16 @@ export default function ErrorPage({
   return (
     <main
       id="main"
-      className="mx-auto flex min-h-[65svh] max-w-xl flex-col items-start justify-center px-6 py-16"
+      className="container-page flex min-h-[70svh] flex-col items-center justify-center py-16 text-center"
     >
-      <h1 className="text-3xl">Something interrupted the studio.</h1>
-      <p className="mt-4 text-md leading-relaxed text-muted-foreground">
-        We couldn’t load this page. Try again, or return to your library to pick up a saved project.
+      <h1 className="display-md max-w-lg">Something went wrong on this page</h1>
+      <p className="mt-4 max-w-md text-muted-foreground">
+        Nothing you made has been lost. Try loading it again, or open your library.
       </p>
-      <div className="mt-8 flex flex-wrap gap-3">
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
         <Button onClick={reset}>Try again</Button>
-        <Button variant="outline" render={<Link href="/library" />}>
-          Your library
+        <Button variant="secondary" render={<Link href="/library" />}>
+          Open library
         </Button>
       </div>
     </main>

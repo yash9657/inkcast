@@ -19,8 +19,7 @@ export function TabsList({ className, children, ...props }: WithClass<TabsPrimit
         // bottom. 2px gutters fit, and the indicator still lands exactly —
         // `offsetTop`/`offsetLeft` and an `absolute top-0` are both measured
         // from the padding edge, so a border cannot shift one without the other.
-        'relative isolate inline-flex h-9 items-center gap-1 rounded-md border border-border bg-muted p-0.5',
-        'inset-shadow-well',
+        'relative isolate inline-flex h-10 items-center gap-0.5 rounded-pill bg-muted p-1',
         className,
       )}
       {...props}
@@ -34,7 +33,7 @@ export function TabsList({ className, children, ...props }: WithClass<TabsPrimit
           // padded well, and a 6px offset plane would spill straight out of the
           // strip it is supposed to sit in. The well is the depth; the block is
           // the state.
-          'absolute top-0 left-0 z-0 rounded-md bg-primary',
+          'absolute top-0 left-0 z-0 rounded-pill bg-card shadow-pop',
           'h-[var(--active-tab-height)] w-[var(--active-tab-width)]',
           'translate-x-[var(--active-tab-left)] translate-y-[var(--active-tab-top)]',
           'transition-[translate,width,height] duration-brisk ease-out',
@@ -50,7 +49,7 @@ export function TabsTab({ className, ...props }: WithClass<TabsPrimitive.Tab.Pro
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3',
+        'relative z-10 inline-flex h-8 items-center justify-center gap-1.5 rounded-pill px-3.5',
         'text-sm font-medium whitespace-nowrap text-muted-foreground select-none',
         'transition-colors duration-fast ease-out',
         'hover:text-foreground',
@@ -59,7 +58,7 @@ export function TabsTab({ className, ...props }: WithClass<TabsPrimitive.Tab.Pro
         // `ring-background` band keeps a paper-coloured edge between them, the
         // same fix the primary button needs.
         'focus-ring outline-none focus-visible:ring-2 focus-visible:ring-background',
-        'data-active:text-primary-foreground',
+        'data-active:text-foreground',
         'data-disabled:pointer-events-none data-disabled:opacity-50',
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,

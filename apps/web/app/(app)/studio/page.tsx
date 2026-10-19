@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
-import { Card, CardContent, InkUnderline, Skeleton } from '@/components/ui';
+import { Skeleton } from '@/components/ui';
 import { CreateForm } from '@/components/studio/create-form';
 import { STUDIO_TOPIC_MAX, STUDIO_TOPIC_PARAM } from '@/components/marketing/site-config';
 
@@ -34,15 +34,11 @@ export default async function StudioPage({
   if (!admitted(access)) {
     return (
       <SignInWall
-        heading={
-          topic
-            ? 'Your idea is ready. Let’s bring it to life.'
-            : 'Your next great explanation starts here.'
-        }
+        heading={topic ? 'Sign in to make this video' : 'Sign in to start creating'}
         lead={
           topic
-            ? 'Sign in to continue. We’ve kept your topic ready for you.'
-            : 'Sign in to create narrated whiteboard videos, keep your projects together, and pick up where you left off.'
+            ? 'Your question is saved and will be waiting when you come back.'
+            : 'A free account keeps your videos in one place, so you can come back to edit, download or share them.'
         }
         links={accessLinks()}
         unavailable={access.mode === 'unavailable' ? access.reason : undefined}
@@ -52,13 +48,14 @@ export default async function StudioPage({
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <header className="page-heading">
-        <h1>Create a video</h1>
-        <p>Start with what you know. We’ll help you draw it out.</p>
+    <div className="mx-auto flex w-full max-w-[46rem] flex-col gap-8 sm:gap-10">
+      <header>
+        <h1 className="display-md">What do you want to explain?</h1>
+        <p className="mt-3 text-base text-muted-foreground">
+          Type a question, paste your notes, upload a document or add a link.
+        </p>
       </header>
 
-      {}
       <Suspense fallback={<CreateFormFallback />}>
         <CreateForm />
       </Suspense>
@@ -68,20 +65,21 @@ export default async function StudioPage({
 
 function CreateFormFallback() {
   return (
-    <div className="flex flex-col gap-6">
-      <Card className="gap-4 py-4">
-        <CardContent className="flex flex-col gap-4 px-4">
-          <Skeleton className="h-9 w-64" />
-          <Skeleton className="h-48 w-full rounded-lg" />
-          <div className="flex gap-2">
-            <Skeleton className="h-7 w-28" />
-            <Skeleton className="h-7 w-32" />
-            <Skeleton className="h-7 w-24" />
-          </div>
-        </CardContent>
-      </Card>
+    <div className="flex flex-col gap-8" aria-hidden>
+      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5">
+        <Skeleton className="h-10 w-64 rounded-pill" />
+        <Skeleton className="h-40 w-full rounded-lg" />
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-32 rounded-pill" />
+          <Skeleton className="h-8 w-40 rounded-pill" />
+        </div>
+      </div>
+      <div className="grid gap-6 sm:grid-cols-2">
+        <Skeleton className="h-28 w-full rounded-lg" />
+        <Skeleton className="h-28 w-full rounded-lg" />
+      </div>
       <div className="flex justify-end">
-        <Skeleton className="h-11 w-28" />
+        <Skeleton className="h-12 w-40 rounded-pill" />
       </div>
     </div>
   );

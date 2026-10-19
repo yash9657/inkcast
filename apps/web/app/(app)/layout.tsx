@@ -9,33 +9,20 @@ export const metadata: Metadata = { title: { default: 'Studio', template: '%s ·
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const access = await readAccess();
   return (
-    <div className="studio-shell">
-      <AppNav />
-      <div className="studio-workspace">
-        <header className="studio-topbar">
-          <span className="text-xs text-muted-foreground">Your creative workspace</span>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-muted-foreground sm:block">
-              Ideas into motion.
-            </span>
-            <div className="lg:hidden">
-              <ThemeToggle />
-            </div>
+    <div className="flex min-h-svh flex-col">
+      <AppNav
+        trailing={
+          <>
+            <ThemeToggle className="max-md:hidden" />
             <Suspense>
               <AuthControls access={access} links={accessLinks()} />
             </Suspense>
-          </div>
-        </header>
-        <main id="main" className="studio-main">
-          {children}
-        </main>
-        <footer className="studio-footer">
-          <span>Made with a little ink.</span>
-          <span>
-            Local processing has no provider fees. Cloud usage is billed by your providers.
-          </span>
-        </footer>
-      </div>
+          </>
+        }
+      />
+      <main id="main" className="container-page flex-1 pt-8 pb-20 sm:pt-12">
+        {children}
+      </main>
     </div>
   );
 }

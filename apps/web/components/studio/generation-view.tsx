@@ -7,6 +7,7 @@ import { AlertTriangleIcon, CheckIcon, ClockIcon, RotateCcwIcon } from 'lucide-r
 import {
   Badge,
   Button,
+  Callout,
   Card,
   CardContent,
   CardHeader,
@@ -77,8 +78,8 @@ export function GenerationView({
   const queued = state.status === 'queued' && state.queue !== undefined;
 
   return (
-    <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-3">
+    <div className="flex flex-col gap-8 sm:gap-10">
+      <header className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3">
           {failed ? (
             <Badge variant="destructive">
@@ -92,7 +93,7 @@ export function GenerationView({
             </Badge>
           ) : (
             <Badge variant="default">
-              <StatusDot tone="primary" pulse />
+              <StatusDot tone="neutral" pulse className="[&>span]:bg-highlighter-foreground" />
               Drawing
             </Badge>
           )}
@@ -103,13 +104,13 @@ export function GenerationView({
           </p>
         </div>
 
-        <h1 className="text-2xl text-foreground">{title}</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <h1 className="display-md max-w-3xl">{title}</h1>
+        <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
           {failed
-            ? 'The run stopped part-way. Everything finished before the failing stage is cached, so retrying picks up from there rather than starting over.'
+            ? 'This video stopped part-way. Finished steps are saved, so retrying picks up where it left off.'
             : queued
-              ? 'Nothing has started drawing yet — this film is waiting for a renderer. The place in line is real and it only ever goes down; you can close the tab and come back, because the queue is on the server and not in this browser.'
-              : 'This page is live. The project is a directory on disk, so you can close the tab and come back to it — nothing is held in this browser.'}
+              ? 'Your video is waiting for a free renderer. You can close this tab; it keeps its place and will be in your library when it’s done.'
+              : 'Usually a few minutes. You can close this tab; the video keeps drawing and will be in your library when it’s done.'}
         </p>
       </header>
 
@@ -143,8 +144,8 @@ function StagePanel({
   const queue = state.status === 'queued' ? state.queue : undefined;
 
   return (
-    <Card className={cn('gap-5', className)}>
-      <CardContent className="flex flex-col gap-5">
+    <Card className={cn('gap-5 rounded-2xl py-5 shadow-card', className)}>
+      <CardContent className="flex flex-col gap-5 px-5">
         {queue ? (
           <QueueCard queue={queue} waitedMs={state.elapsedMs} />
         ) : (
@@ -162,11 +163,9 @@ function StagePanel({
         </ol>
 
         {state.status === 'error' ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/8 p-3">
-            <p className="text-sm leading-relaxed text-foreground">
-              {state.error ?? 'The run failed.'}
-            </p>
-            <div className="flex flex-wrap gap-2">
+          <Callout role="alert" tone="destructive" title="Something went wrong">
+            <p>{state.error ?? 'The run failed.'}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button size="sm" onClick={onRetry} disabled={retrying}>
                 <RotateCcwIcon aria-hidden />
                 {retrying ? 'Retrying…' : 'Retry from here'}
@@ -175,11 +174,10 @@ function StagePanel({
                 Start something else
               </Button>
             </div>
-          </div>
+          </Callout>
         ) : queue ? null : (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Rendering draws every frame, so it takes the longest by far. The percentage comes from
-            the pipeline itself — if it is still, the work is still.
+            Drawing the frames takes longest. The percentage comes straight from the renderer.
           </p>
         )}
       </CardContent>
@@ -200,11 +198,13 @@ function StagePanel({
  */
 function QueueCard({ queue, waitedMs }: { queue: QueueState; waitedMs: number }) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-warning/35 bg-warning/8 p-4">
+    <div className="flex flex-col gap-3 rounded-lg bg-muted p-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="tabular text-3xl leading-none text-foreground">#{queue.position}</span>
+        <span className="tabular font-display text-4xl leading-none text-foreground">
+          #{queue.position}
+        </span>
         <span className="text-sm text-muted-foreground">in line</span>
-        <span className="tabular ml-auto text-2xs uppercase text-muted-foreground">
+        <span className="tabular ml-auto text-xs text-muted-foreground">
           waiting {elapsed(waitedMs)}
         </span>
       </div>
@@ -217,9 +217,8 @@ function QueueCard({ queue, waitedMs }: { queue: QueueState; waitedMs: number })
           : queue.running > 1
             ? `${queue.running} films are being drawn right now. `
             : ''}
-        A render drives a browser and an encoder for every frame, so this box draws two at a time on
-        purpose: running more at once would not finish any of them sooner, it would just make all of
-        them late. The estimate above comes from how long the last few actually took here.
+        Two videos are drawn at a time so each one finishes sooner. The estimate comes from how long
+        recent videos took here.
       </p>
     </div>
   );
@@ -232,8 +231,8 @@ function StageRow({ stage, progress }: { stage: GenerationStage; progress: Stage
   return (
     <li
       className={cn(
-        'flex items-start gap-3 rounded-sm px-1 py-2',
-        state === 'active' && 'bg-accent/50',
+        'flex items-start gap-3 rounded-md px-2 py-2',
+        state === 'active' && 'bg-accent-soft',
       )}
     >
       <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
@@ -295,9 +294,9 @@ function BoardSoFar({
   const ratio = aspectRatio(storyboard?.meta?.aspect ?? '16:9');
 
   return (
-    <Card className={cn('gap-4 overflow-hidden', className)}>
+    <Card className={cn('gap-4 overflow-hidden rounded-2xl py-5 shadow-card', className)}>
       <CardHeader>
-        <CardTitle className="text-base font-medium">
+        <CardTitle className="text-base font-semibold">
           {storyboard ? 'The board so far' : 'The board'}
         </CardTitle>
         {storyboard ? (
@@ -311,7 +310,7 @@ function BoardSoFar({
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Scenes appear here the moment the planner writes them.
+            Scenes appear here as soon as they’re planned.
           </p>
         )}
       </CardHeader>
@@ -342,7 +341,7 @@ function BoardSoFar({
                     'focus-ring relative w-16 shrink-0 overflow-hidden rounded-sm border outline-none',
                     'transition-[border-color,opacity] duration-fast ease-out',
                     index === active
-                      ? 'border-primary'
+                      ? 'border-foreground ring-2 ring-highlighter'
                       : 'border-border opacity-70 hover:opacity-100',
                   )}
                   style={{ aspectRatio: ratio }}
@@ -353,7 +352,7 @@ function BoardSoFar({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <p className="text-2xs uppercase text-muted-foreground">
+              <p className="tabular text-xs font-medium text-muted-foreground">
                 Scene {active + 1}
                 {scene.durationSec ? ` · ${clock(scene.durationSec)}` : ''}
               </p>
@@ -370,10 +369,10 @@ function BoardSoFar({
             <SkeletonText lines={2} />
             <p className="text-xs text-muted-foreground">
               {state.status === 'queued'
-                ? 'Nothing has been read or planned yet — this film is still waiting its turn.'
+                ? 'Waiting for a renderer. Nothing has been planned yet.'
                 : state.stages.plan.state === 'active'
-                  ? 'Planning the canvas…'
-                  : 'Reading the source first.'}
+                  ? 'Planning the scenes…'
+                  : 'Reading your source…'}
             </p>
           </div>
         )}

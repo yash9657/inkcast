@@ -75,7 +75,7 @@ export function ShowcaseFilm({
                 onClick={play}
                 variant="secondary"
                 size="lg"
-                className="absolute bottom-4 left-4"
+                className="absolute bottom-4 left-4 border-transparent shadow-overlay sm:bottom-6 sm:left-6"
                 aria-label={playLabel}
               >
                 <PlayIcon aria-hidden /> {cta}

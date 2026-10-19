@@ -325,7 +325,21 @@ const ProjectRecordSchema = z.object({
 export type ProjectRecord = z.infer<typeof ProjectRecordSchema>;
 
 /** What the API actually returns: the record plus browser-ready URLs. */
-export type ProjectDto = ProjectRecord & { videoUrl?: string };
+export type ProjectDto = ProjectRecord & { videoUrl?: string; thumbnailPath?: string };
+
+/**
+ * The renderer writes `thumbnail.png` beside every `out.mp4`
+ * (`packages/render/src/render.ts`), and it is one of the artefacts blob storage
+ * keeps (`KEPT_ARTEFACTS`). It was never surfaced, so every library card and
+ * player fell back to the video's first second — an almost empty whiteboard.
+ * Derived by convention rather than stat'ed: the client falls back to a video
+ * frame if the image ever fails to load.
+ */
+export function thumbnailPathFor(videoPath: string | undefined): string | undefined {
+  if (!videoPath) return undefined;
+  const dir = path.posix.dirname(videoPath.replaceAll('\\', '/'));
+  return dir === '.' ? 'thumbnail.png' : `${dir}/thumbnail.png`;
+}
 
 /**
  * `projects/<id>/meta.json` — the per-project truth.
@@ -728,7 +742,12 @@ export function rebuildIndex(): Promise<void> {
 function toDto(record: ProjectRecord): ProjectDto {
   return {
     ...record,
-    ...(record.videoPath ? { videoUrl: mediaUrl(record.id, record.videoPath) } : {}),
+    ...(record.videoPath
+      ? {
+          videoUrl: mediaUrl(record.id, record.videoPath),
+          thumbnailPath: thumbnailPathFor(record.videoPath),
+        }
+      : {}),
   };
 }
 

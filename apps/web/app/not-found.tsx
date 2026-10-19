@@ -1,27 +1,32 @@
 import Link from 'next/link';
-import { ArrowLeftIcon } from 'lucide-react';
 import { Logo } from '@/components/marketing/logo';
 import { Button } from '@/components/ui';
 export default function NotFound() {
   return (
-    <main
-      id="main"
-      className="mx-auto flex min-h-[70svh] max-w-xl flex-col items-start justify-center gap-6 px-6 py-16"
-    >
-      <Link href="/" className="focus-ring" aria-label="Inkcast home">
-        <Logo />
-      </Link>
-      <div>
-        <h1 className="text-3xl">This page isn’t on the board.</h1>
-        <p className="mt-4 text-md leading-relaxed text-muted-foreground">
-          The link may have changed, or this video may no longer be shared. You can head back to the
-          studio and start from there.
+    <div className="flex min-h-svh flex-col">
+      <header className="container-page flex h-(--header-height) items-center">
+        <Link href="/" className="focus-ring rounded-md" aria-label="Inkcast home">
+          <Logo size={26} />
+        </Link>
+      </header>
+      <main
+        id="main"
+        className="container-page flex flex-1 flex-col items-center justify-center py-16 text-center"
+      >
+        <p className="font-hand text-2xl text-muted-foreground" aria-hidden>
+          404
         </p>
-      </div>
-      <Button render={<Link href="/studio" />}>
-        <ArrowLeftIcon aria-hidden />
-        Back to the studio
-      </Button>
-    </main>
+        <h1 className="display-md mt-3 max-w-lg">This page isn’t on the board</h1>
+        <p className="mt-4 max-w-md text-muted-foreground">
+          The link may be mistyped, or the video it pointed to is no longer shared.
+        </p>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <Button render={<Link href="/studio" />}>Make a video</Button>
+          <Button variant="secondary" render={<Link href="/" />}>
+            Go to the homepage
+          </Button>
+        </div>
+      </main>
+    </div>
   );
 }

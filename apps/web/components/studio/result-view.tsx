@@ -5,19 +5,21 @@ import Link from 'next/link';
 import {
   ArrowLeftIcon,
   DownloadIcon,
+  EllipsisIcon,
   ExternalLinkIcon,
   FilmIcon,
   RotateCcwIcon,
+  Trash2Icon,
 } from 'lucide-react';
 
 import {
-  Badge,
   Button,
-  Card,
-  CardContent,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  Callout,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui';
 import { downloadName, thumbnailUrl, videoUrl, type Project } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -25,8 +27,8 @@ import type { Storyboard } from '@inkcast/core';
 
 import { isMeasured, totalDuration } from './board';
 import { EditBox } from './edit-box';
-import { absoluteTime, clock, relativeTime } from './format';
-import { CopyLinkButton, DeleteProjectButton } from './project-actions';
+import { clock, relativeTime } from './format';
+import { CopyLinkButton, DeleteProjectDialog } from './project-actions';
 import { StoryboardInspector } from './storyboard-inspector';
 import { VideoPlayer, type VideoPlayerHandle } from './video-player';
 
@@ -71,24 +73,13 @@ const PLAYER_WIDTH: Record<string, string> = {
  * Nothing is rendered when the field is absent: a film cast before the pipeline recorded
  * this has no answer, and inventing one would defeat the purpose of the field.
  */
-function GroundingNote({ grounding }: { grounding?: Project['grounding'] }) {
-  if (!grounding) return null;
-  const text =
-    grounding === 'document'
-      ? 'Taught from the source you supplied.'
-      : grounding === 'supplied'
-        ? 'Rendered from a ready-made lesson — this studio sourced nothing itself.'
-        : 'Created from model knowledge. Review factual claims before sharing.';
-  return (
-    <p
-      className={cn(
-        'mt-1 text-xs',
-        grounding === 'parametric' ? 'text-warning' : 'text-muted-foreground',
-      )}
-    >
-      {text}
-    </p>
-  );
+function groundingText(grounding?: Project['grounding']): string | undefined {
+  if (!grounding) return undefined;
+  if (grounding === 'document') return 'Taught from the source you supplied.';
+  if (grounding === 'supplied') {
+    return 'Rendered from a ready-made lesson; this studio sourced nothing itself.';
+  }
+  return 'Made from the model’s own knowledge, with no source to check against. Review the facts before you share it.';
 }
 
 /**
@@ -119,18 +110,30 @@ const LANE_LABELS: Record<string, string> = {
  * louder — an unsourced claim is the normal case, and a picture that is confidently wrong
  * is not.
  */
-function LaneNote({ lanes }: { lanes?: string[] }) {
-  if (!lanes || lanes.length === 0) return null;
+function laneText(lanes?: string[]): string | undefined {
+  if (!lanes || lanes.length === 0) return undefined;
   const named = lanes.map((l) => LANE_LABELS[l] ?? l);
   const list =
     named.length === 1
       ? named[0]
       : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  return `It asks for ${list}, which Inkcast can’t draw accurately yet, so those pictures are approximations.`;
+}
+
+/**
+ * Both caveats in one place, in one register. A parametric film or a missing lane is a
+ * reason to check before sharing; a film taught from the user's own document is only a
+ * fact about it and stays in the meta line.
+ */
+function Caveats({ project }: { project: Project }) {
+  const lane = laneText(project.unservedLanes);
+  const parametric = project.grounding === 'parametric';
+  if (!lane && !parametric) return null;
   return (
-    <p className="mt-1 text-xs text-warning">
-      This lesson asks for {list}, which inkcast has no lane for yet — those pictures are
-      approximations, not correct drawings.
-    </p>
+    <Callout tone="warning" title="Check before you share">
+      {parametric ? <p>{groundingText(project.grounding)}</p> : null}
+      {lane ? <p className={parametric ? 'mt-1' : undefined}>{lane}</p> : null}
+    </Callout>
   );
 }
 
@@ -153,70 +156,81 @@ export function ResultView({
     project.durationSec ?? (storyboard && measured ? totalDuration(storyboard) : undefined);
   const created = relativeTime(project.updatedAt ?? project.createdAt);
 
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const quietGrounding = project.grounding && project.grounding !== 'parametric';
+
   return (
-    <div className="flex flex-col gap-6">
-      <Link
-        href="/library"
-        className="focus-ring self-start rounded-sm text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeftIcon className="mr-1.5 inline size-4" aria-hidden />
-        Your library
-      </Link>
-      <header className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl text-foreground">{project.title}</h1>
-            <p className="tabular mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-              {duration ? <span>{clock(duration)}</span> : null}
-              {storyboard ? <span>· {storyboard.scenes.length} scenes</span> : null}
-              <span>· {aspect}</span>
-              {created ? (
-                <span title={absoluteTime(project.updatedAt ?? project.createdAt)}>
-                  · {created}
-                </span>
-              ) : null}
+    <div className="flex flex-col gap-8">
+      <header className="flex flex-col gap-5">
+        <Link
+          href="/library"
+          className="focus-ring inline-flex items-center gap-1.5 self-start rounded-sm text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" aria-hidden />
+          Library
+        </Link>
+        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
+          <div className="min-w-0 flex-[1_1_24rem]">
+            <h1 className="display-md">{project.title}</h1>
+            <p className="tabular mt-2.5 text-sm text-muted-foreground">
+              {[
+                duration ? clock(duration) : null,
+                storyboard ? `${storyboard.scenes.length} scenes` : null,
+                aspect,
+                created ?? null,
+                quietGrounding ? groundingText(project.grounding) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
-            <GroundingNote grounding={project.grounding} />
-            <LaneNote lanes={project.unservedLanes} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {src ? (
-              <Button
-                size="sm"
-                render={<a href={src} download={downloadName(project.title, project.id)} />}
-              >
+              <Button render={<a href={src} download={downloadName(project.title, project.id)} />}>
                 <DownloadIcon aria-hidden />
-                Download video
+                Download
               </Button>
             ) : null}
 
-            <CopyLinkButton projectId={project.id} />
+            <CopyLinkButton projectId={project.id} label="Copy share link" />
 
-            {canEdit ? (
-              <Button variant="outline" size="sm" onClick={onRerender} disabled={rerendering}>
-                <RotateCcwIcon aria-hidden />
-                {rerendering ? 'Starting…' : 'Re-render'}
-              </Button>
-            ) : null}
-
-            <Tooltip>
-              <TooltipTrigger
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 render={
                   <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Open the public share page"
-                    render={<Link href={`/share/${project.id}`} target="_blank" />}
+                    variant="secondary"
+                    size="icon"
+                    className="size-10"
+                    aria-label="More actions"
                   />
                 }
               >
-                <ExternalLinkIcon aria-hidden />
-              </TooltipTrigger>
-              <TooltipContent>Open the public share page</TooltipContent>
-            </Tooltip>
-
-            <DeleteProjectButton
+                <EllipsisIcon aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-52">
+                {canEdit ? (
+                  <DropdownMenuItem onClick={onRerender} disabled={rerendering}>
+                    <RotateCcwIcon aria-hidden />
+                    {rerendering ? 'Starting…' : 'Render again'}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  onClick={() => window.open(`/share/${project.id}`, '_blank', 'noopener')}
+                >
+                  <ExternalLinkIcon aria-hidden />
+                  Open share page
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
+                  <Trash2Icon aria-hidden />
+                  Delete video…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DeleteProjectDialog
+              open={deleteOpen}
+              onOpenChange={setDeleteOpen}
               projectId={project.id}
               title={project.title}
               onDeleted={onDeleted}
@@ -224,19 +238,25 @@ export function ResultView({
           </div>
         </div>
 
+        <Caveats project={project} />
+
         {dirty ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
-            <p className="text-sm text-foreground">
-              The storyboard has changed. The video below is the previous render.
-            </p>
-            <Button size="xs" onClick={onRerender} disabled={rerendering}>
-              {rerendering ? 'Starting…' : 'Re-render now'}
-            </Button>
-          </div>
+          <Callout
+            tone="info"
+            title="Your edits aren’t in the video yet"
+            action={
+              <Button size="sm" onClick={onRerender} disabled={rerendering}>
+                <RotateCcwIcon aria-hidden />
+                {rerendering ? 'Starting…' : 'Render now'}
+              </Button>
+            }
+          >
+            The storyboard has changed. The video below is the previous render.
+          </Callout>
         ) : null}
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="flex min-w-0 flex-col gap-6">
           {src ? (
             <VideoPlayer
@@ -249,29 +269,29 @@ export function ResultView({
               className={cn('mx-auto w-full', PLAYER_WIDTH[aspect] ?? 'max-w-full')}
             />
           ) : (
-            <Card>
-              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-                <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <FilmIcon className="size-4" aria-hidden />
-                </span>
-                <p className="text-base font-medium text-foreground">Your video is not ready yet</p>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  {project.error
-                    ? project.error
-                    : 'This project has no finished video. You can try rendering again in the self-hosted studio, or create another video.'}
-                </p>
-                {canEdit ? (
-                  <Button size="sm" onClick={onRerender} disabled={rerendering}>
-                    <RotateCcwIcon aria-hidden />
-                    {rerendering ? 'Starting…' : 'Render it'}
-                  </Button>
-                ) : (
-                  <Button size="sm" render={<Link href="/studio" />}>
-                    Create another video
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-14 text-center">
+              <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <FilmIcon className="size-4" aria-hidden />
+              </span>
+              <p className="text-base font-medium text-foreground">There’s no video yet</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                {project.error
+                  ? project.error
+                  : canEdit
+                    ? 'This project has a storyboard but no finished video.'
+                    : 'This project has no finished video. Create another from your source.'}
+              </p>
+              {canEdit ? (
+                <Button size="sm" onClick={onRerender} disabled={rerendering}>
+                  <RotateCcwIcon aria-hidden />
+                  {rerendering ? 'Starting…' : 'Render it'}
+                </Button>
+              ) : (
+                <Button size="sm" render={<Link href="/studio" />}>
+                  Create another video
+                </Button>
+              )}
+            </div>
           )}
 
           {storyboard && canEdit ? (
@@ -290,17 +310,9 @@ export function ResultView({
             onSeek={src ? (seconds) => playerRef.current?.seek(seconds, true) : undefined}
           />
         ) : (
-          <Card>
-            <CardContent className="flex flex-col gap-2 py-6">
-              <Badge variant="warning" className="w-fit">
-                No storyboard
-              </Badge>
-              <p className="text-sm text-muted-foreground">
-                This project directory has no readable storyboard.json, so there is nothing to
-                inspect or edit.
-              </p>
-            </CardContent>
-          </Card>
+          <Callout tone="info" title="No storyboard">
+            This project has no readable storyboard, so there is nothing to inspect or edit.
+          </Callout>
         )}
       </div>
     </div>

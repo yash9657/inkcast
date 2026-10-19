@@ -49,7 +49,7 @@ export function DrawerContent({ className, children, side, ...props }: DrawerCon
           // Flat ink scrim, same as `Dialog`'s and for the same reason: no
           // frosted glass in this system, and one scrim treatment across both
           // popup implementations.
-          'fixed inset-0 z-50 bg-foreground/40',
+          'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
           'transition-opacity duration-slow ease-out',
           'data-starting-style:opacity-0 data-ending-style:opacity-0',
         )}
