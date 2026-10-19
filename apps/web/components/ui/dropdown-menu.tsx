@@ -14,7 +14,7 @@ export const DropdownMenuSub = MenuPrimitive.SubmenuRoot;
 
 const popupClasses = [
   'max-h-[var(--available-height)] min-w-40 overflow-y-auto overscroll-contain',
-  'rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
+  'rounded-lg border border-border-subtle bg-popover p-1 text-popover-foreground shadow-overlay',
   'origin-[var(--transform-origin)]',
   'transition-[opacity,transform,translate] duration-brisk ease-out',
   'data-starting-style:scale-[0.97] data-starting-style:opacity-0',
@@ -71,7 +71,7 @@ const itemClasses = [
   'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5',
   'text-sm text-foreground outline-none select-none',
   'border-l-2 border-transparent',
-  'data-highlighted:border-primary data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+  'data-highlighted:bg-accent/70 data-highlighted:text-accent-foreground',
   'data-disabled:pointer-events-none data-disabled:opacity-50',
   "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   '[&_svg]:text-muted-foreground data-highlighted:[&_svg]:text-current',
@@ -160,11 +160,7 @@ export function DropdownMenuSubTrigger({
       // the pointer travels into it, so this is the one row in the menu that can
       // be "the active one" without the keyboard being on it — which makes it the
       // row where a 4.5% tint as sole signal is least defensible, not most.
-      className={cn(
-        itemClasses,
-        'data-[popup-open]:border-primary data-[popup-open]:bg-accent',
-        className,
-      )}
+      className={cn(itemClasses, 'data-[popup-open]:bg-accent/70', className)}
       {...props}
     >
       {children}

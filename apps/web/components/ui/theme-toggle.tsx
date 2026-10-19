@@ -26,10 +26,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     <div
       role="radiogroup"
       aria-label="Theme"
-      className={cn(
-        'inline-flex h-9 items-center gap-0.5 rounded-pill bg-muted p-0.5',
-        className,
-      )}
+      className={cn('inline-flex h-9 items-center gap-0.5 rounded-pill bg-muted p-0.5', className)}
     >
       {OPTIONS.map(({ value, label, Icon }) => {
         const active = theme === value;
@@ -52,7 +49,9 @@ export function ThemeToggle({ className }: { className?: string }) {
               // that it only misbehaves in one state of one variant, which is the
               // kind of focus bug that ships.
               'focus-ring focus-visible:ring-2 focus-visible:ring-background',
-              active ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
+              active
+                ? 'bg-card text-foreground shadow-card'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon className="size-3.5" aria-hidden />

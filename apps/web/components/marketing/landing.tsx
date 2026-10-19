@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { ArrowRightIcon, PlusIcon } from 'lucide-react';
-import { Button, GithubIcon } from '@/components/ui';
+import { Button, chipVariants, GithubIcon } from '@/components/ui';
 import { ShowcaseFilm } from './showcase-film';
 import { repoUrl, signInRequired, STUDIO_TOPIC_MAX, studioTopicHref } from './site-config';
 
@@ -74,7 +74,7 @@ export function Landing() {
             <Link
               key={topic}
               href={studioTopicHref(topic)}
-              className="focus-ring rounded-pill border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:border-input hover:bg-accent/50"
+              className={chipVariants({ size: 'lg' })}
             >
               {topic}
             </Link>
@@ -119,7 +119,7 @@ export function Landing() {
         className="scroll-mt-16 border-y border-border-subtle bg-card py-20 sm:py-28"
       >
         <div className="container-page">
-          <h2 className="display-lg max-w-xl">
+          <h2 className="display-lg max-w-2xl">
             From a question to a finished video in three steps.
           </h2>
           <ol className="mt-12 grid gap-10 sm:mt-16 md:grid-cols-3 md:gap-8">
@@ -166,24 +166,25 @@ export function Landing() {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                 />
-                <circle cx="80" cy="78" r="30" fill="none" stroke="var(--ink)" strokeWidth="2" />
-                <circle
-                  cx="120"
-                  cy="78"
-                  r="30"
-                  fill="none"
-                  stroke="var(--ink)"
-                  strokeWidth="2"
-                  strokeDasharray="120 200"
-                />
+                <circle cx="82" cy="68" r="24" fill="none" stroke="var(--ink)" strokeWidth="2" />
+                <circle cx="118" cy="68" r="24" fill="none" stroke="var(--ink)" strokeWidth="2" />
                 <circle
                   cx="100"
-                  cy="56"
-                  r="5"
+                  cy="53"
+                  r="4.5"
                   fill="none"
                   stroke="var(--ink-blue)"
                   strokeWidth="2.5"
                 />
+                <path
+                  d="M30 106 H170"
+                  stroke="var(--ink)"
+                  strokeOpacity="0.15"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+                <path d="M30 106 H112" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
+                <circle cx="112" cy="106" r="4.5" fill="var(--ink)" />
               </svg>
             </Step>
           </ol>

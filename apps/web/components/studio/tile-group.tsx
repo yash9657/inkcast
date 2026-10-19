@@ -90,10 +90,10 @@ export function TileGroup<T extends string>({
             />
 
             {option.visual ? (
-              <span className="flex h-10 items-center justify-start">{option.visual}</span>
+              <span className="flex h-8 items-center justify-start">{option.visual}</span>
             ) : null}
 
-            <span className="text-sm font-medium text-foreground">{option.label}</span>
+            <span className="pr-5 text-sm font-medium text-foreground">{option.label}</span>
             {option.hint ? (
               <span className="text-xs leading-snug text-muted-foreground">{option.hint}</span>
             ) : null}

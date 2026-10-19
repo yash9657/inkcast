@@ -27,8 +27,8 @@ import { cn } from '@/lib/utils';
 
 export function CopyLinkButton({
   projectId,
-  variant = 'outline',
-  size = 'sm',
+  variant = 'secondary',
+  size = 'default',
   label = 'Copy link',
 }: {
   projectId: string;
@@ -79,7 +79,6 @@ export function DeleteProjectButton({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [deleting, setDeleting] = React.useState(false);
 
   return (
     <>
@@ -95,42 +94,68 @@ export function DeleteProjectButton({
       >
         <Trash2Icon aria-hidden />
       </Button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete “{title}”?</DialogTitle>
-            <DialogDescription>
-              This removes the whole project directory — the storyboard, the narration audio, the
-              frames and the video. It cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose render={<Button variant="ghost" disabled={deleting} />}>
-              Keep it
-            </DialogClose>
-            <Button
-              variant="destructive"
-              disabled={deleting}
-              onClick={async () => {
-                setDeleting(true);
-                try {
-                  await deleteProject(projectId);
-                  setOpen(false);
-                  onDeleted();
-                  toast.success('Project deleted', { description: title });
-                } catch (err) {
-                  toast.error('Could not delete the project', { description: errorMessage(err) });
-                } finally {
-                  setDeleting(false);
-                }
-              }}
-            >
-              {deleting ? 'Deleting…' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteProjectDialog
+        open={open}
+        onOpenChange={setOpen}
+        projectId={projectId}
+        title={title}
+        onDeleted={onDeleted}
+      />
     </>
+  );
+}
+
+/**
+ * The confirmation itself, controlled, so a menu item can open it as well as the
+ * icon button. One dialog, one copy, wherever delete is offered.
+ */
+export function DeleteProjectDialog({
+  open,
+  onOpenChange,
+  projectId,
+  title,
+  onDeleted,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId: string;
+  title: string;
+  onDeleted: () => void;
+}) {
+  const [deleting, setDeleting] = React.useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete “{title}”?</DialogTitle>
+          <DialogDescription>
+            This removes the video, its storyboard, narration and frames. It can’t be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" disabled={deleting} />}>Keep it</DialogClose>
+          <Button
+            variant="destructive"
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                await deleteProject(projectId);
+                onOpenChange(false);
+                onDeleted();
+                toast.success('Project deleted', { description: title });
+              } catch (err) {
+                toast.error('Could not delete the project', { description: errorMessage(err) });
+              } finally {
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? 'Deleting…' : 'Delete video'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

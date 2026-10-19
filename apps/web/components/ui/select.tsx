@@ -20,14 +20,14 @@ export function SelectTrigger({
       data-slot="select-trigger"
       className={cn(
         'group/select-trigger',
-        'flex h-11 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3',
+        'flex h-11 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3.5',
         'text-base text-foreground shadow-none select-none',
         'transition-[border-color,background-color] duration-fast ease-out',
         'hover:bg-accent/40',
         // Same colour, honest name: `--ring` and `--accent-strong` are both the
         // hot accent, but docs/DESIGN.md §2 reserves `ring` for focus and
         // nothing else, and "the popup is open" is not focus.
-        'focus-ring outline-none data-[popup-open]:border-accent-strong',
+        'focus-ring outline-none data-[popup-open]:border-foreground',
         'data-disabled:cursor-not-allowed data-disabled:opacity-50',
         'data-invalid:border-destructive',
         '[&>span]:truncate data-[placeholder]:[&>span]:text-muted-foreground',
@@ -73,7 +73,7 @@ export function SelectContent({
         <SelectPrimitive.Popup
           className={cn(
             'max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-hidden',
-            'rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay',
+            'rounded-lg border border-border-subtle bg-popover p-1 text-popover-foreground shadow-overlay',
             'origin-[var(--transform-origin)]',
             'transition-[opacity,transform,translate] duration-brisk ease-out',
             'data-starting-style:scale-[0.97] data-starting-style:opacity-0',

@@ -86,6 +86,7 @@ Everything comes from `components/ui`. If a screen needs something new, add a pr
 - **Tabs.** Segmented pill: `muted` track, the active segment is a raised `card` pill.
 - **TileGroup.** Native radios. Selected = `accent-soft` fill, ink edge, and an ink check disc (state is never colour alone).
 - **Callout.** `info | warning | destructive | success`, with icon, title, body, optional action. Use for every caveat and error that belongs to content.
+- **Chip.** A quiet pill that fills something in: starter questions, examples, edit suggestions. `on="page" | "card"` keeps it one step off its surface. `chipVariants()` for links.
 - **Badge.** `default` is a highlighter tag; `neutral`, `success`, `warning`, `destructive` are tinted without borders.
 - **`marker` utility.** The highlighter swash behind inline text. Wraps line by line.
 

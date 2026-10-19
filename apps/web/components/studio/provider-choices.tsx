@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import {
-  Button,
   Label,
   LabelHint,
   Select,
@@ -34,16 +33,8 @@ export function ProviderChoices({
   ] as const;
   const cloud = value.planner !== 'local' || value.speech !== 'local' || value.images !== 'local';
   return (
-    <section className="flex flex-col gap-4" aria-labelledby="video-providers">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="video-providers" className="text-md font-semibold">
-          Processing & providers
-        </h2>
-        <Button variant="link" size="sm" nativeButton={false} render={<Link href="/settings" />}>
-          Manage API keys
-        </Button>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label htmlFor="planning-provider">Lesson and diagrams</Label>
           <Select
@@ -66,8 +57,8 @@ export function ProviderChoices({
           </Select>
           <LabelHint>
             {value.planner === 'local'
-              ? 'A basic, deterministic summary of your source. No planning API charge.'
-              : 'Writes the lesson and composes diagrams using your saved key.'}
+              ? 'A basic summary of your source. No API charge.'
+              : 'Writes the lesson and diagrams with your saved key.'}
           </LabelHint>
         </div>
         <div className="flex flex-col gap-2">
@@ -92,40 +83,46 @@ export function ProviderChoices({
           </Select>
           <LabelHint>
             {value.speech === 'local'
-              ? 'Kokoro speech in English, processed on the Inkcast server.'
-              : 'Multilingual speech with native word timings. Choose the voice in Voice & style.'}
+              ? 'Kokoro, English only. No API charge.'
+              : 'Many languages and voices. Pick the voice above.'}
           </LabelHint>
         </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="image-provider">Illustrations</Label>
+          <Select
+            value={value.images}
+            onValueChange={(images) =>
+              onChange({ ...value, images: images as ProviderSelection['images'] })
+            }
+          >
+            <SelectTrigger id="image-provider">
+              <span>
+                {value.images === 'local'
+                  ? 'Built-in assets'
+                  : `Generated · ${has('replicate') ? 'Replicate' : 'fal'}`}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="local">Built-in assets · no image API charge</SelectItem>
+              <SelectItem value="auto" disabled={!has('replicate') && !has('fal')}>
+                Generated · your image provider
+                {!has('replicate') && !has('fal') ? ' · add a key' : ''}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-      <div className="flex flex-col gap-2 sm:max-w-sm">
-        <Label htmlFor="image-provider">Illustrations</Label>
-        <Select
-          value={value.images}
-          onValueChange={(images) =>
-            onChange({ ...value, images: images as ProviderSelection['images'] })
-          }
-        >
-          <SelectTrigger id="image-provider">
-            <span>
-              {value.images === 'local'
-                ? 'Built-in assets'
-                : `Generated · ${has('replicate') ? 'Replicate' : 'fal'}`}
-            </span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="local">Built-in assets · no image API charge</SelectItem>
-            <SelectItem value="auto" disabled={!has('replicate') && !has('fal')}>
-              Generated · your image provider
-              {!has('replicate') && !has('fal') ? ' · add a key' : ''}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         {cloud
-          ? 'Selected providers receive the source, narration or drawing data needed for their stage and bill your provider accounts. Local rendering still runs on the Inkcast server.'
-          : 'Planning, speech and artwork run locally on the Inkcast server. No paid provider keys are used.'}
+          ? 'The providers you pick receive the source or narration they need and bill your own account. Drawing and encoding always run on the Inkcast server. '
+          : 'Everything runs on the Inkcast server. No paid keys are used. '}
+        <Link
+          href="/settings"
+          className="focus-ring rounded-xs font-medium text-foreground underline underline-offset-4"
+        >
+          Manage API keys
+        </Link>
       </p>
-    </section>
+    </div>
   );
 }

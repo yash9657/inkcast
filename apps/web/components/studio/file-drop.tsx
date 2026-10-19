@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { FileTextIcon, UploadIcon, XIcon } from 'lucide-react';
 
-import { Button, InkBoard } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 import { fileSize } from './format';
@@ -69,10 +69,8 @@ export function FileDrop({ file, onFileChange, onReject, disabled = false }: Fil
 
   if (file) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
-        {/* `shadow-card` rather than the deprecated `shadow-xs` alias — same
-            pixels, and one fewer call site keeping that block alive. */}
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-card text-muted-foreground shadow-card">
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-muted p-3.5">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-card text-foreground shadow-card">
           <FileTextIcon className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
@@ -124,31 +122,32 @@ export function FileDrop({ file, onFileChange, onReject, disabled = false }: Fil
         onDrop={onDrop}
         className={cn(
           'focus-ring group relative flex w-full flex-col items-center gap-2 overflow-hidden outline-none',
-          'rounded-xl border border-dashed border-input bg-card px-6 py-10 text-center',
+          'rounded-lg border-2 border-dashed border-border bg-background px-6 py-12 text-center',
           'transition-[background-color,border-color] duration-fast ease-out',
-          'hover:border-primary/60 hover:bg-accent/30',
+          'hover:border-input hover:bg-accent/30',
           'disabled:pointer-events-none disabled:opacity-50',
-          dragging && 'border-primary bg-primary/8',
+          dragging && 'border-foreground bg-accent-soft',
         )}
       >
-        <InkBoard aria-hidden className="pointer-events-none absolute inset-0 opacity-60" />
-
         <span
           className={cn(
-            'relative flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground',
+            'relative mb-1 flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground',
             'transition-colors duration-fast ease-out',
             'group-hover:text-foreground',
-            dragging && 'bg-primary/12 text-primary',
+            dragging && 'bg-highlighter text-highlighter-foreground',
           )}
         >
           <UploadIcon className="size-4" aria-hidden />
         </span>
 
         <span className="relative text-base font-medium text-foreground">
-          {dragging ? 'Drop it anywhere here' : 'Drop a document, or click to choose'}
+          {dragging ? 'Drop it here' : 'Drop a file here, or choose one'}
+        </span>
+        <span className="relative text-sm text-muted-foreground">
+          PDF, Word, Markdown or text · up to {fileSize(MAX_UPLOAD_BYTES)}
         </span>
         <span className="relative text-xs text-muted-foreground">
-          {ACCEPTED_EXTENSIONS.join(' · ')} — up to {fileSize(MAX_UPLOAD_BYTES)}
+          The file is uploaded to Inkcast to be read.
         </span>
       </button>
     </>

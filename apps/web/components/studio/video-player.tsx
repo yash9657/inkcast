@@ -243,105 +243,105 @@ export const VideoPlayer = React.forwardRef<VideoPlayerHandle, VideoPlayerProps>
       <div
         ref={shellRef}
         className={cn(
-          'group/player relative overflow-hidden rounded-xl border border-border bg-black',
-          // `focus-within:border-input` used to live here and was a no-op after
-          // the token swap: `--border` and `--input` are both ink now, so the
-          // "something inside me has focus" state changed nothing at all
-          // (docs/DESIGN.md, "Real breakages to fix in the component sweep",
-          // item 2). The accent edge is the one line in this system that reads
-          // as a live state, and it is visible against the player's black field
-          // in both themes.
-          'focus-within:border-accent-strong',
+          // Paper, not black: every Inkcast film is drawn on paper, so the frame
+          // the poster and the letterbox share is the board's own colour.
+          'group/player relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-paper shadow-card',
+          'focus-within:border-input',
           className,
         )}
-        style={fullscreen ? undefined : { aspectRatio: aspectRatio(aspect) }}
         onPointerMove={revealControls}
         onPointerLeave={() => {
           if (videoRef.current && !videoRef.current.paused) setControlsVisible(false);
         }}
       >
-        <video
-          ref={videoRef}
-          src={src}
-          poster={poster}
-          preload="metadata"
-          playsInline
-          aria-label={title}
-          className="size-full bg-black object-contain"
-          onClick={toggle}
-          onPlay={() => {
-            setPlaying(true);
-            revealControls();
-          }}
-          onPause={() => {
-            setPlaying(false);
-            setControlsVisible(true);
-          }}
-          onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
-          onLoadedMetadata={(event) => {
-            const value = event.currentTarget.duration;
-            if (Number.isFinite(value) && value > 0) setDuration(value);
-            setFailed(false);
-          }}
-          onEnded={() => setPlaying(false)}
-          onError={() => setFailed(true)}
-        />
+        {/* The picture keeps its own aspect so phone controls can sit below it. */}
+        <div
+          className={cn('relative', fullscreen && 'min-h-0 flex-1')}
+          style={fullscreen ? undefined : { aspectRatio: aspectRatio(aspect) }}
+        >
+          <video
+            ref={videoRef}
+            src={src}
+            poster={poster}
+            preload="metadata"
+            playsInline
+            aria-label={title}
+            className="size-full bg-paper object-contain"
+            onClick={toggle}
+            onPlay={() => {
+              setPlaying(true);
+              revealControls();
+            }}
+            onPause={() => {
+              setPlaying(false);
+              setControlsVisible(true);
+            }}
+            onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
+            onLoadedMetadata={(event) => {
+              const value = event.currentTarget.duration;
+              if (Number.isFinite(value) && value > 0) setDuration(value);
+              setFailed(false);
+            }}
+            onEnded={() => setPlaying(false)}
+            onError={() => setFailed(true)}
+          />
 
-        {failed ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/95 p-6 text-center">
-            <AlertTriangleIcon className="size-5 text-destructive" aria-hidden />
-            <p className="text-sm text-foreground">This video could not be loaded.</p>
-            <p className="text-xs text-muted-foreground">
-              The file may still be encoding, or it was removed from the project directory.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setFailed(false);
-                videoRef.current?.load();
-              }}
-            >
-              Try again
-            </Button>
-          </div>
-        ) : null}
+          {failed ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/95 p-6 text-center">
+              <AlertTriangleIcon className="size-5 text-destructive" aria-hidden />
+              <p className="text-sm text-foreground">This video could not be loaded.</p>
+              <p className="text-xs text-muted-foreground">
+                The file may still be encoding, or it was removed from the project directory.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setFailed(false);
+                  videoRef.current?.load();
+                }}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
 
-        {/* A single big affordance while paused. */}
-        {!playing && !failed ? (
-          <button
-            type="button"
-            onClick={play}
-            aria-label="Play"
-            className={cn(
-              'focus-ring absolute inset-0 flex items-center justify-center outline-none',
-              'transition-opacity duration-brisk ease-out',
-            )}
-          >
-            <span
+          {/* A single big affordance while paused. */}
+          {!playing && !failed ? (
+            <button
+              type="button"
+              onClick={play}
+              aria-label="Play"
               className={cn(
-                'flex size-16 items-center justify-center rounded-full',
-                // `shadow-overlay` is where `shadow-lg` was already resolving
-                // through the alias block; naming it directly is the sweep.
-                'bg-background/85 text-foreground shadow-overlay',
-                'transition-transform duration-fast ease-out',
-                'group-hover/player:scale-105',
+                'focus-ring absolute inset-0 flex items-center justify-center outline-none',
+                'transition-opacity duration-brisk ease-out',
               )}
             >
-              <PlayIcon className="size-6 translate-x-0.5" aria-hidden />
-            </span>
-          </button>
-        ) : null}
+              <span
+                className={cn(
+                  'flex size-16 items-center justify-center rounded-full',
+                  // `shadow-overlay` is where `shadow-lg` was already resolving
+                  // through the alias block; naming it directly is the sweep.
+                  'bg-ink text-paper shadow-overlay',
+                  'transition-transform duration-fast ease-out',
+                  'group-hover/player:scale-105',
+                )}
+              >
+                <PlayIcon className="size-6 translate-x-0.5" aria-hidden />
+              </span>
+            </button>
+          ) : null}
+        </div>
 
-        {/* Controls */}
+        {/* Controls: below the picture on phones, overlaid from `sm` up. */}
         <div
           className={cn(
-            'absolute inset-x-0 bottom-0 flex flex-col gap-1 p-3',
-            'bg-background/92 backdrop-blur-sm',
+            'flex flex-col gap-0.5 border-t border-border-subtle bg-card px-2 py-1.5',
+            'sm:absolute sm:inset-x-0 sm:bottom-0 sm:gap-1 sm:border-t-0 sm:bg-background/92 sm:p-3 sm:backdrop-blur-sm',
             'transition-opacity duration-brisk ease-out',
             controlsVisible || !playing
               ? 'opacity-100'
-              : 'opacity-0 focus-within:opacity-100 group-hover/player:opacity-100',
+              : 'sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover/player:opacity-100',
           )}
         >
           <Slider

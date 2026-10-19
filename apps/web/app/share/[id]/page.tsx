@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 
+import { Callout } from '@/components/ui/callout';
 import { mediaUrl, parseProjectDetail, projectPath, videoUrl, type ProjectDetail } from '@/lib/api';
 import { aspectRatio, clock } from '@/components/studio/format';
 import { isMeasured, totalDuration } from '@/components/studio/board';
@@ -112,47 +113,59 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   const duration =
     project.durationSec ?? (storyboard && measured ? totalDuration(storyboard) : undefined);
 
+  const frameWidth = aspect === '9:16' ? 'max-w-sm' : aspect === '1:1' ? 'max-w-xl' : 'max-w-4xl';
+
   return (
-    <div className="flex min-h-svh flex-col items-center px-4 py-10 sm:py-16">
-      <main id="main" className="flex w-full max-w-3xl flex-col gap-6">
-        <Link href="/" className="focus-ring mb-3 self-start" aria-label="Inkcast home">
-          <Logo />
+    <div className="flex min-h-svh flex-col">
+      <header className="container-page flex h-(--header-height) items-center justify-between">
+        <Link href="/" className="focus-ring rounded-md" aria-label="Inkcast home">
+          <Logo size={26} />
         </Link>
-        {src ? (
-          <video
-            controls
-            playsInline
-            preload="metadata"
-            src={src}
-            poster={poster}
-            aria-label={project.title}
-            className="w-full rounded-xl border border-border bg-black"
-            style={{ aspectRatio: aspectRatio(aspect) }}
-          />
-        ) : (
-          <div
-            className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-input bg-card p-8 text-center"
-            style={{ aspectRatio: aspectRatio(aspect) }}
-          >
-            <p className="text-base font-medium text-foreground">Still being drawn</p>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              This video is still being prepared. Check back shortly.
+        <Link
+          href="/studio"
+          className="focus-ring inline-flex h-9 items-center rounded-pill border border-border bg-card px-3.5 text-sm font-medium text-foreground transition-colors hover:border-input"
+        >
+          Create your own
+        </Link>
+      </header>
+
+      <main id="main" className="container-page flex flex-1 flex-col items-center py-8 sm:py-14">
+        <div className={`flex w-full flex-col gap-6 ${frameWidth}`}>
+          {src ? (
+            <video
+              controls
+              playsInline
+              preload="metadata"
+              src={src}
+              poster={poster}
+              aria-label={project.title}
+              className="w-full rounded-xl border border-border-subtle bg-paper shadow-overlay"
+              style={{ aspectRatio: aspectRatio(aspect) }}
+            />
+          ) : (
+            <div
+              className="dot-grid flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-input bg-paper p-8 text-center text-ink"
+              style={{ aspectRatio: aspectRatio(aspect) }}
+            >
+              <p className="font-hand text-xl">Still being drawn…</p>
+              <p className="max-w-sm text-sm opacity-70">
+                This video isn’t finished yet. Check back in a few minutes.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <h1 className="display-md">{project.title}</h1>
+            <p className="tabular text-sm text-muted-foreground">
+              {[
+                duration ? clock(duration) : null,
+                storyboard ? `${storyboard.scenes.length} scenes` : null,
+                project.grounding === 'document' ? 'Taught from a source document' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl text-foreground">{project.title}</h1>
-          <p className="tabular flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-            {duration ? <span>{clock(duration)}</span> : null}
-            {storyboard ? (
-              <span>
-                {duration ? '· ' : ''}
-                {storyboard.scenes.length} scenes on one canvas
-              </span>
-            ) : null}
-            {storyboard ? <span>· {storyboard.meta.style}</span> : null}
-          </p>
           {/* What the facts in this film rest on (plan 5.1; audit S0-a). This is the
               surface the honesty is most for: a stranger arriving at a shared link has no
               other way to tell a film built from a document somebody supplied from one
@@ -160,36 +173,33 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
               way. Absent renders nothing — a film cast before the pipeline recorded this
               has no answer, and `parametric` is not the honest default for it. */}
           {project.grounding === 'parametric' ? (
-            <p className="text-sm text-warning">
-              Created from model knowledge. Review factual claims before sharing.
-            </p>
-          ) : project.grounding === 'document' ? (
-            <p className="text-sm text-muted-foreground">Taught from a source document.</p>
+            <Callout tone="warning">
+              Made from an AI model’s own knowledge, not a source document. Double-check the facts.
+            </Callout>
           ) : null}
         </div>
-
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">
-          <p className="text-sm text-muted-foreground">
-            Drawn with{' '}
-            <Link href="/" className="focus-ring rounded-xs font-medium text-primary outline-none">
-              Inkcast
-            </Link>{' '}
-            {/* Was "open source, runs locally, no per-minute bill". This footer is
-                on the most-shared surface the project has, and "runs locally" is
-                the one clause a stranger reads while looking at a film that did
-                not run locally — it ran on inkcast.video's box. "Run it yourself"
-                keeps the whole claim and makes it an invitation, which is both
-                true of every deployment and the thing this footer is for. */}
-            — open source. Run it yourself, no per-minute bill.
-          </p>
-          <Link
-            href="/studio"
-            className="focus-ring rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-xs outline-none transition-colors duration-fast ease-out hover:bg-accent hover:text-accent-foreground"
-          >
-            Create your own
-          </Link>
-        </footer>
       </main>
+
+      {/* "Run it yourself" rather than "runs locally": this is the most-shared surface
+          the project has, and the film a stranger is watching did not run locally. */}
+      <footer className="container-page flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle py-6 text-sm text-muted-foreground">
+        <p>
+          Made with{' '}
+          <Link
+            href="/"
+            className="focus-ring rounded-xs font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-current"
+          >
+            Inkcast
+          </Link>
+          , open-source hand-drawn explainer videos.
+        </p>
+        <Link
+          href="/studio"
+          className="focus-ring rounded-xs font-medium text-foreground hover:underline"
+        >
+          Make one from your own question →
+        </Link>
+      </footer>
     </div>
   );
 }

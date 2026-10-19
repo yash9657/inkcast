@@ -2,20 +2,19 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangleIcon, PlusIcon, SearchIcon, FilmIcon } from 'lucide-react';
+import { ChevronDownIcon, PlusIcon, SearchIcon } from 'lucide-react';
 
 import {
-  Input,
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardInteractive,
-  InkArrow,
+  Callout,
+  chipVariants,
   InkBoard,
+  Input,
   Skeleton,
   StatusDot,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 import { errorMessage, listProjects, thumbnailUrl, videoUrl, type Project } from '@/lib/api';
 
 import { EXAMPLES } from './options';
@@ -81,111 +80,135 @@ export function LibraryView() {
           ),
     );
 
+  const filters = [
+    { value: 'all', label: 'All' },
+    { value: 'ready', label: 'Ready' },
+    { value: 'active', label: 'In progress' },
+  ] as const;
+
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="page-heading">
-          <h1>Your library</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+        <div>
+          <h1 className="display-md">Library</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             {projects === null
               ? 'Loading your videos…'
               : projects.length === 0
-                ? 'A home for every idea you bring to life.'
-                : `${projects.length} video${projects.length === 1 ? '' : 's'} in your workspace.`}
+                ? 'Every video you make will be kept here.'
+                : `${projects.length} video${projects.length === 1 ? '' : 's'}`}
           </p>
         </div>
-        <Button size="sm" render={<Link href="/studio" />}>
+        <Button render={<Link href="/studio" />}>
           <PlusIcon aria-hidden />
-          Create a video
+          New video
         </Button>
       </header>
 
       {projects && projects.length > 0 ? (
-        <div className="library-toolbar">
-          <div className="relative min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-0 flex-[1_1_16rem]">
             <SearchIcon
-              className="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground"
+              className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <Input
-              aria-label="Search videos"
-              placeholder="Find a video…"
+              type="search"
+              aria-label="Search videos by title"
+              placeholder="Search by title"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="pl-10"
             />
           </div>
-          <div
-            role="group"
-            aria-label="Filter videos"
-            className="flex gap-1 rounded-md bg-muted p-1"
-          >
-            {(['all', 'ready', 'active'] as const).map((value) => (
-              <Button
-                key={value}
-                variant={filter === value ? 'secondary' : 'ghost'}
-                size="sm"
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
+          <div className="flex flex-[1_1_auto] items-center justify-between gap-3 sm:flex-none">
+            <div
+              role="group"
+              aria-label="Filter by status"
+              className="inline-flex h-10 items-center gap-0.5 rounded-pill bg-muted p-1"
+            >
+              {filters.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={filter === value}
+                  onClick={() => setFilter(value)}
+                  className={cn(
+                    'focus-ring h-8 rounded-pill px-3.5 text-sm font-medium whitespace-nowrap transition-colors duration-fast',
+                    filter === value
+                      ? 'bg-card text-foreground shadow-pop'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="sr-only" htmlFor="library-sort">
+              Sort videos
+            </label>
+            <div className="relative">
+              <select
+                id="library-sort"
+                className="focus-ring h-10 appearance-none rounded-pill border border-border bg-card pr-9 pl-4 text-sm text-foreground hover:border-input"
+                value={sort}
+                onChange={(event) => setSort(event.target.value as typeof sort)}
               >
-                {value === 'all' ? 'All videos' : value === 'ready' ? 'Ready' : 'In progress'}
-              </Button>
-            ))}
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="name">Title A–Z</option>
+              </select>
+              <ChevronDownIcon
+                className="pointer-events-none absolute top-1/2 right-3.5 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+            </div>
           </div>
-          <label className="sr-only" htmlFor="library-sort">
-            Sort videos
-          </label>
-          <select
-            id="library-sort"
-            className="focus-ring h-11 rounded-md border border-input bg-card px-3 text-sm"
-            value={sort}
-            onChange={(event) => setSort(event.target.value as typeof sort)}
-          >
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="name">Title A–Z</option>
-          </select>
         </div>
       ) : null}
+
       {error ? (
-        <Card>
-          <CardContent className="flex flex-col items-start gap-3 py-8">
-            <span className="flex size-9 items-center justify-center rounded-full bg-destructive/12 text-destructive">
-              <AlertTriangleIcon className="size-4" aria-hidden />
-            </span>
-            <p className="text-base font-medium text-foreground">The library could not be read</p>
-            <p className="max-w-prose text-sm text-muted-foreground">{error}</p>
+        <Callout
+          tone="destructive"
+          role="alert"
+          title="Your library couldn’t be loaded"
+          action={
             <Button
               size="sm"
+              variant="secondary"
               onClick={() => void load().catch((e: unknown) => setError(errorMessage(e)))}
             >
               Try again
             </Button>
-          </CardContent>
-        </Card>
+          }
+        >
+          {error}
+        </Callout>
       ) : projects === null ? (
         <LibrarySkeleton />
       ) : projects.length === 0 ? (
         <EmptyLibrary />
       ) : visibleProjects.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border py-16 text-center">
-          <h2 className="text-xl">No videos found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Try another title or show all videos.
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+          <h2 className="font-sans text-lg font-semibold">No videos match</h2>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {query.trim()
+              ? `Nothing titled “${query.trim()}”${filter === 'all' ? '' : ' with this status'}.`
+              : 'Nothing has this status right now.'}
           </p>
           <Button
-            variant="outline"
+            variant="secondary"
             className="mt-5"
             onClick={() => {
               setQuery('');
               setFilter('all');
             }}
           >
-            Clear filters
+            Show all videos
           </Button>
         </div>
       ) : (
-        <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
           {visibleProjects.map((project) => (
             <li key={project.id}>
               <ProjectCard
@@ -204,32 +227,40 @@ export function LibraryView() {
 
 /* --------------------------------------------------------------------- card */
 
+/**
+ * Every card uses the same 16:9 board so the grid reads as rows; a vertical or
+ * square film sits centred on paper inside it, the way it would on a whiteboard.
+ */
 function ProjectCard({ project, onDeleted }: { project: Project; onDeleted: () => void }) {
   const thumbnail = thumbnailUrl(project);
   const video = videoUrl(project);
   const when = relativeTime(project.updatedAt ?? project.createdAt);
+  const [thumbFailed, setThumbFailed] = React.useState(false);
+  // The canvas accumulates, so a frame near the end shows the whole lesson.
+  // Seeking past the end clamps to the last frame in every browser.
+  const frameAt = project.durationSec ? Math.max(1, project.durationSec - 1) : 1;
 
   return (
-    <CardInteractive className="gap-0 overflow-hidden py-0">
+    <article className="group relative flex flex-col">
       <Link
         href={`/project/${project.id}`}
-        aria-label={`Open ${project.title}`}
-        className="focus-ring relative block aspect-video overflow-hidden border-b border-border bg-paper outline-none"
+        className="focus-ring relative block aspect-video overflow-hidden rounded-xl border border-border-subtle bg-paper transition-[border-color,translate,box-shadow] duration-brisk ease-out group-hover:-translate-y-0.5 group-hover:border-input group-hover:shadow-pop"
       >
-        {thumbnail ? (
+        <span className="sr-only">Open {project.title}</span>
+        {thumbnail && !thumbFailed ? (
           <img
             src={thumbnail}
             alt=""
             loading="lazy"
             decoding="async"
+            onError={() => setThumbFailed(true)}
             className="size-full object-contain"
           />
         ) : video ? (
-          // No thumbnail file is written yet, so the video is its own poster:
-          // `#t=1` asks the browser for the frame at one second, and
-          // `preload="metadata"` keeps it to a header read rather than a download.
+          // No still on disk: the video is its own poster. `preload="metadata"`
+          // keeps it to a header read rather than a download.
           <video
-            src={`${video}#t=1`}
+            src={`${video}#t=${frameAt}`}
             preload="metadata"
             muted
             playsInline
@@ -238,70 +269,92 @@ function ProjectCard({ project, onDeleted }: { project: Project; onDeleted: () =
             className="pointer-events-none size-full object-contain"
           />
         ) : (
-          <InkBoard className="flex size-full items-center justify-center p-4">
-            <span className="line-clamp-2 text-center font-hand text-md text-ink">
+          <InkBoard className="flex size-full items-center justify-center p-6">
+            <span className="line-clamp-2 text-center font-hand text-lg text-ink">
               {project.title}
             </span>
           </InkBoard>
         )}
 
+        {project.status !== 'ready' ? (
+          <span className="absolute top-2.5 left-2.5">
+            <StatusLabel status={project.status} />
+          </span>
+        ) : null}
         {project.durationSec ? (
-          <span className="tabular absolute right-2 bottom-2 rounded-full bg-background/90 px-1.5 py-0.5 text-2xs text-foreground">
+          <span className="tabular absolute right-2.5 bottom-2.5 rounded-pill bg-ink/80 px-2 py-0.5 text-2xs text-paper">
             {clock(project.durationSec)}
           </span>
         ) : null}
       </Link>
 
-      <div className="flex items-start gap-2 p-4">
+      <div className="mt-3 flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <Link
-            href={`/project/${project.id}`}
-            className="focus-ring block rounded-xs outline-none"
-          >
-            <h2 className="truncate text-base font-medium text-foreground">{project.title}</h2>
-          </Link>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <StatusLabel status={project.status} />
-            {when ? (
-              <span title={absoluteTime(project.updatedAt ?? project.createdAt)}>· {when}</span>
-            ) : null}
-          </p>
+          <h2 className="line-clamp-2 font-sans text-base leading-snug font-medium text-foreground">
+            <Link href={`/project/${project.id}`} className="focus-ring rounded-xs hover:underline">
+              {project.title}
+            </Link>
+          </h2>
+          {when ? (
+            <p className="tabular mt-1 text-xs text-muted-foreground">
+              <span title={absoluteTime(project.updatedAt ?? project.createdAt)}>{when}</span>
+            </p>
+          ) : null}
         </div>
 
-        <DeleteProjectButton projectId={project.id} title={project.title} onDeleted={onDeleted} />
+        {/* Quiet until wanted: revealed on hover or focus where there is a
+            pointer to hover with; always visible on touch screens. */}
+        <DeleteProjectButton
+          projectId={project.id}
+          title={project.title}
+          onDeleted={onDeleted}
+          className="-mt-1 -mr-1.5 transition-opacity duration-fast [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+        />
       </div>
-    </CardInteractive>
+    </article>
   );
 }
 
 function StatusLabel({ status }: { status: Project['status'] }) {
-  if (status === 'ready') return <span>Ready</span>;
   if (status === 'running') {
     return (
-      <Badge variant="default">
-        <StatusDot tone="primary" pulse />
+      <Badge variant="default" className="shadow-card">
+        <StatusDot tone="neutral" pulse className="[&_span]:bg-highlighter-foreground" />
         Drawing
       </Badge>
     );
   }
-  if (status === 'queued') return <Badge variant="neutral">Queued</Badge>;
-  if (status === 'failed') return <Badge variant="destructive">Failed</Badge>;
-  return <Badge variant="neutral">No video</Badge>;
+  if (status === 'queued')
+    return (
+      <Badge variant="neutral" className="bg-card shadow-card">
+        Queued
+      </Badge>
+    );
+  if (status === 'failed') {
+    return (
+      <Badge variant="destructive" className="bg-card shadow-card">
+        Failed
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="neutral" className="bg-card shadow-card">
+      No video
+    </Badge>
+  );
 }
 
 /* ------------------------------------------------------------------ states */
 
 function LibrarySkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
       {[0, 1, 2, 3, 4, 5].map((i) => (
-        <Card key={i} className="gap-0 overflow-hidden py-0">
-          <Skeleton className="aspect-video w-full rounded-none" />
-          <div className="flex flex-col gap-2 p-3">
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-3 w-24" />
-          </div>
-        </Card>
+        <div key={i} className="flex flex-col gap-3">
+          <Skeleton className="aspect-video w-full rounded-xl" />
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-3 w-20" />
+        </div>
       ))}
     </div>
   );
@@ -309,32 +362,33 @@ function LibrarySkeleton() {
 
 function EmptyLibrary() {
   return (
-    <div className="library-empty">
+    <div className="flex flex-col items-center rounded-2xl border border-dashed border-border px-6 py-16 text-center sm:py-20">
       <div
-        className="mb-6 flex h-24 w-32 items-center justify-center rounded-xl bg-brand-canvas text-brand-canvas-ink"
+        className="dot-grid mb-8 flex aspect-video w-56 max-w-full items-center justify-center rounded-xl border border-border-subtle bg-paper"
         aria-hidden
       >
-        <FilmIcon className="size-10" strokeWidth={1.25} />
+        <span className="font-hand text-lg text-ink">
+          your first <span className="marker">idea</span> here
+        </span>
       </div>
-      <h2 className="text-2xl">Your first video starts with an idea.</h2>
-      <p className="mt-3 max-w-md text-md leading-relaxed text-muted-foreground">
-        Bring a topic, a document or a link. We’ll help turn it into an explanation worth sharing.
+      <h2 className="display-md">Nothing here yet</h2>
+      <p className="mt-3 max-w-md text-muted-foreground">
+        Ask a question, paste notes or add a link, and your finished video will be saved here.
       </p>
-      <Button className="mt-6" render={<Link href="/studio" />}>
+      <Button size="lg" className="mt-7" render={<Link href="/studio" />}>
         <PlusIcon aria-hidden />
-        Create a video
+        Create your first video
       </Button>
-      <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
-        <span className="w-full text-sm text-muted-foreground">Or explore an example</span>
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+        <span className="text-sm text-muted-foreground">Or start from an example:</span>
         {EXAMPLES.slice(0, 3).map((example) => (
-          <Button
+          <Link
             key={example.id}
-            variant="ghost"
-            size="sm"
-            render={<Link href={`/studio?example=${example.id}`} />}
+            href={`/studio?example=${example.id}`}
+            className={chipVariants({ size: 'lg' })}
           >
             {example.label}
-          </Button>
+          </Link>
         ))}
       </div>
     </div>

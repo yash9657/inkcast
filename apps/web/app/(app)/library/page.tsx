@@ -28,7 +28,7 @@ export default async function LibraryPage() {
     return (
       <SignInWall
         heading="Sign in to see your library"
-        lead="Every project belongs to the account that made it. Signed out there is nothing to list — not an empty library, a library nobody has claimed yet."
+        lead="Your videos are saved to your account. Sign in to watch, edit and share them."
         links={accessLinks()}
         unavailable={access.mode === 'unavailable' ? access.reason : undefined}
       />

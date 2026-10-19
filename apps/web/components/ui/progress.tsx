@@ -44,14 +44,11 @@ export function Progress({
 
       {}
       <ProgressPrimitive.Track
-        className={cn(
-          'relative h-2 w-full overflow-hidden rounded-md border border-border bg-muted',
-          'inset-shadow-well',
-        )}
+        className={cn('relative h-1.5 w-full overflow-hidden rounded-pill bg-track')}
       >
         <ProgressPrimitive.Indicator
           className={cn(
-            'h-full rounded-md bg-primary',
+            'h-full rounded-pill bg-primary',
             'transition-[width] duration-slow ease-out',
             // Indeterminate: a sweep across the full track, so the bar reads as
             // "working, duration unknown" rather than as a stalled 0%.
