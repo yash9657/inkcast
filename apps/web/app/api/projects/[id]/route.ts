@@ -38,6 +38,7 @@ import {
   isValidProjectId,
   mediaUrl,
   readProjectStoryboard,
+  thumbnailPathFor,
 } from '@/lib/store';
 import type { ProjectDto, ProjectRecord } from '@/lib/store';
 import { getJob, isRunning } from '@/lib/jobs';
@@ -163,7 +164,12 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
 function withVideoUrl(record: ProjectRecord): ProjectDto {
   return {
     ...record,
-    ...(record.videoPath ? { videoUrl: mediaUrl(record.id, record.videoPath) } : {}),
+    ...(record.videoPath
+      ? {
+          videoUrl: mediaUrl(record.id, record.videoPath),
+          thumbnailPath: thumbnailPathFor(record.videoPath),
+        }
+      : {}),
   };
 }
 
@@ -205,7 +211,12 @@ function publicView(record: ProjectRecord): Partial<ProjectDto> {
     ...(record.grounding === undefined ? {} : { grounding: record.grounding }),
     ...(record.aspect === undefined ? {} : { aspect: record.aspect }),
     ...(record.videoPath
-      ? { videoPath: record.videoPath, videoUrl: mediaUrl(record.id, record.videoPath) }
+      ? {
+          videoPath: record.videoPath,
+          videoUrl: mediaUrl(record.id, record.videoPath),
+          // A still of the film the viewer can already watch; it feeds the share card.
+          thumbnailPath: thumbnailPathFor(record.videoPath),
+        }
       : {}),
   };
 }

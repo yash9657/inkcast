@@ -6,77 +6,69 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn, type WithClass } from '@/lib/utils';
 
-const press = ['motion-safe:active:scale-[0.98]', 'active:shadow-none'];
+const press = 'motion-safe:active:scale-[0.98]';
 
+/**
+ * Buttons are pills. One primary (ink) per view; everything else is secondary
+ * (outlined), ghost (toolbar) or link. Heights: xs 28, sm 36, default 40, lg 48.
+ */
 const buttonVariants = cva(
   [
     'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap',
     'border font-medium',
-    'transition-[background-color,border-color,color,box-shadow,translate] duration-fast ease-out',
-    // Focus, and the reason there are two rings rather than one. `focus-ring`
-    // paints a 2px `--ring` (violet) outline 2px outside the border box — which
-    // is unmissable on paper, and invisible along the bottom-right of a
-    // `shadow-none` button, because `--elevation-pop` is `10px 10px 0
-    // var(--primary)`: an accent outline laid over an accent shadow. The extra
-    // `ring-background` sits in the 0–2px band and separates the two, so the
-    // composite indicator always contains a paper-coloured edge against the
-    // violet plane (6.2:1 light, 6.3:1 dark). Without it the focus ring on the
-    // primary action is half-swallowed by the button's own shadow — an
-    // accessibility regression that only appears in one variant, in one state,
-    // which is exactly the kind that ships.
+    'transition-[background-color,border-color,color,box-shadow,scale] duration-fast ease-out',
+    // A paper band between the ring and an ink fill keeps focus legible on the primary.
     'focus-ring outline-none focus-visible:ring-2 focus-visible:ring-background',
-    'disabled:pointer-events-none disabled:opacity-50',
+    'disabled:pointer-events-none disabled:opacity-45',
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   ],
   {
     variants: {
       variant: {
         default: [
-          'border-transparent bg-primary text-primary-foreground shadow-none',
-          'hover:bg-primary/90',
+          'border-transparent bg-primary text-primary-foreground',
+          'hover:bg-primary/88',
           press,
         ],
         secondary: [
-          'border-input bg-secondary text-secondary-foreground shadow-none',
-          'hover:bg-accent hover:text-accent-foreground',
+          'border-border bg-card text-foreground',
+          'hover:border-input hover:bg-accent/60',
           press,
         ],
         outline: [
-          'border-input bg-transparent text-foreground shadow-none',
-          'hover:bg-accent hover:text-accent-foreground',
+          'border-border bg-transparent text-foreground',
+          'hover:border-input hover:bg-accent/60',
           press,
         ],
         ghost: [
           'border-transparent text-muted-foreground',
-          'hover:bg-accent hover:text-accent-foreground',
+          'hover:bg-accent/70 hover:text-foreground',
           press,
         ],
-        // No border, no shadow, nothing to press: a link is text, and giving it
-        // the block's press would animate a word.
-        link: 'border-transparent text-primary underline-offset-4 hover:underline',
+        // A link is text: no border, no press.
+        link: 'border-transparent px-0 text-link underline decoration-border underline-offset-4 hover:decoration-current',
         destructive: [
-          'border-transparent bg-destructive text-destructive-foreground shadow-none',
+          'border-transparent bg-destructive text-destructive-foreground',
           'hover:bg-destructive/90',
           press,
         ],
       },
       size: {
-        xs: 'h-7 gap-1.5 px-2.5 text-xs',
-        sm: 'h-9 px-3 text-sm',
-        default: 'h-10 px-4 text-sm',
-        lg: 'h-12 px-6 text-md',
+        xs: 'h-7 gap-1.5 px-3 text-xs',
+        sm: 'h-9 px-3.5 text-sm',
+        default: 'h-10 px-4.5 text-sm',
+        lg: 'h-12 px-6 text-base',
         'icon-xs': 'size-7',
         'icon-sm': 'size-8',
         icon: 'size-9',
         'icon-lg': 'size-11',
       },
-
       shape: {
-        block: 'rounded-md',
         pill: 'rounded-pill',
+        block: 'rounded-md',
       },
     },
-    defaultVariants: { variant: 'default', size: 'default', shape: 'block' },
+    defaultVariants: { variant: 'default', size: 'default', shape: 'pill' },
   },
 );
 

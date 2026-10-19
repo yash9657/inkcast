@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { Landing } from '@/components/marketing/landing';
 export const metadata: Metadata = {
-  title: { absolute: 'Inkcast — A good idea. Beautifully explained.' },
+  title: { absolute: 'Inkcast: explain anything with a hand-drawn video' },
   description:
-    'Turn your ideas, notes and documents into narrated whiteboard videos. Choose your format, refine your storyboard, and share what you know.',
+    'Ask a question, paste your notes or drop in a PDF. Inkcast writes the lesson, draws it stroke by stroke and narrates it. Open source.',
 };
 export default function MarketingPage() {
   return <Landing />;

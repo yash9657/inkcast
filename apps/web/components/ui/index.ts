@@ -12,6 +12,7 @@
 
 export { Badge, badgeVariants, StatusDot, type BadgeProps } from './badge';
 export { Button, buttonVariants, type ButtonProps } from './button';
+export { Callout, type CalloutProps } from './callout';
 export {
   Card,
   CardAction,

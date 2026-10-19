@@ -3,9 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { ArrowRightIcon, LockIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react';
+import { ArrowRightIcon, LockIcon, UserRoundIcon } from 'lucide-react';
 
-import { Button } from '@/components/ui';
+import { Button, Callout } from '@/components/ui';
 import { COST_LOCAL, stashTopic } from '@/components/marketing/site-config';
 import { cn } from '@/lib/utils';
 
@@ -44,38 +44,37 @@ export function SignInWall({ heading, lead, links, unavailable, topic }: SignInW
   }, [topic]);
 
   return (
-    <section className="mx-auto my-6 max-w-xl rounded-xl border border-border bg-card p-6 sm:my-12 sm:p-10">
-      {}
+    <section className="mx-auto max-w-lg py-6 text-center sm:py-16">
       <span
-        className="mb-5 grid size-12 place-items-center rounded-xl border border-accent-border bg-accent-soft text-accent-strong"
+        className="mx-auto mb-6 grid size-12 place-items-center rounded-pill bg-muted text-foreground"
         aria-hidden
       >
         <LockIcon className="size-4" />
       </span>
 
-      <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-        {heading}
-      </h1>
-      <p className="mt-3 text-md leading-relaxed text-muted-foreground">{lead}</p>
+      <h1 className="display-md">{heading}</h1>
+      <p className="mx-auto mt-4 max-w-md text-base leading-relaxed text-muted-foreground">
+        {lead}
+      </p>
 
       {topic ? (
-        <div className="mt-6 rounded-lg border border-border-subtle bg-muted px-4 py-3">
-          <p className="text-xs font-medium text-muted-foreground">Your saved idea</p>
-          {}
-          <p className="mt-1 font-hand text-lg text-foreground">{topic}</p>
+        <div className="mt-8 rounded-xl border border-border bg-card px-5 py-4 text-left">
+          <p className="eyebrow">Your idea is saved</p>
+          <p className="mt-1.5 font-hand text-lg text-foreground">{topic}</p>
         </div>
       ) : null}
 
       {unavailable ? (
-        <p
+        <Callout
           role="alert"
-          className="mt-6 flex gap-3 border border-warning/35 bg-warning/14 px-4 py-3 text-sm text-warning"
+          tone="warning"
+          title="Sign-in isn’t available"
+          className="mt-8 text-left"
         >
-          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <span>{unavailable}</span>
-        </p>
+          {unavailable}
+        </Callout>
       ) : (
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
           <Button
             size="lg"
             className="w-full sm:w-auto"
@@ -95,9 +94,9 @@ export function SignInWall({ heading, lead, links, unavailable, topic }: SignInW
         </div>
       )}
 
-      <p className="mt-8 border-t border-border-subtle pt-6 text-sm text-muted-foreground">
-        Your projects stay connected to your account. Prefer to run Inkcast yourself? The
-        open-source studio also works locally without an account.
+      <p className="mx-auto mt-10 max-w-sm text-xs leading-relaxed text-muted-foreground">
+        Prefer to run it yourself? The open-source studio works on your own machine without an
+        account.
       </p>
     </section>
   );
@@ -114,12 +113,7 @@ export function AuthControls({ access, links }: { access: Access; links: AccessL
 
   if (access.mode === 'signed-out') {
     return (
-      <Button
-        size="sm"
-        shape="pill"
-        className="px-4 shadow-card"
-        render={<Link href={withRedirect(links.signInUrl, next)} />}
-      >
+      <Button size="sm" render={<Link href={withRedirect(links.signInUrl, next)} />}>
         Sign in
       </Button>
     );
@@ -128,7 +122,7 @@ export function AuthControls({ access, links }: { access: Access; links: AccessL
   // Signed in. A chip, not a menu: the only item a menu could hold is sign-out,
   // which needs Clerk's client SDK and is therefore on the account page.
   const chip = cn(
-    'focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-input bg-transparent px-3',
+    'focus-ring inline-flex h-9 items-center gap-2 rounded-pill border border-border bg-transparent px-3',
     'text-sm font-medium text-muted-foreground',
   );
 
@@ -144,7 +138,7 @@ export function AuthControls({ access, links }: { access: Access; links: AccessL
   return (
     <a
       href={links.accountUrl}
-      className={cn(chip, 'shadow-card transition-colors duration-fast ease-out hover:bg-accent')}
+      className={cn(chip, 'transition-colors duration-fast ease-out hover:bg-accent/60')}
     >
       <UserRoundIcon className="size-4" aria-hidden />
       <span className="max-sm:sr-only">Account</span>

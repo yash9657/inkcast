@@ -27,8 +27,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Theme"
       className={cn(
-        'inline-flex h-9 items-center gap-0.5 rounded-md',
-        'border border-border bg-muted p-0.5',
+        'inline-flex h-9 items-center gap-0.5 rounded-pill bg-muted p-0.5',
         className,
       )}
     >
@@ -43,7 +42,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             aria-label={label}
             onClick={() => setTheme(value)}
             className={cn(
-              'inline-flex size-8 items-center justify-center rounded-md outline-none',
+              'inline-flex size-8 items-center justify-center rounded-pill outline-none',
               'transition-colors duration-fast ease-out',
               // The selected segment is an accent block, so `focus-ring`'s violet
               // outline would otherwise be drawn 2px outside a violet fill and
@@ -53,7 +52,7 @@ export function ThemeToggle({ className }: { className?: string }) {
               // that it only misbehaves in one state of one variant, which is the
               // kind of focus bug that ships.
               'focus-ring focus-visible:ring-2 focus-visible:ring-background',
-              active ? 'bg-card text-primary' : 'text-muted-foreground hover:text-foreground',
+              active ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon className="size-3.5" aria-hidden />

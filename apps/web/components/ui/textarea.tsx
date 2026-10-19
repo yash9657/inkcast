@@ -13,7 +13,7 @@ export function Textarea({ className, ...props }: React.ComponentProps<'textarea
         'text-base text-foreground shadow-none',
         'transition-[border-color,box-shadow] duration-fast ease-out',
         'placeholder:text-muted-foreground',
-        'focus-ring outline-none',
+        'outline-none focus-visible:border-foreground focus-visible:shadow-[0_0_0_3px_var(--accent-soft)]',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'aria-invalid:border-destructive aria-invalid:focus-visible:outline-destructive',
         'resize-none',

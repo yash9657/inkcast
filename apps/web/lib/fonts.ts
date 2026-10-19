@@ -3,8 +3,8 @@ import localFont from 'next/font/local';
 /**
  * Typography, wired through `next/font`.
  *
- * The stack is Inter for UI, JetBrains Mono for figures, Space Grotesk for
- * display and headings, Shantell Sans for ink accents — loaded with
+ * The stack is Inter for UI, JetBrains Mono for figures, Newsreader for
+ * display headlines, Shantell Sans for ink accents — loaded with
  * `next/font/local` from vendored files in `assets/fonts/` rather than with
  * `next/font/google`.
  *
@@ -47,7 +47,7 @@ import localFont from 'next/font/local';
  *
  * This is the `wght`-only cut of Inter, not the `opsz` variable cut. Inter's
  * optical-size axis interpolates toward a display design above 14px, and this
- * app sets its display type in Space Grotesk; carrying a second axis we never
+ * app sets its display type in Newsreader; carrying a second axis we never
  * vary would cost bytes on the one face that is preloaded on every route.
  */
 export const fontSans = localFont({
@@ -79,30 +79,34 @@ export const fontMono = localFont({
 });
 
 /**
- * Display AND headings — every `h1`–`h6`, plus `font-display` wherever a block
- * of type should read as a heading without being one.
+ * Display: h1/h2 and the `display-*` utilities, never UI labels.
  *
- * The face this replaces, Instrument Serif, came with a hard rule: 48px and up,
- * marketing surfaces only, never prose, because a high-contrast condensed serif
- * is editorial at hero size and illegible at body size. Space Grotesk has no
- * such floor — it is a grotesk, it holds at 20px, and that is the whole reason
- * for the swap. Headings from a card title to the hero claim are now one voice.
+ * Newsreader, a text serif with an optical-size axis, so the same file is a
+ * crisp headline at 80px and still sturdy at 28px. It replaced Space Grotesk in
+ * the October 2026 "ink, paper, highlighter" revamp: an explainer product reads
+ * best in the voice of a good textbook, and a serif headline over a sans UI
+ * gives the two jobs (reading vs operating) two distinct voices.
  *
- * Variable 300–700. Note the ceiling: the wght axis stops at 700, which is why
- * the theme's weight ramp tops out at 700 rather than the 650 it used to use.
+ * Vendored from `@fontsource-variable/newsreader` (latin, opsz+wght axes).
+ * Space Grotesk stays in `assets/fonts/ui/` because `apps/demo-film` uses it.
  */
 export const fontDisplay = localFont({
   src: [
     {
-      path: '../../../assets/fonts/ui/SpaceGrotesk-Variable.woff2',
-      weight: '300 700',
+      path: '../../../assets/fonts/ui/Newsreader-Variable.woff2',
+      weight: '200 800',
       style: 'normal',
     },
+    {
+      path: '../../../assets/fonts/ui/Newsreader-Italic-Variable.woff2',
+      weight: '200 800',
+      style: 'italic',
+    },
   ],
-  variable: '--font-space-grotesk',
+  variable: '--font-newsreader',
   display: 'swap',
-  preload: false,
-  fallback: ['ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+  preload: true,
+  fallback: ['Iowan Old Style', 'Palatino Linotype', 'Georgia', 'serif'],
 });
 
 /**

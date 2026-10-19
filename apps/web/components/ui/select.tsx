@@ -120,7 +120,7 @@ export function SelectItem({
       {...props}
     >
       <SelectPrimitive.ItemIndicator className="absolute left-2 flex size-4 items-center justify-center">
-        <CheckIcon className="size-3.5 text-primary" aria-hidden />
+        <CheckIcon className="size-3.5 text-foreground" aria-hidden />
       </SelectPrimitive.ItemIndicator>
       <SelectPrimitive.ItemText className="truncate">{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>

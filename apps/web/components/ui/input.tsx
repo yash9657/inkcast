@@ -12,10 +12,10 @@ export function Input({ className, ...props }: InputProps) {
     <InputPrimitive
       data-slot="input"
       className={cn(
-        'flex h-11 w-full min-w-0 rounded-md border border-input bg-card px-3 py-1 text-base text-foreground',
+        'flex h-11 w-full min-w-0 rounded-md border border-input bg-card px-3.5 py-1 text-base text-foreground',
         'shadow-none transition-[border-color,box-shadow] duration-fast ease-out',
         'placeholder:text-muted-foreground',
-        'focus-ring outline-none',
+        'outline-none focus-visible:border-foreground focus-visible:shadow-[0_0_0_3px_var(--accent-soft)]',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'data-invalid:border-destructive data-invalid:focus-visible:outline-destructive',
         // File inputs: kill the UA button, keep the label legible. The button is

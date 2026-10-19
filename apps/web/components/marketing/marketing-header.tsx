@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { MenuIcon, ArrowRightIcon } from 'lucide-react';
+import { MenuIcon } from 'lucide-react';
 import {
   Button,
   Drawer,
@@ -14,28 +14,28 @@ import {
 } from '@/components/ui';
 import { Logo } from './logo';
 import { sectionLinks } from './site-config';
+
 export function MarketingHeader() {
   return (
-    <header className="marketing-header">
-      <div className="page-container flex h-20 items-center justify-between gap-5">
+    <header className="sticky top-0 z-40 border-b border-transparent bg-background/90 backdrop-blur-md">
+      <div className="container-page flex h-(--header-height) items-center justify-between gap-4">
         <Link href="/" className="focus-ring rounded-md" aria-label="Inkcast home">
-          <Logo />
+          <Logo size={28} />
         </Link>
-        <nav aria-label="Main navigation" className="hidden items-center gap-8 md:flex">
+        <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           {sectionLinks.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="focus-ring rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="focus-ring rounded-pill px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {link.label}
             </a>
           ))}
         </nav>
-        <div className="flex items-center gap-2">
-          <ThemeToggle className="hidden sm:inline-flex" />
+        <div className="flex items-center gap-1.5">
           <Button size="sm" render={<Link href="/studio" />}>
-            Open studio <ArrowRightIcon aria-hidden />
+            Open studio
           </Button>
           <Drawer swipeDirection="right">
             <DrawerTrigger
@@ -47,17 +47,17 @@ export function MarketingHeader() {
             </DrawerTrigger>
             <DrawerContent side="right">
               <DrawerHeader>
-                <DrawerTitle>Explore Inkcast</DrawerTitle>
+                <DrawerTitle>Menu</DrawerTitle>
               </DrawerHeader>
               <DrawerBody>
-                <nav aria-label="Mobile navigation" className="flex flex-col gap-2">
+                <nav aria-label="Mobile" className="flex flex-col gap-1">
                   {sectionLinks.map((link) => (
                     <DrawerClose
                       key={link.href}
                       render={
                         <a
                           href={link.href}
-                          className="focus-ring rounded-md px-3 py-4 text-md hover:bg-accent"
+                          className="focus-ring rounded-md px-3 py-3.5 text-base hover:bg-accent/60"
                         />
                       }
                     >
@@ -65,7 +65,8 @@ export function MarketingHeader() {
                     </DrawerClose>
                   ))}
                 </nav>
-                <div className="mt-8 border-t border-border pt-6">
+                <div className="mt-8 flex items-center justify-between border-t border-border pt-6 text-sm text-muted-foreground">
+                  Theme
                   <ThemeToggle />
                 </div>
               </DrawerBody>

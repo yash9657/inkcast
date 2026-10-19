@@ -50,7 +50,7 @@ export function TileGroup<T extends string>({
 }: TileGroupProps<T>) {
   return (
     <fieldset className="min-w-0">
-      <legend className="text-sm leading-none font-medium text-foreground">{legend}</legend>
+      <legend className="text-sm leading-none font-semibold text-foreground">{legend}</legend>
       {hint ? <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</p> : null}
 
       <div className={cn('mt-3 grid grid-cols-3 gap-2', className)}>
@@ -63,10 +63,10 @@ export function TileGroup<T extends string>({
               // component sweep: docs/DESIGN.md's clean-up list names this line,
               // and the alias block in globals.css cannot be deleted while a
               // call site still reads through it.
-              'rounded-lg border border-input bg-card p-4',
+              'rounded-lg border border-border bg-card p-3.5',
               'transition-[background-color,border-color] duration-fast ease-out',
-              'hover:bg-accent/40',
-              'has-[input:checked]:border-primary has-[input:checked]:bg-primary/8',
+              'hover:border-input',
+              'has-[input:checked]:border-accent-border has-[input:checked]:bg-accent-soft has-[input:checked]:shadow-[inset_0_0_0_1px_var(--accent-border)]',
               'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-ring has-[input:focus-visible]:outline-offset-2',
               'has-[input:disabled]:cursor-not-allowed has-[input:disabled]:opacity-50',
             )}
@@ -84,7 +84,7 @@ export function TileGroup<T extends string>({
             <CheckIcon
               aria-hidden
               className={cn(
-                'absolute top-2 right-2 hidden size-3.5 text-primary',
+                'absolute top-2.5 right-2.5 hidden size-4 rounded-full bg-primary p-0.5 text-primary-foreground',
                 'group-has-[input:checked]:block',
               )}
             />
@@ -112,7 +112,7 @@ export function AspectGlyph({ glyph }: { glyph: string }) {
       className={cn(
         'block rounded-xs border-2 border-current text-muted-foreground',
         'transition-colors duration-fast ease-out',
-        'group-has-[input:checked]:text-primary',
+        'group-has-[input:checked]:text-foreground',
         glyph,
       )}
     />
