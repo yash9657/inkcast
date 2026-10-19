@@ -2,20 +2,28 @@ import { Easing, interpolate, spring } from 'remotion';
 
 import data from './words.json';
 
-/** docs/DESIGN.md tokens (light theme; the whiteboard keeps its paper palette). */
+/** docs/DESIGN.md tokens: ink, paper, highlighter (light theme). The whiteboard keeps its paper palette. */
 export const C = {
   paper: 'oklch(0.988 0.003 85)',
-  background: 'oklch(0.977 0.009 88)',
-  card: 'oklch(0.998 0.003 88)',
-  muted: 'oklch(0.945 0.01 88)',
-  mutedFg: 'oklch(0.48 0.019 155)',
-  border: 'oklch(0.86 0.012 100)',
-  fg: 'oklch(0.245 0.027 160)',
-  primary: 'oklch(0.37 0.075 163)',
-  canvas: 'oklch(0.9 0.027 155)',
-  canvasInk: 'oklch(0.28 0.045 163)',
-  apricot: 'oklch(0.88 0.064 65)',
-  apricotInk: 'oklch(0.32 0.06 45)',
+  background: 'oklch(0.982 0.005 90)',
+  card: 'oklch(0.993 0.003 90)',
+  muted: 'oklch(0.963 0.007 88)',
+  mutedFg: 'oklch(0.46 0.016 260)',
+  border: 'oklch(0.885 0.009 88)',
+  dot: 'oklch(0.86 0.006 88)',
+  fg: 'oklch(0.215 0.022 260)',
+  primary: 'oklch(0.215 0.022 260)',
+  onPrimary: 'oklch(0.993 0.003 90)',
+  night: 'oklch(0.17 0.016 262)',
+  highlighter: 'oklch(0.925 0.155 100)',
+  highlighterSoft: 'oklch(0.965 0.045 100)',
+  canvas: 'oklch(0.965 0.045 100)',
+  canvasInk: 'oklch(0.215 0.022 260)',
+  sky: 'oklch(0.955 0.025 250)',
+  skyInk: 'oklch(0.33 0.08 255)',
+  rose: 'oklch(0.95 0.025 22)',
+  roseInk: 'oklch(0.38 0.1 22)',
+  shadow: 'oklch(0.2 0.02 260 / 0.16)',
   ink: 'oklch(0.2535 0.024 256)',
   blue: 'oklch(0.55 0.16 250)',
   red: 'oklch(0.575 0.19 22)',
@@ -25,7 +33,7 @@ export const C = {
 } as const;
 
 export const HAND = '"Shantell Sans", cursive';
-export const DISPLAY = '"Space Grotesk", system-ui, sans-serif';
+export const DISPLAY = '"Newsreader", Georgia, serif';
 export const BODY = 'Inter, system-ui, sans-serif';
 export const MONO = '"JetBrains Mono", ui-monospace, monospace';
 

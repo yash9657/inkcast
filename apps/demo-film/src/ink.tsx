@@ -5,7 +5,7 @@ import { C, HAND, rand } from './theme';
 
 const css = `
 @font-face { font-family: "Shantell Sans"; src: url(${staticFile('fonts/ShantellSans-Variable.woff2')}) format('woff2'); font-weight: 300 800; }
-@font-face { font-family: "Space Grotesk"; src: url(${staticFile('fonts/SpaceGrotesk-Variable.woff2')}) format('woff2'); font-weight: 300 700; }
+@font-face { font-family: "Newsreader"; src: url(${staticFile('fonts/Newsreader-Variable.woff2')}) format('woff2'); font-weight: 200 800; }
 @font-face { font-family: Inter; src: url(${staticFile('fonts/Inter-Variable.woff2')}) format('woff2'); font-weight: 100 900; }
 @font-face { font-family: "JetBrains Mono"; src: url(${staticFile('fonts/JetBrainsMono-Variable.woff2')}) format('woff2'); font-weight: 100 800; }
 `;
@@ -18,7 +18,7 @@ export function Fonts(): React.ReactElement {
     Promise.all(
       [
         '500 40px "Shantell Sans"',
-        '600 40px "Space Grotesk"',
+        '450 40px "Newsreader"',
         '500 40px Inter',
         '500 40px "JetBrains Mono"',
       ].map((f) => document.fonts.load(f)),

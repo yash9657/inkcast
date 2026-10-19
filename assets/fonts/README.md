@@ -17,14 +17,15 @@ inside the video, and `code/` is the monospace the code lane sets listings in.
 Latin-subset variable `woff2`, byte-identical to what Google Fonts serves.
 Loaded by `apps/web/lib/fonts.ts` through `next/font/local`.
 
-| File                               | Family                       | Role                                  | Size  |
-| ---------------------------------- | ---------------------------- | ------------------------------------- | ----- |
-| `Inter-Variable.woff2`             | Inter, wght 100–900          | all UI text (`font-sans`)             | 47 KB |
-| `JetBrainsMono-Variable.woff2`     | JetBrains Mono, wght 100–800 | figures, timecodes, IDs (`font-mono`) | 39 KB |
-| `SpaceGrotesk-Variable.woff2`      | Space Grotesk, wght 300–700  | headings and display (`font-display`) | 22 KB |
-| `hand/ShantellSans-Variable.woff2` | Shantell Sans, wght 300–800  | ink accents in chrome (`font-hand`)   | 79 KB |
+| File                               | Family                       | Role                                  | Size   |
+| ---------------------------------- | ---------------------------- | ------------------------------------- | ------ |
+| `Inter-Variable.woff2`             | Inter, wght 100–900          | all UI text (`font-sans`)             | 47 KB  |
+| `JetBrainsMono-Variable.woff2`     | JetBrains Mono, wght 100–800 | figures, timecodes, IDs (`font-mono`) | 39 KB  |
+| `Newsreader-Variable.woff2`        | Newsreader, opsz + wght      | headlines (`font-display`)            | 129 KB |
+| `Newsreader-Italic-Variable.woff2` | Newsreader italic            | headline emphasis                     | 143 KB |
+| `hand/ShantellSans-Variable.woff2` | Shantell Sans, wght 300–800  | ink accents in chrome (`font-hand`)   | 79 KB  |
 
-### Re-vendoring the three UI faces
+### Re-vendoring the UI faces
 
 They were pulled out of `@fontsource-variable`, which is why those three
 packages sit in `apps/web` devDependencies without anything importing them.
@@ -34,16 +35,17 @@ than a hunt:
 
 ```sh
 pnpm add -D @fontsource-variable/inter @fontsource-variable/jetbrains-mono \
-            @fontsource-variable/space-grotesk --filter @inkcast/web
+            @fontsource-variable/newsreader --filter @inkcast/web
 cd apps/web/node_modules/@fontsource-variable
 cp inter/files/inter-latin-wght-normal.woff2                   ../../../../assets/fonts/ui/Inter-Variable.woff2
 cp jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2 ../../../../assets/fonts/ui/JetBrainsMono-Variable.woff2
-cp space-grotesk/files/space-grotesk-latin-wght-normal.woff2   ../../../../assets/fonts/ui/SpaceGrotesk-Variable.woff2
+cp newsreader/files/newsreader-latin-opsz-normal.woff2         ../../../../assets/fonts/ui/Newsreader-Variable.woff2
+cp newsreader/files/newsreader-latin-opsz-italic.woff2         ../../../../assets/fonts/ui/Newsreader-Italic-Variable.woff2
 ```
 
-Take the `-wght-` cut, not the `-standard-` or `-opsz-` one: `standard` is a
-static instance and `opsz` carries an optical-size axis this design never
-varies. Each package's `LICENSE` is the OFL text and becomes `OFL-<family>.txt`.
+Take the `-wght-` cut for Inter and JetBrains Mono (`opsz` carries an axis
+they never vary), and the `-opsz-` cut for Newsreader, whose optical sizes are
+why it holds from 28px page titles to 80px headlines. Each package's `LICENSE` is the OFL text and becomes `OFL-<family>.txt`.
 
 ### Retired 2026-08-21 (plan item C2)
 

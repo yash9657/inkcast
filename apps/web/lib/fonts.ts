@@ -17,7 +17,7 @@ import localFont from 'next/font/local';
  * metrics, and self-hosting with no layout shift.
  *
  * The three UI faces were re-vendored on 2026-08-21 (plan item C2) by
- * installing `@fontsource-variable/{inter,jetbrains-mono,space-grotesk}` as dev
+ * installing `@fontsource-variable/{inter,jetbrains-mono,newsreader}` as dev
  * dependencies and copying one file out of each `files/` directory. The
  * packages stay in devDependencies as provenance and so a human can re-vendor
  * with `cp` instead of hunting for a download; nothing imports them, and the
@@ -88,7 +88,6 @@ export const fontMono = localFont({
  * gives the two jobs (reading vs operating) two distinct voices.
  *
  * Vendored from `@fontsource-variable/newsreader` (latin, opsz+wght axes).
- * Space Grotesk stays in `assets/fonts/ui/` because `apps/demo-film` uses it.
  */
 export const fontDisplay = localFont({
   src: [
